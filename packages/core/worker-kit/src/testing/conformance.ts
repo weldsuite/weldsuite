@@ -243,6 +243,21 @@ export const FORWARDED_ENV = [
   'TELNYX_PUBLIC_KEY',
   'STRIPE_SECRET_KEY',
   'APP_API_PUBLIC_URL',
+  // WeldHost: Realtime Register (the registrar and ADAC keys, the customer
+  // handle, OTE, the platform contact handles and the webhook secret) and
+  // Cloudflare (zones and DNS records, the legacy registrar).
+  'REALTIME_REGISTER_API_KEY',
+  'REALTIME_REGISTER_CUSTOMER',
+  'REALTIME_REGISTER_OTE',
+  'REALTIME_REGISTER_ADAC_API_KEY',
+  'REALTIME_REGISTER_ADAC_TLD_SET_TOKEN',
+  'REALTIME_REGISTER_CONTACT_ADMIN',
+  'REALTIME_REGISTER_CONTACT_TECH',
+  'REALTIME_REGISTER_CONTACT_BILLING',
+  'REALTIME_REGISTER_WEBHOOK_SECRET',
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_ACCOUNT_ID',
+  'CF_ACCOUNT_ID',
 ] as const;
 
 /**
@@ -293,6 +308,10 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/form-1099\/filings\/[^/?]+\/iris-csv(\?|$)/,
   /^\/api\/form-1099\/filings\/[^/?]+\/lines\/[^/?]+\/copies(\?|$)/,
   /^\/api\/form-1099\/tin-matching\/file(\?|$)/,
+  // WeldHost: a zone's records, synced from the DNS host first when it has
+  // none or never synced; a registration's status, its process driven forward.
+  /^\/api\/dns-records(\/by-(zone|domain)\/[^/?]+)?(\?|$)/,
+  /^\/api\/domains\/registrations\/[^/?]+\/status(\?|$)/,
 ];
 
 interface ConformanceContext {

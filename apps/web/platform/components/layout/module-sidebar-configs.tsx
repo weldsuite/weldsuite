@@ -101,6 +101,7 @@ import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { getAppLogoConfig } from '@/lib/apps/app-registry';
+import { isFeatureAvailable } from '@/lib/edition';
 
 
 export interface ModuleSidebarConfig {
@@ -366,7 +367,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.domains,
         items: [
           { title: t.navigation.moduleSidebar.weldhost.myDomains, href: '/weldhost/domains', icon: Globe },
-          { title: t.navigation.moduleSidebar.weldhost.registerDomain, href: '/weldhost/domains/register', icon: Plus },
+          // Buying a domain is a Stripe checkout, which some editions lack.
+          ...(isFeatureAvailable('domain-purchase')
+            ? [{ title: t.navigation.moduleSidebar.weldhost.registerDomain, href: '/weldhost/domains/register', icon: Plus }]
+            : []),
           { title: t.navigation.moduleSidebar.weldhost.externalDomains, href: '/weldhost/domains/external', icon: SquareArrowOutUpRight },
         ],
       },

@@ -15,6 +15,10 @@
 //!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `domain-auto-renew` (daily, 04:00 UTC): WeldHost's auto-renew sweep
+//!   (`apps/workers/host-api/src/cron/domain-auto-renew.ts`). It charges
+//!   through Stripe, which stays with Global, so here it does what the
+//!   worker does without `STRIPE_SECRET_KEY`: nothing (feature `domain-purchase`).
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
 //!   `weldsuite_core_onboarding::IdentitySync`).
@@ -57,7 +61,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -69,7 +73,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "mail-outbound-ledgers"
         | "calendar-replan"
         | "flow-file-purge"
-        | "books-sweep"),
+        | "books-sweep"
+        | "domain-auto-renew"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -102,6 +107,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
             "books-sweep" => books_sweep(config).await,
+            "domain-auto-renew" => {
+                domain_auto_renew();
+                Ok(())
+            }
             _ => sign_lifecycle(config).await,
         }
     };
@@ -114,6 +123,16 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// `weldsuite cron domain-auto-renew`: the result line; the sweep needs
+/// billing, which this backend has not.
+fn domain_auto_renew() {
+    let result = weldsuite_host::run_domain_auto_renew(&|name| std::env::var(name).ok());
+    println!(
+        "{}",
+        serde_json::json!({ "job": "domain-auto-renew", "result": result.to_json() })
+    );
 }
 
 /// `weldsuite cron mail-outbound-ledgers`: every active ledger's alarm, on

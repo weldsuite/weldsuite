@@ -557,6 +557,13 @@ cron:
       enabled: false
       schedule: "17 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldHost's daily domain auto-renew sweep. Renewals are charged through
+    # Stripe, which stays with Global (feature domain-purchase), so for now it
+    # only reports that billing is missing; off until a billing provider exists.
+    domain-auto-renew:
+      enabled: false
+      schedule: "0 4 * * *"
+      activeDeadlineSeconds: 3000
   resources:
     requests:
       cpu: 50m

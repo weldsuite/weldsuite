@@ -96,6 +96,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // `/api/icp-declarations/:id/file`); the platform hides filing and the
     // status check, and the XBRL download is filed by hand.
     "vat-digipoort",
+    // WeldHost: buying and renewing domains charge through Stripe, which
+    // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
+    // "Stripe is not configured", as the worker without the key does).
+    // Managing, transferring and external domains stay available.
+    "domain-purchase",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

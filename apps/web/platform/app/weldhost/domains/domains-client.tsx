@@ -27,6 +27,7 @@ import {
   useObjectPanelUrlSync,
 } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 import { UsedByWeldReachBadge } from '../components/used-by-weldreach-badge';
 
@@ -269,10 +270,12 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
       renderRow={renderRow}
       searchPlaceholder={tdl.searchPlaceholder}
       searchFields={['name', 'fullDomain', 'tld']}
-      createButton={{
-        label: tdl.registerDomain,
-        onClick: () => router.push('/weldhost/domains/register'),
-      }}
+      createButton={
+        // Buying a domain is a Stripe checkout, which some editions lack.
+        isFeatureAvailable('domain-purchase')
+          ? { label: tdl.registerDomain, onClick: () => router.push('/weldhost/domains/register') }
+          : undefined
+      }
       actionButtons={
         <Button variant="outline" onClick={() => router.push('/weldhost/domains/external')}>
           {t.host.externalDomain.addButton}
@@ -307,10 +310,9 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         ),
         title: tdl.emptyTitle,
         description: tdl.emptyDescription,
-        action: {
-          label: tdl.registerDomain,
-          onClick: () => router.push('/weldhost/domains/register'),
-        },
+        action: isFeatureAvailable('domain-purchase')
+          ? { label: tdl.registerDomain, onClick: () => router.push('/weldhost/domains/register') }
+          : undefined,
       }}
       noResultsState={{
         title: tdl.noResultsTitle,

@@ -22,6 +22,7 @@
     "./schemas/books-banking-responses": "./src/schemas/books-banking-responses.ts",
     "./schemas/mail-responses": "./src/schemas/mail-responses.ts",
     "./schemas/stash-responses": "./src/schemas/stash-responses.ts",
+    "./schemas/host-responses": "./src/schemas/host-responses.ts",
     "./schemas/tickets": "./src/schemas/tickets.ts",
     "./schemas/companies": "./src/schemas/companies.ts",
     "./schemas/company-logos": "./src/schemas/company-logos.ts",

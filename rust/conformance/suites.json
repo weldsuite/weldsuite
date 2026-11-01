@@ -2346,6 +2346,33 @@
         "rust/modules/books-tax/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "host",
+      "module": "host",
+      "workspace": "apps/workers/host-api",
+      "tests": [
+        "src/routes/weldreach-guards.test.ts",
+        "src/routes/domains/integration.test.ts",
+        "src/routes/host-routes.integration.test.ts",
+        "src/routes/host-providers.integration.test.ts",
+        "src/routes/host-search.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/host-api/src/",
+        "packages/domains/host/src/",
+        "packages/core/realtime-registrar/src/",
+        "packages/core/cloudflare-zones/src/",
+        "packages/core/cloudflare-registrar/src/",
+        "packages/core/worker-kit/src/dns-lookup.ts",
+        "packages/clients/core-api-client/src/schemas/domains.ts",
+        "packages/clients/core-api-client/src/schemas/dns-zones.ts",
+        "packages/clients/core-api-client/src/schemas/dns-records.ts",
+        "packages/clients/core-api-client/src/schemas/domain-transfers.ts",
+        "packages/clients/core-api-client/src/schemas/email-forwards.ts",
+        "packages/clients/app-api-client/src/schemas/host-responses.ts",
+        "rust/modules/host/"
+      ]
     }
   ]
 }

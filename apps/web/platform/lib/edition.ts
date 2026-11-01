@@ -64,6 +64,8 @@ export const EDITION_FEATURES = [
   'phone-number-purchase',
   /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
   'vat-digipoort',
+  /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
+  'domain-purchase',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

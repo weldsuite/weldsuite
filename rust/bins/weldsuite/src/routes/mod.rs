@@ -8,6 +8,7 @@
 mod access_requests;
 pub(crate) mod books;
 mod feature_flags;
+mod host;
 mod me;
 
 use std::sync::{Arc, OnceLock};
@@ -112,6 +113,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = hr(router, state);
     let router = stash(router, state);
     let router = books::api(router, state);
+    let router = host::api(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -993,6 +995,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(social_public(state))
         .merge(call_public(state))
         .merge(books::public(state))
+        .merge(host::public(state))
         .merge(commerce_public(state));
     if mounts("mail") {
         router
