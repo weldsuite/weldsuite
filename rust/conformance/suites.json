@@ -1219,6 +1219,8 @@
         "apps/workers/desk-api/src/routes/integrations/",
         "apps/workers/desk-api/src/routes/public-helpcenter/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
@@ -1227,6 +1229,28 @@
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
+      ]
+    },
+    {
+      "name": "desk: SLA",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-conversations/sla.integration.test.ts",
+        "src/cron/sla-sweep.due-index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-conversations/",
+        "apps/workers/desk-api/src/cron/",
+        "apps/workers/desk-api/src/lib/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/notifications/src/helpers/helpdesk.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/",
+        "rust/bins/weldsuite/src/conformance.rs"
       ]
     },
     {
@@ -1240,12 +1264,15 @@
         "src/routes/conversations-assignment.integration.test.ts",
         "src/routes/realtime.integration.test.ts",
         "src/routes/attachments.integration.test.ts",
-        "src/routes/visitor.integration.test.ts"
+        "src/routes/visitor.integration.test.ts",
+        "src/routes/conversations-sla.integration.test.ts"
       ],
       "paths": [
         "apps/workers/helpdesk-widget-api/src/",
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/desk-portal.ts",
         "rust/modules/desk-widget/",
         "rust/crates/desk-domain/"
