@@ -2,8 +2,8 @@
 //! time zone, the next fire time, and a naive local date-time read in a time
 //! zone (`zonedTimeToUtc`). Times are epoch milliseconds.
 
-// The matcher and the next-run computation serve the schedule sweep
-// (`weldsuite cron workflow-schedules`, with the execution engine).
+// The matcher and the local-time reader mirror the TypeScript module; the
+// schedule sweep (`weldsuite cron workflow-schedules`) computes next runs.
 #![allow(dead_code)]
 
 use jiff::Timestamp;

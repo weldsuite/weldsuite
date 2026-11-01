@@ -545,6 +545,12 @@ cron:
       enabled: false
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldConnect's scheduled workflow runs, started on Restate. Needs
+    # config.jobs.restate.ingressUrl (without it each run only logs a skip).
+    workflow-schedules:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
     # Deleted workspaces whose database teardown never finished, after 48
     # hours. Needs TENANT_SHARDS.
     workspace-teardown:

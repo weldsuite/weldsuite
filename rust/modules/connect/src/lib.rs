@@ -32,6 +32,7 @@ mod js;
 mod mvp;
 mod public_webhook;
 pub mod runs;
+mod schedule_sweep;
 mod schedules;
 mod schemas;
 mod sync;
@@ -87,6 +88,7 @@ pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,
     RequestWorkflowRuns, WorkflowRuns,
 };
+pub use schedule_sweep::{ScheduleTenants, run_schedule_sweep};
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,
 /// for the routes and jobs that run outside a member's request.

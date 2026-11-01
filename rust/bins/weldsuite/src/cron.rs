@@ -9,6 +9,9 @@
 //! - `calendar-replan` (daily, 04:00 UTC): WeldCalendar re-plans
 //!   auto-scheduled task events whose start slipped into the past
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
+//! - `workflow-schedules` (every minute): WeldConnect's scheduled workflow
+//!   runs (`apps/workers/workflow-worker/src/cron/schedule-sweep.ts`), started
+//!   on Restate (`RESTATE_INGRESS_URL`), where `serve` runs them.
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
 //! - `identity-sync` (every minute): the identity provider's changes into
@@ -53,7 +56,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, workflow-schedules";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -64,7 +67,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "workspace-teardown"
         | "mail-outbound-ledgers"
         | "calendar-replan"
-        | "flow-file-purge"),
+        | "flow-file-purge"
+        | "workflow-schedules"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -96,6 +100,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
+            "workflow-schedules" => workflow_schedules(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -194,6 +199,57 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `weldsuite cron workflow-schedules`: one tick of WeldConnect's schedule
+/// sweep. The runs it starts go to Restate; without `RESTATE_INGRESS_URL`
+/// they would die with this process, so the tick is skipped.
+async fn workflow_schedules(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(ingress) = config.infra.jobs.restate_ingress_url.clone() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "workflow-schedules", "skipped": "RESTATE_INGRESS_URL is not set" })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let jobs: Arc<dyn weldsuite_ports::DynJobs> = Arc::new(
+        weldsuite_adapters_oss::RestateJobs::new(&ingress, reqwest::Client::new()),
+    );
+    let runs = weldsuite_connect::JobsWorkflowRuns { jobs };
+    let tenants: weldsuite_connect::ScheduleTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            // Runs carry the Clerk org id, as Global's schedule index did.
+            let run_ref = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
+            Ok((tenant.db, run_ref))
+        })
+    });
+    let result = weldsuite_connect::run_schedule_sweep(
+        &master,
+        &tenants,
+        Some(&runs),
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "workflow-schedules",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
     Ok(())
 }
 
