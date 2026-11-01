@@ -2114,7 +2114,8 @@
       "tests": [
         "src/routes/telephony/integration.test.ts",
         "src/routes/porting/integration.test.ts",
-        "src/routes/internal-telephony/integration.test.ts"
+        "src/routes/internal-telephony/integration.test.ts",
+        "src/services/phone-number-sync.test.ts"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/telephony/",
