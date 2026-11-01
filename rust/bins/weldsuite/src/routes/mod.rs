@@ -531,6 +531,21 @@ fn desk(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("desk") {
         return router;
     }
+    // ConversationWorkflow runs (`helpdesk-workflow-worker`), where the jobs
+    // adapter calls them.
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_desk_domain::workflow::ConversationWorkflowJob {
+            deps: weldsuite_desk_domain::workflow::EngineDeps {
+                tenants: tenant_databases(state),
+                realtime: state.infra.realtime.clone(),
+                http: Some(desk_http()),
+                discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
+                    .ok()
+                    .filter(|token| !token.trim().is_empty()),
+            },
+        });
     router.merge(weldsuite_desk::router(
         desk_state(state),
         &state.permissions,
@@ -575,6 +590,9 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
         mail: state.infra.mail.clone(),
         master: Some(state.workspaces.master().clone()),
         workspaces: Some(Arc::clone(&state.workspaces)),
+        // The helpdesk widget tests bind no `WORKFLOW_WORKER`: conformance
+        // builds pick locally, as the worker does then.
+        assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
         settings: Arc::new(weldsuite_desk_widget::Settings {
             environment: state.environment.clone(),
             token_secret: state.widget_token_secret.as_deref().map(str::to_owned),
@@ -597,16 +615,26 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
     Router::new().nest("/public/helpdesk-widget", widget)
 }
 
-/// WeldDesk's handle on the app. The helpdesk workflow engine is not ported:
-/// its port answers as the worker does without `HELPDESK_WORKFLOW`.
+/// WeldDesk's handle on the app, with the helpdesk workflow engine in this
+/// process (`HELPDESK_WORKFLOW` on Global). Conformance builds answer as the
+/// worker does without the binding: the desk tests bind none.
 fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
+    let workflow: weldsuite_desk_domain::workflow::DynWorkflowEngine =
+        if cfg!(feature = "conformance") {
+            Arc::new(weldsuite_desk_domain::workflow::Unavailable)
+        } else {
+            Arc::new(weldsuite_desk_domain::workflow::InProcessEngine::new(
+                tenant_databases(state),
+                Arc::clone(&state.infra.jobs),
+            ))
+        };
     weldsuite_desk::DeskState {
         events: state.infra.events.clone(),
         realtime: state.infra.realtime.clone(),
         files: file_stores(state),
         cache: state.infra.cache.clone(),
         mail: state.infra.mail.clone(),
-        workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
+        workflow,
         http: Some(desk_http()),
         // Email replies go through WeldMail's relay and ledgers
         // ([`deployment_outbound`]); conformance takes the test's.
@@ -737,6 +765,35 @@ fn pass_state() -> weldsuite_pass::PassState {
         .clone()
 }
 
+/// WeldDesk's `AssignmentRouter` (ADR DESK-005), one per process: its
+/// records on Valkey (`VALKEY_URL`, keys under
+/// `VALKEY_DESK_ASSIGNMENT_PREFIX`, default `weldsuite:desk-assignment:`),
+/// so round robin and recent picks hold across pods; in this process without
+/// it (one replica's worth).
+pub(crate) fn desk_assignment_router()
+-> Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter> {
+    static ROUTER: OnceLock<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>> =
+        OnceLock::new();
+    Arc::clone(ROUTER.get_or_init(|| {
+        let read = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        let store: Arc<dyn weldsuite_ports::LedgerStore> = match read("VALKEY_URL").map(|url| {
+            weldsuite_adapters_oss::ValkeyLedgerStore::from_url(
+                &url,
+                read("VALKEY_DESK_ASSIGNMENT_PREFIX")
+                    .unwrap_or_else(|| "weldsuite:desk-assignment:".to_owned()),
+            )
+        }) {
+            Some(Ok(store)) => Arc::new(store),
+            Some(Err(error)) => {
+                tracing::error!(%error, "VALKEY_URL: the desk assignment router stays in this process");
+                Arc::new(weldsuite_ports::MemoryLedgerStore::new())
+            }
+            None => Arc::new(weldsuite_ports::MemoryLedgerStore::new()),
+        };
+        Arc::new(weldsuite_desk_domain::assignment_router::AssignmentRouter::new(store))
+    }))
+}
+
 /// WeldDesk's Discord and Slack client, one per process.
 fn desk_http() -> weldsuite_desk_domain::http::DynDeskHttp {
     static HTTP: OnceLock<weldsuite_desk_domain::http::DynDeskHttp> = OnceLock::new();
@@ -790,10 +847,20 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(social_public(state))
         .merge(books::public(state));
     if mounts("mail") {
-        router.nest(
-            "/internal/outbound",
-            weldsuite_mail::internal_outbound_router(mail_state(state)),
-        )
+        router
+            .nest(
+                "/internal/outbound",
+                weldsuite_mail::internal_outbound_router(mail_state(state)),
+            )
+            // Haraka's `RCPT TO` check (MAIL-010): the master registry,
+            // behind `MAIL_INBOUND_SECRET`.
+            .nest(
+                "/internal/mail-inbound",
+                weldsuite_mail_inbound::rcpt::router(
+                    state.workspaces.master().clone(),
+                    state.mail_inbound_secret.as_deref().map(str::to_owned),
+                ),
+            )
     } else {
         router
     }

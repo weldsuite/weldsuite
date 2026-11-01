@@ -79,7 +79,7 @@ export async function parseRawEmail(
     htmlBody: parsed.html,
     attachments,
     headers,
-    receivedAt: parsed.date ? new Date(parsed.date) : new Date(),
+    receivedAt: receivedAtOf(parsed.date),
     rawEmail,
     size,
     inReplyTo: parsed.inReplyTo ?? undefined,
@@ -88,6 +88,16 @@ export async function parseRawEmail(
       : undefined,
     metadata: options.metadata,
   };
+}
+
+/**
+ * The message's `Date`, or now when it has none or one `Date` cannot read
+ * (postal-mime then hands back the header as written): an Invalid Date
+ * made the mailbox insert throw, and the message was never stored.
+ */
+function receivedAtOf(date: string | undefined): Date {
+  const at = date ? new Date(date) : null;
+  return at && !Number.isNaN(at.getTime()) ? at : new Date();
 }
 
 function addressToEmailAddress(addr: Address | Address[] | undefined): EmailAddress {

@@ -27,9 +27,14 @@ modules, each with conformance suites that reach every route:
   CloudNativePG (`/api/onboarding`, `workspace.provision`)
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
-  **calendar**, **crm**, **flow**, **mail**, **chat**, **desk** (with the
-  helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
-  engine, `helpdesk-workflow-worker`) and **stash** (the WMS, with the
+  **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
+  as the MX, the `mail.inbound` subscriber in place of mail-inbound-worker,
+  ADR MAIL-010, see "Inbound mail" below), **chat**, **desk** (with the
+  helpdesk widget API at `/public/helpdesk-widget`, and the helpdesk
+  workflow engine, `helpdesk-workflow-worker`, in process: its
+  `ConversationWorkflow` is the `desk.conversation-workflow` job and its
+  `AssignmentRouter` keeps each workspace's round robin on Valkey;
+  `crates/desk-domain/src/workflow`) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -99,6 +104,11 @@ rust/
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
                         tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
+  crates/mail-inbound/  mail-inbound-worker's port (MAIL-010): postal-mime's parser, the Authentication-Results read,
+                        spam and promotion scoring, thread matching, the registry lookup, the Postgres mailbox store's
+                        ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
+                        `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
+                        `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
                         files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
@@ -106,6 +116,9 @@ rust/
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
+  crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
+                        the helpdesk workflow engine (`workflow/`: handlers, the desk.conversation-workflow job);
+                        tests/fixtures from `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite)
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
@@ -126,7 +139,9 @@ rust/
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
   deploy/helm/weldsuite the Helm chart
-  deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
+  deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
+                        and the hand-off to the mail bucket and NATS
+  deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
   deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
@@ -146,6 +161,8 @@ pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs 
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
 pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engines' vectors, for crates/payroll-domain
+pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
+pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -216,7 +233,8 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
-rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal
+docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
+rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
@@ -254,6 +272,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
+| `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
+| `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
@@ -261,6 +281,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
+| `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
@@ -288,6 +309,50 @@ settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
 `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.
+With `S3_BUCKET_MAIL` set it also runs `mail-inbound` (in the default list then;
+named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
+`S3_BUCKET_MAIL` on `S3_ENDPOINT` (the keys and `S3_FORCE_PATH_STYLE` as for
+files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
+attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
+(`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+
+## Inbound mail
+
+On Global, Cloudflare Email Routing hands each message to
+`apps/workers/mail-inbound-worker`. On Kubernetes (ADR MAIL-010):
+
+1. **Haraka** (`deploy/haraka`, the chart's `mailInbound`, off by default) is
+   the MX behind a load balancer on port 25, with the PROXY protocol and
+   STARTTLS (a cert-manager certificate). At `RCPT TO` it asks `serve`
+   (`/internal/mail-inbound/recipients`, `MAIL_INBOUND_SECRET`): the master
+   registry (MAIL-002), the exact address then the custom domain's
+   catch-all sentinel, read live. 200 is 250, 404 is `550 5.1.1`, anything
+   else 451.
+2. It checks SPF and DKIM, evaluates DMARC and writes `Authentication-Results`
+   in Cloudflare's form (`spf=` for MAIL FROM, `dkim=`, `dmarc=`, each
+   present); incoming ones become `Original-Authentication-Results`.
+   Nothing is rejected on those results: the spam scorer weighs them.
+3. It puts the message in the mail bucket (`inbound/<date>/<uuid>.eml`) and
+   publishes its key with the envelope on `mail.inbound` (`Nats-Msg-Id` =
+   the key), and answers 250 only after both; else 451, so the sender retries.
+4. `consume`'s `mail-inbound` subscriber (`crates/mail-inbound`) runs the
+   worker's pipeline: parse (postal-mime's port), recipients, per mailbox
+   the store (`resolveInbound`, spam and promotions, attachments, the
+   Postgres store's ingest, the raw MIME to `mail/<ws>/<mailbox>/<msg>/raw.eml`),
+   rules, contacts, `email:created`, each member's realtime `mail:new`,
+   bell and Expo push; it removes the spooled object, then runs the WeldDesk
+   inbox fan-out (and WeldBooks', once books is in `RUST_PORTED_MODULES`;
+   until then that one is a no-op). A storage failure is retried with
+   backoff, then dead-lettered; a redelivery after success finds no spooled
+   object and does nothing, and every mailbox ignores a Message-ID it holds.
+
+Differences from Global, on purpose: one delivery per message with every
+accepted recipient as the envelope (Cloudflare calls the worker once per
+recipient, so its helpdesk and accounting fan-out ran once per recipient);
+no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), no
+Jev auto-labels (Workers AI; mail AI is an unavailable feature). Parity:
+`crates/mail-inbound/tests/parity.rs` against fixtures the worker's own code
+wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.

@@ -3799,6 +3799,7 @@ checksum = "d4ca08e5ef825b65b056d9efbd95c8750683f0a6d0466d02e96dc2e4e360f3d2"
 name = "weldsuite"
 version = "0.0.0"
 dependencies = [
+ "async-nats",
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
@@ -3846,6 +3847,7 @@ dependencies = [
  "weldsuite-know",
  "weldsuite-mail",
  "weldsuite-mail-domain",
+ "weldsuite-mail-inbound",
  "weldsuite-migrations",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -4362,11 +4364,14 @@ dependencies = [
 name = "weldsuite-desk-domain"
 version = "0.0.0"
 dependencies = [
+ "regex",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
  "tracing",
+ "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
@@ -4586,6 +4591,33 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-mail-inbound"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "encoding_rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-notifications",
  "weldsuite-ports",
 ]
 

@@ -1,0 +1,413 @@
+{
+  "bareMessageId": [
+    [
+      "<abc@x.test>",
+      "abc@x.test"
+    ],
+    [
+      "def@y.test",
+      "def@y.test"
+    ],
+    [
+      "<abc@x.test>",
+      "abc@x.test"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      " < spaced@z.test > ",
+      "spaced@z.test"
+    ],
+    [
+      "<<double>>",
+      "double"
+    ],
+    [
+      "no-at",
+      "no-at"
+    ]
+  ],
+  "messageIdVariants": [
+    "abc@x.test",
+    "<abc@x.test>",
+    "def@y.test",
+    "<def@y.test>",
+    "spaced@z.test",
+    "<spaced@z.test>",
+    "double",
+    "<double>",
+    "no-at",
+    "<no-at>"
+  ],
+  "providerMessageIds": [
+    "abc-123",
+    "plain"
+  ],
+  "subjects": [
+    {
+      "subject": "Re: RE: Fwd: Quarterly numbers",
+      "bare": "Quarterly numbers",
+      "reply": true,
+      "conversation": [
+        "quarterly numbers",
+        "re: quarterly numbers"
+      ]
+    },
+    {
+      "subject": "AW: Re[2]: Hello",
+      "bare": "Hello",
+      "reply": true,
+      "conversation": [
+        "hello",
+        "re: hello"
+      ]
+    },
+    {
+      "subject": "Fw:Hello",
+      "bare": "Hello",
+      "reply": true,
+      "conversation": [
+        "hello",
+        "re: hello"
+      ]
+    },
+    {
+      "subject": "Revenue: Q3",
+      "bare": "Revenue: Q3",
+      "reply": false,
+      "conversation": [
+        "revenue: q3",
+        "re: revenue: q3"
+      ]
+    },
+    {
+      "subject": "Re:",
+      "bare": "",
+      "reply": true,
+      "conversation": []
+    },
+    {
+      "subject": "Reminder: invoice",
+      "bare": "Reminder: invoice",
+      "reply": false,
+      "conversation": [
+        "reminder: invoice",
+        "re: reminder: invoice"
+      ]
+    },
+    {
+      "subject": "antw : Klaar",
+      "bare": "Klaar",
+      "reply": true,
+      "conversation": [
+        "klaar",
+        "re: klaar"
+      ]
+    },
+    {
+      "subject": "sv:vs: Hej",
+      "bare": "Hej",
+      "reply": true,
+      "conversation": [
+        "hej",
+        "re: hej"
+      ]
+    },
+    {
+      "subject": "fwdx: no",
+      "bare": "fwdx: no",
+      "reply": false,
+      "conversation": [
+        "fwdx: no",
+        "re: fwdx: no"
+      ]
+    },
+    {
+      "subject": "  Re :  spaced  ",
+      "bare": "spaced",
+      "reply": true,
+      "conversation": [
+        "spaced",
+        "re: spaced"
+      ]
+    },
+    {
+      "subject": "",
+      "bare": "",
+      "reply": false,
+      "conversation": []
+    }
+  ],
+  "involves": [
+    [
+      "support@HELPDESK.example",
+      true
+    ],
+    [
+      "me@weldmail.example",
+      true
+    ],
+    [
+      "stranger@elsewhere.example",
+      false
+    ],
+    [
+      "",
+      false
+    ]
+  ],
+  "catchAll": [
+    "*@acme.example",
+    "*@other.test"
+  ],
+  "notifyMembers": [
+    [
+      "u1",
+      "u2",
+      "u3",
+      "u4"
+    ],
+    [
+      "u2",
+      "u3"
+    ],
+    [
+      "u4"
+    ]
+  ],
+  "accountingTypes": [
+    [
+      "application/pdf",
+      "a",
+      "application/pdf"
+    ],
+    [
+      "application/octet-stream",
+      "Inv.PDF",
+      "application/pdf"
+    ],
+    [
+      "IMAGE/PNG; x=y",
+      "a",
+      "image/png"
+    ],
+    [
+      "text/plain",
+      "a.pdf",
+      null
+    ],
+    [
+      "",
+      "x.pdf",
+      "application/pdf"
+    ]
+  ],
+  "listUnsubscribe": [
+    {
+      "headers": [
+        [
+          "list-unsubscribe",
+          "<mailto:u@x.com?subject=unsub>, <https://shop.example.com/u?u=1>"
+        ],
+        [
+          "list-unsubscribe-post",
+          "List-Unsubscribe=One-Click"
+        ],
+        [
+          "list-id",
+          "Shop <news.shop.example.com>"
+        ]
+      ],
+      "result": {
+        "url": "https://shop.example.com/u?u=1",
+        "mailto": "mailto:u@x.com?subject=unsub",
+        "oneClick": true,
+        "listId": "news.shop.example.com"
+      }
+    },
+    {
+      "headers": [
+        [
+          "list-unsubscribe",
+          "<http://plain.example.com>"
+        ]
+      ],
+      "result": null
+    },
+    {
+      "headers": [
+        [
+          "list-unsubscribe",
+          "https://bare.example.com/u, mailto:bad"
+        ]
+      ],
+      "result": {
+        "url": "https://bare.example.com/u",
+        "mailto": null,
+        "oneClick": false,
+        "listId": null
+      }
+    },
+    {
+      "headers": [
+        [
+          "List-Unsubscribe",
+          "<https://127.0.0.1/u>, <mailto:a@b.co>"
+        ],
+        [
+          "List-Id",
+          "  raw-list  "
+        ]
+      ],
+      "result": {
+        "url": null,
+        "mailto": "mailto:a@b.co",
+        "oneClick": false,
+        "listId": "raw-list"
+      }
+    },
+    {
+      "headers": [
+        [
+          "list-unsubscribe",
+          "<https://intranet.local/u>"
+        ]
+      ],
+      "result": null
+    },
+    {
+      "headers": [],
+      "result": null
+    }
+  ],
+  "deskAttachments": [
+    "a.pdf"
+  ],
+  "storedFileMetadata": [
+    [
+      "image/PNG",
+      "a.png",
+      {
+        "contentType": "image/png",
+        "contentDisposition": "inline; filename=\"a.png\""
+      }
+    ],
+    [
+      "text/html; charset=utf-8",
+      "x.html",
+      {
+        "contentType": "application/octet-stream",
+        "contentDisposition": "attachment; filename=\"x.html\""
+      }
+    ],
+    [
+      "",
+      "y",
+      {
+        "contentType": "application/octet-stream",
+        "contentDisposition": "attachment; filename=\"y\""
+      }
+    ]
+  ],
+  "plans": [
+    [
+      true,
+      null,
+      null,
+      null,
+      "notify"
+    ],
+    [
+      false,
+      "u1",
+      null,
+      null,
+      "assignee_reply"
+    ],
+    [
+      false,
+      null,
+      true,
+      "open",
+      "none"
+    ],
+    [
+      false,
+      null,
+      false,
+      "open",
+      "notify"
+    ],
+    [
+      false,
+      null,
+      false,
+      "closed",
+      "notify"
+    ]
+  ],
+  "notificationContent": [
+    {
+      "title": "New conversation from Jane",
+      "body": "Hello there"
+    },
+    {
+      "title": "A customer replied",
+      "body": "Sent a.pdf, b.png"
+    },
+    {
+      "title": "Bob replied",
+      "body": "New email"
+    },
+    {
+      "title": "New conversation from Al",
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+    }
+  ],
+  "normalizeEmailSubject": [
+    [
+      "Re: Fwd: Hello ",
+      "Fwd: Hello"
+    ],
+    [
+      "FW:Hello",
+      "Hello"
+    ],
+    [
+      "Hello Re: x",
+      "Hello Re: x"
+    ],
+    [
+      "fwd:   ",
+      ""
+    ],
+    [
+      "",
+      ""
+    ]
+  ],
+  "normalizeRfcMessageId": [
+    [
+      " <a@b> ",
+      "a@b"
+    ],
+    [
+      "<>",
+      null
+    ],
+    [
+      "plain",
+      "plain"
+    ],
+    [
+      "<<x>>",
+      "<x>"
+    ],
+    [
+      "",
+      null
+    ]
+  ]
+}

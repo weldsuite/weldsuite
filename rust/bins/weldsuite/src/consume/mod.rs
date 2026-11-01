@@ -43,7 +43,7 @@ use weldsuite_adapters_oss::{
     entity_events_stream_config, run_consumer,
 };
 use weldsuite_db::{PgPool, Workspaces, master_pool};
-use weldsuite_ports::{BatchHandler, DynRealtimePublisher, Embeddings};
+use weldsuite_ports::{BatchHandler, DynFileStore, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
     AuditSubscriber, RealtimeSubscriber, Routed, SearchSubscriber, Subscriber, Tenants,
@@ -52,6 +52,7 @@ use weldsuite_subscribers::{
 };
 
 pub(crate) use config::ConsumeConfig;
+use config::{MAIL_INBOUND, MailInboundConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -130,6 +131,80 @@ pub(crate) fn consumer_spec(sub: &Subscriber, config: &ConsumeConfig) -> Consume
         dead_letter_subject: format!("{}-dlq.{}", config.subject_prefix, sub.id),
         dedupe_capacity: DEDUPE_CAPACITY,
     }
+}
+
+/// How the `mail-inbound` subscriber consumes its stream: one message at a
+/// time per worker (a message can be large and fan out to many
+/// mailboxes), a long acknowledgement window, retries with backoff for a
+/// storage failure, then the dead-letter stream.
+pub(crate) fn mail_inbound_spec(inbound: &MailInboundConfig) -> ConsumerSpec {
+    ConsumerSpec {
+        stream: inbound.stream.clone(),
+        durable: MAIL_INBOUND.to_owned(),
+        description: "WeldSuite inbound mail (mail-inbound-worker in Global, MAIL-010)".to_owned(),
+        filter_subject: inbound.subject.clone(),
+        deliver_new_only: false,
+        max_retries: 10,
+        max_deferrals: 0,
+        retry_backoff: RETRY_BACKOFF.to_vec(),
+        ack_wait: Duration::from_secs(300),
+        batch_size: 1,
+        batch_wait: Duration::from_secs(5),
+        workers: 4,
+        dead_letter_subject: "mail-inbound-dlq".to_owned(),
+        dedupe_capacity: DEDUPE_CAPACITY,
+    }
+}
+
+/// The `mail-inbound` subscriber's ports, built from the shared services.
+fn mail_inbound_handler(
+    inbound: &MailInboundConfig,
+    workspaces: &Arc<Workspaces>,
+    services: &Services,
+    subject_prefix: &str,
+) -> Result<Arc<dyn BatchHandler>, Error> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let spool: Arc<dyn DynFileStore> = Arc::new(weldsuite_adapters_oss::S3FileStore::new(
+        &inbound.mail,
+        client.clone(),
+    )?);
+    let storage: Option<Arc<dyn DynFileStore>> = match &inbound.public {
+        Some(options) => Some(Arc::new(weldsuite_adapters_oss::S3FileStore::new(
+            options, client,
+        )?)),
+        None => None,
+    };
+    let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(15))
+        .ok()
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)));
+    let ctx = weldsuite_mail_inbound::InboundContext {
+        master: workspaces.master().clone(),
+        tenants: Arc::new(weldsuite_mail_inbound::WorkspaceDbs(Arc::clone(workspaces))),
+        storage,
+        public_url: inbound.public_url.clone(),
+        mail_storage: Some(Arc::clone(&spool)),
+        realtime: services.realtime.clone(),
+        events: weldsuite_events::EntityEventPublisher::new(
+            Some(bus),
+            weldsuite_events::TaskTracker::new(),
+        )
+        .with_subject_prefix(subject_prefix),
+        http,
+        fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
+        assignment_router: Some(crate::routes::desk_assignment_router()),
+    };
+    if !ctx.fan_out.books {
+        tracing::info!(
+            "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
+        );
+    }
+    Ok(Arc::new(
+        weldsuite_mail_inbound::MailInboundSubscriber::new(ctx, spool),
+    ))
 }
 
 /// What the probes look at.
@@ -277,6 +352,28 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         );
         dead_letters.max_bytes = config.dead_letter_max_bytes.unwrap_or(-1);
         bus.context().create_or_update_stream(dead_letters).await?;
+        if let Some(inbound) = &config.mail_inbound {
+            // Haraka's spool notices: a file stream, a week, a two-minute
+            // duplicate window on `Nats-Msg-Id` = the object key.
+            let stream = async_nats::jetstream::stream::Config {
+                name: inbound.stream.clone(),
+                description: Some("Inbound mail spooled by Haraka (MAIL-010)".to_owned()),
+                subjects: vec![inbound.subject.clone()],
+                storage: async_nats::jetstream::stream::StorageType::File,
+                max_age: Duration::from_hours(7 * 24),
+                duplicate_window: Duration::from_secs(120),
+                num_replicas: config.stream_replicas,
+                ..async_nats::jetstream::stream::Config::default()
+            };
+            bus.context().create_or_update_stream(stream).await?;
+            bus.context()
+                .create_or_update_stream(dead_letter_stream_config(
+                    &inbound.dead_letter_stream,
+                    "mail-inbound-dlq",
+                    config.stream_replicas,
+                ))
+                .await?;
+        }
     }
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(
@@ -301,6 +398,10 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
     })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start-up sequence, one service after the other"
+)]
 async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     tracing::info!(
         ?config,
@@ -321,14 +422,28 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         http,
     } = connect(&config).await?;
 
+    let services = Services {
+        bus,
+        realtime,
+        embeddings,
+        http,
+    };
     let running = handlers(
         &config,
         &tenants,
         &master,
-        realtime.as_ref(),
-        embeddings.as_ref(),
-        &http,
+        services.realtime.as_ref(),
+        services.embeddings.as_ref(),
+        &services.http,
     );
+    let mail_inbound = match &config.mail_inbound {
+        Some(inbound) if config.subscribers.iter().any(|s| s == MAIL_INBOUND) => Some((
+            mail_inbound_spec(inbound),
+            mail_inbound_handler(inbound, &workspaces, &services, &config.subject_prefix)?,
+        )),
+        _ => None,
+    };
+    let Services { bus, http, .. } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
     let mut names = Vec::new();
@@ -343,6 +458,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(sub.id.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = mail_inbound {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(MAIL_INBOUND.to_owned());
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

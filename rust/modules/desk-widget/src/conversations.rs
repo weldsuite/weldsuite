@@ -371,6 +371,7 @@ fn spawn_visitor_message(
     let state_ = state.clone();
     let db = widget.db.clone();
     let org = widget.clerk_org_id.clone();
+    let workspace_id = widget.workspace_id.clone();
     let conversation = conversation.clone();
     let message = message.clone();
     let visitor_name = visitor_name.to_owned();
@@ -380,7 +381,7 @@ fn spawn_visitor_message(
             Fanout::Updated { .. } => "updated",
         };
         publish_visitor_message(&state_, &org, &conversation, &message, &visitor_name, event).await;
-        let current = auto_assign(&state_, &db, &org, conversation).await;
+        let current = auto_assign(&state_, &db, &org, &workspace_id, conversation).await;
         let notify = match fanout {
             Fanout::Created => Some(true),
             Fanout::Updated {

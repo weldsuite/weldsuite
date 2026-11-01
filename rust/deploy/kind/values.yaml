@@ -31,8 +31,31 @@ secret:
     SIGN_PORTAL_SECRET: kind-portal-secret
     # Keys signer sessions: without it the portal endpoints answer 503.
     SIGN_SESSION_SECRET: kind-session-secret
+    # Haraka's RCPT TO check (MAIL-010).
+    MAIL_INBOUND_SECRET: kind-mail-inbound-secret
 podDisruptionBudget:
   enabled: false
+# The entity-event subscribers and the inbound mail one (MAIL-010).
+consume:
+  enabled: true
+  replicaCount: 1
+  podDisruptionBudget:
+    enabled: false
+# Haraka (the image built from rust/deploy/haraka), reached through a
+# port-forward: no load balancer, no PROXY protocol, no cert-manager.
+mailInbound:
+  enabled: true
+  haraka:
+    image:
+      repository: weldsuite-haraka
+      tag: dev
+      pullPolicy: Never
+    replicaCount: 1
+    hostname: mx.kind.test
+    service:
+      type: ClusterIP
+    tls:
+      enabled: false
 # The SPA is on by default (the image's /srv/spa); the sign portal is the
 # image's `sign-portal` target.
 signPortal:

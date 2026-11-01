@@ -1,0 +1,705 @@
+{
+  "workspaceId": "ws_fx",
+  "account": {
+    "accountId": "mbx_fx",
+    "accountEmail": "inbox@acme.test",
+    "isShared": true,
+    "tenantKind": "workspace",
+    "workspaceId": "ws_fx",
+    "clerkOrgId": "org_fx",
+    "personalAccountId": null,
+    "clerkUserId": null,
+    "members": []
+  },
+  "publicUrl": "https://files.acme.test",
+  "seed": [
+    "delete from mail_attachments where message_id in (select id from mail_messages where account_id = 'mbx_fx')",
+    "delete from mail_messages where account_id = 'mbx_fx'",
+    "delete from mail_subscriptions where account_id = 'mbx_fx'",
+    "delete from mail_rules where account_id = 'mbx_fx'",
+    "delete from mail_labels where account_id = 'mbx_fx'",
+    "delete from mail_accounts where id = 'mbx_fx'",
+    "insert into mail_accounts (id, name, email) values ('mbx_fx', 'Inbox', 'inbox@acme.test')",
+    "insert into mail_rules (id, account_id, name, conditions, actions, priority, stop_processing)\n     values ('rule_fx_spam', 'mbx_fx', 'Block bad', '[{\"field\":\"from\",\"operator\":\"contains\",\"value\":\"bad@\"}]', '[{\"type\":\"mark_as_spam\"},{\"type\":\"flag\"}]', 10, false),\n            ('rule_fx_star', 'mbx_fx', 'Star corp', '[{\"field\":\"from\",\"operator\":\"ends_with\",\"value\":\"@corp.test\"}]', '[{\"type\":\"star\"}]', 5, true),\n            ('rule_fx_never', 'mbx_fx', 'Never', '[{\"field\":\"from\",\"operator\":\"contains\",\"value\":\"bad@\"}]', '[{\"type\":\"delete\"}]', 1, false)"
+  ],
+  "steps": [
+    {
+      "name": "fresh",
+      "raw": "RnJvbTogQWxpY2UgPGFsaWNlQHBhcnRuZXIudGVzdD4NClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFByb2plY3Qga2lja29mZg0KRGF0ZTogTW9uLCAyNiBPY3QgMjAyNiAwOTowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPHMxQHBhcnRuZXIudGVzdD4NCg0KS2lja29mZiBvbiBNb25kYXku",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<s1@partner.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "duplicate",
+      "raw": "RnJvbTogQWxpY2UgPGFsaWNlQHBhcnRuZXIudGVzdD4NClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFByb2plY3Qga2lja29mZg0KRGF0ZTogTW9uLCAyNiBPY3QgMjAyNiAwOTowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPHMxQHBhcnRuZXIudGVzdD4NCg0KS2lja29mZiBvbiBNb25kYXku",
+      "stored": null,
+      "markedSpam": null
+    },
+    {
+      "name": "reply-in-reply-to",
+      "raw": "RnJvbTogQWxpY2UgPGFsaWNlQHBhcnRuZXIudGVzdD4NClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFJlOiBQcm9qZWN0IGtpY2tvZmYNCkRhdGU6IE1vbiwgMjYgT2N0IDIwMjYgMTA6MDA6MDAgKzAwMDANCk1lc3NhZ2UtSUQ6IDxzMkBwYXJ0bmVyLnRlc3Q+DQpJbi1SZXBseS1UbzogczFAcGFydG5lci50ZXN0DQoNCkFncmVlZC4=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<s1@partner.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "reply-by-subject-participant",
+      "raw": "RnJvbTogYWxpY2VAcGFydG5lci50ZXN0DQpUbzogaW5ib3hAYWNtZS50ZXN0DQpTdWJqZWN0OiBSRTogcHJvamVjdCBLSUNLT0ZGDQpEYXRlOiBNb24sIDI2IE9jdCAyMDI2IDExOjAwOjAwICswMDAwDQpNZXNzYWdlLUlEOiA8czNAcGFydG5lci50ZXN0Pg0KDQpPbmUgbW9yZSB0aGluZy4=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<s1@partner.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "reply-by-subject-stranger",
+      "raw": "RnJvbTogbWFsbG9yeUBlbHNlLnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFJlOiBQcm9qZWN0IGtpY2tvZmYNCkRhdGU6IE1vbiwgMjYgT2N0IDIwMjYgMTI6MDA6MDAgKzAwMDANCk1lc3NhZ2UtSUQ6IDxzNEBlbHNlLnRlc3Q+DQoNCkhpLg==",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<s4@else.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "spam",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPWZhaWw7IGRraW09ZmFpbDsgZG1hcmM9ZmFpbA0KRnJvbTogIlBheVBhbCIgPHhAZ21haWwuY29tPg0KVG86IGluYm94QGFjbWUudGVzdA0KU3ViamVjdDogQ2xhaW0geW91ciBwcml6ZQ0KRGF0ZTogTW9uLCAyNiBPY3QgMjAyNiAxMzowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPHNwYW0xQGdtYWlsLmNvbT4NCkxpc3QtVW5zdWJzY3JpYmU6IDxodHRwczovL3NwYW0udGVzdC91Pg0KDQp3aW4=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": true,
+        "threadId": "<spam1@gmail.com>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "promotion",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPXBhc3M7IGRraW09cGFzczsgZG1hcmM9cGFzcw0KRnJvbTogU2hvcCA8TmV3c0BTaG9wLnRlc3Q+DQpUbzogaW5ib3hAYWNtZS50ZXN0DQpTdWJqZWN0OiBCbGFjayBGcmlkYXkgZGVhbHMNCkRhdGU6IFR1ZSwgMjcgT2N0IDIwMjYgMDg6MDA6MDAgKzAwMDANCk1lc3NhZ2UtSUQ6IDxwMUBzaG9wLnRlc3Q+DQpMaXN0LVVuc3Vic2NyaWJlOiA8bWFpbHRvOnVAc2hvcC50ZXN0PiwgPGh0dHBzOi8vc2hvcC50ZXN0L3U+DQpMaXN0LVVuc3Vic2NyaWJlLVBvc3Q6IExpc3QtVW5zdWJzY3JpYmU9T25lLUNsaWNrDQpMaXN0LUlkOiA8bmV3cy5zaG9wLnRlc3Q+DQoNClVuc3Vic2NyaWJlIGFueSB0aW1lLg==",
+      "stored": {
+        "isPromotion": true,
+        "isSpam": false,
+        "threadId": "<p1@shop.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "promotion-again",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPXBhc3M7IGRraW09cGFzczsgZG1hcmM9cGFzcw0KRnJvbTogbmV3c0BzaG9wLnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IExhc3QgY2hhbmNlOiBzYWxlDQpEYXRlOiBNb24sIDI2IE9jdCAyMDI2IDA4OjAwOjAwICswMDAwDQpNZXNzYWdlLUlEOiA8cDJAc2hvcC50ZXN0Pg0KTGlzdC1VbnN1YnNjcmliZTogPG1haWx0bzp1MkBzaG9wLnRlc3Q+DQoNCm9wdCBvdXQ=",
+      "stored": {
+        "isPromotion": true,
+        "isSpam": false,
+        "threadId": "<p2@shop.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "attachments",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPXBhc3M7IGRraW09cGFzczsgZG1hcmM9cGFzcw0KRnJvbTogQmlsbGluZyA8YmlsbGluZ0B2ZW5kb3IudGVzdD4NClRvOiBpbmJveEBhY21lLnRlc3QNCkNjOiBBbm4gPGFubkBhY21lLnRlc3Q+DQpTdWJqZWN0OiBJbnZvaWNlIDQyDQpEYXRlOiBXZWQsIDI4IE9jdCAyMDI2IDEwOjAwOjAwICswMDAwDQpNZXNzYWdlLUlEOiA8aW52NDJAdmVuZG9yLnRlc3Q+DQpDb250ZW50LVR5cGU6IG11bHRpcGFydC9taXhlZDsgYm91bmRhcnk9Im8iDQoNCi0tbw0KQ29udGVudC1UeXBlOiBtdWx0aXBhcnQvcmVsYXRlZDsgYm91bmRhcnk9InIiDQoNCi0tcg0KQ29udGVudC1UeXBlOiB0ZXh0L2h0bWw7IGNoYXJzZXQ9dXRmLTgNCg0KPHA+PGltZyBzcmM9ImNpZDpsb2dvQHZlbmRvciI+IFBheSA8Yj5ub3c8L2I+PC9wPg0KLS1yDQpDb250ZW50LVR5cGU6IGltYWdlL3BuZw0KQ29udGVudC1UcmFuc2Zlci1FbmNvZGluZzogYmFzZTY0DQpDb250ZW50LUlEOiA8bG9nb0B2ZW5kb3I+DQoNCmlWQk9SdzBLR2dvPQ0KLS1yLS0NCi0tbw0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wZGY7IG5hbWU9ImZhY3R1dXIgNDIucGRmIg0KQ29udGVudC1UcmFuc2Zlci1FbmNvZGluZzogYmFzZTY0DQpDb250ZW50LURpc3Bvc2l0aW9uOiBhdHRhY2htZW50OyBmaWxlbmFtZT0iZmFjdHV1ciA0Mi5wZGYiDQoNCkpWQkVSaTB4TGpRSw0KLS1vLS0=",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<inv42@vendor.test>"
+      },
+      "markedSpam": null
+    },
+    {
+      "name": "rules",
+      "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgudGVzdDsgc3BmPXBhc3M7IGRraW09cGFzczsgZG1hcmM9cGFzcw0KRnJvbTogQmFkIEFjdG9yIDxiYWRAY29ycC50ZXN0Pg0KVG86IGluYm94QGFjbWUudGVzdA0KU3ViamVjdDogUXVhcnRlcmx5IHJlcG9ydA0KRGF0ZTogVGh1LCAyOSBPY3QgMjAyNiAxMDowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPHJ1bGUxQGNvcnAudGVzdD4NCg0KbnVtYmVycw==",
+      "stored": {
+        "isPromotion": false,
+        "isSpam": false,
+        "threadId": "<rule1@corp.test>"
+      },
+      "markedSpam": true
+    }
+  ],
+  "messages": [
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "pass",
+      "dmarc_status": "pass",
+      "from": {
+        "email": "news@shop.test",
+        "name": ""
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "PROMOTIONS"
+      ],
+      "message_id": "<p2@shop.test>",
+      "preview": "opt out\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T08:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "pass",
+      "subject": "Last chance: sale",
+      "text_body": "opt out\n",
+      "thread_id": "<p2@shop.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": null,
+      "dmarc_status": null,
+      "from": {
+        "email": "alice@partner.test",
+        "name": "Alice"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<s1@partner.test>",
+      "preview": "Kickoff on Monday.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T09:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": null,
+      "subject": "Project kickoff",
+      "text_body": "Kickoff on Monday.\n",
+      "thread_id": "<s1@partner.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": null,
+      "dmarc_status": null,
+      "from": {
+        "email": "alice@partner.test",
+        "name": "Alice"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": "s1@partner.test",
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": true,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<s2@partner.test>",
+      "preview": "Agreed.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T10:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": null,
+      "subject": "Re: Project kickoff",
+      "text_body": "Agreed.\n",
+      "thread_id": "<s1@partner.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": null,
+      "dmarc_status": null,
+      "from": {
+        "email": "alice@partner.test",
+        "name": ""
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<s3@partner.test>",
+      "preview": "One more thing.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T11:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": null,
+      "subject": "RE: project KICKOFF",
+      "text_body": "One more thing.\n",
+      "thread_id": "<s1@partner.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": null,
+      "dmarc_status": null,
+      "from": {
+        "email": "mallory@else.test",
+        "name": ""
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<s4@else.test>",
+      "preview": "Hi.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T12:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": null,
+      "subject": "Re: Project kickoff",
+      "text_body": "Hi.\n",
+      "thread_id": "<s4@else.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "fail",
+      "dmarc_status": "fail",
+      "from": {
+        "email": "x@gmail.com",
+        "name": "PayPal"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": true,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "SPAM"
+      ],
+      "message_id": "<spam1@gmail.com>",
+      "preview": "win\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-26T13:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "fail",
+      "subject": "Claim your prize",
+      "text_body": "win\n",
+      "thread_id": "<spam1@gmail.com>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "pass",
+      "dmarc_status": "pass",
+      "from": {
+        "email": "News@Shop.test",
+        "name": "Shop"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "PROMOTIONS"
+      ],
+      "message_id": "<p1@shop.test>",
+      "preview": "Unsubscribe any time.\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-27T08:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "pass",
+      "subject": "Black Friday deals",
+      "text_body": "Unsubscribe any time.\n",
+      "thread_id": "<p1@shop.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 2,
+      "bcc": null,
+      "cc": [
+        {
+          "email": "ann@acme.test",
+          "name": "Ann"
+        }
+      ],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "pass",
+      "dmarc_status": "pass",
+      "from": {
+        "email": "billing@vendor.test",
+        "name": "Billing"
+      },
+      "has_attachments": true,
+      "headers": null,
+      "html_body": "<p><img src=\"https://files.acme.test/workspaces/ws_fx/mail/attachments/<msg>/1_attachment\"> Pay <b>now</b></p>\n",
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": false,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": false,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "INBOX"
+      ],
+      "message_id": "<inv42@vendor.test>",
+      "preview": "Invoice 42",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-28T10:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "pass",
+      "subject": "Invoice 42",
+      "text_body": null,
+      "thread_id": "<inv42@vendor.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    },
+    {
+      "attachment_count": 0,
+      "bcc": null,
+      "cc": [],
+      "created_at": "<ts>",
+      "deleted_at": null,
+      "dkim_status": "pass",
+      "dmarc_status": "pass",
+      "from": {
+        "email": "bad@corp.test",
+        "name": "Bad Actor"
+      },
+      "has_attachments": false,
+      "headers": null,
+      "html_body": null,
+      "id": "<msg>",
+      "in_reply_to": null,
+      "is_draft": false,
+      "is_flagged": true,
+      "is_forwarded": false,
+      "is_important": false,
+      "is_read": false,
+      "is_reply": false,
+      "is_spam": true,
+      "is_starred": false,
+      "is_trash": false,
+      "labels": [
+        "SPAM",
+        "STARRED"
+      ],
+      "message_id": "<rule1@corp.test>",
+      "preview": "numbers\n",
+      "priority": "normal",
+      "raw_message": null,
+      "received_date": "<ts>",
+      "references": [],
+      "reply_to": null,
+      "sent_date": "2026-10-29T10:00:00",
+      "size_bytes": null,
+      "source": "inbound",
+      "spf_status": "pass",
+      "subject": "Quarterly report",
+      "text_body": "numbers\n",
+      "thread_id": "<rule1@corp.test>",
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "updated_at": "<ts>"
+    }
+  ],
+  "attachments": [
+    {
+      "content_disposition": null,
+      "content_id": null,
+      "content_type": "image/png",
+      "download_url": "https://files.acme.test/workspaces/ws_fx/mail/attachments/<msg>/1_attachment",
+      "file_name": "attachment",
+      "id": "<attach>",
+      "is_inline": false,
+      "rfc": "<inv42@vendor.test>",
+      "size": 8,
+      "storage_path": "workspaces/ws_fx/mail/attachments/<msg>/1_attachment"
+    },
+    {
+      "content_disposition": null,
+      "content_id": null,
+      "content_type": "application/pdf",
+      "download_url": "https://files.acme.test/workspaces/ws_fx/mail/attachments/<msg>/2_factuur_42.pdf",
+      "file_name": "factuur 42.pdf",
+      "id": "<attach>",
+      "is_inline": false,
+      "rfc": "<inv42@vendor.test>",
+      "size": 9,
+      "storage_path": "workspaces/ws_fx/mail/attachments/<msg>/2_factuur_42.pdf"
+    }
+  ],
+  "subscriptions": [
+    {
+      "first_received_at": "2026-10-27T08:00:00",
+      "last_received_at": "2026-10-27T08:00:00",
+      "last_subject": "Last chance: sale",
+      "list_id": "news.shop.test",
+      "message_count": 2,
+      "one_click": false,
+      "sender_domain": "shop.test",
+      "sender_email": "news@shop.test",
+      "sender_name": "Shop",
+      "status": "active",
+      "unsubscribe_mailto": "mailto:u2@shop.test",
+      "unsubscribe_url": null
+    }
+  ],
+  "rules": [
+    {
+      "applied_count": 0,
+      "id": "rule_fx_never"
+    },
+    {
+      "applied_count": 1,
+      "id": "rule_fx_spam"
+    },
+    {
+      "applied_count": 1,
+      "id": "rule_fx_star"
+    }
+  ],
+  "files": [
+    {
+      "contentType": "image/png",
+      "key": "workspaces/ws_fx/mail/attachments/<msg>/1_attachment",
+      "size": 8
+    },
+    {
+      "contentType": "application/pdf",
+      "key": "workspaces/ws_fx/mail/attachments/<msg>/2_factuur_42.pdf",
+      "size": 9
+    }
+  ],
+  "mail": [
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 171
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 194
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 164
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 148
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 260
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 376
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 254
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 731
+    },
+    {
+      "contentType": "message/rfc822",
+      "key": "mail/ws_fx/mbx_fx/<msg>/raw.eml",
+      "size": 226
+    }
+  ]
+}
