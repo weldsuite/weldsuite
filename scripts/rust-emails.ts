@@ -32,7 +32,7 @@ import { createElement } from 'react';
 import type { EmailBrand } from '../packages/core/emails/src/brand';
 import { EmailLayout } from '../packages/core/emails/src/components/layout';
 import type { EmailTemplate } from '../packages/core/emails/src/define';
-import { formatDate, formatWhen } from '../packages/core/emails/src/format';
+import { formatDate, formatTime, formatWhen } from '../packages/core/emails/src/format';
 import type { EmailLocale } from '../packages/core/emails/src/i18n';
 import { renderEmail, renderHtml, renderTemplate } from '../packages/core/emails/src/render';
 import { templates, type TemplateId } from '../packages/core/emails/src/templates/index';
@@ -154,6 +154,34 @@ const SPECS: Spec[] = [
     flags: ['unsigned'],
     fields: ['title', 'unsigned', 'url'],
     props: (f) => ({ title: S('title'), unsigned: f.has('unsigned') ? [S('unsigned')] : [], url: S('url') }),
+  },
+  {
+    id: 'hr.payslip-ready',
+    flags: ['name', 'url'],
+    fields: ['recipient_name', 'employer_name', 'pay_date', 'url'],
+    // The pay date is formatted by Rust (`formatDate(${payDate}T12:00:00Z, locale, UTC)`).
+    texts: (locale) => ({ [formatDate(SAMPLE_DATE, locale, 'UTC')]: S('pay_date') }),
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      employerName: S('employer_name'),
+      payDate: SAMPLE_DATE.slice(0, 10),
+      url: f.has('url') ? S('url') : null,
+    }),
+  },
+  {
+    id: 'hr.bank-changed',
+    flags: ['name', 'by_employee'],
+    fields: ['recipient_name', 'employer_name', 'when'],
+    // "<date>, <time zone>" of the change, formatted by Rust in UTC (the worker passes no zone).
+    texts: (locale) => ({
+      [`${formatDate(SAMPLE_DATE, locale, 'UTC')}, ${formatTime(SAMPLE_DATE, locale, 'UTC', true)}`]: S('when'),
+    }),
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      employerName: S('employer_name'),
+      byEmployee: f.has('by_employee'),
+      changedAt: SAMPLE_DATE,
+    }),
   },
   ...calendarSpecs(),
 ];

@@ -19,7 +19,7 @@ use weldsuite_kit::validation::{Issues, json_body};
 use crate::HrError;
 
 /// The body `zValidator('json')` validates, or Hono's 400 for malformed JSON.
-fn body_of(headers: &HeaderMap, body: &Bytes) -> Result<Value, HrError> {
+pub(crate) fn body_of(headers: &HeaderMap, body: &Bytes) -> Result<Value, HrError> {
     let content_type = headers
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok());

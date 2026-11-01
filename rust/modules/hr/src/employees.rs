@@ -937,7 +937,7 @@ async fn prepare_custom_fields(db: &PgPool, values: Option<&Value>) -> Result<bo
 }
 
 /// The sealed sensitive block (`encryptSensitive`).
-fn encrypt_sensitive(value: &Value, keyring: &weldsuite_db::Keyring) -> Result<String, HrError> {
+pub(crate) fn encrypt_sensitive(value: &Value, keyring: &weldsuite_db::Keyring) -> Result<String, HrError> {
     if keyring.is_empty() {
         return Err(HrError::validation(
             "Sensitive employee data cannot be stored: the worker has no encryption key",
