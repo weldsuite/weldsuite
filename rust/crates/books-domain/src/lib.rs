@@ -21,6 +21,7 @@
 pub mod address;
 pub mod bad_debt;
 pub mod catch_up;
+pub mod compliance;
 pub mod currency;
 pub mod dates;
 pub mod document_posting;
@@ -39,3 +40,4 @@ pub mod roles;
 pub mod sales_tax;
 pub mod table;
 pub mod tables;
+pub mod tax;

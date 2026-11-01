@@ -303,13 +303,13 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | done: addresses, `roles::promote_accounting_role`, IBANs; the VAT-number formats of `identifiers` come with the purchases area (VIES) |
 | `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | done |
 | `payroll` | `payroll/{imports,weldhr,mapping,journal}`: the internal import hr-api posts | reports (routes), **hr** | foundation | done: `post_weldhr_import` (hr), `post_payroll_import`, `reverse_payroll_import`, `Resolver`; the CSV and Gusto line builders come with the reports area |
-| `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | |
-| `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | |
+| `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | done: `calculate_document_tax` (rate table, India's split, self-assessed purchases, the US and hook paths), `untaxed_document_tax`, `load_place_of_supply`, `resolve_gst_supply`, `resolve_gst_bill_supply`, `totals::{calculate_line_tax_totals, hook_inputs, hook_tax_totals}`; tested on the real schema (`tests/tax.rs`). Two seams for other areas: Brazil's `computeDocumentTaxes` plugs into `tax::document_tax_hook` (tax area; a BR document fails until then), the US engine into `sales_tax::document_tax` (below) |
+| `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | boundary from sales: `errors` (engine, document and setup errors, `salesTaxErrorResponse`) and `document_tax` (the types, `load_sales_tax_entity`, `uses_sales_tax`, `untaxed_totals`, `map_credit_items_to_original`, and the stubs `calculate_us_document_tax` / `accrue_use_tax` that answer "engine unavailable" until the sales-tax area fills them in, keeping the signatures) |
 | `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | |
 | `vendor_tax` | `vendor-tax-data`, `w9-requests` (tokens) | purchases, reports (1099), tax (fiscal webhooks) | purchases | |
 | `bank_accounts` | `accounting-bank-accounts` | banking, purchases (payment runs) | banking | |
 | `reports_basis` | `accounting-reports-basis`, `accounting-report-periods` | reports | reports | |
-| `invoice_html` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | |
+| `invoice_html`, `compliance` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | partial: `compliance::{get_contact_vat_number, collect_invoice_tax_categories, invoice_uses_reverse_charge}` |
 
 ## Order
 
