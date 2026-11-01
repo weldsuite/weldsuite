@@ -9,6 +9,13 @@
 //! Brazil's Pix QR code (`jurisdictions/br/pix`) is not drawn yet: a
 //! Brazilian invoice prints without the Pix block.
 
+#![allow(
+    clippy::format_collect,
+    clippy::format_push_string,
+    clippy::assigning_clones,
+    reason = "the HTML is built as the TypeScript template literals build it, piece by piece"
+)]
+
 pub mod fonts;
 pub mod intl;
 pub mod layout;

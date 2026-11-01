@@ -55,6 +55,10 @@ fn font_attrs(face: FontFace) -> String {
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per primitive, as primitiveSvg"
+)]
 fn primitive_svg(p: &Primitive, width: f64, height: f64) -> String {
     match p {
         Primitive::Text {

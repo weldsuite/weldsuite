@@ -110,7 +110,7 @@ pub(crate) async fn apply_credit_note(
         )));
     }
     let amount = round_money(amount.unwrap_or(available));
-    if !(amount > 0.0) {
+    if amount.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Ok(None);
     }
 

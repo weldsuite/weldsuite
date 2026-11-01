@@ -613,7 +613,7 @@ async fn update_invoice(
             .or_else(|| text(&invoice, "currency"))
             .unwrap_or(&base)
             .to_owned();
-        let date = update["issueDate"]
+        let rate_date = update["issueDate"]
             .as_str()
             .or_else(|| text(&invoice, "issueDate"))
             .unwrap_or_default()
@@ -630,7 +630,7 @@ async fn update_invoice(
             RateQuery {
                 base_currency: &base,
                 currency: &currency,
-                at_millis: rate_millis(&date, &base, &currency)?,
+                at_millis: rate_millis(&rate_date, &base, &currency)?,
                 typed: typed.as_ref(),
                 use_feed: true,
             },
@@ -712,10 +712,10 @@ async fn update_invoice(
         }
     }
     for (item_id, columns) in &stored_item_tax {
-        let mut set = columns.clone();
-        set.insert("updatedAt".into(), json!(replaced_at));
+        let mut line = columns.clone();
+        line.insert("updatedAt".into(), json!(replaced_at));
         INVOICE_ITEMS
-            .patch_raw(&mut *tx, item_id, INVOICE_ITEMS.values(&set), false)
+            .patch_raw(&mut *tx, item_id, INVOICE_ITEMS.values(&line), false)
             .await?;
     }
     INVOICES
@@ -765,6 +765,10 @@ async fn update_invoice(
 
 /// `retaxInvoiceDraft(...)`: the new lines (or the stored lines' new tax
 /// columns); the header columns land in `update`.
+#[allow(
+    clippy::too_many_lines,
+    reason = "retaxInvoiceDraft with the lines it loads, as written"
+)]
 async fn retax_draft(
     caller: &Caller,
     state: &BooksState,

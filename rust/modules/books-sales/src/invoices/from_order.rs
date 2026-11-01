@@ -68,8 +68,16 @@ struct OrderLine {
     tax_rate: Option<String>,
 }
 
+struct Gross<'a> {
+    item: &'a Value,
+    quantity: i64,
+    own: i64,
+    cents: i64,
+}
+
 /// `orderInvoiceLines(db, order, items)`: the order's lines at their
 /// discounted prices with their tax codes, and shipping as its own line.
+#[allow(clippy::too_many_lines, reason = "orderInvoiceLines as written")]
 async fn order_invoice_lines(
     db: &weldsuite_db::PgPool,
     order: &Value,
@@ -102,12 +110,6 @@ async fn order_invoice_lines(
                 from_order.push((id.to_owned(), code.to_owned()));
             }
         }
-    }
-    struct Gross<'a> {
-        item: &'a Value,
-        quantity: i64,
-        own: i64,
-        cents: i64,
     }
     let gross: Vec<Gross<'_>> = items
         .iter()

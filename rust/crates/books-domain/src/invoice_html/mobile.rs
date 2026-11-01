@@ -639,7 +639,7 @@ fn reading_order<'a>(blocks: &[&'a Value], keep: &dyn Fn(&Value) -> bool) -> Vec
     for block in sorted {
         match rows.last_mut() {
             Some((top, items)) if num(block, "y") < *top + (num(items[0], "h") / 2.0).max(8.0) => {
-                items.push(block)
+                items.push(block);
             }
             _ => rows.push((num(block, "y"), vec![block])),
         }

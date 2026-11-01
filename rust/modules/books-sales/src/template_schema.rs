@@ -298,6 +298,15 @@ fn is_hex(text: &str) -> bool {
     text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// `/^(https?://|data:image/(png|jpeg);base64,)/i`.
+fn is_image_url(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("data:image/png;base64,")
+        || lower.starts_with("data:image/jpeg;base64,")
+}
+
 fn regex_issue(issues: &mut Issues, key: &str) {
     issues.push_issue(
         key,
@@ -386,35 +395,20 @@ fn read_field(
             }
             _ => None,
         },
-        Kind::ImageUrl => match issues.text(fields, key, presence, None, Some(500_000)) {
-            Field::Set(text) => {
-                let lower = text.to_ascii_lowercase();
-                let ok = lower.starts_with("http://")
-                    || lower.starts_with("https://")
-                    || lower.starts_with("data:image/png;base64,")
-                    || lower.starts_with("data:image/jpeg;base64,");
-                if ok {
-                    Some(Value::String(text))
-                } else {
-                    regex_issue(issues, key);
-                    None
-                }
-            }
-            _ => {
-                // A too-long string still gets its regex check.
-                if let Some(Value::String(text)) = fields.get(key) {
-                    let lower = text.to_ascii_lowercase();
-                    if !(lower.starts_with("http://")
-                        || lower.starts_with("https://")
-                        || lower.starts_with("data:image/png;base64,")
-                        || lower.starts_with("data:image/jpeg;base64,"))
-                    {
-                        regex_issue(issues, key);
-                    }
-                }
+        Kind::ImageUrl => {
+            // `.max(500000).regex(...)`: a too-long string still gets its regex check.
+            let text = issues
+                .text(fields, key, presence, None, Some(500_000))
+                .into_option();
+            if let Some(Value::String(raw)) = fields.get(key)
+                && !is_image_url(raw)
+            {
+                regex_issue(issues, key);
                 None
+            } else {
+                text.map(Value::String)
             }
-        },
+        }
         Kind::Obj(specs) => issues
             .nested(fields, key, presence, |issues, inner| {
                 Value::Object(read_object(issues, inner, specs))

@@ -247,7 +247,7 @@ fn split_placeholders(line: &str) -> Vec<String> {
             parts.push(name.to_owned());
             rest = &tail[2..];
         } else {
-            static_part.push_str(&rest[..start + 1]);
+            static_part.push_str(&rest[..=start]);
             rest = &rest[start + 1..];
         }
     }
@@ -644,6 +644,10 @@ fn stack<'a>(pieces: Vec<Option<Piece>>, width: f64) -> Measured<'a> {
     }
 }
 
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "the pieces of a stack are optional, as in TypeScript"
+)]
 fn piece(text: Vec<String>, style: Resolved, gap_before: f64) -> Option<Piece> {
     Some(Piece {
         text,
@@ -687,15 +691,15 @@ fn measure_party<'a>(
     let show_tax_ids = kind != "seller" || flag(Some(block), "showTaxIds") != Some(false);
     let label = label_piece(opt(block, "label"), default_label, ctx, &body.align);
     if flag(Some(block), "inline") == Some(true) {
-        let mut parts = vec![party.name.clone()];
-        parts.extend(party.lines.iter().cloned());
+        let mut inline_parts = vec![party.name.clone()];
+        inline_parts.extend(party.lines.iter().cloned());
         if show_contact {
-            parts.extend(party.contact_lines.iter().cloned());
+            inline_parts.extend(party.contact_lines.iter().cloned());
         }
         if show_tax_ids {
-            parts.extend(party.tax_id_lines.iter().cloned());
+            inline_parts.extend(party.tax_id_lines.iter().cloned());
         }
-        let joined = parts
+        let joined = inline_parts
             .into_iter()
             .filter(|p| !p.is_empty())
             .collect::<Vec<_>>()

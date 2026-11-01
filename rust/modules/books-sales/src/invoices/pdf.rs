@@ -66,6 +66,10 @@ async fn fiscal_document(
     }))
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the render data of the route, field by field"
+)]
 async fn render_invoice(caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {

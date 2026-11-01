@@ -69,8 +69,8 @@ fn put<T: Into<Value>>(out: &mut Map<String, Value>, key: &str, field: Field<T>)
     }
 }
 
-fn put_number(out: &mut Map<String, Value>, key: &str, field: Field<f64>) {
-    match field {
+fn put_number(out: &mut Map<String, Value>, key: &str, field: &Field<f64>) {
+    match *field {
         Field::Set(value) => {
             out.insert(key.to_owned(), js::number_value(value));
         }
@@ -134,9 +134,9 @@ pub(crate) fn br_line_fiscal(issues: &mut Issues, body: &Map<String, Value>) -> 
         );
         put(&mut out, "origin", origin);
         let icms = issues.number(fields, "icmsRate", Presence::Optional, percent);
-        put_number(&mut out, "icmsRate", icms);
+        put_number(&mut out, "icmsRate", &icms);
         let ipi = issues.number(fields, "ipiRate", Presence::Optional, percent);
-        put_number(&mut out, "ipiRate", ipi);
+        put_number(&mut out, "ipiRate", &ipi);
         let iss = issues.number(
             fields,
             "issRate",
@@ -147,7 +147,7 @@ pub(crate) fn br_line_fiscal(issues: &mut Issues, body: &Map<String, Value>) -> 
                 ..Number::default()
             },
         );
-        put_number(&mut out, "issRate", iss);
+        put_number(&mut out, "issRate", &iss);
         for (key, max) in [
             ("serviceCode", 10),
             ("nbs", 12),
@@ -199,7 +199,7 @@ pub(crate) fn br_document_fiscal(issues: &mut Issues, body: &Map<String, Value>)
                             ..Number::default()
                         },
                     );
-                    put_number(&mut out, key, value);
+                    put_number(&mut out, key, &value);
                 }
                 let csrf = issues.boolean(w, "csrf", Presence::Nullish);
                 put(&mut out, "csrf", csrf);
@@ -213,7 +213,7 @@ pub(crate) fn br_document_fiscal(issues: &mut Issues, body: &Map<String, Value>)
                         ..Number::default()
                     },
                 );
-                put_number(&mut out, "inss", inss);
+                put_number(&mut out, "inss", &inss);
                 strict(issues, w, &["iss", "irrf", "csrf", "inss"]);
                 Value::Object(out)
             });

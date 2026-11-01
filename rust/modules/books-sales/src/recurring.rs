@@ -129,6 +129,10 @@ fn template_address(issues: &mut Issues, body: &Map<String, Value>) -> Option<Va
 }
 
 /// `recurringTemplateSchema`: the parsed template (Zod's output object).
+#[allow(
+    clippy::too_many_lines,
+    reason = "recurringTemplateSchema field by field"
+)]
 pub(crate) fn read_template(issues: &mut Issues, body: &Map<String, Value>) -> Value {
     let mut out = Map::new();
     let items =
@@ -787,8 +791,7 @@ pub(crate) async fn generate_recurring_invoice(
         .filter(|t| !t.is_null())
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let template = validate_value(&raw, |issues, body| read_template(issues, body))
-        .unwrap_or_else(|_| json!({}));
+    let template = validate_value(&raw, read_template).unwrap_or_else(|_| json!({}));
     let currency = match template["currency"].as_str().filter(|c| !c.is_empty()) {
         Some(c) => c.to_owned(),
         None => resolve_entity_base_currency(db, &entity_id)
@@ -897,7 +900,7 @@ pub(crate) async fn generate_recurring_invoice(
         .await
         .map_err(SalesError::from)?;
     let totals = &drafted.calc;
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     let due = js::iso_from_millis(at_ms + (terms * DAY_MS as f64) as i64).unwrap_or_default();
 
     let or_null = |value: &Value| match value.as_str().filter(|v| !v.is_empty()) {

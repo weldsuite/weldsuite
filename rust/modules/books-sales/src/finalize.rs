@@ -147,6 +147,10 @@ pub(crate) struct FinalizeOptions<'a> {
 }
 
 /// `finalizeInvoice(db, invoiceId, opts)`.
+#[allow(
+    clippy::too_many_lines,
+    reason = "finalizeInvoice's steps in its order"
+)]
 pub(crate) async fn finalize_invoice(
     db: &PgPool,
     invoice_id: &str,

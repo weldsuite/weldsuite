@@ -17,7 +17,7 @@ use weldsuite_books_domain::books_row;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
+    BooksState, Caller, Refusal, Reply, created, no_content, ok, paged, reply, validate,
 };
 use weldsuite_books_domain::js::{self, parse_int};
 use weldsuite_books_domain::payments::{
@@ -92,14 +92,6 @@ async fn list_payments(caller: &Caller) -> Reply {
         .present("to")
         .map(|d| js::js_date(d).ok_or_else(|| Refusal::Internal("Invalid time value".into())))
         .transpose()?;
-    const WHERE: &str = "t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.type = $2) and ($3::text is null or t.contact_id = $3) \
-         and ($4::text is null or t.check_number = $4) and ($5::text is null or t.payment_method = $5) \
-         and ($6::text is null or t.check_status = $6) and ($7::text is null or t.bank_account_id = $7) \
-         and ($8::boolean is null or ($8 and t.deposit_id is not null) or (not $8 and t.deposit_id is null)) \
-         and ($9::text is null or (t.reference like $9 or t.check_number like $9 or t.notes like $9)) \
-         and ($10::timestamp is null or t.date >= $10::timestamp) and ($11::timestamp is null or t.date <= $11::timestamp)";
-    let _ = WHERE;
     let rows: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
         books_row!(payments),
@@ -192,6 +184,9 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     )
 }
 
+/// One of `allocations`: invoice id, bill id, amount.
+type Allocation = (Option<String>, Option<String>, String);
+
 /// `createPaymentSchema`, as Zod outputs it.
 struct CreateInput {
     received: bool,
@@ -204,7 +199,7 @@ struct CreateInput {
     reference: Option<String>,
     invoice_id: Option<String>,
     bill_id: Option<String>,
-    allocations: Option<Vec<(Option<String>, Option<String>, String)>>,
+    allocations: Option<Vec<Allocation>>,
     contact_id: Option<String>,
     bank_account_id: Option<String>,
     bank_transaction_id: Option<String>,
@@ -314,7 +309,7 @@ async fn create_payment(caller: &Caller, state: &BooksState, data: CreateInput) 
         }
         None => Vec::new(),
     };
-    let date =
+    let paid_on =
         js::js_date(&data.date).ok_or_else(|| Refusal::Internal("Invalid time value".into()))?;
     let http = caller.http(state);
     let result = record_payment(
@@ -326,7 +321,7 @@ async fn create_payment(caller: &Caller, state: &BooksState, data: CreateInput) 
             amount,
             currency: data.currency.clone(),
             exchange_rate: data.exchange_rate.clone(),
-            date,
+            date: paid_on,
             payment_method: data.payment_method.clone(),
             check_number: data.check_number.clone(),
             deposit_to: data.deposit_to.clone(),
@@ -433,7 +428,6 @@ async fn remove(
                     "billId": payment["billId"],
                 }),
             );
-            let _ = now();
             Ok(no_content())
         }
         .await,

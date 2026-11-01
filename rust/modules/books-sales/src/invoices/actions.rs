@@ -503,6 +503,10 @@ async fn insert_document(
     tx.commit().await
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the copy of every field the route resets, in its order"
+)]
 async fn duplicate_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {
@@ -641,6 +645,10 @@ pub(crate) async fn credit_note(
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the credit note row, its lines and the US re-tax, in the route's order"
+)]
 async fn create_credit_note(
     caller: &Caller,
     state: &BooksState,
@@ -779,7 +787,7 @@ pub(crate) async fn record_payment_route(
             };
             let amount = js::parse_float(&data.amount);
             let refund = text(&invoice, "type") == Some("credit_note");
-            let date = js_date(&data.date)?;
+            let paid_on = js_date(&data.date)?;
             let http = caller.http(&state);
             let result = record_payment(
                 db,
@@ -790,7 +798,7 @@ pub(crate) async fn record_payment_route(
                     amount,
                     currency: owned(&invoice, "currency"),
                     exchange_rate: data.exchange_rate.clone(),
-                    date,
+                    date: paid_on,
                     payment_method: data.payment_method.clone(),
                     check_number: data.check_number.clone(),
                     deposit_to: if refund { None } else { data.deposit_to.clone() },
@@ -893,7 +901,7 @@ async fn apply_credit_route(
     let db = &caller.db;
     let amount = amount.map(|a| js::parse_float(&a));
     if let Some(amount) = amount
-        && !(amount > 0.0)
+        && amount.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
     {
         return Err(Refusal::bad_request("The amount must be greater than zero").into());
     }

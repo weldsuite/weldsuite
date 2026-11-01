@@ -111,9 +111,9 @@ fn grouped(int: &str, shape: &Value, number: &Value) -> String {
 
 /// Fills a template (`["-", "€", "#"]`) with the formatted number.
 fn fill(template: &Value, number: &str) -> String {
-    template
-        .as_array()
-        .map(|parts| {
+    template.as_array().map_or_else(
+        || number.to_owned(),
+        |parts| {
             parts
                 .iter()
                 .map(|p| match p.as_str() {
@@ -122,8 +122,8 @@ fn fill(template: &Value, number: &str) -> String {
                     None => "",
                 })
                 .collect()
-        })
-        .unwrap_or_else(|| number.to_owned())
+        },
+    )
 }
 
 fn negative(value: f64) -> bool {

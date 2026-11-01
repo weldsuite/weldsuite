@@ -264,6 +264,10 @@ fn credit_line(item: &Value) -> CreditLine<'_> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the detail with its lines, payments and credit notes, as the route reads them"
+)]
 async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {
@@ -349,7 +353,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let credit_notes: Vec<Value> = if named["type"] == "credit_note" {
         Vec::new()
     } else {
-        let rows: Vec<(String, Option<String>, String, String, Option<String>)> = sqlx::query_as(
+        let rows: Vec<CreditNoteRow> = sqlx::query_as(
             "select id, invoice_number, status, \
              to_char(issue_date, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), total::text \
              from invoices where credit_note_for_invoice_id = $1 and deleted_at is null \
@@ -371,6 +375,9 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     }
     Ok(ok(named))
 }
+
+/// A credit note of an invoice: id, number, status, issue date, total.
+type CreditNoteRow = (String, Option<String>, String, String, Option<String>);
 
 // ── GET /:id/attachments/:index ─────────────────────────────────────────────
 
