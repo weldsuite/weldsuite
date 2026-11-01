@@ -2118,7 +2118,8 @@
         "src/routes/accounting-dashboard/dashboard.integration.test.ts",
         "src/routes/accounting-exports/xaf-ciphertext.integration.test.ts",
         "src/routes/payroll/payroll.integration.test.ts",
-        "src/services/fixed-assets/fixed-assets.integration.test.ts"
+        "src/services/fixed-assets/fixed-assets.integration.test.ts",
+        "src/routes/form-1099/form-1099.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-reports/",

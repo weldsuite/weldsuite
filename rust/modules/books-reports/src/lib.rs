@@ -11,6 +11,7 @@
 mod dashboard;
 mod exports;
 mod fixed_assets;
+mod form_1099;
 mod ordered;
 mod payroll;
 mod reports;
@@ -42,6 +43,7 @@ where
         ),
         ("/accounting-exports", exports::router(state.clone(), gate)),
         ("/fixed-assets", fixed_assets::router(state.clone(), gate)),
+        ("/form-1099", form_1099::router(state.clone(), gate)),
         ("/payroll", payroll::router(state.clone(), gate)),
     ]
 }

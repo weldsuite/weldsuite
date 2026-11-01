@@ -51,6 +51,7 @@ pub mod depreciation;
 pub mod document_posting;
 pub mod entity_context;
 pub mod fiscal_year;
+pub mod form_1099;
 pub mod fx;
 pub mod guards;
 pub mod http;
