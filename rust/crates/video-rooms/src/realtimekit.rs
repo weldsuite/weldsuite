@@ -8,16 +8,17 @@
 
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use weldsuite_ports::video_rooms::{
-    DynVideoRooms, JoinToken, NewParticipant, RoomParticipant, VideoError,
+    DynVideoRooms, JoinToken, NewParticipant, RoomOptions, RoomParticipant, VideoError,
+    WebhookRegistration, WebhookUpserted,
 };
 use weldsuite_ports::{BoxFuture, HttpRequest, HttpResponse, OutboundHttp};
 
-use crate::encode_component;
+use crate::{encode_component, encode_query_component};
 
 /// `RTK_PRESETS.MEMBER`, the preset a participant gets when none is named.
-pub(crate) const MEMBER_PRESET: &str = "group_call_participant_v2";
+pub const MEMBER_PRESET: &str = "group_call_participant_v2";
 
 /// The SDK's default API base.
 const API_BASE: &str = "https://api.cloudflare.com/client/v4";
@@ -192,7 +193,363 @@ fn meeting(id: &str) -> String {
     format!("/meetings/{}", encode_component(id))
 }
 
+/// `RTK_PRESETS`.
+pub const HOST_PRESET: &str = "group_call_host_v3";
+pub const GUEST_PRESET: &str = "group_call_guest_v2";
+pub const GUEST_WAITING_PRESET: &str = "group_call_guest_waiting_v2";
+
+/// `buildAiConfig(opts)`: the `ai_config` fragment, or `None` when nothing
+/// is set.
+fn ai_config(options: &RoomOptions) -> Option<Value> {
+    let mut config = Map::new();
+    if let Some(language) = options.transcription_language.as_deref() {
+        config.insert("transcription".into(), json!({ "language": language }));
+    }
+    if let Some(format) = options.summary_text_format.as_deref() {
+        config.insert("summarization".into(), json!({ "text_format": format }));
+    }
+    (!config.is_empty()).then_some(Value::Object(config))
+}
+
+/// The opt-in fields of `createMeeting` / `updateMeeting`, in the SDK's order.
+fn option_fields(body: &mut Map<String, Value>, options: &RoomOptions, create: bool) {
+    if let Some(record) = options.record_on_start {
+        body.insert("record_on_start".into(), Value::Bool(record));
+    }
+    if create && options.audio_export {
+        body.insert(
+            "recording_config".into(),
+            json!({ "audio_config": { "export_file": true, "codec": "MP3" } }),
+        );
+    }
+    if let Some(transcribe) = options.transcribe_on_end {
+        body.insert("transcribe_on_end".into(), Value::Bool(transcribe));
+    }
+    if let Some(summarize) = options.summarize_on_end {
+        body.insert("summarize_on_end".into(), Value::Bool(summarize));
+    }
+    if let Some(config) = ai_config(options) {
+        body.insert("ai_config".into(), config);
+    }
+}
+
+/// `toRecording(r)`: the recording with its optional fields left out when
+/// missing (an empty `output_file_name` too).
+fn to_recording(r: &Value) -> Value {
+    let mut out = Map::new();
+    out.insert("id".into(), r["id"].clone());
+    out.insert("status".into(), r["status"].clone());
+    for key in [
+        "download_url",
+        "audio_download_url",
+        "download_url_expiry",
+        "file_size",
+        "started_time",
+        "stopped_time",
+        "recording_duration",
+        "session_id",
+    ] {
+        if let Some(value) = r.get(key).filter(|v| !v.is_null()) {
+            out.insert(key.into(), value.clone());
+        }
+    }
+    let name = &r["output_file_name"];
+    let empty = match name {
+        Value::Null | Value::Bool(false) => true,
+        Value::String(text) => text.is_empty(),
+        Value::Number(n) => n.as_f64() == Some(0.0),
+        _ => false,
+    };
+    if !empty {
+        out.insert("output_file_name".into(), name.clone());
+    }
+    Value::Object(out)
+}
+
+/// `buildPresetBody(opts)`: `RealtimeKit`'s strict preset shape.
+fn preset_body(
+    name: &str,
+    accept_waiting_requests: bool,
+    waiting_room_type: &str,
+    can_record: bool,
+    can_livestream: bool,
+) -> Value {
+    let host = accept_waiting_requests;
+    json!({
+        "name": name,
+        "permissions": {
+            "can_accept_production_requests": false,
+            "can_edit_display_name": true,
+            "accept_waiting_requests": host,
+            "disable_participant_audio": false,
+            "disable_participant_screensharing": false,
+            "disable_participant_video": false,
+            "can_spotlight": host,
+            "kick_participant": host,
+            "pin_participant": host,
+            "can_record": can_record,
+            "can_livestream": can_livestream,
+            "waiting_room_type": waiting_room_type,
+            "plugins": { "can_close": true, "can_start": true, "can_edit_config": false, "config": {} },
+            "polls": { "can_create": true, "can_vote": true, "can_view": true },
+            "media": {
+                "video": { "can_produce": "ALLOWED" },
+                "audio": { "can_produce": "ALLOWED" },
+                "screenshare": { "can_produce": "ALLOWED" },
+            },
+            "chat": {
+                "public": { "can_send": true, "text": true, "files": true },
+                "private": { "can_send": true, "can_receive": true, "text": true, "files": true },
+            },
+            "hidden_participant": false,
+            "is_recorder": false,
+            "recorder_type": "NONE",
+            "show_participant_list": true,
+            "transcription_enabled": true,
+            "can_change_participant_permissions": host,
+            "connected_meetings": {
+                "can_alter_connected_meetings": false,
+                "can_switch_connected_meetings": false,
+                "can_switch_to_parent_meeting": false,
+            },
+            "stage_enabled": false,
+            "accept_stage_requests": false,
+        },
+        "ui": {
+            "design_tokens": {
+                "border_radius": "rounded",
+                "border_width": "thin",
+                "spacing_base": 4,
+                "theme": "dark",
+                "colors": {
+                    "brand": { "300": "#9FBAFF", "400": "#5C8AFF", "500": "#2160FD", "600": "#1E50D6", "700": "#1840AA" },
+                    "background": { "1000": "#252525", "900": "#2F2F2F", "800": "#323232", "700": "#3E3E3E", "600": "#4A4A4A" },
+                    "danger": "#FF2D2D",
+                    "text": "#EEEEEE",
+                    "text_on_brand": "#EEEEEE",
+                    "success": "#62A504",
+                    "video_bg": "#191919",
+                    "warning": "#FFCD07",
+                },
+            },
+            "config_diff": {},
+        },
+        "config": {
+            "view_type": "GROUP_CALL",
+            "media": {
+                "audio": { "enable_stereo": false, "enable_high_bitrate": false },
+                "video": { "quality": "vga", "frame_rate": 30, "simulcast": false },
+                "screenshare": { "quality": "fhd", "frame_rate": 30 },
+            },
+            "max_video_streams": { "mobile": 6, "desktop": 6 },
+            "max_screenshare_count": 1,
+            "track_recording": { "subscriptions": [] },
+        },
+    })
+}
+
+impl RealtimeKit {
+    /// `seedPresets` without the cache marker (the caller writes it):
+    /// list the presets, create the missing ones. A host preset with live
+    /// streaming that `RealtimeKit` turns down (400/422) is created without it.
+    async fn seed(&self) -> Result<(), VideoError> {
+        let app = self.app()?;
+        let listed = self
+            .call("list RTK presets", app.request("GET", "/presets", None))
+            .await?
+            .json();
+        let existing: Vec<String> = listed["data"]
+            .as_array()
+            .map(|presets| {
+                presets
+                    .iter()
+                    .filter_map(|p| p["name"].as_str().filter(|n| !n.is_empty()))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let has = |name: &str| existing.iter().any(|e| e == name);
+        let create = |body: Value| {
+            let request = app.request("POST", "/presets", Some(&body));
+            async move { self.call("create RTK preset", request).await.map(|_| ()) }
+        };
+        if !has(HOST_PRESET) {
+            match create(preset_body(HOST_PRESET, true, "SKIP", true, true)).await {
+                Ok(()) => {}
+                Err(error) if matches!(error.status, Some(400 | 422)) => {
+                    tracing::error!(%error, "[RTK] host preset with live streaming was rejected, seeding without it");
+                    create(preset_body(HOST_PRESET, true, "SKIP", true, false)).await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if !has(MEMBER_PRESET) {
+            create(preset_body(MEMBER_PRESET, false, "SKIP", false, false)).await?;
+        }
+        if !has(GUEST_PRESET) {
+            create(preset_body(
+                GUEST_PRESET,
+                false,
+                "ON_PRIVILEGED_USER_ENTRY",
+                false,
+                false,
+            ))
+            .await?;
+        }
+        if !has(GUEST_WAITING_PRESET) {
+            create(preset_body(
+                GUEST_WAITING_PRESET,
+                false,
+                "SKIP_ON_ACCEPT",
+                false,
+                false,
+            ))
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// `listWebhooks`: `(id, url)` of every webhook of the app.
+    async fn webhooks(&self) -> Result<Vec<(String, String)>, VideoError> {
+        let app = self.app()?;
+        let body = self
+            .call("list RTK webhooks", app.request("GET", "/webhooks", None))
+            .await?
+            .json();
+        Ok(body["data"]
+            .as_array()
+            .map(|hooks| {
+                hooks
+                    .iter()
+                    .map(|w| (js_text(&w["id"]), js_text(&w["url"])))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    async fn upsert(
+        &self,
+        registration: &WebhookRegistration,
+    ) -> Result<WebhookUpserted, VideoError> {
+        let existing: Vec<String> = self
+            .webhooks()
+            .await?
+            .into_iter()
+            .filter(|(_, url)| *url == registration.url)
+            .map(|(id, _)| id)
+            .collect();
+        let app = self.app()?;
+        let body = json!({
+            "name": registration.name,
+            "url": registration.url,
+            "events": registration.events,
+            "enabled": registration.enabled,
+        });
+        let Some((keep, duplicates)) = existing.split_first() else {
+            let created = self
+                .call(
+                    "register RTK webhook",
+                    app.request("POST", "/webhooks", Some(&body)),
+                )
+                .await?
+                .json();
+            return Ok(WebhookUpserted {
+                id: created["data"]["id"].as_str().map(str::to_owned),
+                action: "created",
+                removed_duplicates: 0,
+            });
+        };
+        let path = format!("/webhooks/{}", encode_component(keep));
+        self.call(
+            "replace RTK webhook",
+            app.request("PUT", &path, Some(&body)),
+        )
+        .await?;
+        for duplicate in duplicates {
+            let path = format!("/webhooks/{}", encode_component(duplicate));
+            self.call(
+                "delete duplicate RTK webhook",
+                app.request("DELETE", &path, None),
+            )
+            .await?;
+        }
+        Ok(WebhookUpserted {
+            id: Some(keep.clone()),
+            action: "updated",
+            removed_duplicates: u32::try_from(duplicates.len()).unwrap_or(u32::MAX),
+        })
+    }
+}
+
 impl DynVideoRooms for RealtimeKit {
+    fn create_room_with<'a>(
+        &'a self,
+        title: &'a str,
+        options: &'a RoomOptions,
+    ) -> BoxFuture<'a, Result<String, VideoError>> {
+        Box::pin(async move {
+            let app = self.app()?;
+            let mut body = Map::new();
+            body.insert("title".into(), Value::from(title));
+            option_fields(&mut body, options, true);
+            let request = app.request("POST", "/meetings", Some(&Value::Object(body)));
+            let answer = self.call("create RTK meeting", request).await?.json();
+            answer["data"]["id"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    VideoError::new(
+                        None,
+                        "Failed to create RTK meeting: response carried no meeting",
+                    )
+                })
+        })
+    }
+
+    fn update_room<'a>(
+        &'a self,
+        room_id: &'a str,
+        options: &'a RoomOptions,
+    ) -> BoxFuture<'a, Result<(), VideoError>> {
+        Box::pin(async move {
+            let app = self.app()?;
+            let mut body = Map::new();
+            option_fields(&mut body, options, false);
+            let request = app.request("PATCH", &meeting(room_id), Some(&Value::Object(body)));
+            self.call("update RTK meeting", request).await.map(|_| ())
+        })
+    }
+
+    fn list_recordings<'a>(
+        &'a self,
+        room_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<Value>, VideoError>> {
+        Box::pin(async move {
+            let app = self.app()?;
+            let query = encode_query_component(room_id);
+            let path = format!("/recordings?meeting_id={query}");
+            let body = self
+                .call("list recordings", app.request("GET", &path, None))
+                .await?
+                .json();
+            Ok(body["data"]
+                .as_array()
+                .map(|items| items.iter().map(to_recording).collect())
+                .unwrap_or_default())
+        })
+    }
+
+    fn upsert_webhook<'a>(
+        &'a self,
+        registration: &'a WebhookRegistration,
+    ) -> BoxFuture<'a, Result<WebhookUpserted, VideoError>> {
+        Box::pin(self.upsert(registration))
+    }
+
+    fn seed_presets(&self) -> BoxFuture<'_, Result<(), VideoError>> {
+        Box::pin(self.seed())
+    }
+
     fn create_room<'a>(&'a self, title: &'a str) -> BoxFuture<'a, Result<String, VideoError>> {
         Box::pin(async move {
             let app = self.app()?;

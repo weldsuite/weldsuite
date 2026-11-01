@@ -12,6 +12,9 @@
  *                          the key is free (R2's `onlyIf: { etagDoesNotMatch:
  *                          '*' }`), else 412
  *   DELETE /object?key=…   remove it (a missing key is fine)
+ *   GET    /list?prefix=…&cursor=…   `bucket.list({ prefix, cursor, limit: 1000 })`
+ *                          as `{ keys, truncated, cursor }` (a stub without
+ *                          `list`: 501)
  *
  * `Content-Type` and `Content-Disposition` carry the object's HTTP metadata,
  * `x-meta-<name>` its custom metadata, `Content-Length` its size and `ETag`
@@ -142,8 +145,32 @@ async function handlePut(bucket: BucketLike, key: string, req: IncomingMessage, 
   res.writeHead(204).end();
 }
 
+/** `GET /list`: one page of the bucket's keys under a prefix. */
+async function handleList(bucket: BucketLike, url: URL, res: ServerResponse): Promise<void> {
+  const list = (bucket as { list?: (options: unknown) => Promise<unknown> }).list;
+  if (typeof list !== 'function') {
+    res.writeHead(501).end();
+    return;
+  }
+  const listed = (await list.call(bucket, {
+    prefix: url.searchParams.get('prefix') ?? undefined,
+    cursor: url.searchParams.get('cursor') ?? undefined,
+    limit: 1000,
+  })) as { objects?: Array<{ key: string }>; truncated?: boolean; cursor?: string };
+  const body = JSON.stringify({
+    keys: (listed.objects ?? []).map((o) => o.key),
+    truncated: Boolean(listed.truncated),
+    cursor: listed.truncated ? (listed.cursor ?? null) : null,
+  });
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(body);
+}
+
 async function handle(bucket: BucketLike, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  if (url.pathname === '/list' && req.method === 'GET') {
+    await handleList(bucket, url, res);
+    return;
+  }
   const key = url.searchParams.get('key');
   if (url.pathname !== '/object' || !key) {
     res.writeHead(404).end();
@@ -260,7 +287,7 @@ export function kvBucketUrl(kv: KvLike): Promise<string> {
 }
 
 /** The bucket bindings the Rust server can read through the bridge. */
-export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE'] as const;
+export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE', 'MEETING_RECORDINGS'] as const;
 
 /** `{ PRIVATE_STORAGE: url, … }` for each bucket binding in `env`, or undefined when there is none. */
 export async function bucketUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {

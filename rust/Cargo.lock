@@ -3852,6 +3852,7 @@ dependencies = [
  "weldsuite-mail",
  "weldsuite-mail-domain",
  "weldsuite-mail-inbound",
+ "weldsuite-meet",
  "weldsuite-migrations",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -3862,6 +3863,7 @@ dependencies = [
  "weldsuite-social",
  "weldsuite-stash",
  "weldsuite-subscribers",
+ "weldsuite-video-rooms",
 ]
 
 [[package]]
@@ -4724,6 +4726,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-meet"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "getrandom 0.4.3",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-video-rooms",
+]
+
+[[package]]
 name = "weldsuite-migrations"
 version = "0.0.0"
 dependencies = [
@@ -4988,10 +5019,12 @@ dependencies = [
 name = "weldsuite-video-rooms"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "getrandom 0.4.3",
  "jsonwebtoken 11.1.0",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "time",
  "tokio",
  "tracing",

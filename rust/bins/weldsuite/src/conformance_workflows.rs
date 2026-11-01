@@ -118,6 +118,13 @@ impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_meet::MeetWorkflow for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 /// The bridged Workflow bindings, one HTTP client per process.
 #[derive(Default)]
 pub(crate) struct WorkflowBridges {
@@ -125,6 +132,28 @@ pub(crate) struct WorkflowBridges {
 }
 
 impl WorkflowBridges {
+    /// WeldMeet's `MEETING_RECORDING_COPY`, `MEETING_AI` and
+    /// `MEETING_RECORDING_BACKFILL`, each the test's or none.
+    pub(crate) fn meet_workflows(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> weldsuite_meet::MeetWorkflows {
+        let binding = |name: &'static str| {
+            workflows.get(name).map(|bridge| {
+                Arc::new(BridgedWorkflow {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding: name,
+                    client: self.client.clone(),
+                }) as Arc<dyn weldsuite_meet::MeetWorkflow>
+            })
+        };
+        weldsuite_meet::MeetWorkflows {
+            copy: binding("MEETING_RECORDING_COPY"),
+            ai: binding("MEETING_AI"),
+            backfill: binding("MEETING_RECORDING_BACKFILL"),
+        }
+    }
+
     /// The test's `SEND_SCHEDULED_EMAIL`, from `{ SEND_SCHEDULED_EMAIL: url }`.
     pub(crate) fn scheduled_runs(
         &self,

@@ -103,6 +103,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = commerce(router, state);
     let router = ads(router, state);
     let router = social(router, state);
+    let router = meet(router, state);
     let router = data(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
@@ -452,6 +453,106 @@ fn social_state(state: &AppState) -> weldsuite_social::SocialState {
             .clone()
         },
         tenants: Some(tenants),
+    }
+}
+
+/// WeldMeet (`weldsuite-meet`): meet-api's `/api/meetings`,
+/// `/api/meeting-sessions`, `/api/meeting-messages`, `/api/meeting-waitlist`
+/// and `/api/transcriptions`.
+fn meet(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("meet") {
+        return router;
+    }
+    router.merge(weldsuite_meet::router(
+        meet_state(state),
+        &state.permissions,
+    ))
+}
+
+/// The video provider's webhooks (`/api/webhooks/cloudflare-realtime`,
+/// `/api/webhooks/livekit`) and the tokenized recording stream
+/// (`/public/meeting-recordings`), ahead of the session; served with the
+/// meet module. Conformance builds open the test's tenant database (or its
+/// databases by workspace) for every workspace.
+fn meet_public(state: &AppState) -> Router<AppState> {
+    if !mounts("meet") {
+        return Router::new();
+    }
+    let router = weldsuite_meet::public_router(meet_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::meet_public,
+    ));
+    router
+}
+
+/// WeldMeet's handle on the app: events, the cache (webhook mappings,
+/// recording tokens), the master database (credits, the AI price list), the
+/// realtime publisher, the video provider (`VIDEO_PROVIDER`, `LIVEKIT_*`,
+/// `CF_REALTIME_*`: `weldsuite_video_rooms::from_env`), invitation mail,
+/// the public bucket (avatars) and the workspaces' tenant databases. The
+/// Kubernetes editions have no recordings bucket and none of the worker's
+/// Workflows (recordings and transcripts are unavailable features there).
+/// Conformance builds take the test's KV, master database, fetch stub,
+/// buckets and Workflow fakes per request.
+fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
+    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    let http = shared_outbound();
+    let video = (!conformance).then(|| {
+        Arc::clone(VIDEO.get_or_init(|| {
+            weldsuite_video_rooms::from_env(
+                |name| std::env::var(name).ok(),
+                http.clone()
+                    .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
+            )
+        }))
+    });
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_meet::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let livekit = match (
+        std::env::var("LIVEKIT_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty()),
+        std::env::var("LIVEKIT_API_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(api_key), Some(api_secret)) => Some(weldsuite_meet::LiveKitKeys {
+            api_key,
+            api_secret,
+        }),
+        _ => None,
+    };
+    weldsuite_meet::MeetState {
+        events: state.infra.events.clone(),
+        // Without Valkey, recording tokens and webhook mappings live in this
+        // process (one replica's worth).
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        realtime: state.infra.realtime.clone(),
+        video,
+        http: if conformance { None } else { http },
+        outbound: deployment_outbound(state),
+        files: if conformance {
+            None
+        } else {
+            file_stores(state)
+        },
+        recordings: None,
+        workflows: weldsuite_meet::MeetWorkflows::default(),
+        tenants: Some(tenants),
+        livekit,
     }
 }
 
@@ -929,6 +1030,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
         .merge(social_public(state))
+        .merge(meet_public(state))
         .merge(books::public(state))
         .merge(commerce_public(state));
     if mounts("mail") {

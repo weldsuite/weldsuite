@@ -151,6 +151,84 @@ impl FileStore for HttpFileStore {
     }
 }
 
+/// WeldMeet's `MEETING_RECORDINGS` over the bridge: objects through
+/// `/object`, a prefix listing through `/list`.
+struct HttpRecordings(HttpFileStore);
+
+impl weldsuite_meet::RecordingsBucket for HttpRecordings {
+    fn head<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<Option<ObjectInfo>, PortError>> {
+        Box::pin(FileStore::head(&self.0, key))
+    }
+
+    fn get<'a>(
+        &'a self,
+        key: &'a str,
+        range: Option<(u64, u64)>,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<Option<Vec<u8>>, PortError>> {
+        Box::pin(async move {
+            let object = FileStore::get(&self.0, key).await?;
+            Ok(object.map(|object| match range {
+                Some((offset, length)) => {
+                    let start = usize::try_from(offset)
+                        .unwrap_or(usize::MAX)
+                        .min(object.bytes.len());
+                    let end = start
+                        .saturating_add(usize::try_from(length).unwrap_or(usize::MAX))
+                        .min(object.bytes.len());
+                    object.bytes[start..end].to_vec()
+                }
+                None => object.bytes,
+            }))
+        })
+    }
+
+    fn list<'a>(
+        &'a self,
+        prefix: &'a str,
+        cursor: Option<&'a str>,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<weldsuite_meet::Listed, PortError>> {
+        Box::pin(async move {
+            let encode =
+                |value: &str| form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>();
+            let mut url = format!("{}/list?prefix={}", self.0.base, encode(prefix));
+            if let Some(cursor) = cursor {
+                url.push_str("&cursor=");
+                url.push_str(&encode(cursor));
+            }
+            let response = self.0.send(self.0.client.get(url)).await?;
+            if !response.status().is_success() {
+                return Err(status_error(response.status()));
+            }
+            let bytes = response.bytes().await.map_err(PortError::backend)?;
+            let body: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(PortError::backend)?;
+            let keys = body["keys"]
+                .as_array()
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let cursor = (body["truncated"] == serde_json::Value::Bool(true))
+                .then(|| body["cursor"].as_str().map(str::to_owned))
+                .flatten();
+            Ok(weldsuite_meet::Listed { keys, cursor })
+        })
+    }
+
+    fn delete_many<'a>(
+        &'a self,
+        keys: &'a [String],
+    ) -> weldsuite_ports::BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(FileStore::delete_many(&self.0, keys))
+    }
+}
+
 /// The bridge stores by URL, made once: a test file's buckets live as long
 /// as its process.
 #[derive(Default)]
@@ -160,6 +238,17 @@ pub(crate) struct BucketBridges {
 }
 
 impl BucketBridges {
+    /// The test's `MEETING_RECORDINGS`, or none.
+    pub(crate) fn meeting_recordings(
+        &self,
+        files: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_meet::RecordingsBucket>> {
+        files.get("MEETING_RECORDINGS").map(|url| {
+            Arc::new(HttpRecordings(HttpFileStore::new(url, self.client.clone())))
+                as Arc<dyn weldsuite_meet::RecordingsBucket>
+        })
+    }
+
     pub(crate) fn store(&self, url: &str) -> Arc<dyn DynFileStore> {
         let mut stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(
