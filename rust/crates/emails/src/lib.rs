@@ -22,7 +22,7 @@
 //!   brand and wrapped around the variant's content; the plain text is stored
 //!   per brand.
 //!
-//! The typed functions in [`sign`] choose flags and placeholders for each
+//! The typed functions in [`sign`] (and [`hr`]) choose flags and placeholders for each
 //! template the way its React component does; [`render`] is the generic entry.
 //!
 //! # Not supported yet
@@ -34,6 +34,7 @@ pub mod calendar;
 mod catalog;
 mod date;
 mod escape;
+pub mod hr;
 pub mod ics;
 pub mod portal;
 mod send;

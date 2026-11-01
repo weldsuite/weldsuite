@@ -16,22 +16,30 @@
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`bank_accounts`]: account numbers (sealed, revealed), the ledger account
 //!   behind a bank account; [`bank_matching`]: bank lines matched to
-//!   invoices, bills, payments and deposits.
+//!   invoices, bills, payments and deposits; [`bank_feeds`]: bank connections
+//!   through an aggregator (Plaid, Stripe Financial Connections, Ponto,
+//!   Enable Banking) and their sync.
 //! - [`contacts`]: the contact person of a company contact, the name and email
 //!   a document keeps of its contact.
 //! - [`vendor_tax`]: W-9 facts, the sealed TIN and ACH details of a vendor, the
 //!   online W-9 request tokens.
 //! - [`vies`]: EU VAT numbers against VIES (outbound), cached per tenant.
+//! - [`nacha`], [`checks`], [`positive_pay`], [`backup_withholding`]: vendor
+//!   payment runs: NACHA files, check printing and MICR, Positive Pay files,
+//!   24% backup withholding.
 //! - [`currency`], [`fx`]: exchange rates.
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
 pub mod address;
 pub mod attachments;
+pub mod backup_withholding;
 pub mod bad_debt;
 pub mod bank_accounts;
+pub mod bank_feeds;
 pub mod bank_matching;
 pub mod catch_up;
+pub mod checks;
 pub mod compliance;
 pub mod contacts;
 pub mod currency;
@@ -46,13 +54,17 @@ pub mod identifiers;
 pub mod invoice_html;
 pub mod js;
 pub mod jurisdictions;
+pub mod nacha;
+pub mod nexus;
 pub mod payments;
 pub mod payroll;
+pub mod positive_pay;
 pub mod posting;
 pub mod roles;
 pub mod sales_tax;
 pub mod table;
 pub mod tables;
 pub mod tax;
+pub mod tax_calendar;
 pub mod vendor_tax;
 pub mod vies;

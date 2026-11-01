@@ -278,3 +278,134 @@ export const reconciliationHistorySchema = z
 export const reconciliationReportSchema = z
   .object({ status: z.string(), version: z.number(), summary: z.record(z.unknown()), preview: z.boolean().optional() })
   .passthrough();
+
+// ── bank-feed connections ───────────────────────────────────────────────────
+
+/** What a provider can do (`ProviderCapabilities`). */
+export const bankFeedCapabilitiesSchema = z
+  .object({
+    regions: z.array(z.string()),
+    changeCursor: z.boolean(),
+    webhooks: z.boolean(),
+    pendingTransactions: z.boolean(),
+    maxHistoryDays: z.number(),
+    onDemandRefresh: z.boolean(),
+    accountTypes: z.array(z.string()),
+    consentTtlDays: z.number().optional(),
+  })
+  .passthrough();
+
+/** `GET /api/bank-connections/providers`: the providers on offer for a country. */
+export const bankFeedProvidersSchema = z.object({
+  country: z.string(),
+  providers: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(['plaid_link', 'stripe_fc', 'redirect']),
+      requiresInstitution: z.boolean(),
+      capabilities: bankFeedCapabilitiesSchema,
+    }),
+  ),
+});
+
+/** `GET /api/bank-connections/institutions`: a bank a provider can link. */
+export const bankFeedInstitutionSchema = z
+  .object({ id: z.string(), name: z.string(), country: z.string(), logoUrl: nullishString })
+  .passthrough();
+
+/** `POST /api/bank-connections/link-session`: what the client launcher needs. */
+export const bankFeedLinkSessionSchema = z
+  .object({
+    kind: z.enum(['plaid_link', 'stripe_fc', 'redirect']),
+    provider: z.string(),
+    historyDays: z.number(),
+    token: z.string().optional(),
+    clientSecret: z.string().optional(),
+    url: z.string().optional(),
+  })
+  .passthrough();
+
+/** A feed account on a connection (`ConnectionAccountView`). */
+export const bankFeedAccountViewSchema = z.object({
+  feedAccountId: z.string(),
+  name: z.string(),
+  mask: nullableString,
+  type: z.string(),
+  subtype: nullableString,
+  currency: z.string(),
+  status: z.string(),
+  bankAccountId: nullableString,
+  bankAccountName: nullableString,
+  syncFrom: nullableString,
+  suggestion: z
+    .object({ bankAccountId: z.string(), bankAccountName: z.string(), reason: z.enum(['fingerprint', 'iban', 'last4', 'name']) })
+    .nullable()
+    .optional(),
+});
+
+/** A connection (`ConnectionView`): never its tokens or full account numbers. */
+export const bankConnectionSchema = z
+  .object({
+    id: z.string(),
+    entityId: z.string(),
+    provider: z.string(),
+    institutionId: nullableString,
+    institutionName: nullableString,
+    status: z.string(),
+    lastSyncedAt: nullableString,
+    lastError: nullableString,
+    consentExpiresAt: nullableString,
+    historyDays: z.number().nullable(),
+    createdAt: z.string(),
+    capabilities: bankFeedCapabilitiesSchema.nullable(),
+    accounts: z.array(bankFeedAccountViewSchema),
+    warnings: z.array(z.object({ at: z.string(), code: z.string(), message: z.string() }).passthrough()),
+  })
+  .strict();
+
+/** `POST /api/bank-connections/complete`. */
+export const completedBankLinkSchema = z.object({
+  connection: bankConnectionSchema,
+  accounts: z.array(bankFeedAccountViewSchema),
+});
+
+/** `POST /api/bank-connections/:id/map-accounts`. */
+export const mappedBankFeedAccountsSchema = z.object({
+  connection: bankConnectionSchema,
+  mapped: z.array(z.object({ feedAccountId: z.string(), bankAccountId: z.string(), created: z.boolean() })),
+  syncStarted: z.boolean(),
+});
+
+/** One sync's outcome (`SyncOutcome`). */
+export const bankFeedSyncOutcomeSchema = z.object({
+  connectionId: z.string(),
+  status: z.string(),
+  skipped: z.enum(['not_found', 'not_active', 'in_progress', 'no_mapped_accounts']).optional(),
+  added: z.number(),
+  updated: z.number(),
+  removed: z.number(),
+  pending: z.number(),
+  pendingVoided: z.number(),
+  possibleDuplicates: z.number(),
+  autoReconciled: z.number(),
+  warnings: z.number(),
+  error: z.string().optional(),
+  retryable: z.boolean().optional(),
+});
+
+/** `POST /api/bank-connections/:id/sync`. */
+export const syncedBankConnectionSchema = z.object({
+  outcome: bankFeedSyncOutcomeSchema,
+  connection: bankConnectionSchema,
+});
+
+/** `GET /api/bank-connections/:id/pending`: a pending line the bank reported. */
+export const bankFeedPendingTransactionSchema = z.object({
+  id: z.string(),
+  bankAccountId: z.string(),
+  date: z.string(),
+  amount: z.string(),
+  currency: z.string(),
+  description: nullableString,
+  merchantName: nullableString,
+});

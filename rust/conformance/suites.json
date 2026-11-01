@@ -1695,6 +1695,31 @@
       ]
     },
     {
+      "name": "hr",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/employees.routes.test.ts",
+        "src/routes/weldhr/lifecycle.routes.test.ts",
+        "src/routes/weldhr/time.routes.test.ts",
+        "src/routes/weldhr/declarations.routes.test.ts",
+        "src/routes/weldhr/announcements.routes.test.ts",
+        "src/routes/weldhr/performance.routes.test.ts",
+        "src/routes/weldhr/me.routes.test.ts",
+        "src/routes/weldhr/payroll/payroll-setup.routes.test.ts",
+        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
       "name": "stash: warehouses, locations and records",
       "module": "stash",
       "workspace": "apps/workers/stash-api",
@@ -2059,6 +2084,32 @@
       ]
     },
     {
+      "name": "books: sales",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/invoices/integration.test.ts",
+        "src/routes/invoices/index.test.ts",
+        "src/routes/invoices/lifecycle.integration.test.ts",
+        "src/routes/invoice-templates/invoice-templates.integration.test.ts",
+        "src/routes/recurring-invoices/crud.integration.test.ts",
+        "src/routes/payments/payments.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/invoices/",
+        "apps/workers/books-api/src/routes/recurring-invoices/",
+        "apps/workers/books-api/src/routes/invoice-templates/",
+        "apps/workers/books-api/src/routes/payments/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-sales-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-sales.ts",
+        "rust/modules/books-sales/",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
       "name": "books: banking",
       "module": "books",
       "workspace": "apps/workers/books-api",
@@ -2068,7 +2119,8 @@
         "src/routes/bank-transactions/integration.test.ts",
         "src/routes/bank-transactions/matching.integration.test.ts",
         "src/routes/bank-deposits/bank-deposits.integration.test.ts",
-        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts"
+        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts",
+        "src/routes/bank-connections/bank-connections.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bank-accounts/",
@@ -2082,6 +2134,7 @@
         "packages/core/bank-feeds/src/",
         "packages/domains/books/src/",
         "packages/clients/app-api-client/src/schemas/books-banking-responses.ts",
+        "packages/clients/app-api-client/src/schemas/bank-connection-billing.ts",
         "packages/clients/core-api-client/src/schemas/bank-transactions.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-banking.ts",
         "rust/modules/books-banking/",
@@ -2107,7 +2160,8 @@
         "src/routes/accounting-documents/tax-form-ocr.integration.test.ts",
         "src/routes/accounting-documents/inbox.integration.test.ts",
         "src/routes/bills/integration.test.ts",
-        "src/routes/bills/lifecycle.integration.test.ts"
+        "src/routes/bills/lifecycle.integration.test.ts",
+        "src/routes/payment-runs/payment-runs.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bills/",
@@ -2134,28 +2188,32 @@
       ]
     },
     {
-      "name": "books: sales",
+      "name": "books: sales-tax",
       "module": "books",
       "workspace": "apps/workers/books-api",
       "tests": [
-        "src/routes/invoices/integration.test.ts",
-        "src/routes/invoices/index.test.ts",
-        "src/routes/invoices/lifecycle.integration.test.ts",
-        "src/routes/invoice-templates/invoice-templates.integration.test.ts",
-        "src/routes/recurring-invoices/crud.integration.test.ts",
-        "src/routes/payments/payments.integration.test.ts"
+        "src/routes/sales-tax-setup.integration.test.ts",
+        "src/routes/sales-tax-setup-crud.integration.test.ts",
+        "src/routes/tax-calendar/integration.test.ts",
+        "src/routes/sales-tax/reports.integration.test.ts",
+        "src/routes/tax-returns/integration.test.ts",
+        "src/routes/exemption-certificates/certificate-cure.integration.test.ts"
       ],
       "paths": [
-        "apps/workers/books-api/src/routes/invoices/",
-        "apps/workers/books-api/src/routes/recurring-invoices/",
-        "apps/workers/books-api/src/routes/invoice-templates/",
-        "apps/workers/books-api/src/routes/payments/",
+        "apps/workers/books-api/src/routes/sales-tax/",
+        "apps/workers/books-api/src/routes/sales-tax-agencies/",
+        "apps/workers/books-api/src/routes/sales-tax-jurisdictions/",
+        "apps/workers/books-api/src/routes/sales-tax-rules/",
+        "apps/workers/books-api/src/routes/sales-tax-zones/",
+        "apps/workers/books-api/src/routes/exemption-certificates/",
+        "apps/workers/books-api/src/routes/tax-returns/",
+        "apps/workers/books-api/src/routes/tax-calendar/",
+        "apps/workers/books-api/src/routes/sales-tax-setup.integration.test.ts",
+        "apps/workers/books-api/src/routes/sales-tax-setup-crud.integration.test.ts",
         "apps/workers/books-api/src/lib/",
         "apps/workers/books-api/src/services/",
         "packages/domains/books/src/",
-        "packages/clients/app-api-client/src/schemas/books-sales-responses.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-books-sales.ts",
-        "rust/modules/books-sales/",
+        "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/"
       ]
     },

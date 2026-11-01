@@ -87,7 +87,12 @@ struct Details {
     external_id: Option<String>,
 }
 
-fn counterparty_block<'a>(xml: &'a str, is_debit: bool, creditor: &str, debtor: &str) -> Option<&'a str> {
+fn counterparty_block<'a>(
+    xml: &'a str,
+    is_debit: bool,
+    creditor: &str,
+    debtor: &str,
+) -> Option<&'a str> {
     let pick = |tag: &str| block(xml, tag).filter(|b| !b.is_empty());
     if is_debit {
         pick(creditor).or_else(|| pick(debtor))
@@ -156,13 +161,18 @@ fn parse_entry(entry: &str) -> Option<Txn> {
     };
     let indicator = value(entry, "CdtDbtInd");
     let is_debit = indicator.as_deref() == Some("DBIT");
-    let signed = if is_debit { -amount.abs() } else { amount.abs() };
+    let signed = if is_debit {
+        -amount.abs()
+    } else {
+        amount.abs()
+    };
     let code = transaction_code(entry);
     let details = block(entry, "NtryDtls")
         .and_then(|d| block(d, "TxDtls"))
         .map(|tx| tx_details(tx, is_debit))
         .unwrap_or_default();
-    let description = or_else(details.description, || value(entry, "AddtlNtryInf")).unwrap_or_default();
+    let description =
+        or_else(details.description, || value(entry, "AddtlNtryInf")).unwrap_or_default();
     let external_id = filled(or_else(details.external_id, || value(entry, "AcctSvcrRef")));
     let end_to_end_id = details.end_to_end_id.filter(|e| e != "NOTPROVIDED");
     Some(Txn {
@@ -197,7 +207,8 @@ pub(crate) fn parse(content: &str) -> ParseResult {
         result.account_iban = Some(iban);
     }
     for balance in all_blocks(statement, "Bal") {
-        let kind = block(balance, "Tp").and_then(|tp| or_else(value(tp, "Cd"), || value(tp, "Prtry")));
+        let kind =
+            block(balance, "Tp").and_then(|tp| or_else(value(tp, "Cd"), || value(tp, "Prtry")));
         let Some(amount) = value(balance, "Amt") else {
             continue;
         };

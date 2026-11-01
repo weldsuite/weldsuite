@@ -38,6 +38,14 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/calendar.event.update.json"),
     ),
     (
+        "hr.bank-changed",
+        include_str!("../../../catalogs/emails/templates/hr.bank-changed.json"),
+    ),
+    (
+        "hr.payslip-ready",
+        include_str!("../../../catalogs/emails/templates/hr.payslip-ready.json"),
+    ),
+    (
         "portal.sign-in",
         include_str!("../../../catalogs/emails/templates/portal.sign-in.json"),
     ),

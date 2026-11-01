@@ -232,6 +232,10 @@ struct TestContext {
     /// Its Workflow bindings over HTTP (`conformance_workflows`).
     #[serde(default)]
     workflows: HashMap<String, String>,
+    /// Its service bindings over HTTP (`{ BOOKS_INTERNAL: url }`,
+    /// `conformance_books`).
+    #[serde(default)]
+    services: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -276,6 +280,8 @@ pub(crate) struct Pools {
     mail: crate::conformance_mail::MailBridges,
     /// The test's Workflow bindings.
     workflows: crate::conformance_workflows::WorkflowBridges,
+    /// The test's books-api binding (WeldHR's pay run journal).
+    books: crate::conformance_books::BooksBridges,
 }
 
 impl Pools {
@@ -339,6 +345,11 @@ impl Pools {
         extensions.insert(weldsuite_mail::scheduled::RequestScheduledRuns(
             self.workflows.scheduled_runs(&context.workflows),
         ));
+        // WeldHR's pay run journal goes to the test's `BOOKS_INTERNAL`, or
+        // nowhere (the journal is skipped, as without the binding).
+        if let Some(books) = self.books.request_books(&context.services) {
+            extensions.insert(books);
+        }
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),

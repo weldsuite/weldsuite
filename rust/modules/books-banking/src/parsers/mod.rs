@@ -53,8 +53,16 @@ impl Txn {
         if let Some(balance) = self.running_balance {
             out.insert("runningBalance".to_owned(), number_value(balance));
         }
-        put(&mut out, "counterpartyName", self.counterparty_name.as_ref());
-        put(&mut out, "counterpartyIban", self.counterparty_iban.as_ref());
+        put(
+            &mut out,
+            "counterpartyName",
+            self.counterparty_name.as_ref(),
+        );
+        put(
+            &mut out,
+            "counterpartyIban",
+            self.counterparty_iban.as_ref(),
+        );
         put(&mut out, "counterpartyBic", self.counterparty_bic.as_ref());
         put(&mut out, "reference", self.reference.as_ref());
         put(&mut out, "transactionCode", self.transaction_code.as_ref());
@@ -273,7 +281,10 @@ pub(crate) fn detect_format(content: &str, file_name: Option<&str>) -> &'static 
     {
         return "mt940";
     }
-    if trimmed.contains("<BkToCstmrStmt") || trimmed.contains("<Document") || trimmed.contains("camt.053") {
+    if trimmed.contains("<BkToCstmrStmt")
+        || trimmed.contains("<Document")
+        || trimmed.contains("camt.053")
+    {
         return "camt053";
     }
     let units: Vec<u16> = trimmed.encode_utf16().take(600).collect();
@@ -293,7 +304,11 @@ pub(crate) fn detect_format(content: &str, file_name: Option<&str>) -> &'static 
     let header = lines
         .iter()
         .any(|l| l.starts_with("01,") && l.trim_end_matches(is_space).ends_with('/'));
-    if header && lines.iter().any(|l| l.starts_with("02,") || l.starts_with("03,")) {
+    if header
+        && lines
+            .iter()
+            .any(|l| l.starts_with("02,") || l.starts_with("03,"))
+    {
         return "bai2";
     }
     "csv"
@@ -424,9 +439,15 @@ mod tests {
     #[test]
     fn formats_are_detected_from_the_content() {
         assert_eq!(detect_format(":20:STMT\n:25:NL91", None), "mt940");
-        assert_eq!(detect_format("<?xml?><Document><BkToCstmrStmt>", None), "camt053");
+        assert_eq!(
+            detect_format("<?xml?><Document><BkToCstmrStmt>", None),
+            "camt053"
+        );
         assert_eq!(detect_format("OFXHEADER:100\n<OFX>", Some("a.qfx")), "qfx");
-        assert_eq!(detect_format("<?OFX OFXHEADER=\"200\"?>\n<OFX>", None), "ofx");
+        assert_eq!(
+            detect_format("<?OFX OFXHEADER=\"200\"?>\n<OFX>", None),
+            "ofx"
+        );
         assert_eq!(
             detect_format("01,ABC,DEF,260301,0800,1,,,2/\n02,X,Y,1,260228/\n", None),
             "bai2"

@@ -12,6 +12,7 @@ mod accounting_contacts;
 mod accounting_documents;
 mod bills;
 mod ocr;
+mod payment_runs;
 mod public_w9;
 mod w9_requests;
 
@@ -43,6 +44,7 @@ where
             accounting_documents::router(state.clone(), gate),
         ),
         ("/bills", bills::router(state.clone(), gate)),
+        ("/payment-runs", payment_runs::router(state.clone(), gate)),
         ("/w9-requests", w9_requests::router(state.clone(), gate)),
     ]
 }

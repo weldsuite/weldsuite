@@ -53,6 +53,7 @@ import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileText } from './conformance-volatile';
+import { sameBody } from './conformance-binary';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import {
@@ -69,6 +70,13 @@ import {
   takeRustLedgerCalls,
 } from './ledger-bridge';
 import type { SendRecord } from './mime-record';
+import {
+  type ServiceCall,
+  recordTypeScriptServiceCalls,
+  serviceBindingUrls,
+  sortServiceCalls,
+  takeRustServiceCalls,
+} from './service-binding-bridge';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -156,6 +164,9 @@ export const FORWARDED_ENV = [
   'DATABASE_ENCRYPTION_KEY_V2',
   // WeldBooks: the platform page a W-9 request link points at.
   'PLATFORM_URL',
+  // WeldBooks payment runs: a test that makes the payments service fail after
+  // n payments (a vi.mock on the TypeScript side) hands Rust the same n.
+  'CONFORMANCE_FAIL_RECORD_PAYMENT_AFTER',
   // WeldMail: the outbound guard's staff API secret, and whether the worker
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
@@ -173,6 +184,11 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
+  // WeldHR: WeldSuite's ODB number in a loonaangifte, and the platform origin
+  // payroll mail links to (the keyring below also seals an employee's
+  // sensitive block and payroll bank details).
+  'NL_SOFTWARE_RELATION_NUMBER',
+  'APP_URL',
   // The workspace keyring: WeldStash opens the stored Sendcloud secret with it
   // (the pick-list ship action), WeldAds seals its connections' OAuth tokens
   // with it (`encryptField`), WeldCommerce opens stored credentials with it
@@ -195,13 +211,45 @@ export const FORWARDED_ENV = [
   'LEMLIST_API_KEY',
   'FINDYMAIL_API_KEY',
   'PROSPEO_API_KEY',
+  // WeldBooks bank feeds: the providers on offer per country, their webhook
+  // base, and each aggregator's credentials (Plaid, Stripe Financial
+  // Connections, Ponto, Enable Banking).
+  'BANK_FEED_PROVIDERS',
+  'BANK_FEED_WEBHOOK_URL',
+  'PLAID_CLIENT_ID',
+  'PLAID_SECRET',
+  'PLAID_ENV',
+  'PLAID_REDIRECT_URI',
+  'PLAID_COUNTRY_CODES',
+  'STRIPE_FC_SECRET_KEY',
+  'STRIPE_FC_API_VERSION',
+  'PONTO_CLIENT_ID',
+  'PONTO_CLIENT_SECRET',
+  'ENABLE_BANKING_APP_ID',
+  'ENABLE_BANKING_PRIVATE_KEY',
 ] as const;
+
+/**
+ * The test's own clock, when it fakes `Date` (`vi.useFakeTimers({ toFake:
+ * ['Date'] })` + `vi.setSystemTime(...)`): the route's "today" is the test's,
+ * so Rust gets it too (`CONFORMANCE_NOW`, read only by conformance builds of
+ * the routes that default a date to today). `performance` keeps the real
+ * clock, so a minute's difference means `Date` is faked.
+ */
+function fakedNow(): Record<string, string> {
+  const now = Date.now();
+  const real = performance.timeOrigin + performance.now();
+  return Math.abs(now - real) > 60_000 ? { CONFORMANCE_NOW: new Date(now).toISOString() } : {};
+}
 
 /** The test's env values the Rust server reads, as strings. */
 export function forwardedEnv(env: Record<string, unknown>): Record<string, string> {
-  return Object.fromEntries(
-    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
-  );
+  return {
+    ...Object.fromEntries(
+      FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
+    ),
+    ...fakedNow(),
+  };
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -220,6 +268,10 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
+  // WeldBooks payment runs: the NACHA file marks its run exported, and it, the
+  // MICR print data and the Positive Pay file log the account numbers they reveal.
+  /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
+  /^\/api\/payment-runs\/positive-pay(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -256,6 +308,8 @@ export interface SideEffects {
   ledger?: LedgerCall[];
   /** Calls to Workflow bindings (`EXECUTE_SEQUENCE`, ./workflow-bridge.ts). */
   workflows?: WorkflowCall[];
+  /** Calls over service bindings (`BOOKS_INTERNAL`, ./service-binding-bridge.ts). */
+  services?: ServiceCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -847,18 +901,22 @@ export async function recordOnlyRequest(
   const response = await run();
   if (target.reportDir) {
     const { file, test } = await currentTest();
+    const route = response.headers.get(ROUTE_HEADER);
+    // TypeScript's own answer against the route's registered schema, so a
+    // schema written for a module being ported is checked before Rust runs.
+    const { schema, schemaError } = checkSchema(method.toUpperCase(), route, await capture(response.clone()));
     await record(target.reportDir, {
       file,
       test,
       method: method.toUpperCase(),
       path: pathOf(input),
-      route: response.headers.get(ROUTE_HEADER),
+      route,
       tsStatus: response.status,
       rustStatus: null,
       match: true,
       difference: null,
-      schema: 'none',
-      schemaError: null,
+      schema,
+      schemaError,
     });
   }
   return response;
@@ -923,6 +981,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     ledgers: await ledgerUrls(env),
     // Its Workflow bindings (runs started and woken).
     workflows: await workflowUrls(env),
+    // Its service bindings (`BOOKS_INTERNAL`).
+    services: await serviceBindingUrls(env),
   };
 }
 
@@ -956,6 +1016,7 @@ async function runBoth(
   takeRustSends();
   takeRustLedgerCalls();
   takeRustWorkflowCalls();
+  takeRustServiceCalls();
 
   // The Hono app's run, its `waitUntil` work included, with its outbound calls,
   // its customer mail and its ledger calls.
@@ -964,9 +1025,10 @@ async function runBoth(
     const sends = recordTypeScriptSends(base);
     const ledger = recordTypeScriptLedgerCalls(sends.env);
     const workflows = recordTypeScriptWorkflowCalls(ledger.env);
+    const services = recordTypeScriptServiceCalls(workflows.env);
     const { result, calls } = await recordOutbound(async () => {
       // The test's own env when there was nothing to wrap, as before.
-      const ts = await runTypeScript(db, workflows.env === base ? env : workflows.env);
+      const ts = await runTypeScript(db, services.env === base ? env : services.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
@@ -977,6 +1039,7 @@ async function runBoth(
         outbound: sortOutbound(calls),
         ...mailEffects(sends.finish(), ledger.finish()),
         ...workflowEffects(workflows.finish()),
+        ...serviceEffects(services.finish()),
       },
       tsMail: request.sideEffects.lastMail(),
     };
@@ -993,6 +1056,7 @@ async function runBoth(
         outbound: sortOutbound(takeRustOutbound()),
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
         ...workflowEffects(takeRustWorkflowCalls()),
+        ...serviceEffects(takeRustServiceCalls()),
       },
       rustMail: side.mail,
     };
@@ -1054,6 +1118,11 @@ function workflowEffects(calls: WorkflowCall[]): Pick<SideEffects, 'workflows'> 
   return { workflows: [...calls].sort((a, b) => key(a).localeCompare(key(b))) };
 }
 
+/** Service binding calls as a side effect, present only when there were any. */
+function serviceEffects(calls: ServiceCall[]): Pick<SideEffects, 'services'> {
+  return calls.length > 0 ? { services: sortServiceCalls(calls) } : {};
+}
+
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
@@ -1074,8 +1143,9 @@ function compareRuns(
       normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
     );
     if (body) return body;
-  } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
-    // A body built with the current time (an XML message) is compared with that part masked.
+  } else if (!sameBody(route, ts.bytes, rust.bytes)) {
+    // PDFs by their drawing, generated files without the moment they were made (./conformance-binary.ts);
+    // a body built with the current time (an XML message) is compared with that part masked.
     const masked = maskVolatileText(method, route, ts.text);
     if (masked === null || masked !== maskVolatileText(method, route, rust.text)) return 'response bodies differ';
   }
