@@ -12,6 +12,7 @@
     "./schemas/tasks": "./src/schemas/tasks.ts",
     "./schemas/projects": "./src/schemas/projects.ts",
     "./schemas/flow-responses": "./src/schemas/flow-responses.ts",
+    "./schemas/weldconnect-workflow-actions": "./src/schemas/weldconnect-workflow-actions.ts",
     "./schemas/books-responses": "./src/schemas/books-responses.ts",
     "./schemas/mail-responses": "./src/schemas/mail-responses.ts",
     "./schemas/stash-responses": "./src/schemas/stash-responses.ts",

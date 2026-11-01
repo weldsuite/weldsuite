@@ -521,6 +521,7 @@ import { ADS_ROUTES } from './conformance-schemas-ads';
 import { SOCIAL_ROUTES } from './conformance-schemas-social';
 import { DATA_ROUTES } from './conformance-schemas-data';
 import { CONNECT_ROUTES } from './conformance-schemas-connect';
+import { CONNECT_ACTION_ROUTES } from './conformance-schemas-connect-actions';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
@@ -1376,6 +1377,7 @@ const ROUTES: RouteSchema[] = [
   ...SOCIAL_ROUTES,
   ...DATA_ROUTES,
   ...CONNECT_ROUTES,
+  ...CONNECT_ACTION_ROUTES,
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,

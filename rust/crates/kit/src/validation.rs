@@ -1154,6 +1154,13 @@ impl Format {
         }
     }
 
+    /// Whether `text` passes the format on its own (`z.string().email()
+    /// .safeParse(text).success` for [`Format::Email`]), for a `.refine()`
+    /// that checks it.
+    pub fn accepts(self, text: &str) -> bool {
+        self.matches(text)
+    }
+
     fn matches(self, text: &str) -> bool {
         match self {
             // Zod 3's email regex, minus its lookaheads (no leading dot, no

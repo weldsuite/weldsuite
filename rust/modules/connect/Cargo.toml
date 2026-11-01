@@ -10,11 +10,16 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-auth = { workspace = true }
+weldsuite-calendar-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-events = { workspace = true }
+weldsuite-flow-domain = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-notifications = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 weldsuite-subscribers = { workspace = true }

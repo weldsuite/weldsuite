@@ -46,7 +46,7 @@ pub(crate) fn hmac_hex(secret: &str, payload: &str) -> String {
 }
 
 /// `constantTimeEqual(a, b)` over UTF-16 units.
-fn constant_time_equal(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_equal(a: &str, b: &str) -> bool {
     let (a, b): (Vec<u16>, Vec<u16>) = (a.encode_utf16().collect(), b.encode_utf16().collect());
     if a.len() != b.len() {
         return false;

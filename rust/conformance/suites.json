@@ -2114,6 +2114,32 @@
       ]
     },
     {
+      "name": "connect: workflow actions",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/internal-workflow-actions/chat.test.ts",
+        "src/routes/internal-workflow-actions/contacts.test.ts",
+        "src/routes/internal-workflow-actions/create-task.test.ts",
+        "src/routes/internal-workflow-actions/crm-actions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/internal-workflow-actions/",
+        "apps/workers/connect-api/src/services/workflow-actions.ts",
+        "apps/workers/connect-api/src/services/workflow-owner.ts",
+        "packages/domains/crm/src/",
+        "packages/domains/chat/src/post-system-message.ts",
+        "packages/domains/flow/src/",
+        "packages/core/notifications/src/",
+        "packages/clients/app-api-client/src/schemas/weldconnect-workflow-actions.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-actions.ts",
+        "rust/modules/connect/",
+        "rust/crates/crm-domain/",
+        "rust/crates/chat-domain/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "connect: workflow integrations",
       "module": "connect",
       "workspace": "apps/workers/connect-api",

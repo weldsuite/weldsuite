@@ -687,9 +687,21 @@ pub async fn create_person_detailed(
     db: &PgPool,
     input: &Map<String, Value>,
 ) -> DomainResult<(Value, bool)> {
+    create_person_with(db, input, false).await
+}
+
+/// `createPersonDetailed(db, input, { allowDuplicateEmail })`: with
+/// `allow_duplicate_email` the email is not looked up, so a second person
+/// with it is inserted (WeldConnect's `create_contact` without
+/// `skipIfEmailExists`).
+pub async fn create_person_with(
+    db: &PgPool,
+    input: &Map<String, Value>,
+    allow_duplicate_email: bool,
+) -> DomainResult<(Value, bool)> {
     assert_valid_member_fields(db, input).await?;
     let email = text(input, "email").map(js_trim).unwrap_or_default();
-    if !email.is_empty() {
+    if !email.is_empty() && !allow_duplicate_email {
         let matches = find_people_by_email(db, email, None).await?;
         if let Some((id, _)) = matches.iter().find(|(_, in_crm)| *in_crm) {
             return Err(duplicate(id));

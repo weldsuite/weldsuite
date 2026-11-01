@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { Hono } from 'hono';
+import { conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -17,7 +17,7 @@ const published: Array<Record<string, unknown>> = [];
 
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getTenantDbForWorkspace: async () => db };
+  return { ...actual, getTenantDbForWorkspace: async () => conformanceTenantDb(db) };
 });
 
 vi.mock('@weldsuite/entity-events', async (importOriginal) => {
@@ -26,21 +26,29 @@ vi.mock('@weldsuite/entity-events', async (importOriginal) => {
     ...actual,
     publishEntityEventRaw: async (event: Record<string, unknown>) => {
       published.push(event);
+      // Still sent, so the conformance harness compares it with Rust's.
+      await actual.publishEntityEventRaw(event as never);
     },
   };
 });
 
 const { internalWorkflowActionsRoutes } = await import('./index');
 
+const SECRET = 'internal-secret-for-tests';
+const BASE = '/api/internal/workflow-actions';
+
+/** The routes behind their internal bearer, as connect-api's public mount serves them. */
 function app() {
-  const root = new Hono<{ Variables: { internalTrusted: boolean } }>();
-  root.use('*', async (c, next) => {
-    c.set('internalTrusted', true);
-    await next();
+  const { request } = createTestApp(BASE, internalWorkflowActionsRoutes as never, {
+    context: { tenantDb: db },
+    env: { INTERNAL_API_SECRET: SECRET } as never,
   });
-  root.route('/', internalWorkflowActionsRoutes as never);
   return (path: string, body: unknown) =>
-    root.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, {});
+    request(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify(body),
+    });
 }
 
 const actor = (ownerUserId: string) => ({ workspaceId: 'org_1', ownerUserId, triggeredBy: 'system', chainDepth: 1 });

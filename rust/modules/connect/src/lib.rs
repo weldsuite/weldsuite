@@ -41,6 +41,7 @@ mod triggers;
 mod variables;
 mod versions;
 mod webhooks;
+mod workflow_actions;
 mod workflow_integrations;
 mod workflows;
 
@@ -89,6 +90,7 @@ pub use runs::{
     RequestWorkflowRuns, WorkflowRuns,
 };
 pub use schedule_sweep::{ScheduleTenants, run_schedule_sweep};
+pub use workflow_actions::{WorkflowActionsState, router as workflow_actions_router};
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,
 /// for the routes and jobs that run outside a member's request.

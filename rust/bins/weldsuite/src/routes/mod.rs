@@ -325,13 +325,51 @@ fn connect_public(state: &AppState) -> Router<AppState> {
     if !mounts("connect") {
         return Router::new();
     }
-    let router = weldsuite_connect::public_router(connect_state(state));
+    let router = weldsuite_connect::public_router(connect_state(state)).merge(
+        weldsuite_connect::workflow_actions_router(workflow_actions_state(state)),
+    );
     #[cfg(feature = "conformance")]
     let router = router.route_layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),
         crate::conformance::public_tenant,
     ));
     router
+}
+
+/// The workspaces' tenant databases, by `workspaces.id` or Clerk org id.
+fn connect_tenants(state: &AppState) -> weldsuite_connect::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
+}
+
+/// WeldConnect's internal record actions (`/api/internal/workflow-actions/*`):
+/// events, realtime, the master database (the calendar's due index), the
+/// workspaces' databases and the env. Conformance builds take the test's
+/// env, tenant and master database per request.
+fn workflow_actions_state(state: &AppState) -> weldsuite_connect::WorkflowActionsState {
+    let conformance = cfg!(feature = "conformance");
+    let mut env = std::collections::HashMap::new();
+    for name in ["INTERNAL_API_SECRET", "PERMISSIONS_APP_ENFORCE"] {
+        if let Ok(value) = std::env::var(name) {
+            env.insert(name.to_owned(), value);
+        }
+    }
+    weldsuite_connect::WorkflowActionsState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        tenants: Some(connect_tenants(state)),
+        env: Arc::new(env),
+    }
 }
 
 /// WeldConnect's handle on the app: events, the cache (the webhook

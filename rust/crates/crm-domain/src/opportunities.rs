@@ -525,3 +525,60 @@ pub async fn live_opportunity(
     .await?;
     Ok(row.map(drizzle_row))
 }
+
+/// What [`move_opportunity_stage`] answers: the deal after the move
+/// (`{ ...existing, ...update }`) and the events the move derives.
+#[derive(Debug, Clone)]
+pub struct MovedStage {
+    pub row: Map<String, Value>,
+    pub events: Vec<UpdateEvent>,
+}
+
+/// `UnknownPipelineStageError`'s message.
+pub fn unknown_stage_message(stage_id: &str) -> String {
+    format!("Unknown pipeline stage {stage_id}")
+}
+
+/// `moveOpportunityStage(db, dealId, stageId, ownerScope)` (WeldConnect's
+/// `move_deal_stage`): the deal onto another stage, with status, close date
+/// and probability kept in step as the PATCH route does. `None` when the
+/// deal isn't there (or is outside the owner scope); a stage that doesn't
+/// exist is [`DomainError::BadRequest`] with [`unknown_stage_message`].
+pub async fn move_opportunity_stage(
+    db: &PgPool,
+    deal_id: &str,
+    stage_id: &str,
+    owner_scope: Option<&str>,
+) -> DomainResult<Option<MovedStage>> {
+    let Some(existing) = live_opportunity(db, deal_id, owner_scope).await? else {
+        return Ok(None);
+    };
+    let mut update = Map::new();
+    update.insert("updatedAt".into(), json!(now()));
+    let mut target = None;
+    if existing.get("stageId").and_then(Value::as_str) != Some(stage_id) {
+        let Some(flags) = load_stage(db, stage_id).await? else {
+            return Err(DomainError::BadRequest(unknown_stage_message(stage_id)));
+        };
+        update.insert("stageId".into(), json!(stage_id));
+        update.insert("stage".into(), json!(flags.id));
+        target = Some(flags);
+    }
+    let mut data = Map::new();
+    data.insert("stageId".into(), json!(stage_id));
+    sync_status_with_stage(db, &existing, &data, &mut update, target.as_ref()).await?;
+    sqlx::query(crate::update_sql!(
+        crm_opportunities,
+        "where t.id = $1 and t.deleted_at is null"
+    ))
+    .bind(deal_id)
+    .bind(CRM_OPPORTUNITIES.set(&update))
+    .execute(db)
+    .await?;
+    let mut row = existing.as_object().cloned().unwrap_or_default();
+    for (key, value) in &update {
+        row.insert(key.clone(), value.clone());
+    }
+    let events = opportunity_update_events(deal_id, &existing, &update);
+    Ok(Some(MovedStage { row, events }))
+}
