@@ -27,6 +27,8 @@
 //!   24% backup withholding.
 //! - [`currency`], [`fx`]: exchange rates.
 //! - [`reports_basis`]: the ledger the reports read (accrual or cash) and their periods.
+//! - [`depreciation`]: fixed asset depreciation (book methods, MACRS, section 179,
+//!   bonus, the mid-quarter test, gain on disposal).
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
@@ -42,6 +44,7 @@ pub mod compliance;
 pub mod contacts;
 pub mod currency;
 pub mod dates;
+pub mod depreciation;
 pub mod document_posting;
 pub mod entity_context;
 pub mod fiscal_year;
@@ -63,6 +66,6 @@ pub mod sales_tax;
 pub mod table;
 pub mod tables;
 pub mod tax;
+pub mod tax_calendar;
 pub mod vendor_tax;
 pub mod vies;
-pub mod tax_calendar;

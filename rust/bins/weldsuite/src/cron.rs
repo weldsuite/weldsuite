@@ -10,8 +10,9 @@
 //!   auto-scheduled task events whose start slipped into the past
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
 //! - `books-sweep` (daily, 03:00 UTC): WeldBooks' overdue invoices, due
-//!   recurring invoices and the day's ECB rates, in every workspace that
-//!   used books (`apps/workers/books-api/src/cron/books-sweep.ts`).
+//!   recurring invoices, the day's ECB rates and the fixed assets'
+//!   depreciation due, in every workspace that used books
+//!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
 //! - `identity-sync` (every minute): the identity provider's changes into
@@ -330,6 +331,8 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     totals.recurring_generated += swept.recurring_generated;
                     totals.recurring_failed += swept.recurring_failed;
                     totals.fx_rates += swept.fx_rates;
+                    totals.depreciation_posted += swept.depreciation_posted;
+                    totals.depreciation_skipped += swept.depreciation_skipped;
                 }
                 Ok::<_, String>(Some(next))
             }

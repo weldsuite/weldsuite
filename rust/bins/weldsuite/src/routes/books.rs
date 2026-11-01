@@ -103,6 +103,10 @@ pub(crate) struct TenantSweep {
     pub(crate) recurring_generated: usize,
     pub(crate) recurring_failed: usize,
     pub(crate) fx_rates: usize,
+    /// Depreciation entries posted (one per period per entity).
+    pub(crate) depreciation_posted: usize,
+    /// Depreciation periods skipped (a lock date, a closed period).
+    pub(crate) depreciation_skipped: usize,
 }
 
 impl TenantSweep {
@@ -112,6 +116,8 @@ impl TenantSweep {
             "recurringGenerated": self.recurring_generated,
             "recurringFailed": self.recurring_failed,
             "fxRates": self.fx_rates,
+            "depreciationPosted": self.depreciation_posted,
+            "depreciationSkipped": self.depreciation_skipped,
         })
     }
 }
@@ -119,8 +125,10 @@ impl TenantSweep {
 /// `sweepTenant(db, now, tax)` (books-api `cron/books-sweep.ts`): finalized
 /// invoices past due become overdue, due recurring invoices are generated (one
 /// period per schedule per run) as the system, and today's ECB rates are
-/// stored. The tax reminders (the US sales-tax area) and the monthly
-/// depreciation (fixed assets) join here when those areas are ported.
+/// stored; then the depreciation of fixed assets due through the end of last
+/// month is posted (`runMonthlyDepreciation`: a locked period is skipped, a
+/// failure is logged and never fails the tenant). The US tax reminders join
+/// here when the sales-tax area has ported the services they read.
 pub(crate) async fn sweep_tenant(
     db: &PgPool,
     books: &BooksState,
@@ -194,6 +202,27 @@ pub(crate) async fn sweep_tenant(
             Ok(stored) => result.fx_rates = stored,
             Err(error) => tracing::warn!(%error, "books-sweep: FX rates not stored"),
         }
+    }
+
+    // Depreciation due through the end of last month (UTC).
+    let today: String = at.chars().take(10).collect();
+    let through = weldsuite_books_reports::last_completed_month_end(&today);
+    match weldsuite_books_reports::run_monthly_depreciation(db, None, &through).await {
+        Ok(runs) => {
+            for entity in &runs {
+                result.depreciation_posted += entity.run.posted.len();
+                result.depreciation_skipped += entity.run.skipped.len();
+            }
+            if !runs.is_empty() {
+                tracing::info!(
+                    entities = runs.len(),
+                    posted = result.depreciation_posted,
+                    skipped = result.depreciation_skipped,
+                    "books-sweep: depreciation"
+                );
+            }
+        }
+        Err(error) => tracing::error!(%error, "books-sweep: depreciation failed"),
     }
     Ok(result)
 }

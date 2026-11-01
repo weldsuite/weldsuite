@@ -10,6 +10,7 @@
 
 mod dashboard;
 mod exports;
+mod fixed_assets;
 mod ordered;
 mod payroll;
 mod reports;
@@ -17,6 +18,9 @@ mod reports;
 use std::sync::Arc;
 
 use axum::Router;
+pub use fixed_assets::{
+    EntityRun as DepreciationRun, last_completed_month_end, run_monthly_depreciation,
+};
 pub use weldsuite_books_domain::http::BooksState;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
@@ -37,6 +41,7 @@ where
             dashboard::router(state.clone(), gate),
         ),
         ("/accounting-exports", exports::router(state.clone(), gate)),
+        ("/fixed-assets", fixed_assets::router(state.clone(), gate)),
         ("/payroll", payroll::router(state.clone(), gate)),
     ]
 }
