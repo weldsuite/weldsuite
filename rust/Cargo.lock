@@ -3991,10 +3991,15 @@ name = "weldsuite-books-domain"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "hex",
  "http",
  "icu_collator",
+ "regex",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "time",
  "tokio",

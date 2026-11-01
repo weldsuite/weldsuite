@@ -16,6 +16,11 @@
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`bank_accounts`]: account numbers (sealed, revealed), the ledger account
 //!   behind a bank account.
+//! - [`contacts`]: the contact person of a company contact, the name and email
+//!   a document keeps of its contact.
+//! - [`vendor_tax`]: W-9 facts, the sealed TIN and ACH details of a vendor, the
+//!   online W-9 request tokens.
+//! - [`vies`]: EU VAT numbers against VIES (outbound), cached per tenant.
 //! - [`currency`], [`fx`]: exchange rates.
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
@@ -25,6 +30,7 @@ pub mod bad_debt;
 pub mod bank_accounts;
 pub mod catch_up;
 pub mod compliance;
+pub mod contacts;
 pub mod currency;
 pub mod dates;
 pub mod document_posting;
@@ -44,3 +50,5 @@ pub mod sales_tax;
 pub mod table;
 pub mod tables;
 pub mod tax;
+pub mod vendor_tax;
+pub mod vies;
