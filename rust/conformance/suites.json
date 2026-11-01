@@ -2083,6 +2083,29 @@
         "rust/modules/books-sales/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "books: reports",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/accounting-reports/reports.integration.test.ts",
+        "src/routes/accounting-dashboard/dashboard.integration.test.ts",
+        "src/routes/accounting-exports/xaf-ciphertext.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/accounting-reports/",
+        "apps/workers/books-api/src/routes/accounting-dashboard/",
+        "apps/workers/books-api/src/routes/accounting-exports/",
+        "apps/workers/books-api/src/routes/fixed-assets/",
+        "apps/workers/books-api/src/routes/form-1099/",
+        "apps/workers/books-api/src/routes/payroll/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "rust/modules/books-reports/",
+        "rust/crates/books-domain/"
+      ]
     }
   ]
 }

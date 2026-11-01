@@ -15,6 +15,7 @@
 //!   invoices, bills, payments and write-offs post, and the ledger catch-up.
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`currency`], [`fx`]: exchange rates.
+//! - [`reports_basis`]: the ledger the reports read (accrual or cash) and their periods.
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
@@ -39,6 +40,7 @@ pub mod jurisdictions;
 pub mod payments;
 pub mod payroll;
 pub mod posting;
+pub mod reports_basis;
 pub mod roles;
 pub mod sales_tax;
 pub mod table;
