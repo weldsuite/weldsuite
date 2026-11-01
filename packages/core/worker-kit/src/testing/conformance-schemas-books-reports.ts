@@ -1,6 +1,6 @@
 /**
  * WeldBooks reports and US compliance (books-api's accounting reports,
- * dashboard, payroll and fixed assets) response schemas, by route. Spread into
+ * dashboard, payroll, fixed assets and form 1099) response schemas, by route. Spread into
  * BOOKS_ROUTES by conformance-schemas-books.ts. The CSV report downloads and
  * the XAF export are files, not JSON, so they have no schema.
  */
@@ -19,7 +19,15 @@ import {
   fixedAssetRegisterSchema,
   fixedAssetScheduleSchema,
   fixedAssetWriteResultSchema,
+  form1099CopiesSchema,
+  form1099DeadlinesResponseSchema,
+  form1099FilingDetailSchema,
+  form1099FilingSchema,
+  form1099SummarySchema,
+  form1099VendorDetailSchema,
+  form945SummarySchema,
   generalLedgerReportSchema,
+  irisFilesSchema,
   midQuarterTestSchema,
   payrollCategorySchema,
   payrollConnectionSchema,
@@ -32,6 +40,8 @@ import {
   taxDepreciationReportSchema,
   taxSummaryReportSchema,
   taxWorksheetSchema,
+  tinMatchingFileSchema,
+  tinMatchingResultsSchema,
   trialBalanceReportSchema,
 } from '@weldsuite/app-api-client/schemas/books-reports-responses';
 import type { RouteSchema } from './conformance-schemas';
@@ -39,6 +49,8 @@ import type { RouteSchema } from './conformance-schemas';
 const REPORTS = '/api/accounting-reports';
 const PAYROLL = '/api/payroll';
 const ASSETS = '/api/fixed-assets';
+const F1099 = '/api/form-1099';
+const FILINGS = '/api/form-1099/filings';
 
 export const BOOKS_REPORTS_ROUTES: RouteSchema[] = [
   // accounting reports (json and print; csv is a file)
@@ -80,4 +92,25 @@ export const BOOKS_REPORTS_ROUTES: RouteSchema[] = [
   { method: 'GET', route: `${ASSETS}/:id/schedule`, envelope: 'single', data: fixedAssetScheduleSchema },
   { method: 'PATCH', route: `${ASSETS}/:id`, envelope: 'single', data: fixedAssetWriteResultSchema },
   { method: 'POST', route: `${ASSETS}/:id/dispose`, envelope: 'single', data: fixedAssetDisposalSchema },
+  // form 1099
+  { method: 'GET', route: `${F1099}/summary`, envelope: 'single', data: form1099SummarySchema },
+  { method: 'GET', route: `${F1099}/vendors/:partyId`, envelope: 'single', data: form1099VendorDetailSchema },
+  { method: 'GET', route: `${F1099}/deadlines`, envelope: 'single', data: form1099DeadlinesResponseSchema },
+  { method: 'GET', route: `${F1099}/945`, envelope: 'single', data: form945SummarySchema },
+  { method: 'GET', route: `${F1099}/tin-matching/file`, envelope: 'single', data: tinMatchingFileSchema },
+  { method: 'POST', route: `${F1099}/tin-matching/results`, envelope: 'single', data: tinMatchingResultsSchema },
+  { method: 'GET', route: FILINGS, envelope: 'list', data: form1099FilingSchema },
+  { method: 'POST', route: FILINGS, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'GET', route: `${FILINGS}/:id`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'PATCH', route: `${FILINGS}/:id`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'POST', route: `${FILINGS}/:id/refresh`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'PATCH', route: `${FILINGS}/:id/lines/:lineId`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'POST', route: `${FILINGS}/:id/review`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'POST', route: `${FILINGS}/:id/generate`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'GET', route: `${FILINGS}/:id/iris-csv`, envelope: 'single', data: irisFilesSchema },
+  { method: 'POST', route: `${FILINGS}/:id/iris-csv`, envelope: 'single', data: irisFilesSchema },
+  { method: 'GET', route: `${FILINGS}/:id/lines/:lineId/copies`, envelope: 'single', data: form1099CopiesSchema },
+  { method: 'POST', route: `${FILINGS}/:id/mark-filed`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'POST', route: `${FILINGS}/:id/lines/:lineId/correct`, envelope: 'single', data: form1099FilingDetailSchema },
+  { method: 'POST', route: `${FILINGS}/:id/lines/:lineId/delivered`, envelope: 'single', data: form1099FilingDetailSchema },
 ];

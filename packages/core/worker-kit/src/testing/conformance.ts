@@ -279,6 +279,11 @@ const WRITING_READS: RegExp[] = [
   // MICR print data and the Positive Pay file log the account numbers they reveal.
   /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
   /^\/api\/payment-runs\/positive-pay(\?|$)/,
+  // WeldBooks 1099: the IRIS file, the TIN Matching file and the form copies
+  // log the TINs they reveal (tax_id_reveals).
+  /^\/api\/form-1099\/filings\/[^/?]+\/iris-csv(\?|$)/,
+  /^\/api\/form-1099\/filings\/[^/?]+\/lines\/[^/?]+\/copies(\?|$)/,
+  /^\/api\/form-1099\/tin-matching\/file(\?|$)/,
 ];
 
 interface ConformanceContext {

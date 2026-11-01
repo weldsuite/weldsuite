@@ -609,3 +609,159 @@ export const deMinimisCheckSchema = z.object({
   advice: z.enum(['expense', 'capitalize']),
   explanation: z.string(),
 });
+
+// ---------------------------------------------------------------------------
+// Form 1099
+
+const boxAmountsSchema = z.record(z.number());
+
+/** A vendor row of the yearly 1099 review: the last four of the TIN only. */
+export const form1099VendorRowSchema = z
+  .object({
+    partyId: z.string(),
+    name: z.string(),
+    legalName: z.string(),
+    status: z.enum(['included', 'below_threshold', 'excluded_corporation', 'needs_tin', 'needs_address', 'not_1099_vendor']),
+    reasons: z.array(z.string()),
+    forms: z.array(z.enum(['nec', 'misc'])),
+    boxes: boxAmountsSchema,
+    totals: boxAmountsSchema,
+    aboveThreshold: z.boolean(),
+    isCorporation: z.boolean(),
+    tinLast4: nullableString,
+    tinMasked: nullableString,
+    hasTin: z.boolean(),
+    backupWithholding: z.boolean(),
+    suggestBackupWithholding: z.boolean(),
+    addressComplete: z.boolean(),
+    excluded: z.object({ cardOrNetwork: z.number(), creditCardAccount: z.number(), payroll: z.number(), omittedBox: z.number() }),
+    unmappedAmount: z.number(),
+    paymentCount: z.number(),
+    bankTransactionCount: z.number(),
+  })
+  .passthrough();
+
+const form1099DeadlinesSchema = z
+  .object({
+    taxYear: z.number(),
+    nec: z.object({ recipient: z.string(), irs: z.string() }),
+    misc: z.object({ recipient: z.string(), recipientBoxes8And10: z.string(), irsPaper: z.string(), irsElectronic: z.string() }),
+    form945: z.string(),
+  })
+  .passthrough();
+
+export const form1099SummarySchema = z.object({
+  taxYear: z.number(),
+  entityId: z.string(),
+  thresholds: z.object({
+    published: z.boolean(),
+    general: z.number().nullable(),
+    royalty: z.number().nullable(),
+    fixed600: z.number().nullable(),
+    boxes: z.record(z.number().nullable()),
+  }),
+  deadlines: form1099DeadlinesSchema,
+  summary: z.record(z.number()),
+  totals: z.object({ nec: z.number(), misc: z.number(), withheld: z.number() }),
+  vendors: z.array(form1099VendorRowSchema),
+  warnings: z.array(z.string()),
+});
+
+export const form1099VendorDetailSchema = z.object({
+  taxYear: z.number(),
+  vendor: form1099VendorRowSchema,
+  contributions: z.array(z.object({ box: z.string(), amount: z.number(), boxSource: z.string(), unapplied: z.boolean() }).passthrough()),
+  exclusions: z.array(z.object({ reason: z.string(), amount: z.number(), paymentMethod: nullableString }).passthrough()),
+  unmapped: z.array(z.object({ reason: z.string(), amount: z.number() }).passthrough()),
+  adjustments: z.array(z.object({ partyId: z.string(), box: z.string(), amount: z.number(), reason: z.string() }).passthrough()),
+  warnings: z.array(z.string()),
+});
+
+export const form1099DeadlinesResponseSchema = form1099DeadlinesSchema.extend({
+  eFile: z.object({ requiredFrom: z.number(), waiverRequestDays: z.number(), necWaiverDeadline: z.string(), miscWaiverDeadline: z.string() }),
+});
+
+export const form945SummarySchema = z.object({
+  taxYear: z.number(),
+  backupWithholding: z.number(),
+  totalTaxes: z.number(),
+  months: z.array(z.object({ month: z.number(), amount: z.number(), depositDue: z.string() })),
+  byVendor: z.array(z.object({ partyId: z.string(), amount: z.number(), paymentIds: z.array(z.string()), name: nullableString })),
+  dueDate: z.string(),
+});
+
+export const tinMatchingFileSchema = z.object({
+  files: z.array(z.object({ filename: z.string(), content: z.string(), recordCount: z.number() })),
+  recordCount: z.number(),
+  skipped: z.array(z.object({ partyId: z.string(), reason: z.string(), name: nullableString })),
+});
+
+export const tinMatchingResultsSchema = z.object({
+  updated: z.array(z.string()),
+  byStatus: z.record(z.number()),
+  problems: z.array(z.object({ partyId: z.string(), name: nullableString, status: z.string(), backupWithholding: z.boolean(), suggestion: z.string() })),
+  stale: z.array(z.object({ partyId: z.string(), name: nullableString })),
+  unknownAccounts: z.array(z.object({ line: z.number(), accountNumber: z.string() })),
+  ignored: z.array(z.object({ line: z.number(), code: z.number(), reason: z.string() })),
+  unreadable: z.array(z.object({ line: z.number(), text: z.string() })),
+});
+
+/** A `form_1099_filings` row with its totals. */
+export const form1099FilingSchema = z
+  .object({
+    id: z.string(),
+    entityId: z.string(),
+    taxYear: z.number(),
+    formType: z.enum(['nec', 'misc']),
+    status: z.enum(['draft', 'reviewed', 'generated', 'filed', 'corrected']),
+    lineCount: z.number(),
+    totals: z.object({ amount: z.number(), withheld: z.number() }),
+    statusCounts: z.record(z.number()),
+  })
+  .passthrough();
+
+/** A filing line as the API shows it: never the sealed TIN. */
+const form1099LineSchema = z
+  .object({
+    id: z.string(),
+    filingId: z.string(),
+    partyId: z.string(),
+    status: z.string(),
+    boxes: boxAmountsSchema,
+    hasTin: z.boolean(),
+    partyName: nullableString,
+    superseded: z.boolean(),
+    pendingCorrection: z.boolean(),
+    stateHint: z.object({ state: z.string(), direct: z.string(), needsDirectFiling: z.boolean() }).passthrough().nullable(),
+  })
+  .passthrough()
+  .refine((line) => !('recipientTinEncrypted' in line), 'the sealed TIN left the API');
+
+export const form1099FilingDetailSchema = z.object({ filing: form1099FilingSchema, lines: z.array(form1099LineSchema) }).passthrough();
+
+export const irisFilesSchema = z.object({
+  files: z.array(z.object({ filename: z.string(), content: z.string(), recordCount: z.number(), warnings: z.array(z.string()) })),
+  taxYear: z.number(),
+  formType: z.enum(['nec', 'misc']),
+  correctionsOnly: z.boolean(),
+});
+
+export const form1099CopiesSchema = z.object({
+  taxYear: z.number(),
+  formType: z.enum(['nec', 'misc']),
+  lineId: z.string(),
+  recipientTin: z.string(),
+  copies: z.array(
+    z
+      .object({
+        form: z.enum(['nec', 'misc']),
+        copy: z.enum(['B', '1', '2', 'C']),
+        title: z.string(),
+        fields: z.array(z.object({ id: z.string(), label: z.string(), value: z.string(), kind: z.string() }).passthrough()),
+        blocks: z.array(z.object({ id: z.string(), paragraphs: z.array(z.string()) }).passthrough()),
+        footer: z.string(),
+      })
+      .passthrough(),
+  ),
+  warnings: z.array(z.string()),
+});
