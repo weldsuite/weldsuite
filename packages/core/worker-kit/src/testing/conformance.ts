@@ -52,7 +52,7 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileText } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import {
@@ -1075,14 +1075,26 @@ function compareRuns(
     );
     if (body) return body;
   } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
-    return 'response bodies differ';
+    // A body built with the current time (an XML message) is compared with that part masked.
+    const masked = maskVolatileText(method, route, ts.text);
+    if (masked === null || masked !== maskVolatileText(method, route, rust.text)) return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read, and
   // so does what a route draws per run where its events carry it.
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
   const prepare = (effects: SideEffects) => {
     const normalized = own(effects);
-    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events) };
+    // Masked calls are sorted again: what was masked (a random secret) decided their order.
+    const outbound = normalized.outbound
+      ? [...maskVolatileOutbound(method, route, normalized.outbound)].sort((a, b) =>
+          JSON.stringify(normalizeForDiff(a, true)).localeCompare(JSON.stringify(normalizeForDiff(b, true))),
+        )
+      : undefined;
+    return {
+      ...normalized,
+      events: maskVolatileEvents(method, route, normalized.events),
+      ...(outbound ? { outbound } : {}),
+    };
   };
   const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;

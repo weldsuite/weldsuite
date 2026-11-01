@@ -130,13 +130,15 @@ async fn deliver(
         .get(http::header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .map_or(0.0, weldsuite_kit::validation::js_number);
+    // The body is read either way (up to a bound), so a refused upload isn't
+    // cut off mid-send.
+    let Ok(bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES * 16).await else {
+        return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
+    };
     #[allow(clippy::cast_precision_loss)]
     if declared > MAX_BODY_BYTES as f64 {
         return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
     }
-    let Ok(bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES * 4).await else {
-        return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
-    };
     let text = String::from_utf8_lossy(&bytes).into_owned();
     if text.len() > MAX_BODY_BYTES {
         return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");

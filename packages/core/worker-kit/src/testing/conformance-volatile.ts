@@ -30,6 +30,13 @@ interface VolatileRoute {
    * `ENTITY_EVENTS` message it sends (`data.duration`).
    */
   events?: VolatileField[];
+  /**
+   * The same values in the request's third-party calls: dot paths into each
+   * `{ method, url, body }` (`body.authorization`).
+   */
+  outbound?: VolatileField[];
+  /** A body that is not JSON (an XML download): the matches of each pattern. */
+  text?: Array<{ pattern: RegExp; replacement: string }>;
 }
 
 const ROUTES: VolatileRoute[] = [
@@ -165,6 +172,27 @@ const ROUTES: VolatileRoute[] = [
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
+  // WeldBooks VAT: a Digipoort filing reference (`WS-<Date.now() base 36>-<6 random>`) per run,
+  // the moment a status was asked, and the creation time inside an XBRL message built on request.
+  { method: 'POST', route: '/api/vat-returns/:id/file', fields: [{ path: 'data.kenmerk' }] },
+  { method: 'POST', route: '/api/icp-declarations/:id/file', fields: [{ path: 'data.kenmerk' }] },
+  { method: 'GET', route: '/api/vat-returns/:id/filing-status', fields: [{ path: 'data.timestamp' }] },
+  ...['/api/vat-returns/:id/xml', '/api/icp-declarations/:id/xml'].map((route) => ({
+    method: 'GET',
+    route,
+    fields: [],
+    text: [{ pattern: /<bd-i:DateTimeCreation contextRef="Msg">[^<]*</g, replacement: '<bd-i:DateTimeCreation contextRef="Msg"><volatile><' }],
+  })),
+  // WeldBooks Brazil: a Focus webhook registration draws a URL token and a secret (32 random bytes each).
+  {
+    method: 'PUT',
+    route: '/api/fiscal-documents/settings',
+    fields: [{ path: 'data.webhookUrl', pattern: /\/fiscal-webhooks\/[\w-]{43}$/g, replacement: '/fiscal-webhooks/<token>' }],
+    outbound: [
+      { path: 'body.url', pattern: /\/fiscal-webhooks\/[\w-]{43}$/g, replacement: '/fiscal-webhooks/<token>' },
+      { path: 'body.authorization' },
+    ],
+  },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {
@@ -197,6 +225,20 @@ export function maskVolatile(method: string, route: string | null, body: unknown
   const entry = entryFor(method, route);
   if (!entry) return body;
   return entry.fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), body);
+}
+
+/** The request's third-party calls with the route's volatile values masked. */
+export function maskVolatileOutbound(method: string, route: string | null, calls: unknown[]): unknown[] {
+  const fields = entryFor(method, route)?.outbound;
+  if (!fields?.length) return calls;
+  return calls.map((call) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), call));
+}
+
+/** A non-JSON body with the route's volatile parts masked; null for a route without text masks. */
+export function maskVolatileText(method: string, route: string | null, text: string): string | null {
+  const patterns = entryFor(method, route)?.text;
+  if (!patterns?.length) return null;
+  return patterns.reduce((masked, { pattern, replacement }) => masked.replace(pattern, replacement), text);
 }
 
 /** The request's entity events with the route's volatile values masked. */

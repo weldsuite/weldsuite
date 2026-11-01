@@ -16,6 +16,7 @@
     "./schemas/books-banking-responses": "./src/schemas/books-banking-responses.ts",
     "./schemas/books-sales-responses": "./src/schemas/books-sales-responses.ts",
     "./schemas/books-purchases-responses": "./src/schemas/books-purchases-responses.ts",
+    "./schemas/books-tax-responses": "./src/schemas/books-tax-responses.ts",
     "./schemas/mail-responses": "./src/schemas/mail-responses.ts",
     "./schemas/stash-responses": "./src/schemas/stash-responses.ts",
     "./schemas/tickets": "./src/schemas/tickets.ts",

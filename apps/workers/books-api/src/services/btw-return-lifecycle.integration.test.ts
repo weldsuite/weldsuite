@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { buildComplianceNotices } from '@weldsuite/books-domain/accounting-compliance';
@@ -231,7 +232,11 @@ describe('VIES outage during finalize', () => {
     const outage = vi.fn().mockImplementation(async () =>
       new Response(JSON.stringify({ valid: false, actionSucceed: false, errorWrappers: [{ error: 'MS_MAX_CONCURRENT_REQ' }] }), { status: 200 }),
     );
-    vi.stubGlobal('fetch', outage);
+    // Only VIES is stubbed: the conformance harness's own loopback calls go out as before.
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes('ec.europa.eu') ? outage(input, init) : realFetch(input, init),
+    );
 
     const created = await call('/api/invoices', invoicesRoutes, '/api/invoices', 'POST', {
       contactId: 'pty_fr',
@@ -243,8 +248,8 @@ describe('VIES outage during finalize', () => {
     const res = await call('/api/invoices', invoicesRoutes, `/api/invoices/${created.data.id}/finalize`, 'POST');
     expect(res.status).toBe(200);
     expect(JSON.stringify(res.data.warnings ?? [])).toContain('VIES is currently unavailable');
-    // Retried once on the throttling error, then given up on.
-    expect(outage).toHaveBeenCalledTimes(2);
+    // Retried once on the throttling error, then given up on (by each backend in a conformance run).
+    expect(outage).toHaveBeenCalledTimes(2 * (conformanceTarget() ? 2 : 1));
     const cached = await db.select().from(schema.viesChecks).where(eq(schema.viesChecks.vatNumber, 'FR12345678901'));
     expect(cached).toHaveLength(0);
   }, 20_000);
