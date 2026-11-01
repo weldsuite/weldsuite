@@ -29,8 +29,29 @@ import { serveOnLoopback } from './bucket-bridge';
 export interface OutboundCall {
   method: string;
   url: string;
-  /** The body as JSON when it parses, else the text; null without one. */
+  /**
+   * The body as JSON when it parses, the fields of a form body
+   * (`a=1&b%5B0%5D=2`, Stripe's API), else the text; null without one.
+   */
   body: unknown;
+}
+
+/** `key=value` pairs joined by `&`, nothing else: an `application/x-www-form-urlencoded` body. */
+const FORM_BODY = /^[^=&\s]+=[^&\s]*(?:&[^=&\s]+=[^&\s]*)*$/;
+
+/**
+ * A form body's fields, so the values in it compare like JSON's (a generated
+ * id in `line_items[0][reference]` is masked as one); a repeated key keeps
+ * every value, in order.
+ */
+function formFields(text: string): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [key, value] of new URLSearchParams(text)) {
+    const seen = out[key];
+    if (seen === undefined) out[key] = value;
+    else out[key] = Array.isArray(seen) ? [...seen, value] : [seen, value];
+  }
+  return out;
 }
 
 function bodyOf(text: string | null | undefined): unknown {
@@ -38,7 +59,7 @@ function bodyOf(text: string | null | undefined): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return text;
+    return FORM_BODY.test(text) ? formFields(text) : text;
   }
 }
 

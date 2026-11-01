@@ -2186,6 +2186,36 @@
           "reason": "Reads the document with a model on Workers AI (@weldsuite/ai); the Kubernetes editions have no AI port. Rust answers the refusals (401, 404, a tax form) as TypeScript does and 503 where it would call the model; /config.json lists books-ocr as unavailable and the platform leaves uploads pending for manual booking."
         }
       ]
+    },
+    {
+      "name": "books: sales-tax",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/sales-tax-setup.integration.test.ts",
+        "src/routes/sales-tax-setup-crud.integration.test.ts",
+        "src/routes/tax-calendar/integration.test.ts",
+        "src/routes/sales-tax/reports.integration.test.ts",
+        "src/routes/tax-returns/integration.test.ts",
+        "src/routes/exemption-certificates/certificate-cure.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/sales-tax/",
+        "apps/workers/books-api/src/routes/sales-tax-agencies/",
+        "apps/workers/books-api/src/routes/sales-tax-jurisdictions/",
+        "apps/workers/books-api/src/routes/sales-tax-rules/",
+        "apps/workers/books-api/src/routes/sales-tax-zones/",
+        "apps/workers/books-api/src/routes/exemption-certificates/",
+        "apps/workers/books-api/src/routes/tax-returns/",
+        "apps/workers/books-api/src/routes/tax-calendar/",
+        "apps/workers/books-api/src/routes/sales-tax-setup.integration.test.ts",
+        "apps/workers/books-api/src/routes/sales-tax-setup-crud.integration.test.ts",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "rust/modules/books-sales-tax/",
+        "rust/crates/books-domain/"
+      ]
     }
   ]
 }
