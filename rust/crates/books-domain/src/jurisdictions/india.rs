@@ -1,6 +1,14 @@
-//! India (`jurisdictions/in`): GSTIN and PAN checks, GST state codes.
+//! India (`jurisdictions/in`): GSTIN and PAN checks, GST state codes, and
+//! the CGST/SGST/IGST split of a GST slab ([`gst`]: `expandGstTaxBreakdown`).
 
 use super::{DATA, TaxIdValidation, strip};
+
+pub mod gst;
+
+pub use gst::{
+    GST_FOREIGN_COUNTRY_CODE, GST_STATES, GstExpansion, GstState, expand_gst_tax_breakdown,
+    gst_state_code_from_text, gst_state_name, has_slab_components, uses_utgst,
+};
 
 const GSTIN_ALPHABET: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 

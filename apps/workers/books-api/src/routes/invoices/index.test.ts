@@ -1,24 +1,33 @@
 /**
  * Auth + validation gates for /api/invoices. See `tickets/index.test.ts`
  * for the rationale (routes without a service layer can only test the
- * pre-DB gates without pglite).
+ * pre-DB gates; the database is an empty pglite one).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { invoicesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
+
+// A real (empty) tenant database, so the conformance run can ask Rust too.
+let db: Database;
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+}, 60_000);
 
 describe('/api/invoices · auth gates', () => {
   it('GET / returns 403 without invoices:read', async () => {
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
-      context: { permissions: permissions() },
+      context: { permissions: permissions(), tenantDb: db },
     });
     expect((await request('/api/invoices')).status).toBe(403);
   });
 
   it('POST / returns 403 without invoices:create', async () => {
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
-      context: { permissions: permissions('invoices:read') },
+      context: { permissions: permissions('invoices:read'), tenantDb: db },
     });
     const res = await request('/api/invoices', {
       method: 'POST',
@@ -30,7 +39,7 @@ describe('/api/invoices · auth gates', () => {
 
   it('PATCH /:id returns 403 without invoices:update', async () => {
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
-      context: { permissions: permissions('invoices:read') },
+      context: { permissions: permissions('invoices:read'), tenantDb: db },
     });
     const res = await request('/api/invoices/inv_1', {
       method: 'PATCH',
@@ -42,7 +51,7 @@ describe('/api/invoices · auth gates', () => {
 
   it('DELETE /:id returns 403 without invoices:delete', async () => {
     const { request } = createTestApp('/api/invoices', invoicesRoutes, {
-      context: { permissions: permissions('invoices:read') },
+      context: { permissions: permissions('invoices:read'), tenantDb: db },
     });
     expect(
       (await request('/api/invoices/inv_1', { method: 'DELETE' })).status,

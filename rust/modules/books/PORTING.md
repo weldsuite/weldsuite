@@ -303,13 +303,14 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | done: addresses, `roles::promote_accounting_role`, IBANs; the VAT-number formats of `identifiers` come with the purchases area (VIES) |
 | `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | done |
 | `payroll` | `payroll/{imports,weldhr,mapping,journal}`: the internal import hr-api posts | reports (routes), **hr** | foundation | done: `post_weldhr_import` (hr), `post_payroll_import`, `reverse_payroll_import`, `Resolver`; the CSV and Gusto line builders come with the reports area |
-| `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | |
-| `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | |
-| `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | |
+| `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | done: `calculate_document_tax` (rate table, India's split, self-assessed purchases, the US and hook paths), `untaxed_document_tax`, `load_place_of_supply`, `resolve_gst_supply`, `resolve_gst_bill_supply`, `totals::{calculate_line_tax_totals, hook_inputs, hook_tax_totals}`; tested on the real schema (`tests/tax.rs`). Two seams for other areas: Brazil's `computeDocumentTaxes` plugs into `tax::document_tax_hook` (tax area; a BR document fails until then), the US engine into `sales_tax::document_tax` (below) |
+| `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | boundary from sales: `errors` (engine, document and setup errors, `salesTaxErrorResponse`) and `document_tax` (the types, `load_sales_tax_entity`, `uses_sales_tax`, `untaxed_totals`, `map_credit_items_to_original`, and the stubs `calculate_us_document_tax` / `accrue_use_tax` that answer "engine unavailable" until the sales-tax area fills them in, keeping the signatures) |
+| `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | partial (from sales): the snapshot (`load_contact_snapshot`, `document_contact_fields`, `with_contact_names`) and the read of a company's billing contact (`billing_contact_email`); setting the billing contact comes with purchases |
 | `vendor_tax` | `vendor-tax-data`, `w9-requests` (tokens) | purchases, reports (1099), tax (fiscal webhooks) | purchases | |
 | `bank_accounts` | `accounting-bank-accounts` | banking, purchases (payment runs) | banking | |
 | `reports_basis` | `accounting-reports-basis`, `accounting-report-periods` | reports | reports | |
-| `invoice_html` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | |
+| `invoice_html`, `compliance` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | done: `generate_invoice_html`, `invoice_template_data`, `generate_templated_invoice_html` (`layout`, `svg`, `mobile`), Node's `Intl` money/number/date shapes and the PDF font metrics exported by `tools/invoice-export.mts` into `data/invoice.json` (checked against 3440 Node outputs, `data/intl-cases.json`); `compliance`: notices, `validate_invoice_for_finalize`, missing entity fields. Not yet: Brazil's Pix QR (`jurisdictions/br/pix`, uqr) — a BR invoice prints without the Pix block; VIES (`compliance::check_vat_number`) is a boundary that answers "unavailable" until purchases ports `vies` |
+| `attachments` | `lib/document-attachment` | sales, purchases (bills) | sales | done: `stream_document_attachment`, `is_workspace_object_key` |
 
 ## Order
 
@@ -339,7 +340,8 @@ mounts invoices and bank transactions can only pass when both are ported.
 |---|---|---|
 | `routes/accounting-entities/{integration,entity-lock,lock-dates,us-setup}` | ledger | `books: ledger` |
 | `routes/gl-accounts/*`, `routes/tax-rates/*`, `routes/fiscal-periods/*`, `routes/fx-rates/*`, `routes/journal-entries/*`, `routes/accounting-settings/*`, `routes/accounting-dimensions/*` | ledger | `books: ledger` |
-| `routes/invoices/{integration,index}`, `routes/invoice-templates/*`, `routes/recurring-invoices/*` | sales | `books: sales` |
+| `routes/invoices/{integration,index,lifecycle}`, `routes/invoice-templates/*`, `routes/recurring-invoices/crud`, `routes/payments/payments` | sales (+ ledger: entities are created through it) | `books: sales` |
+| `routes/recurring-invoices/integration` | sales, sales-tax (its entities are US: the engine answers) | `books: cross-area` |
 | `routes/invoices/{document-integrity,india-gst}`, `services/{accounting-fx,bad-debt-vat}.integration` | sales, purchases (bills), reports, tax (vat-returns) | `books: cross-area` |
 | `routes/invoices/brazil` | sales, purchases, tax (br-tax) | `books: cross-area` |
 | `routes/bills/*`, `routes/accounting-contacts/*`, `routes/accounting-documents/*`, `routes/w9-requests/*`, `routes/public-w9/*` | purchases | `books: purchases` |
@@ -416,5 +418,6 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 | Plan (this file) | done |
 | `books-domain` foundation modules | done: the rows marked done above (posting engine, documents, payments, bad debt, catch-up included); payroll (hr's in-process import) and `roles::promote_accounting_role` (connect) included |
 | `books` (ledger) and the `books: ledger` suite | all 8 groups ported; 17 test files, 395 requests at zero differences and zero schema failures, every ledger route reached |
-| Areas 1–6 | not started |
+| Area 1 (sales) and the `books: sales` suite | all 4 groups ported (36 routes: invoices, payments, recurring invoices, invoice templates); 6 test files, 41 tests, 187 requests at zero differences and zero schema failures, every sales route reached. Left for other areas: the US engine (`sales_tax::document_tax::{calculate_us_document_tax, accrue_use_tax}` stubs answer "engine unavailable"; US invoices draft untaxed and refuse to finalize, provider sync records `commit_failed`), Brazil's document tax hook (`tax::document_tax_hook`, a BR document fails until the tax area plugs the engine in), VIES (purchases), Pix (BR). For the `books-sweep` cron (recurring and overdue invoices), `books-sales`' `recurring::generate_recurring_invoice` takes the request's `Caller` today: the cron needs a variant on a tenant pool and a system user |
+| Areas 2–6 | other agents |
 | Cron, `RUST_PORTED_MODULES` | not started |

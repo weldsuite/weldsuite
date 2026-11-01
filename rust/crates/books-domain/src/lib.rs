@@ -19,8 +19,11 @@
 //!   per-country rules and data.
 
 pub mod address;
+pub mod attachments;
 pub mod bad_debt;
 pub mod catch_up;
+pub mod compliance;
+pub mod contacts;
 pub mod currency;
 pub mod dates;
 pub mod document_posting;
@@ -30,6 +33,7 @@ pub mod fx;
 pub mod guards;
 pub mod http;
 pub mod identifiers;
+pub mod invoice_html;
 pub mod js;
 pub mod jurisdictions;
 pub mod payments;
@@ -39,3 +43,4 @@ pub mod roles;
 pub mod sales_tax;
 pub mod table;
 pub mod tables;
+pub mod tax;
