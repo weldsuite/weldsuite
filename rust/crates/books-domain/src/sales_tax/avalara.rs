@@ -1,7 +1,7 @@
-//! The Avalara AvaTax engine (`sales-tax/avalara.ts`): the customer's own
+//! The Avalara `AvaTax` engine (`sales-tax/avalara.ts`): the customer's own
 //! account id and license key (HTTP Basic). `calculate` creates a temporary
-//! SalesOrder (PurchaseOrder for use tax), `commit` records the finalized
-//! document as a SalesInvoice, `reverse` refunds against it and `void` voids
+//! `SalesOrder` (`PurchaseOrder` for use tax), `commit` records the finalized
+//! document as a `SalesInvoice`, `reverse` refunds against it and `void` voids
 //! it. The WeldBooks registration rule runs before any call.
 
 use std::sync::Mutex;
@@ -83,7 +83,11 @@ fn avalara_address(a: &Value) -> Value {
     if let Some(state) = state_code_of(Some(a)) {
         out.insert("region".into(), json!(state));
     }
-    if let Some(postal) = a.get("postalCode").and_then(Value::as_str).filter(|v| !v.is_empty()) {
+    if let Some(postal) = a
+        .get("postalCode")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+    {
         out.insert("postalCode".into(), json!(js_trim(postal)));
     }
     Value::Object(out)
@@ -125,10 +129,18 @@ impl AvalaraEngine {
         }
     }
 
-    async fn call(&self, method: &'static str, path: &str, body: Option<&Value>) -> Result<Value, EngineError> {
+    async fn call(
+        &self,
+        method: &'static str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Value, EngineError> {
         let authorization = format!(
             "Basic {}",
-            to_base64(&format!("{}:{}", self.config.account_id, self.config.license_key))
+            to_base64(&format!(
+                "{}:{}",
+                self.config.account_id, self.config.license_key
+            ))
         );
         let mut headers = vec![
             ("Authorization", authorization),
@@ -195,10 +207,13 @@ impl AvalaraEngine {
         body.insert("customerCode".into(), json!(req.customer.party_id));
         body.insert("currencyCode".into(), json!(req.currency.to_uppercase()));
         body.insert("commit".into(), json!(commit));
-        if commit {
-            if let Some(code) = req.document_number.clone().or_else(|| req.document_id.clone()) {
-                body.insert("code".into(), json!(code));
-            }
+        if commit
+            && let Some(code) = req
+                .document_number
+                .clone()
+                .or_else(|| req.document_id.clone())
+        {
+            body.insert("code".into(), json!(code));
         }
         if let Some(number) = req.document_number.as_deref().filter(|n| !n.is_empty()) {
             body.insert("purchaseOrderNo".into(), json!(number));
@@ -227,6 +242,7 @@ impl AvalaraEngine {
     }
 
     /// `calculate(req)`.
+    #[allow(clippy::too_many_lines, reason = "mirrors avalara.ts's calculate()")]
     pub async fn calculate(
         &self,
         req: &SalesTaxRequest,
@@ -236,7 +252,13 @@ impl AvalaraEngine {
         let use_tax = req.direction == TaxDirection::Use;
         let Some(decision) = decide_sourcing(Some(&req.ship_from), req.ship_to.as_ref(), use_tax)
         else {
-            return Ok(untaxed_result(engine, req, &["no_ship_to"], calculated_at, None));
+            return Ok(untaxed_result(
+                engine,
+                req,
+                &["no_ship_to"],
+                calculated_at,
+                None,
+            ));
         };
         let state = decision.taxing_state.clone();
         if req.marketplace_facilitated {
@@ -260,7 +282,13 @@ impl AvalaraEngine {
             } else {
                 &["not_registered_in_state"]
             };
-            return Ok(untaxed_result(engine, req, warnings, calculated_at, Some(state)));
+            return Ok(untaxed_result(
+                engine,
+                req,
+                warnings,
+                calculated_at,
+                Some(state),
+            ));
         }
         if use_tax && registered.is_empty() {
             warnings.push("no_use_tax_registration".into());
@@ -337,10 +365,14 @@ impl AvalaraEngine {
         ))
     }
 
-    /// `commit(req)`: the finalized document as a SalesInvoice
-    /// (PurchaseInvoice for use tax, its ref prefixed).
+    /// `commit(req)`: the finalized document as a `SalesInvoice`
+    /// (`PurchaseInvoice` for use tax, its ref prefixed).
     pub async fn commit(&self, req: &SalesTaxRequest) -> Result<String, EngineError> {
-        let Some(code) = req.document_number.clone().or_else(|| req.document_id.clone()) else {
+        let Some(code) = req
+            .document_number
+            .clone()
+            .or_else(|| req.document_id.clone())
+        else {
             return Err(invalid_request(
                 "A document number is needed to record an Avalara transaction",
             ));
@@ -378,6 +410,7 @@ impl AvalaraEngine {
 
     /// `reverse(ref, lines, { documentNumber, date })`: whole lines, or one
     /// percentage of the document.
+    #[allow(clippy::too_many_lines, reason = "mirrors avalara.ts's reverse()")]
     pub async fn reverse(
         &self,
         reference: &str,
@@ -428,7 +461,11 @@ impl AvalaraEngine {
                 )));
             };
             let base = gross_of(orig);
-            let ratio = if base == 0.0 { 1.0 } else { credit.amount / base };
+            let ratio = if base == 0.0 {
+                1.0
+            } else {
+                credit.amount / base
+            };
             match ratios.iter_mut().find(|(id, _)| *id == credit.line_id) {
                 Some(slot) => slot.1 = ratio,
                 None => ratios.push((credit.line_id.clone(), ratio)),
@@ -513,7 +550,10 @@ impl AvalaraEngine {
     }
 
     /// `validateAddress(address)`.
-    pub async fn validate_address(&self, address: &Value) -> Result<AddressValidation, EngineError> {
+    pub async fn validate_address(
+        &self,
+        address: &Value,
+    ) -> Result<AddressValidation, EngineError> {
         let mut body = avalara_address(address);
         if let Some(obj) = body.as_object_mut() {
             obj.insert("textCase".into(), json!("Mixed"));
@@ -610,7 +650,10 @@ impl AvalaraEngine {
     }
 
     /// `listRegistrations()`: the company's US state nexus.
-    pub async fn list_registrations(&self, today: &str) -> Result<Vec<ProviderRegistration>, EngineError> {
+    pub async fn list_registrations(
+        &self,
+        today: &str,
+    ) -> Result<Vec<ProviderRegistration>, EngineError> {
         let id = self.resolve_company_id().await?;
         let list = self
             .call(
@@ -699,7 +742,14 @@ fn map_line(
         let carries = exempt > 0.0 && certificate.is_some();
         details.push(Detail {
             jurisdiction_code: d["jurisCode"].as_str().map_or_else(
-                || jurisdiction_code_for(region.unwrap_or(state), level.as_str(), name.unwrap_or("unknown"), None),
+                || {
+                    jurisdiction_code_for(
+                        region.unwrap_or(state),
+                        level.as_str(),
+                        name.unwrap_or("unknown"),
+                        None,
+                    )
+                },
                 str::to_owned,
             ),
             jurisdiction_name: name.or(region).unwrap_or(state).to_owned(),

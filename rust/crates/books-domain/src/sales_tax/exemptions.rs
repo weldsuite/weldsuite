@@ -127,10 +127,11 @@ fn standing(
     if cert.status == "revoked" || cert.status == "pending" {
         return (Standing::Unusable, None);
     }
-    if let Some(issued) = cert.issued_on.as_deref() {
-        if is_iso_day(Some(issued)) && iso_day(issued).as_str() > date {
-            return (Standing::Unusable, None);
-        }
+    if let Some(issued) = cert.issued_on.as_deref()
+        && is_iso_day(Some(issued))
+        && iso_day(issued).as_str() > date
+    {
+        return (Standing::Unusable, None);
     }
     if !cert.blanket
         && (cert.invoice_id.as_deref().is_none_or(str::is_empty)
@@ -247,7 +248,10 @@ mod tests {
             last_used_on: Some("2025-06-01".into()),
             ..cert("c2", &["WA"])
         };
-        assert_eq!(certificate_expiry(&sst, "WA").as_deref(), Some("2026-06-01"));
+        assert_eq!(
+            certificate_expiry(&sst, "WA").as_deref(),
+            Some("2026-06-01")
+        );
         assert_eq!(
             missing_certificate_cure_deadline("2026-07-05").as_deref(),
             Some("2026-10-03")
@@ -268,13 +272,15 @@ mod tests {
             "2026-05-01",
             Some("inv_1"),
         );
-        assert!(matches!(found, CertificateResolution::Valid { certificate, .. } if certificate.id == "s"));
+        assert!(
+            matches!(found, CertificateResolution::Valid { certificate, .. } if certificate.id == "s")
+        );
         let revoked = CertificateRef {
             status: "revoked".into(),
             ..blanket
         };
         assert_eq!(
-            resolve_exemption_certificate(&[revoked.clone()], "TX", "2026-05-01", None),
+            resolve_exemption_certificate(std::slice::from_ref(&revoked), "TX", "2026-05-01", None),
             CertificateResolution::Invalid {
                 reason: "certificate_missing",
                 candidate: Some(revoked)

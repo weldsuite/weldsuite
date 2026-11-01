@@ -43,7 +43,10 @@ fn clock() -> (String, i64) {
 }
 
 /// `createSalesTaxEngine(config)`.
-pub fn create_engine(config: EngineConfig, http: Option<OutboundHttp>) -> Result<Engine, EngineError> {
+pub fn create_engine(
+    config: EngineConfig,
+    http: Option<OutboundHttp>,
+) -> Result<Engine, EngineError> {
     match config {
         EngineConfig::Manual(Some(data)) => Ok(Engine::Manual(ManualEngine::new(data))),
         EngineConfig::Manual(None) => Err(not_configured(
@@ -115,12 +118,16 @@ impl Engine {
     ) -> Option<Result<String, EngineError>> {
         match self {
             Self::Manual(_) => None,
-            Self::StripeTax(engine) => {
-                Some(engine.reverse(reference, lines, document_number, date).await)
-            }
-            Self::Avalara(engine) => {
-                Some(engine.reverse(reference, lines, document_number, date).await)
-            }
+            Self::StripeTax(engine) => Some(
+                engine
+                    .reverse(reference, lines, document_number, date)
+                    .await,
+            ),
+            Self::Avalara(engine) => Some(
+                engine
+                    .reverse(reference, lines, document_number, date)
+                    .await,
+            ),
         }
     }
 
@@ -146,7 +153,9 @@ impl Engine {
     }
 
     /// `engine.listRegistrations()`; `None` for the manual engine.
-    pub async fn list_registrations(&self) -> Option<Result<Vec<ProviderRegistration>, EngineError>> {
+    pub async fn list_registrations(
+        &self,
+    ) -> Option<Result<Vec<ProviderRegistration>, EngineError>> {
         match self {
             Self::Manual(_) => None,
             Self::StripeTax(engine) => Some(engine.list_registrations().await),

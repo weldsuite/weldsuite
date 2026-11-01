@@ -127,6 +127,10 @@ impl StripeEngine {
         .await
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "mirrors stripe-tax.ts's buildCalculation() field by field"
+    )]
     fn build_calculation(
         req: &SalesTaxRequest,
         date: &str,
@@ -135,7 +139,10 @@ impl StripeEngine {
         now_ms: i64,
     ) -> Result<String, EngineError> {
         let mut fields = vec![
-            field("currency", Some(FormValue::Text(req.currency.to_lowercase()))),
+            field(
+                "currency",
+                Some(FormValue::Text(req.currency.to_lowercase())),
+            ),
             field(
                 "customer_details[address_source]",
                 Some(FormValue::Text("shipping".into())),
@@ -145,9 +152,18 @@ impl StripeEngine {
         let to = req.ship_to.as_ref().unwrap_or(&empty);
         let to_state = decide_sourcing(Some(&req.ship_from), req.ship_to.as_ref(), false)
             .map(|d| d.taxing_state);
-        fields.push(field("customer_details[address][line1]", non_empty(to.get("line1"))));
-        fields.push(field("customer_details[address][line2]", non_empty(to.get("line2"))));
-        fields.push(field("customer_details[address][city]", non_empty(to.get("city"))));
+        fields.push(field(
+            "customer_details[address][line1]",
+            non_empty(to.get("line1")),
+        ));
+        fields.push(field(
+            "customer_details[address][line2]",
+            non_empty(to.get("line2")),
+        ));
+        fields.push(field(
+            "customer_details[address][city]",
+            non_empty(to.get("city")),
+        ));
         fields.push(field(
             "customer_details[address][state]",
             to_state.map(FormValue::Text),
@@ -181,8 +197,14 @@ impl StripeEngine {
             .and_then(Value::as_str)
             .filter(|p| !p.is_empty());
         if let (Some(from_state), Some(from_postal)) = (from_state, from_postal) {
-            fields.push(field("ship_from_details[address][line1]", non_empty(from.get("line1"))));
-            fields.push(field("ship_from_details[address][city]", non_empty(from.get("city"))));
+            fields.push(field(
+                "ship_from_details[address][line1]",
+                non_empty(from.get("line1")),
+            ));
+            fields.push(field(
+                "ship_from_details[address][city]",
+                non_empty(from.get("city")),
+            ));
             fields.push(field(
                 "ship_from_details[address][state]",
                 Some(FormValue::Text(from_state.to_uppercase())),
@@ -200,7 +222,10 @@ impl StripeEngine {
             let l = &req.lines[index];
             #[allow(clippy::cast_precision_loss)]
             let amount = to_cents(l.amount) as f64;
-            fields.push(field(format!("line_items[{n}][amount]"), Some(FormValue::Number(amount))));
+            fields.push(field(
+                format!("line_items[{n}][amount]"),
+                Some(FormValue::Number(amount)),
+            ));
             fields.push(field(
                 format!("line_items[{n}][reference]"),
                 Some(FormValue::Text(l.line_id.clone())),
@@ -212,7 +237,12 @@ impl StripeEngine {
             fields.push(field(
                 format!("line_items[{n}][tax_behavior]"),
                 Some(FormValue::Text(
-                    if l.tax_included { "inclusive" } else { "exclusive" }.into(),
+                    if l.tax_included {
+                        "inclusive"
+                    } else {
+                        "exclusive"
+                    }
+                    .into(),
                 )),
             ));
             if l.quantity.fract() == 0.0 && l.quantity.is_finite() && l.quantity >= 1.0 {
@@ -222,12 +252,12 @@ impl StripeEngine {
                 ));
             }
         }
-        if tax_date_in_window(date, now_ms) {
-            if let Some(noon) = noon_millis(date) {
-                #[allow(clippy::cast_precision_loss)]
-                let seconds = noon.div_euclid(1000) as f64;
-                fields.push(field("tax_date", Some(FormValue::Number(seconds))));
-            }
+        if tax_date_in_window(date, now_ms)
+            && let Some(noon) = noon_millis(date)
+        {
+            #[allow(clippy::cast_precision_loss)]
+            let seconds = noon.div_euclid(1000) as f64;
+            fields.push(field("tax_date", Some(FormValue::Number(seconds))));
         }
         fields.push(field(
             "expand[0]",
@@ -255,7 +285,13 @@ impl StripeEngine {
         }
         let Some(decision) = decide_sourcing(Some(&req.ship_from), req.ship_to.as_ref(), false)
         else {
-            return Ok(untaxed_result(engine, req, &["no_ship_to"], calculated_at, None));
+            return Ok(untaxed_result(
+                engine,
+                req,
+                &["no_ship_to"],
+                calculated_at,
+                None,
+            ));
         };
         let state = decision.taxing_state.clone();
         if req.marketplace_facilitated {
@@ -278,7 +314,13 @@ impl StripeEngine {
             } else {
                 &["not_registered_in_state"]
             };
-            return Ok(untaxed_result(engine, req, warnings, calculated_at, Some(state)));
+            return Ok(untaxed_result(
+                engine,
+                req,
+                warnings,
+                calculated_at,
+                Some(state),
+            ));
         }
         if req.lines.iter().any(|l| l.amount < 0.0) {
             return Err(invalid_request(
@@ -298,8 +340,7 @@ impl StripeEngine {
         let mut engine_ref = None;
         let mut sourcings: Vec<String> = Vec::new();
         if !sent.is_empty() {
-            let body =
-                Self::build_calculation(req, &date, certificate.is_some(), &sent, now_ms)?;
+            let body = Self::build_calculation(req, &date, certificate.is_some(), &sent, now_ms)?;
             let calc = self
                 .call("POST", "/v1/tax/calculations", Some(body), Vec::new())
                 .await?;
@@ -454,15 +495,26 @@ impl StripeEngine {
         let originals = self.original_line_items(reference).await?;
         let mut fields = vec![
             field("mode", Some(FormValue::Text("partial".into()))),
-            field("original_transaction", Some(FormValue::Text(reference.to_owned()))),
-            field("reference", Some(FormValue::Text(document_number.to_owned()))),
-            field("metadata[document_date]", Some(FormValue::Text(iso_day(date)))),
+            field(
+                "original_transaction",
+                Some(FormValue::Text(reference.to_owned())),
+            ),
+            field(
+                "reference",
+                Some(FormValue::Text(document_number.to_owned())),
+            ),
+            field(
+                "metadata[document_date]",
+                Some(FormValue::Text(iso_day(date))),
+            ),
         ];
         for (n, line) in lines.iter().enumerate() {
             let original = originals
                 .iter()
                 .find(|o| o["reference"].as_str() == Some(line.line_id.as_str()));
-            let Some(original_id) = original.and_then(|o| text(&o["id"])).filter(|i| !i.is_empty())
+            let Some(original_id) = original
+                .and_then(|o| text(&o["id"]))
+                .filter(|i| !i.is_empty())
             else {
                 return Err(invalid_request(format!(
                     "Line {} is not on Stripe transaction {reference}",
@@ -470,7 +522,8 @@ impl StripeEngine {
                 )));
             };
             let tax = to_cents(line.tax);
-            let inclusive = original.is_some_and(|o| o["tax_behavior"].as_str() == Some("inclusive"));
+            let inclusive =
+                original.is_some_and(|o| o["tax_behavior"].as_str() == Some("inclusive"));
             let amount = to_cents(line.amount) + if inclusive { tax } else { 0 };
             #[allow(clippy::cast_precision_loss)]
             {
@@ -489,7 +542,10 @@ impl StripeEngine {
             ));
             fields.push(field(
                 format!("line_items[{n}][reference]"),
-                Some(FormValue::Text(format!("{document_number}:{}", line.line_id))),
+                Some(FormValue::Text(format!(
+                    "{document_number}:{}",
+                    line.line_id
+                ))),
             ));
         }
         let txn = self
@@ -513,8 +569,14 @@ impl StripeEngine {
     pub async fn void(&self, reference: &str) -> Result<(), EngineError> {
         let body = form_encode(&[
             field("mode", Some(FormValue::Text("full".into()))),
-            field("original_transaction", Some(FormValue::Text(reference.to_owned()))),
-            field("reference", Some(FormValue::Text(format!("void-{reference}")))),
+            field(
+                "original_transaction",
+                Some(FormValue::Text(reference.to_owned())),
+            ),
+            field(
+                "reference",
+                Some(FormValue::Text(format!("void-{reference}"))),
+            ),
         ]);
         self.call(
             "POST",
@@ -554,10 +616,10 @@ impl StripeEngine {
                 if r["country"].as_str() != Some("US") {
                     continue;
                 }
-                if let Some(kind) = us_options["type"].as_str().filter(|t| !t.is_empty()) {
-                    if kind != "state_sales_tax" {
-                        continue;
-                    }
+                if let Some(kind) = us_options["type"].as_str().filter(|t| !t.is_empty())
+                    && kind != "state_sales_tax"
+                {
+                    continue;
                 }
                 out.push(ProviderRegistration {
                     state_code: state.to_uppercase(),
@@ -586,16 +648,19 @@ fn cents(value: &Value) -> i64 {
 
 /// `mapLine(item, ctx)`: one Stripe line item to a line result; `None` when
 /// it isn't one of ours.
-#[allow(
-    clippy::too_many_lines,
-    reason = "mirrors stripe-tax.ts's mapLine()"
-)]
+#[allow(clippy::too_many_lines, reason = "mirrors stripe-tax.ts's mapLine()")]
 fn map_line(item: &Value, ctx: &mut MapContext<'_>) -> Option<LineResult> {
-    let line_id = item["reference"].as_str().filter(|r| !r.is_empty())?.to_owned();
+    let line_id = item["reference"]
+        .as_str()
+        .filter(|r| !r.is_empty())?
+        .to_owned();
     let inclusive = item["tax_behavior"].as_str() == Some("inclusive");
     let amount_tax = cents(&item["amount_tax"]);
     let gross = from_cents(cents(&item["amount"]) - if inclusive { amount_tax } else { 0 });
-    let breakdown = item["tax_breakdown"].as_array().cloned().unwrap_or_default();
+    let breakdown = item["tax_breakdown"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
 
     if breakdown
         .iter()
@@ -623,10 +688,10 @@ fn map_line(item: &Value, ctx: &mut MapContext<'_>) -> Option<LineResult> {
             if b["taxability_reason"].as_str() == Some("not_supported") {
                 ctx.warnings.push("provider_not_supported".into());
             }
-            if let Some(sourcing) = b["sourcing"].as_str().filter(|s| !s.is_empty()) {
-                if !ctx.sourcings.iter().any(|s| s == sourcing) {
-                    ctx.sourcings.push(sourcing.to_owned());
-                }
+            if let Some(sourcing) = b["sourcing"].as_str().filter(|s| !s.is_empty())
+                && !ctx.sourcings.iter().any(|s| s == sourcing)
+            {
+                ctx.sourcings.push(sourcing.to_owned());
             }
             let jurisdiction = &b["jurisdiction"];
             let level = map_level(jurisdiction["level"].as_str());
@@ -645,7 +710,11 @@ fn map_line(item: &Value, ctx: &mut MapContext<'_>) -> Option<LineResult> {
             } else {
                 crate::js::js_number_value(Some(raw))
             };
-            let rate = if rate.is_nan() || rate == 0.0 { 0.0 } else { rate };
+            let rate = if rate.is_nan() || rate == 0.0 {
+                0.0
+            } else {
+                rate
+            };
             let taxable = from_cents(cents(&b["taxable_amount"]));
             let tax = from_cents(cents(&b["amount"]));
             let customer_exempt =
@@ -688,7 +757,10 @@ fn map_line(item: &Value, ctx: &mut MapContext<'_>) -> Option<LineResult> {
                 } else {
                     tax
                 },
-                exempt_reason: ctx.certificate.filter(|_| carries).map(|c| c.reason.clone()),
+                exempt_reason: ctx
+                    .certificate
+                    .filter(|_| carries)
+                    .map(|c| c.reason.clone()),
                 certificate_id: ctx.certificate.filter(|_| carries).map(|c| c.id.clone()),
             }
         })
@@ -699,7 +771,10 @@ fn map_line(item: &Value, ctx: &mut MapContext<'_>) -> Option<LineResult> {
     let informative: Vec<Detail> = all
         .iter()
         .filter(|d| {
-            !(d.rate == 0.0 && d.tax == 0.0 && d.exempt_amount == 0.0 && d.non_taxable_amount == 0.0)
+            !(d.rate == 0.0
+                && d.tax == 0.0
+                && d.exempt_amount == 0.0
+                && d.non_taxable_amount == 0.0)
         })
         .cloned()
         .collect();

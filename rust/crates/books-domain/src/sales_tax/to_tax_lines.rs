@@ -159,7 +159,14 @@ fn put(row: &mut Map<String, Value>, key: &str, value: Value) {
 /// line per jurisdiction. A line the engine charged nothing on becomes one
 /// zero-tax row in its ship-to state, so the sale counts toward gross sales
 /// and nexus.
-pub fn sales_tax_result_to_breakdown(result: &SalesTaxResult, ctx: &TaxLineContext<'_>) -> Vec<Value> {
+#[allow(
+    clippy::too_many_lines,
+    reason = "one row shape per branch, as to-tax-lines.ts writes them"
+)]
+pub fn sales_tax_result_to_breakdown(
+    result: &SalesTaxResult,
+    ctx: &TaxLineContext<'_>,
+) -> Vec<Value> {
     let kind = if ctx.use_tax { "use" } else { "tax" };
     // `new Map(ctx.lines.map(...))`: the last line with an id wins.
     let tax_code_of = |line_id: &str| {
@@ -214,7 +221,9 @@ pub fn sales_tax_result_to_breakdown(result: &SalesTaxResult, ctx: &TaxLineConte
             put(
                 &mut row,
                 "nonTaxableAmount",
-                number_value(from_cents(to_cents(line.gross_amount) - to_cents(line.exempt_amount))),
+                number_value(from_cents(
+                    to_cents(line.gross_amount) - to_cents(line.exempt_amount),
+                )),
             );
             put(&mut row, "unroundedTaxAmount", json!(0));
             if let Some(code) = &tax_code {
@@ -246,14 +255,22 @@ pub fn sales_tax_result_to_breakdown(result: &SalesTaxResult, ctx: &TaxLineConte
                 put(&mut row, "reportingCode", json!(code));
             }
             put(&mut row, "exemptAmount", number_value(d.exempt_amount));
-            put(&mut row, "nonTaxableAmount", number_value(d.non_taxable_amount));
+            put(
+                &mut row,
+                "nonTaxableAmount",
+                number_value(d.non_taxable_amount),
+            );
             if let Some(reason) = d.exempt_reason.as_deref().filter(|r| !r.is_empty()) {
                 put(&mut row, "exemptReason", json!(reason));
             }
             if let Some(id) = d.certificate_id.as_deref().filter(|c| !c.is_empty()) {
                 put(&mut row, "certificateId", json!(id));
             }
-            put(&mut row, "unroundedTaxAmount", number_value(d.unrounded_tax));
+            put(
+                &mut row,
+                "unroundedTaxAmount",
+                number_value(d.unrounded_tax),
+            );
             if let Some(code) = &tax_code {
                 put(&mut row, "taxCode", json!(code));
             }
@@ -288,12 +305,18 @@ pub fn sales_tax_result_to_tax_lines(
 
 /// `breakdownTaxTotal(rows)`: whole cents of `taxAmount`.
 pub fn breakdown_tax_total(rows: &[Value]) -> f64 {
-    from_cents(rows.iter().map(|r| to_cents(number_or_zero(r, "taxAmount"))).sum())
+    from_cents(
+        rows.iter()
+            .map(|r| to_cents(number_or_zero(r, "taxAmount")))
+            .sum(),
+    )
 }
 
 /// `lineGross(row)`: taxable + exempt + non-taxable.
 pub fn line_gross(row: &Value) -> f64 {
-    number(row, "taxableAmount") + number_or_zero(row, "exemptAmount") + number_or_zero(row, "nonTaxableAmount")
+    number(row, "taxableAmount")
+        + number_or_zero(row, "exemptAmount")
+        + number_or_zero(row, "nonTaxableAmount")
 }
 
 /// `reverseResultForCreditMemo(original, creditLines)`: a credit memo's
@@ -301,7 +324,10 @@ pub fn line_gross(row: &Value) -> f64 {
 /// each line: a full credit copies the rows, a partial one scales the bases
 /// and recomputes the tax at the original rates, rounded per the state's
 /// rule over the memo.
-pub fn reverse_result_for_credit_memo(original: &[Value], credit_lines: &[(String, f64)]) -> Vec<Value> {
+pub fn reverse_result_for_credit_memo(
+    original: &[Value],
+    credit_lines: &[(String, f64)],
+) -> Vec<Value> {
     let rows_of = |line_id: &str| -> Vec<&Value> {
         original
             .iter()
@@ -333,7 +359,9 @@ pub fn reverse_result_for_credit_memo(original: &[Value], credit_lines: &[(Strin
             put(
                 &mut copy,
                 "nonTaxableAmount",
-                number_value(from_cents(to_cents(*amount) - to_cents(taxable) - to_cents(exempt))),
+                number_value(from_cents(
+                    to_cents(*amount) - to_cents(taxable) - to_cents(exempt),
+                )),
             );
             put(&mut copy, "taxAmount", json!(0));
             put(&mut copy, "unroundedTaxAmount", number_value(unrounded));

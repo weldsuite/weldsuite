@@ -4,8 +4,8 @@
 //! only needs to *start* with `YYYY-MM-DD` (`/^(\d{4})-(\d{2})-(\d{2})/`), and
 //! an out-of-range day rolls over as `Date.UTC` does.
 
-use crate::jurisdictions::js_trim;
 use crate::js::{civil_from_days, days_from_civil};
+use crate::jurisdictions::js_trim;
 
 /// `isoDay(value)`: the `YYYY-MM-DD` part (the first ten characters,
 /// trimmed).
@@ -96,15 +96,15 @@ pub fn end_of_year(value: &str) -> Option<String> {
 /// `date <= to`); an empty `from` is no lower bound.
 pub fn in_range(date: &str, from: Option<&str>, to: Option<&str>) -> bool {
     let day = iso_day(date);
-    if let Some(from) = from.filter(|f| !f.is_empty()) {
-        if day < iso_day(from) {
-            return false;
-        }
+    if let Some(from) = from.filter(|f| !f.is_empty())
+        && day < iso_day(from)
+    {
+        return false;
     }
-    if let Some(to) = to.filter(|t| !t.is_empty()) {
-        if day > iso_day(to) {
-            return false;
-        }
+    if let Some(to) = to.filter(|t| !t.is_empty())
+        && day > iso_day(to)
+    {
+        return false;
     }
     true
 }
@@ -119,9 +119,16 @@ mod tests {
         assert_eq!(add_days("2026-02-30", 0).as_deref(), Some("2026-03-02"));
         assert_eq!(add_months("2025-01-31", 1).as_deref(), Some("2025-02-28"));
         assert_eq!(add_months("2025-03-15", 48).as_deref(), Some("2029-03-15"));
-        assert_eq!(end_of_year("2026-04-01T00:00").as_deref(), Some("2026-12-31"));
+        assert_eq!(
+            end_of_year("2026-04-01T00:00").as_deref(),
+            Some("2026-12-31")
+        );
         assert!(in_range("2026-05-01", Some("2026-01-01"), None));
-        assert!(!in_range("2026-05-01", Some("2026-01-01"), Some("2026-04-30")));
+        assert!(!in_range(
+            "2026-05-01",
+            Some("2026-01-01"),
+            Some("2026-04-30")
+        ));
         assert!(in_range("2026-05-01", None, Some("")));
         assert!(is_iso_day(Some("2026-01-01T10:00:00Z")));
         assert!(!is_iso_day(Some(" 2026-01-01")));

@@ -40,7 +40,12 @@ fn rate_at(jurisdiction: &ManualJurisdiction, date: &str) -> Option<f64> {
 
 /// The rule for a tax code and use on the tax point: one for the use beats
 /// `any`, a later one beats an earlier.
-fn rule_at<'a>(rules: &[&'a ManualRule], tax_code: &str, tax_use: TaxUse, date: &str) -> Option<&'a ManualRule> {
+fn rule_at<'a>(
+    rules: &[&'a ManualRule],
+    tax_code: &str,
+    tax_use: TaxUse,
+    date: &str,
+) -> Option<&'a ManualRule> {
     let code = js_trim(tax_code).to_lowercase();
     let mut found: Vec<&ManualRule> = rules
         .iter()
@@ -193,10 +198,11 @@ impl ManualEngine {
             };
             if let Some(zone) = zone {
                 for id in &zone.jurisdiction_ids {
-                    if let Some(j) = self.by_id(id) {
-                        if j.agency_id == agency_id && j.level == *level {
-                            put(j, &mut picked);
-                        }
+                    if let Some(j) = self.by_id(id)
+                        && j.agency_id == agency_id
+                        && j.level == *level
+                    {
+                        put(j, &mut picked);
                     }
                 }
             } else {
@@ -212,7 +218,12 @@ impl ManualEngine {
         let needs_zones = !zones.is_empty() || all.iter().any(|j| j.level != Level::State);
         let mut jurisdictions: Vec<Planned<'a>> = picked
             .into_iter()
-            .filter_map(|j| rate_at(j, date).map(|rate| Planned { jurisdiction: j, rate }))
+            .filter_map(|j| {
+                rate_at(j, date).map(|rate| Planned {
+                    jurisdiction: j,
+                    rate,
+                })
+            })
             .collect();
         jurisdictions.sort_by_key(|p| p.jurisdiction.level.rank());
         (jurisdictions, zone_missing && needs_zones)
@@ -239,7 +250,13 @@ impl ManualEngine {
         };
         let state = decision.taxing_state.clone();
         if req.marketplace_facilitated {
-            return untaxed_result(engine, req, &["marketplace_facilitated"], calculated_at, Some(state));
+            return untaxed_result(
+                engine,
+                req,
+                &["marketplace_facilitated"],
+                calculated_at,
+                Some(state),
+            );
         }
         if !is_us_country(req.ship_to.as_ref()) {
             return untaxed_result(engine, req, &[], calculated_at, None);
@@ -247,7 +264,8 @@ impl ManualEngine {
 
         let mut warnings: Vec<String> = Vec::new();
         let registered = active_registrations(&req.registrations, &state, &date);
-        let registered_ids: HashSet<&str> = registered.iter().map(|r| r.agency_id.as_str()).collect();
+        let registered_ids: HashSet<&str> =
+            registered.iter().map(|r| r.agency_id.as_str()).collect();
         let agency_ids: Vec<String> = if use_tax {
             // `new Set` over the jurisdictions in index order.
             let mut in_state: Vec<String> = Vec::new();
@@ -369,7 +387,8 @@ impl ManualEngine {
             }
         }
         let rounded = round_tax_cells(&cells, rounding);
-        let tax_cents: HashMap<(usize, usize, usize), i64> = refs.into_iter().zip(rounded).collect();
+        let tax_cents: HashMap<(usize, usize, usize), i64> =
+            refs.into_iter().zip(rounded).collect();
 
         let lines = work
             .iter()
@@ -420,8 +439,16 @@ impl ManualEngine {
                             } else {
                                 snap6(unrounded)
                             },
-                            exempt_reason: w.exempt.as_ref().filter(|_| exempt).map(|e| e.0.clone()),
-                            certificate_id: w.exempt.as_ref().filter(|_| exempt).map(|e| e.1.clone()),
+                            exempt_reason: w
+                                .exempt
+                                .as_ref()
+                                .filter(|_| exempt)
+                                .map(|e| e.0.clone()),
+                            certificate_id: w
+                                .exempt
+                                .as_ref()
+                                .filter(|_| exempt)
+                                .map(|e| e.1.clone()),
                         }
                     })
                     .collect();
@@ -624,12 +651,19 @@ mod tests {
 
     #[test]
     fn origin_sale_is_taxed_per_jurisdiction() {
-        let result = engine().calculate(&request(vec![line("l1", 100.0), line("l2", 33.33)]), "t".into());
+        let result = engine().calculate(
+            &request(vec![line("l1", 100.0), line("l2", 33.33)]),
+            "t".into(),
+        );
         assert_eq!(result.sourcing, "origin");
-        assert!((result.total_tax - 11.0).abs() < 1e-9, "{}", result.total_tax);
+        assert!(
+            (result.total_tax - 11.0).abs() < 1e-9,
+            "{}",
+            result.total_tax
+        );
         assert_eq!(result.lines[0].details.len(), 2);
         assert!((result.lines[0].tax - 8.25).abs() < 1e-9);
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, Vec::<String>::new());
     }
 
     #[test]
@@ -656,6 +690,9 @@ mod tests {
         assert_eq!(result.warnings, vec!["not_registered_in_state".to_owned()]);
         assert_eq!(result.sourcing, "none");
         req.ship_to = Some(json!({ "state": "OR", "postalCode": "97201" }));
-        assert!(engine().calculate(&req, "t".into()).warnings.is_empty());
+        assert_eq!(
+            engine().calculate(&req, "t".into()).warnings,
+            Vec::<String>::new()
+        );
     }
 }

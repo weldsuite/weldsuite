@@ -71,8 +71,6 @@ fn owned(row: &Value, key: &str) -> Option<String> {
 /// non-finite.
 fn num(value: &Value, fallback: f64) -> f64 {
     match value {
-        Value::Null => fallback,
-        Value::String(s) if s.is_empty() => fallback,
         Value::Number(n) => n.as_f64().filter(|f| f.is_finite()).unwrap_or(fallback),
         Value::String(s) => {
             let n = weldsuite_kit::validation::js_number(s);
@@ -146,7 +144,11 @@ pub fn build_manual_engine_data(
                 name: owned(z, "name").unwrap_or_default(),
                 jurisdiction_ids: z["jurisdictionIds"]
                     .as_array()
-                    .map(|ids| ids.iter().filter_map(|i| i.as_str().map(str::to_owned)).collect())
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(|i| i.as_str().map(str::to_owned))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 postal_codes: z["postalCodes"]
                     .as_array()

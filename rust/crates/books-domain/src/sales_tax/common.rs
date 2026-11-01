@@ -8,8 +8,7 @@ use super::dates::{in_range, iso_day};
 use super::exemptions::{CertificateResolution, resolve_exemption_certificate};
 use super::rounding::{allocate_cents, from_cents, snap6, to_cents};
 use super::types::{
-    CertificateRef, Detail, LineResult, Registration, RequestLine, SalesTaxRequest,
-    SalesTaxResult,
+    CertificateRef, Detail, LineResult, Registration, RequestLine, SalesTaxRequest, SalesTaxResult,
 };
 use crate::jurisdictions::{js_trim, us};
 
@@ -33,7 +32,9 @@ pub fn active_registrations<'a>(
     let state = js_trim(state_code).to_uppercase();
     registrations
         .iter()
-        .filter(|r| js_trim(&r.state_code).to_uppercase() == state && is_registration_active(r, date))
+        .filter(|r| {
+            js_trim(&r.state_code).to_uppercase() == state && is_registration_active(r, date)
+        })
         .collect()
 }
 
@@ -284,7 +285,8 @@ mod tests {
             jurisdiction_code_for("TX", "city", "--Austin!!", Some("8.25")),
             "TX-CIT-austin-8-25"
         );
-        let long = jurisdiction_code_for("CA", "district", "Los Angeles County Metro Transit", None);
+        let long =
+            jurisdiction_code_for("CA", "district", "Los Angeles County Metro Transit", None);
         assert_eq!(long.encode_utf16().count(), 29);
         assert!(long.starts_with("CA-DIS-los-angeles-co-"));
     }
@@ -292,8 +294,12 @@ mod tests {
     #[test]
     fn countries_and_states() {
         assert!(is_us_country(None));
-        assert!(is_us_country(Some(&serde_json::json!({ "country": " usa " }))));
-        assert!(!is_us_country(Some(&serde_json::json!({ "country": "NL" }))));
+        assert!(is_us_country(Some(
+            &serde_json::json!({ "country": " usa " })
+        )));
+        assert!(!is_us_country(Some(
+            &serde_json::json!({ "country": "NL" })
+        )));
         assert!(state_has_no_sales_tax("OR"));
         assert!(!state_has_no_sales_tax("TX"));
         assert!(!state_has_no_sales_tax("ZZ"));

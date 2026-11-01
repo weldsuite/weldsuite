@@ -29,7 +29,7 @@ pub fn zone_covers_zip(zone: &ManualZone, zip: Option<&str>) -> bool {
 }
 
 /// Lower priority first, a stable sort (`byPriority`).
-fn by_priority<'a>(mut zones: Vec<&'a ManualZone>) -> Vec<&'a ManualZone> {
+fn by_priority(mut zones: Vec<&ManualZone>) -> Vec<&ManualZone> {
     zones.sort_by(|a, b| {
         a.priority
             .partial_cmp(&b.priority)
@@ -40,10 +40,19 @@ fn by_priority<'a>(mut zones: Vec<&'a ManualZone>) -> Vec<&'a ManualZone> {
 
 /// `pickDestinationZone(zones, zip)`: the lowest-priority zone that covers
 /// the ZIP.
-pub fn pick_destination_zone<'a>(zones: &[&'a ManualZone], zip: Option<&str>) -> Option<&'a ManualZone> {
-    by_priority(zones.iter().copied().filter(|z| zone_covers_zip(z, zip)).collect())
-        .first()
-        .copied()
+pub fn pick_destination_zone<'a>(
+    zones: &[&'a ManualZone],
+    zip: Option<&str>,
+) -> Option<&'a ManualZone> {
+    by_priority(
+        zones
+            .iter()
+            .copied()
+            .filter(|z| zone_covers_zip(z, zip))
+            .collect(),
+    )
+    .first()
+    .copied()
 }
 
 /// `pickOriginZone(zones, shipFromZip)`: the seller-location zone covering
@@ -98,7 +107,13 @@ mod tests {
         assert!(zone_covers_zip(&a, Some("75500")));
         assert!(!zone_covers_zip(&a, Some("76000")));
         let zones = [&a, &b];
-        assert_eq!(pick_destination_zone(&zones, Some("78701")).map(|z| z.id.as_str()), Some("b"));
-        assert_eq!(pick_origin_zone(&zones, Some("75500")).map(|z| z.id.as_str()), Some("b"));
+        assert_eq!(
+            pick_destination_zone(&zones, Some("78701")).map(|z| z.id.as_str()),
+            Some("b")
+        );
+        assert_eq!(
+            pick_origin_zone(&zones, Some("75500")).map(|z| z.id.as_str()),
+            Some("b")
+        );
     }
 }

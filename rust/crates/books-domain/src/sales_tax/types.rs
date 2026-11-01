@@ -1,6 +1,6 @@
 //! The sales tax engine contract (`sales-tax/types.ts`): one request and one
 //! result for every engine, the manual engine (rates the user keeps) and the
-//! provider engines (Stripe Tax, Avalara AvaTax). Amounts are in the
+//! provider engines (Stripe Tax, Avalara `AvaTax`). Amounts are in the
 //! document currency, rates are percentages (6.25 = 6.25%). Addresses are
 //! `PostalAddress` objects as JSON (`normalizePostalAddress`'s shape).
 
@@ -321,7 +321,10 @@ pub struct ManualJurisdiction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PostalEntry {
     Zip(String),
-    Range { from: String, to: String },
+    Range {
+        from: String,
+        to: String,
+    },
     /// Anything else the JSON holds (never matches).
     Other,
 }

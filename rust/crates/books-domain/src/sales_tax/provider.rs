@@ -12,7 +12,11 @@ use weldsuite_ports::{HttpRequest, OutboundHttp};
 use super::errors::EngineError;
 
 /// `new SalesTaxEngineError(message, code, retryable)`.
-pub fn engine_error(message: impl Into<String>, code: &'static str, retryable: bool) -> EngineError {
+pub fn engine_error(
+    message: impl Into<String>,
+    code: &'static str,
+    retryable: bool,
+) -> EngineError {
     EngineError {
         message: message.into(),
         code,
@@ -53,7 +57,10 @@ fn error_text(body: &Value) -> Option<String> {
         // `error && typeof error === 'object'` fails (a string, a number, an
         // array still is an object): fall through to `message`.
         Some(Value::Array(_)) => None,
-        _ => root.get("message").and_then(Value::as_str).map(str::to_owned),
+        _ => root
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     }
 }
 
@@ -192,8 +199,10 @@ mod tests {
         );
         assert_eq!(to_base64("acc:key"), "YWNjOmtleQ==");
         assert_eq!(
-            error_text(&json!({ "error": { "message": "Bad", "details": [{ "message": "zip" }] } }))
-                .as_deref(),
+            error_text(
+                &json!({ "error": { "message": "Bad", "details": [{ "message": "zip" }] } })
+            )
+            .as_deref(),
             Some("Bad (zip)")
         );
         assert_eq!(

@@ -171,7 +171,11 @@ pub fn is_avalara_tax_code(value: &str) -> bool {
     if !bytes[0].is_ascii_uppercase() {
         return false;
     }
-    let leading = if bytes.len() > 1 && bytes[1].is_ascii_uppercase() { 2 } else { 1 };
+    let leading = if bytes.len() > 1 && bytes[1].is_ascii_uppercase() {
+        2
+    } else {
+        1
+    };
     // `[A-Z]{1,2}[A-Z0-9]{0,10}`: up to 12 in all, and any split works when
     // the second char is a letter; with one letter the rest is at most 10.
     if leading == 1 && bytes.len() > 11 {
@@ -244,10 +248,12 @@ mod tests {
             to_avalara_tax_code("clothing", TaxUse::Business).as_deref(),
             Ok("PC030100")
         );
-        assert_eq!(to_avalara_tax_code(" ", TaxUse::Business).as_deref(), Ok("P0000000"));
         assert_eq!(
-            to_stripe_tax_code("whatever", TaxUse::Business)
-                .map_err(|e| e.message),
+            to_avalara_tax_code(" ", TaxUse::Business).as_deref(),
+            Ok("P0000000")
+        );
+        assert_eq!(
+            to_stripe_tax_code("whatever", TaxUse::Business).map_err(|e| e.message),
             Err("No Stripe tax code is mapped for \"whatever\"".to_owned())
         );
     }

@@ -43,7 +43,11 @@ pub fn snap6(value: f64) -> f64 {
         return 0.0;
     }
     let micro = crate::js::math_round(value * 1_000_000.0);
-    if micro == 0.0 { 0.0 } else { micro / 1_000_000.0 }
+    if micro == 0.0 {
+        0.0
+    } else {
+        micro / 1_000_000.0
+    }
 }
 
 /// `TaxCell`: one (line, jurisdiction) tax before rounding.
@@ -60,12 +64,11 @@ fn groups_of<'a>(keys: impl Iterator<Item = &'a str>) -> Vec<Vec<usize>> {
     let mut order: Vec<Vec<usize>> = Vec::new();
     let mut at: HashMap<&str, usize> = HashMap::new();
     for (i, key) in keys.enumerate() {
-        match at.get(key) {
-            Some(&g) => order[g].push(i),
-            None => {
-                at.insert(key, order.len());
-                order.push(vec![i]);
-            }
+        if let Some(&g) = at.get(key) {
+            order[g].push(i);
+        } else {
+            at.insert(key, order.len());
+            order.push(vec![i]);
         }
     }
     order

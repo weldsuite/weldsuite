@@ -3,30 +3,41 @@
 //! they need on every entity (is this a sales tax entity, the totals without
 //! tax, which invoice line a credit line credits).
 //!
-//! **Boundary with the sales-tax area.** The engine calls,
-//! [`calculate_us_document_tax`] and [`accrue_use_tax`], belong to the
-//! sales-tax area (`books_domain::sales_tax`, PORTING.md): it replaces their
-//! bodies with the port of `calculateUsDocumentTax` / `accrueUseTax` (the
-//! manual engine, Avalara, Stripe Tax) and keeps these signatures, which the
-//! sales and purchases routes already call. Until then a US document's tax
-//! is "engine unavailable": a draft is saved untaxed and flagged, and
-//! finalizing refuses (`TAX_ENGINE_UNAVAILABLE`), exactly as on Global when
-//! the engine is down; it never becomes zero tax.
+//! The engine path ([`calculate_us_document_tax`], [`accrue_use_tax`],
+//! [`build_stored_request`]) turns a document's lines and addresses into the
+//! request of the entity's engine and the answer into what the document
+//! stores: line totals and tax, the jurisdiction breakdown, warnings. The same
+//! function backs the draft recalculation, finalize and the live preview, so a
+//! form shows exactly what posting will book. A credit memo never asks the
+//! engine (it reverses the invoice's rows), and an engine failure is an error,
+//! never zero tax.
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_ports::OutboundHttp;
 
-use super::errors::{EngineError, SalesTaxError};
+use super::engine::{Engine, EngineConfig, create_engine};
+use super::errors::{DocumentError, EngineError, SalesTaxError, address_required};
+use super::load::{
+    LoadError, LoadOptions, load_customer_certificates, load_manual_data, load_sales_tax_context,
+};
+use super::rounding::round_half_up;
+use super::sourcing::{pick_ship_to, state_code_of, zip5_of};
+pub use super::tax_codes::DEFAULT_WELD_TAX_CODE;
+use super::tax_codes::{is_avalara_tax_code, is_stripe_tax_code, is_weld_tax_code};
+use super::to_tax_lines::{
+    TaxLineContext, line_gross, reverse_result_for_credit_memo, sales_tax_result_to_breakdown,
+};
+use super::types::{
+    Customer, Override, Registration, RequestLine, SalesTaxRequest, SalesTaxResult, TaxDirection,
+    TaxUse,
+};
 use super::{from_cents, to_cents};
 use crate::address::normalize_postal_address;
 use crate::js;
 use crate::tax::TaxError;
-
-/// `DEFAULT_WELD_TAX_CODE` (`jurisdictions/us/tax-codes`).
-pub const DEFAULT_WELD_TAX_CODE: &str = "general";
 
 /// `UsDocumentKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,6 +235,7 @@ fn round_cents(value: f64) -> f64 {
 
 /// `lineAmounts(item)`.
 struct LineAmounts {
+    quantity: f64,
     amount: f64,
     discount: f64,
 }
@@ -233,6 +245,7 @@ fn line_amounts(item: &TaxItem) -> LineAmounts {
     let gross = quantity * num(Some(&item.unit_price), 0.0);
     let discount = gross * (num(item.discount_percent.as_deref(), 0.0) / 100.0);
     LineAmounts {
+        quantity,
         amount: round_cents(gross - discount),
         discount,
     }
@@ -452,7 +465,10 @@ async fn load_products(
         .collect())
 }
 
-async fn load_customer_use(db: &PgPool, contact_id: Option<&str>) -> Result<Option<TaxUse>, sqlx::Error> {
+async fn load_customer_use(
+    db: &PgPool,
+    contact_id: Option<&str>,
+) -> Result<Option<TaxUse>, sqlx::Error> {
     let Some(contact_id) = contact_id.filter(|c| !c.is_empty()) else {
         return Ok(None);
     };
@@ -581,9 +597,10 @@ fn totals_from(
     let mut discount_total = 0i64;
     let mut tax_total = 0i64;
     for item in items {
-        let (net, tax) = line_totals.get(&item.id).copied().unwrap_or_else(|| {
-            (amounts.get(&item.id).map_or(0.0, |a| a.amount), 0.0)
-        });
+        let (net, tax) = line_totals
+            .get(&item.id)
+            .copied()
+            .unwrap_or_else(|| (amounts.get(&item.id).map_or(0.0, |a| a.amount), 0.0));
         subtotal += to_cents(net);
         tax_total += to_cents(tax);
         discount_total += to_cents(amounts.get(&item.id).map_or(0.0, |a| a.discount));
@@ -825,6 +842,28 @@ async fn calculate_sale(
 // Credit memos
 // ---------------------------------------------------------------------------
 
+/// The credited invoice: id, `tax_breakdown`, `tax_engine`,
+/// `marketplace_facilitated`, shipping and billing address.
+type OriginalInvoice = (
+    String,
+    Option<Value>,
+    Option<String>,
+    Option<bool>,
+    Option<Value>,
+    Option<Value>,
+);
+
+/// A line of the credited invoice: id, description, unit price, quantity,
+/// discount percent (numeric text), sort order.
+type OriginalItem = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i32>,
+);
+
 /// `calculateCreditMemo(db, doc, items)`: a credit memo never asks the
 /// engine; it reverses the original invoice's jurisdictions and rates.
 #[allow(
@@ -843,7 +882,7 @@ async fn calculate_credit_memo(
         )
         .into());
     };
-    let original: Option<(String, Option<Value>, Option<String>, Option<bool>, Option<Value>, Option<Value>)> =
+    let original: Option<OriginalInvoice> =
         sqlx::query_as(
             "select id, tax_breakdown, tax_engine, marketplace_facilitated, shipping_address, billing_address \
              from invoices where id = $1 and deleted_at is null limit 1",
@@ -851,7 +890,7 @@ async fn calculate_credit_memo(
         .bind(original_id)
         .fetch_optional(db)
         .await?;
-    let original_items: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i32>)> =
+    let original_items: Vec<OriginalItem> =
         match &original {
             Some((id, ..)) => {
                 sqlx::query_as(
@@ -895,12 +934,14 @@ async fn calculate_credit_memo(
         .collect();
     let originals: Vec<OriginalLine<'_>> = original_items
         .iter()
-        .map(|(id, description, unit_price, _, _, sort_order)| OriginalLine {
-            id,
-            description: description.as_deref(),
-            unit_price: unit_price.as_deref().unwrap_or(""),
-            sort_order: sort_order.map(f64::from),
-        })
+        .map(
+            |(id, description, unit_price, _, _, sort_order)| OriginalLine {
+                id,
+                description: description.as_deref(),
+                unit_price: unit_price.as_deref().unwrap_or(""),
+                sort_order: sort_order.map(f64::from),
+            },
+        )
         .collect();
     let mapping = map_credit_items_to_original(&credit_lines, &originals);
     let mapped = |id: &str| {
@@ -972,7 +1013,10 @@ async fn calculate_credit_memo(
     for batch in &batches {
         let credits: Vec<(String, f64)> = batch.iter().map(|b| (b.1.clone(), b.2)).collect();
         for row in reverse_result_for_credit_memo(&original_rows, &credits) {
-            if let Some(credit) = batch.iter().find(|b| Some(b.1.as_str()) == row_line_id(&row)) {
+            if let Some(credit) = batch
+                .iter()
+                .find(|b| Some(b.1.as_str()) == row_line_id(&row))
+            {
                 let mut row = row.as_object().cloned().unwrap_or_default();
                 row.insert("lineId".into(), json!(credit.0));
                 tax_breakdown.push(Value::Object(row));
@@ -1081,7 +1125,9 @@ pub async fn accrue_use_tax(
 ) -> Result<Option<UseTaxAccrual>, TaxError> {
     let accrued: Vec<&TaxItem> = items
         .iter()
-        .filter(|i| i.accrue_use_tax == Some(true) && line_nets.get(&i.id).copied().unwrap_or(0.0) != 0.0)
+        .filter(|i| {
+            i.accrue_use_tax == Some(true) && line_nets.get(&i.id).copied().unwrap_or(0.0) != 0.0
+        })
         .collect();
     if accrued.is_empty() {
         return Ok(None);
