@@ -1209,6 +1209,7 @@
       "tests": [
         "src/routes/desk-conversations/routes.test.ts",
         "src/routes/desk-conversations/attributes.integration.test.ts",
+        "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1232,15 +1233,13 @@
       ]
     },
     {
-      "name": "desk: SLA",
+      "name": "desk: SLA sweep",
       "module": "desk",
       "workspace": "apps/workers/desk-api",
       "tests": [
-        "src/routes/desk-conversations/sla.integration.test.ts",
         "src/cron/sla-sweep.due-index.test.ts"
       ],
       "paths": [
-        "apps/workers/desk-api/src/routes/desk-conversations/",
         "apps/workers/desk-api/src/cron/",
         "apps/workers/desk-api/src/lib/",
         "packages/core/db/src/lib/desk.ts",

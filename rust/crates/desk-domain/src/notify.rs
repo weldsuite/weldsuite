@@ -238,7 +238,10 @@ const MAX_SLA_RECIPIENTS: i64 = 200;
 
 /// `slaRecipients(db, assigneeId)`: the assignee, else every active
 /// internal teammate who can work the inbox.
-async fn sla_recipients(db: &PgPool, assignee_id: Option<&str>) -> Result<Vec<String>, sqlx::Error> {
+async fn sla_recipients(
+    db: &PgPool,
+    assignee_id: Option<&str>,
+) -> Result<Vec<String>, sqlx::Error> {
     if let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) {
         return Ok(vec![assignee.to_owned()]);
     }
@@ -326,7 +329,11 @@ pub async fn sla_alert(
             title: title.clone(),
             body: body.clone(),
             category: "helpdesk",
-            notification_type: if breach { "sla_breached" } else { "sla_warning" },
+            notification_type: if breach {
+                "sla_breached"
+            } else {
+                "sla_warning"
+            },
             entity_type: kind.entity_type(),
             entity_id: alert.conversation_id.to_owned(),
             action_url: kind.action_url(alert.conversation_id),

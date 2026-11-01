@@ -318,7 +318,12 @@ async fn start(
         )
         .await
         .map_err(|error| error.to_string())?;
-        mark_sla_due(&state, ctx.master(&state), &widget.workspace_id, created.sla_check_at);
+        mark_sla_due(
+            &state,
+            ctx.master(&state),
+            &widget.workspace_id,
+            created.sla_check_at,
+        );
         let name = visitor_display_name(db, &visitor_id, &visitor).await;
         Ok::<_, String>((created.conversation, created.message, name))
     };
@@ -639,7 +644,12 @@ async fn send(
     .await;
     let (conversation, message) = match appended {
         Ok(appended) => {
-            mark_sla_due(&state, ctx.master(&state), &widget.workspace_id, appended.sla_check_at);
+            mark_sla_due(
+                &state,
+                ctx.master(&state),
+                &widget.workspace_id,
+                appended.sla_check_at,
+            );
             appended.pair()
         }
         Err(AppendError::NotFound) => return not_found_error("Conversation", &id),

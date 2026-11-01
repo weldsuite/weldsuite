@@ -1172,6 +1172,7 @@ fn manage_schema(issues: &mut Issues, body: &Map<String, Value>) -> Option<Actio
     }
 }
 
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
 async fn manage(
     State(state): State<DeskState>,
     ctx: Ctx,

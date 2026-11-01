@@ -76,8 +76,7 @@ fn parse_clock(value: Option<&Value>) -> Option<i64> {
         return None;
     }
     let rest = &bytes[hour_len..];
-    if rest.len() < 3 || rest[0] != b':' || !rest[1].is_ascii_digit() || !rest[2].is_ascii_digit()
-    {
+    if rest.len() < 3 || rest[0] != b':' || !rest[1].is_ascii_digit() || !rest[2].is_ascii_digit() {
         return None;
     }
     let hours: i64 = text[..hour_len].parse().ok()?;
@@ -100,7 +99,11 @@ fn offset_zone(text: &str) -> Option<TimeZone> {
         5 if digits.as_bytes()[2] == b':' => (&digits[..2], &digits[3..]),
         _ => return None,
     };
-    if !hours.bytes().chain(minutes.bytes()).all(|b| b.is_ascii_digit()) {
+    if !hours
+        .bytes()
+        .chain(minutes.bytes())
+        .all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let hours: i32 = hours.parse().ok()?;
@@ -204,9 +207,9 @@ impl SlaCalendar {
     /// `localAsUtc(ms, timezone)`: the local wall-clock time at `ms`, to the
     /// second, as if it were UTC.
     fn local_as_utc(&self, ms: i64) -> i64 {
-        let offset_ms = Timestamp::from_millisecond(ms)
-            .map(|at| i64::from(self.timezone.to_offset(at).seconds()) * 1000)
-            .unwrap_or(0);
+        let offset_ms = Timestamp::from_millisecond(ms).map_or(0, |at| {
+            i64::from(self.timezone.to_offset(at).seconds()) * 1000
+        });
         floor_div(ms + offset_ms, 1000) * 1000
     }
 
@@ -292,7 +295,7 @@ pub fn business_ms_between(calendar: Option<&SlaCalendar>, from: i64, to: i64) -
     total
 }
 
-/// `new Date(ms)`: JavaScript's TimeClip truncates a fractional time value.
+/// `new Date(ms)`: JavaScript's `TimeClip` truncates a fractional time value.
 #[allow(clippy::cast_possible_truncation)]
 fn date(ms: f64) -> i64 {
     ms.trunc() as i64
@@ -337,7 +340,7 @@ mod tests {
     const HOUR: i64 = 3_600_000;
 
     fn at(iso: &str) -> i64 {
-        iso.parse::<Timestamp>().unwrap().as_millisecond()
+        iso.parse::<Timestamp>().expect("valid").as_millisecond()
     }
 
     fn office() -> SlaCalendar {
@@ -348,7 +351,7 @@ mod tests {
             "thursday": weekdays, "friday": weekdays,
             "holidays": [{ "date": "2026-12-25", "name": "Christmas", "isRecurring": true }],
         }))
-        .unwrap()
+        .expect("valid")
     }
 
     #[test]
@@ -402,7 +405,9 @@ mod tests {
 
     #[test]
     fn a_calendar_that_never_opens_is_24x7() {
-        assert!(to_calendar(&json!({ "timezone": "UTC", "monday": { "isOpen": false } })).is_none());
+        assert!(
+            to_calendar(&json!({ "timezone": "UTC", "monday": { "isOpen": false } })).is_none()
+        );
         assert!(to_calendar(&Value::Null).is_none());
     }
 
@@ -423,7 +428,7 @@ mod tests {
             "timezone": "Mars/Olympus",
             "monday": { "isOpen": true, "openTime": "09:00", "closeTime": "10:00" },
         }))
-        .unwrap();
+        .expect("valid");
         // Monday 2 Nov 2026 09:00 UTC.
         assert_eq!(
             business_ms_between(

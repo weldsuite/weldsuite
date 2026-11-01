@@ -23,6 +23,7 @@ fn fixture() -> Value {
     serde_json::from_str(&text).expect("the fixture is JSON")
 }
 
+#[allow(clippy::cast_possible_truncation)] // integral time values
 fn int(value: &Value) -> i64 {
     value
         .as_i64()
@@ -31,7 +32,11 @@ fn int(value: &Value) -> i64 {
 }
 
 fn opt_int(value: &Value) -> Option<i64> {
-    if value.is_null() { None } else { Some(int(value)) }
+    if value.is_null() {
+        None
+    } else {
+        Some(int(value))
+    }
 }
 
 /// A `Target` list as `deskSlaTargets` returns it (`{ first_response: … }`).
@@ -72,7 +77,7 @@ fn parse_targets(value: &Value) -> Vec<(Metric, Target)> {
             out.push((
                 metric,
                 Target {
-                    target_minutes: target["targetMinutes"].as_f64().unwrap(),
+                    target_minutes: target["targetMinutes"].as_f64().expect("the fixture"),
                     warn_before_minutes: target["warnBeforeMinutes"].as_f64(),
                 },
             ));
@@ -85,19 +90,23 @@ fn parse_targets(value: &Value) -> Vec<(Metric, Target)> {
 fn calendars_count_business_time_like_typescript() {
     let fixture = fixture();
     let mut checked = 0;
-    for case in fixture["calendars"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
+    for case in fixture["calendars"].as_array().expect("the fixture") {
+        let name = case["name"].as_str().expect("the fixture");
         let calendar = to_calendar(&case["hours"]);
         assert_eq!(
             calendar.is_some(),
-            case["isCalendar"].as_bool().unwrap(),
+            case["isCalendar"].as_bool().expect("the fixture"),
             "{name}: calendar or 24x7"
         );
-        for op in case["ops"].as_array().unwrap() {
+        for op in case["ops"].as_array().expect("the fixture") {
             let from = int(&op["from"]);
-            let got = match op["op"].as_str().unwrap() {
+            let got = match op["op"].as_str().expect("the fixture") {
                 "between" => business_ms_between(calendar.as_ref(), from, int(&op["to"])),
-                _ => add_business_ms(calendar.as_ref(), from, op["ms"].as_f64().unwrap()),
+                _ => add_business_ms(
+                    calendar.as_ref(),
+                    from,
+                    op["ms"].as_f64().expect("the fixture"),
+                ),
             };
             assert_eq!(got, int(&op["result"]), "{name}: {op}");
             checked += 1;
@@ -111,13 +120,16 @@ fn policies_are_selected_like_typescript() {
     let fixture = fixture();
     let policies: Vec<Policy> = fixture["selection"]["policies"]
         .as_array()
-        .unwrap()
+        .expect("the fixture")
         .iter()
         .map(Policy::from_js)
         .collect();
-    for case in fixture["selection"]["cases"].as_array().unwrap() {
-        let drop = usize::try_from(int(&case["drop"])).unwrap();
-        let chosen = select_policy(&policies[drop..], &case["conversation"]).unwrap();
+    for case in fixture["selection"]["cases"]
+        .as_array()
+        .expect("the fixture")
+    {
+        let drop = usize::try_from(int(&case["drop"])).expect("the fixture");
+        let chosen = select_policy(&policies[drop..], &case["conversation"]).expect("the fixture");
         assert_eq!(
             chosen.map(|p| p.id.as_str()),
             case["chosen"].as_str(),
@@ -130,15 +142,15 @@ fn policies_are_selected_like_typescript() {
 fn malformed_policies_fail_where_typescript_throws() {
     let fixture = fixture();
     let conversation = &fixture["selection"]["cases"][0]["conversation"];
-    for case in fixture["malformed"].as_array().unwrap() {
+    for case in fixture["malformed"].as_array().expect("the fixture") {
         let policies: Vec<Policy> = case["candidates"]
             .as_array()
-            .unwrap()
+            .expect("the fixture")
             .iter()
             .map(Policy::from_js)
             .collect();
         let result = select_policy(&policies, conversation).and_then(|chosen| {
-            if case["targets"].as_bool().unwrap() {
+            if case["targets"].as_bool().expect("the fixture") {
                 chosen
                     .map(|p| targets(p, None).map(|t| targets_json(&t)))
                     .transpose()
@@ -149,11 +161,14 @@ fn malformed_policies_fail_where_typescript_throws() {
         });
         match result {
             Ok(value) => {
-                assert!(!case["threw"].as_bool().unwrap(), "{case}: TypeScript threw");
+                assert!(
+                    !case["threw"].as_bool().expect("the fixture"),
+                    "{case}: TypeScript threw"
+                );
                 assert!(same_json(&value, &case["result"]), "{case}: got {value}");
             }
             Err(error) => assert!(
-                case["threw"].as_bool().unwrap(),
+                case["threw"].as_bool().expect("the fixture"),
                 "{case}: Rust failed with {error}"
             ),
         }
@@ -163,21 +178,18 @@ fn malformed_policies_fail_where_typescript_throws() {
 #[test]
 fn targets_match_typescript() {
     let fixture = fixture();
-    for case in fixture["targets"].as_array().unwrap() {
+    for case in fixture["targets"].as_array().expect("the fixture") {
         let policy = Policy::from_js(&case["policy"]);
         let priority = &case["priority"];
-        let got = targets_json(&targets(&policy, Some(priority)).unwrap());
-        assert!(
-            same_json(&got, &case["targets"]),
-            "{case}: got {got}"
-        );
+        let got = targets_json(&targets(&policy, Some(priority)).expect("the fixture"));
+        assert!(same_json(&got, &case["targets"]), "{case}: got {got}");
     }
 }
 
 #[test]
 fn business_hours_match_typescript() {
     let fixture = fixture();
-    for case in fixture["businessHours"].as_array().unwrap() {
+    for case in fixture["businessHours"].as_array().expect("the fixture") {
         let policy = Policy::from_js(&case["policy"]);
         let got = business_hours(&policy, &case["workspaceHours"]);
         assert_eq!(got, case["result"], "{case}");
@@ -198,39 +210,65 @@ fn replays_match_typescript() {
     let fixture = fixture();
     let calendars: std::collections::HashMap<String, Value> = fixture["calendars"]
         .as_array()
-        .unwrap()
+        .expect("the fixture")
         .iter()
-        .map(|c| (c["name"].as_str().unwrap().to_owned(), c["hours"].clone()))
+        .map(|c| {
+            (
+                c["name"].as_str().expect("the fixture").to_owned(),
+                c["hours"].clone(),
+            )
+        })
         .collect();
-    for (index, case) in fixture["replays"].as_array().unwrap().iter().enumerate() {
-        let calendar = to_calendar(&calendars[case["calendar"].as_str().unwrap()]);
+    for (index, case) in fixture["replays"]
+        .as_array()
+        .expect("the fixture")
+        .iter()
+        .enumerate()
+    {
+        let calendar = to_calendar(&calendars[case["calendar"].as_str().expect("the fixture")]);
         let targets = parse_targets(&case["targets"]);
         let timeline: Vec<TimelineEntry> = case["timeline"]
             .as_array()
-            .unwrap()
+            .expect("the fixture")
             .iter()
             .map(|e| TimelineEntry {
                 at: int(&e["at"]),
-                kind: e["kind"].as_str().unwrap().to_owned(),
-                author_type: e["authorType"].as_str().unwrap().to_owned(),
+                kind: e["kind"].as_str().expect("the fixture").to_owned(),
+                author_type: e["authorType"].as_str().expect("the fixture").to_owned(),
                 event_type: e["eventType"].as_str().map(str::to_owned),
             })
             .collect();
         let now = int(&case["now"]);
         let derived = derive_clocks(&timeline, &targets, calendar.as_ref(), now);
-        let expected = case["clocks"].as_array().unwrap();
+        let expected = case["clocks"].as_array().expect("the fixture");
         assert_eq!(derived.len(), expected.len(), "replay {index}: clocks");
         let mut times = Vec::new();
         for (clock, want) in derived.iter().zip(expected) {
             let context = format!("replay {index} {}", clock.metric.as_str());
             assert_eq!(clock.metric.as_str(), want["metric"], "{context}");
-            assert_eq!(clock.status, status(want["status"].as_str().unwrap()), "{context}");
+            assert_eq!(
+                clock.status,
+                status(want["status"].as_str().expect("the fixture")),
+                "{context}"
+            );
             assert_eq!(clock.started_at, int(&want["startedAt"]), "{context}");
-            assert_eq!(clock.elapsed_seconds, int(&want["elapsedSeconds"]), "{context}");
+            assert_eq!(
+                clock.elapsed_seconds,
+                int(&want["elapsedSeconds"]),
+                "{context}"
+            );
             assert_eq!(clock.due_at, opt_int(&want["dueAt"]), "{context}: dueAt");
             assert_eq!(clock.warn_at, opt_int(&want["warnAt"]), "{context}: warnAt");
-            assert_eq!(clock.breached_at, opt_int(&want["breachedAt"]), "{context}: breachedAt");
-            assert_eq!(clock.completed_at, opt_int(&want["completedAt"]), "{context}");
+            assert_eq!(
+                clock.breached_at,
+                opt_int(&want["breachedAt"]),
+                "{context}: breachedAt"
+            );
+            assert_eq!(
+                clock.completed_at,
+                opt_int(&want["completedAt"]),
+                "{context}"
+            );
             let time = ClockTimes {
                 metric: clock.metric,
                 status: clock.status,
@@ -240,13 +278,25 @@ fn replays_match_typescript() {
                 warned_at: opt_int(&want["warnedAt"]),
                 breach_notified_at: opt_int(&want["breachNotifiedAt"]),
             };
-            assert_eq!(next_check_at(&time), opt_int(&want["nextCheckAt"]), "{context}: nextCheckAt");
+            assert_eq!(
+                next_check_at(&time),
+                opt_int(&want["nextCheckAt"]),
+                "{context}: nextCheckAt"
+            );
             times.push(time);
         }
         let summary = summarize(&times, now);
         let want = &case["summary"];
-        assert_eq!(summary.status, want["slaStatus"].as_str(), "replay {index}: status");
-        assert_eq!(summary.due_at, opt_int(&want["slaDueAt"]), "replay {index}: due");
+        assert_eq!(
+            summary.status,
+            want["slaStatus"].as_str(),
+            "replay {index}: status"
+        );
+        assert_eq!(
+            summary.due_at,
+            opt_int(&want["slaDueAt"]),
+            "replay {index}: due"
+        );
         assert_eq!(
             summary.metric.map(Metric::as_str),
             want["slaMetric"].as_str(),

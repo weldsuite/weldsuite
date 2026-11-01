@@ -104,8 +104,16 @@ function makeEnv() {
   };
 }
 
+const swept = new WeakSet<object>();
+
 /** Mark the workspace due in the test's D1 index and, for Rust, in the master one. */
 async function markDue(env: ReturnType<typeof makeEnv>, at: Date) {
+  // The harness clears the master index the first time it sees a D1 (a new,
+  // empty index): let that happen before the row goes in.
+  if (!swept.has(env.SCHEDULE_INDEX)) {
+    swept.add(env.SCHEDULE_INDEX);
+    expect(await sweep(env, new Date(0))).toMatchObject({ due: 0, announced: 0 });
+  }
   await markWorkspaceDue(env.SCHEDULE_INDEX as never, 'desk_sla', ORG, at);
   if (conformanceTarget()) {
     await master.execute(sql`

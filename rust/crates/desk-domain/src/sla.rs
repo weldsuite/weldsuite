@@ -10,11 +10,11 @@
 //! writer can just call it again.
 //!
 //! Rules (as in TypeScript):
-//!   - first_response: from the visitor's first message to the first agent
+//!   - `first_response`: from the visitor's first message to the first agent
 //!     reply. A conversation the team started has none.
-//!   - next_response: from a visitor message that follows an agent reply to
+//!   - `next_response`: from a visitor message that follows an agent reply to
 //!     the next agent reply; restarts every cycle (the policy's `updateTime`).
-//!   - resolution: from the first message to the close. It pauses while the
+//!   - `resolution`: from the first message to the close. It pauses while the
 //!     team has answered and waits on the customer, and resumes when the
 //!     customer writes. A reopen resumes it.
 //!   - Closing stops the reply clocks without meeting them (cancelled).
@@ -149,7 +149,11 @@ fn list<'a>(value: Option<&'a Value>, what: &'static str) -> Result<&'a [Value],
 
 /// `item.field` on an array element: `null` makes TypeScript throw; any
 /// other non-object has no fields.
-fn field<'a>(item: &'a Value, key: &str, what: &'static str) -> Result<Option<&'a Value>, SlaError> {
+fn field<'a>(
+    item: &'a Value,
+    key: &str,
+    what: &'static str,
+) -> Result<Option<&'a Value>, SlaError> {
     match item {
         Value::Null => Err(SlaError::Malformed(what)),
         Value::Object(fields) => Ok(fields.get(key)),
@@ -315,15 +319,16 @@ fn condition_holds(condition: &Value, conversation: &Value) -> Result<bool, SlaE
     Ok(match operator.and_then(Value::as_str) {
         Some("equals") => equals,
         Some("not_equals") => !equals,
-        Some("contains") => match actual {
-            Some(Value::Array(_)) => equals,
-            _ => {
+        Some("contains") => {
+            if let Some(Value::Array(_)) = actual {
+                equals
+            } else {
                 let haystack = string_or_empty(actual).to_lowercase();
                 expected
                     .iter()
                     .any(|v| haystack.contains(&string_or_empty(*v).to_lowercase()))
             }
-        },
+        }
         Some("greater_than") => rank_of(field_name, actual) > rank_of(field_name, value),
         Some("less_than") => rank_of(field_name, actual) < rank_of(field_name, value),
         _ => false,
@@ -657,11 +662,7 @@ impl<'c> Replay<'c> {
     fn reply_clock(&mut self) -> Option<&mut ReplayClock<'c>> {
         let metric = [Metric::FirstResponse, Metric::NextResponse]
             .into_iter()
-            .find(|m| {
-                self.clocks
-                    .iter()
-                    .any(|c| c.metric == *m && c.running())
-            })?;
+            .find(|m| self.clocks.iter().any(|c| c.metric == *m && c.running()))?;
         self.clock(metric)
     }
 
@@ -968,16 +969,19 @@ async fn load_policies(db: &PgPool) -> Result<Vec<Policy>, sqlx::Error> {
     Ok(rows.iter().map(Policy::from_js).collect())
 }
 
-async fn load_timeline(db: &PgPool, conversation_id: &str) -> Result<Vec<TimelineEntry>, sqlx::Error> {
+async fn load_timeline(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Vec<TimelineEntry>, sqlx::Error> {
     let rows: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
         "select floor(extract(epoch from created_at) * 1000)::int8, kind, author_type,
                 metadata->>'eventType'
          from desk_messages where conversation_id = $1 and kind in ('message', 'event')
          order by created_at asc, id asc",
     )
-        .bind(conversation_id)
-        .fetch_all(db)
-        .await?;
+    .bind(conversation_id)
+    .fetch_all(db)
+    .await?;
     Ok(rows
         .into_iter()
         .map(|(at, kind, author_type, event_type)| TimelineEntry {
@@ -1021,9 +1025,9 @@ async fn load_clocks(db: &PgPool, conversation_id: &str) -> Result<Vec<StoredClo
                 floor(extract(epoch from breach_notified_at) * 1000)::int8
          from desk_sla_clocks where conversation_id = $1",
     )
-        .bind(conversation_id)
-        .fetch_all(db)
-        .await?;
+    .bind(conversation_id)
+    .fetch_all(db)
+    .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -1245,14 +1249,15 @@ pub async fn refresh(
     let values = Value::Array(rows.iter().map(ClockRow::columns).collect());
     sqlx::query(UPSERT).bind(values).execute(db).await?;
     let metrics: Vec<&str> = rows.iter().map(|r| r.metric.as_str()).collect();
-    if existing.iter().any(|c| !metrics.contains(&c.metric.as_str())) {
-        sqlx::query(
-            "delete from desk_sla_clocks where conversation_id = $1 and metric <> all($2)",
-        )
-        .bind(&conversation_id)
-        .bind(&metrics)
-        .execute(db)
-        .await?;
+    if existing
+        .iter()
+        .any(|c| !metrics.contains(&c.metric.as_str()))
+    {
+        sqlx::query("delete from desk_sla_clocks where conversation_id = $1 and metric <> all($2)")
+            .bind(&conversation_id)
+            .bind(&metrics)
+            .execute(db)
+            .await?;
     }
 
     let times: Vec<ClockTimes> = rows.iter().map(ClockTimes::from).collect();
@@ -1319,7 +1324,11 @@ pub async fn release_alert(db: &PgPool, alert: &Alert, retry_at: i64) -> Result<
 
 /// The conversation's clocks to look at again after `retry_at` (the sweep's
 /// back-off for a conversation whose refresh failed).
-pub async fn back_off(db: &PgPool, conversation_id: &str, retry_at: i64) -> Result<(), sqlx::Error> {
+pub async fn back_off(
+    db: &PgPool,
+    conversation_id: &str,
+    retry_at: i64,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update desk_sla_clocks set next_check_at = $2::timestamp where conversation_id = $1",
     )
@@ -1358,7 +1367,7 @@ pub fn instant(ms: i64) -> Option<time::OffsetDateTime> {
 mod tests {
     use super::*;
 
-    fn policy(fields: Value) -> Policy {
+    fn policy(fields: &Value) -> Policy {
         let mut base = json!({
             "id": "sla_1",
             "createdAt": "2026-01-01T00:00:00.000Z",
@@ -1380,23 +1389,27 @@ mod tests {
     #[test]
     fn picks_the_matching_policy_else_the_default() {
         let candidates = vec![
-            policy(json!({ "id": "default", "isDefault": true })),
-            policy(json!({
+            policy(&json!({ "id": "default", "isDefault": true })),
+            policy(&json!({
                 "id": "urgent",
                 "conditions": [{ "field": "priority", "operator": "equals", "value": "URGENT" }],
             })),
         ];
         let urgent = json!({ "priority": "urgent" });
         let low = json!({ "priority": "low" });
-        let chosen = select_policy(&candidates, &urgent).unwrap().unwrap();
+        let chosen = select_policy(&candidates, &urgent)
+            .expect("valid")
+            .expect("valid");
         assert_eq!(chosen.id, "urgent");
-        let chosen = select_policy(&candidates, &low).unwrap().unwrap();
+        let chosen = select_policy(&candidates, &low)
+            .expect("valid")
+            .expect("valid");
         assert_eq!(chosen.id, "default");
     }
 
     #[test]
     fn warns_at_75_percent_by_default() {
-        let targets = targets(&policy(json!({})), None).unwrap();
+        let targets = targets(&policy(&json!({})), None).expect("valid");
         assert_eq!(
             targets[0],
             (
@@ -1418,7 +1431,7 @@ mod tests {
 
     #[test]
     fn replays_a_late_first_response() {
-        let targets = targets(&policy(json!({})), None).unwrap();
+        let targets = targets(&policy(&json!({})), None).expect("valid");
         let timeline = vec![
             TimelineEntry {
                 at: 0,

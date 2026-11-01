@@ -34,7 +34,9 @@ modules, each with conformance suites that reach every route:
   workflow engine, `helpdesk-workflow-worker`, in process: its
   `ConversationWorkflow` is the `desk.conversation-workflow` job and its
   `AssignmentRouter` keeps each workspace's round robin on Valkey;
-  `crates/desk-domain/src/workflow`) and **stash** (the WMS, with the
+  `crates/desk-domain/src/workflow`; the SLA engine, `crates/desk-domain/src/sla.rs`,
+  re-derives a conversation's clocks on every write and `weldsuite cron
+  desk-sla-sweep` announces warnings and breaches) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -88,8 +90,7 @@ modules, each with conformance suites that reach every route:
   Buying a number and submitting a port are Stripe checkouts through Global's
   billing-worker: they answer as when billing-worker cannot be reached, and
   billing-worker's fulfilment callback (`/api/internal/telephony`) as without
-  Stripe. Not yet: marking the desk SLA due on an inbound call, which waits
-  for `crates/desk-domain` to gain the SLA engine)
+  Stripe. An inbound call marks the desk SLA due, as the worker does)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -146,8 +147,10 @@ rust/
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
-                        the helpdesk workflow engine (`workflow/`: handlers, the desk.conversation-workflow job);
-                        tests/fixtures from `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite)
+                        the SLA engine (sla.rs, sla_calendar.rs), the helpdesk workflow engine (`workflow/`:
+                        handlers, the desk.conversation-workflow job); tests/fixtures from
+                        `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
+                        `pnpm rust:desk-sla-fixtures` (the TypeScript SLA engine)
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
@@ -193,6 +196,7 @@ pnpm rust:conformance  # the worker tests of every ported route, against Rust (r
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
 pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engines' vectors, for crates/payroll-domain
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
+pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \

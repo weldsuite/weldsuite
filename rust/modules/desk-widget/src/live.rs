@@ -11,11 +11,11 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
-use weldsuite_desk_domain::{assignment, sla};
 use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_desk_domain::webchat::{
     Author, collapse_whitespace, public_conversation, public_message, resolve_authors,
 };
+use weldsuite_desk_domain::{assignment, sla};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::js_trim;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
@@ -210,8 +210,7 @@ pub(crate) async fn auto_assign(
     match assignment::auto_assign_with(db, &id, &picker).await {
         Ok(Some(appended)) => {
             // The owner can change which SLA policy applies.
-            if let (Some(master), Some(at)) =
-                (master, appended.sla_check_at.and_then(sla::instant))
+            if let (Some(master), Some(at)) = (master, appended.sla_check_at.and_then(sla::instant))
             {
                 weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
             }
