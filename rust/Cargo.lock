@@ -3971,6 +3971,8 @@ name = "weldsuite-books-domain"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
  "http",
  "icu_collator",
  "serde",
