@@ -31,27 +31,78 @@ where
         .route("/employers", get(list_employers).route_layer(read()))
         .route("/employers/{id}", get(get_employer).route_layer(read()))
         .route("/employers", post(create_employer).route_layer(manage()))
-        .route("/employers/{id}", patch(update_employer).route_layer(manage()))
-        .route("/employers/{id}", delete(delete_employer).route_layer(manage()))
-        .route("/employers/{id}/bank", put(set_employer_bank).route_layer(manage()))
+        .route(
+            "/employers/{id}",
+            patch(update_employer).route_layer(manage()),
+        )
+        .route(
+            "/employers/{id}",
+            delete(delete_employer).route_layer(manage()),
+        )
+        .route(
+            "/employers/{id}/bank",
+            put(set_employer_bank).route_layer(manage()),
+        )
         .route("/schedules", get(list_schedules).route_layer(read()))
         .route("/schedules", post(create_schedule).route_layer(manage()))
-        .route("/schedules/{id}", patch(update_schedule).route_layer(manage()))
-        .route("/schedules/{id}", delete(delete_schedule).route_layer(manage()))
+        .route(
+            "/schedules/{id}",
+            patch(update_schedule).route_layer(manage()),
+        )
+        .route(
+            "/schedules/{id}",
+            delete(delete_schedule).route_layer(manage()),
+        )
         .route("/employees", get(list_employees).route_layer(read()))
         .route("/employees/{id}", get(get_employee).route_layer(read()))
-        .route("/employees/{id}/profile", put(upsert_profile).route_layer(prepare()))
-        .route("/employees/{id}/payment-details", put(payment_details).route_layer(prepare()))
-        .route("/employees/{id}/compensations", post(create_compensation).route_layer(prepare()))
-        .route("/employees/{id}/components", post(create_component).route_layer(prepare()))
-        .route("/employees/{id}/tax-elections", get(list_elections).route_layer(read()))
-        .route("/employees/{id}/tax-elections", post(create_election).route_layer(prepare()))
-        .route("/employees/{id}/payslips", get(employee_payslips).route_layer(read()))
-        .route("/employees/{id}/annual-statements", get(employee_annual_statements).route_layer(read()))
-        .route("/employees/{id}/annual-statements/{year}", get(employee_annual_statement).route_layer(read()))
-        .route("/compensations/{id}", delete(delete_compensation).route_layer(prepare()))
-        .route("/components/{id}", patch(update_component).route_layer(prepare()))
-        .route("/components/{id}", delete(delete_component).route_layer(prepare()))
+        .route(
+            "/employees/{id}/profile",
+            put(upsert_profile).route_layer(prepare()),
+        )
+        .route(
+            "/employees/{id}/payment-details",
+            put(payment_details).route_layer(prepare()),
+        )
+        .route(
+            "/employees/{id}/compensations",
+            post(create_compensation).route_layer(prepare()),
+        )
+        .route(
+            "/employees/{id}/components",
+            post(create_component).route_layer(prepare()),
+        )
+        .route(
+            "/employees/{id}/tax-elections",
+            get(list_elections).route_layer(read()),
+        )
+        .route(
+            "/employees/{id}/tax-elections",
+            post(create_election).route_layer(prepare()),
+        )
+        .route(
+            "/employees/{id}/payslips",
+            get(employee_payslips).route_layer(read()),
+        )
+        .route(
+            "/employees/{id}/annual-statements",
+            get(employee_annual_statements).route_layer(read()),
+        )
+        .route(
+            "/employees/{id}/annual-statements/{year}",
+            get(employee_annual_statement).route_layer(read()),
+        )
+        .route(
+            "/compensations/{id}",
+            delete(delete_compensation).route_layer(prepare()),
+        )
+        .route(
+            "/components/{id}",
+            patch(update_component).route_layer(prepare()),
+        )
+        .route(
+            "/components/{id}",
+            delete(delete_component).route_layer(prepare()),
+        )
 }
 
 async fn list_employers(caller: Caller) -> HrResult {
@@ -64,13 +115,22 @@ async fn get_employer(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 async fn create_employer(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_employer())?;
-    let row = employers::create_employer(&caller.db, &input, &caller.user_id, &caller.keyring()).await?;
+    let row =
+        employers::create_employer(&caller.db, &input, &caller.user_id, &caller.keyring()).await?;
     Ok(Created(row).into_response())
 }
 
-async fn update_employer(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn update_employer(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::update_employer())?;
-    Ok(Data(employers::update_employer(&caller.db, &id, &input, &caller.keyring()).await?).into_response())
+    Ok(
+        Data(employers::update_employer(&caller.db, &id, &input, &caller.keyring()).await?)
+            .into_response(),
+    )
 }
 
 async fn delete_employer(caller: Caller, Path(id): Path<String>) -> HrResult {
@@ -80,12 +140,22 @@ async fn delete_employer(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 /// The salary account: write-only, masked on every read, every change
 /// audited (names of fields only).
-async fn set_employer_bank(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn set_employer_bank(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::employer_bank())?;
-    let (employer, changed) = employers::set_employer_bank(&caller.db, &id, &input, &caller.keyring()).await?;
+    let (employer, changed) =
+        employers::set_employer_bank(&caller.db, &id, &input, &caller.keyring()).await?;
     if !changed.is_empty() {
         caller
-            .audit("payroll.employer_bank_updated", None, json!({ "employerId": employer["id"], "fields": changed }))
+            .audit(
+                "payroll.employer_bank_updated",
+                None,
+                json!({ "employerId": employer["id"], "fields": changed }),
+            )
             .await?;
     }
     Ok(Data(employer).into_response())
@@ -93,7 +163,10 @@ async fn set_employer_bank(caller: Caller, Path(id): Path<String>, headers: Head
 
 async fn list_schedules(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
     let q = query(raw.as_deref(), &schemas::employer_query())?;
-    Ok(Data(employers::list_schedules(&caller.db, str_of(&q, "employerId")).await?).into_response())
+    Ok(
+        Data(employers::list_schedules(&caller.db, str_of(&q, "employerId")).await?)
+            .into_response(),
+    )
 }
 
 async fn create_schedule(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
@@ -101,7 +174,12 @@ async fn create_schedule(caller: Caller, headers: HeaderMap, body: Bytes) -> HrR
     Ok(Created(employers::create_schedule(&caller.db, &input).await?).into_response())
 }
 
-async fn update_schedule(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn update_schedule(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::update_schedule())?;
     Ok(Data(employers::update_schedule(&caller.db, &id, &input).await?).into_response())
 }
@@ -114,17 +192,30 @@ async fn delete_schedule(caller: Caller, Path(id): Path<String>) -> HrResult {
 async fn list_employees(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
     let q = query(raw.as_deref(), &schemas::payroll_employees_query())?;
     let on_payroll = str_of(&q, "onPayroll").map(|v| v == "true");
-    let list =
-        svc::list_payroll_employees(&caller.db, str_of(&q, "employerId"), on_payroll, &caller.keyring(), &today_iso())
-            .await?;
+    let list = svc::list_payroll_employees(
+        &caller.db,
+        str_of(&q, "employerId"),
+        on_payroll,
+        &caller.keyring(),
+        &today_iso(),
+    )
+    .await?;
     Ok(Data(Value::Array(list)).into_response())
 }
 
 async fn get_employee(caller: Caller, Path(id): Path<String>) -> HrResult {
-    Ok(Data(svc::get_payroll_employee(&caller.db, &id, &caller.keyring(), &today_iso()).await?).into_response())
+    Ok(
+        Data(svc::get_payroll_employee(&caller.db, &id, &caller.keyring(), &today_iso()).await?)
+            .into_response(),
+    )
 }
 
-async fn upsert_profile(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn upsert_profile(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::upsert_profile())?;
     Ok(Data(svc::upsert_profile(&caller.db, &id, &input).await?).into_response())
 }
@@ -137,7 +228,8 @@ async fn payment_details(
     body: Bytes,
 ) -> HrResult {
     let input = json_body(&headers, &body, &schemas::payment_details())?;
-    let result = svc::set_payment_details(&caller.db, &id, &input, &caller.keyring(), false).await?;
+    let result =
+        svc::set_payment_details(&caller.db, &id, &input, &caller.keyring(), false).await?;
     if !result.changed_fields.is_empty() {
         caller
             .audit(
@@ -147,8 +239,18 @@ async fn payment_details(
             )
             .await?;
         if result.bank_changed {
-            let bank: Vec<&String> = result.changed_fields.iter().filter(|f| f.starts_with("bank")).collect();
-            caller.audit("payroll.bank_changed", Some(&id), json!({ "fields": bank, "by": "admin" })).await?;
+            let bank: Vec<&String> = result
+                .changed_fields
+                .iter()
+                .filter(|f| f.starts_with("bank"))
+                .collect();
+            caller
+                .audit(
+                    "payroll.bank_changed",
+                    Some(&id),
+                    json!({ "fields": bank, "by": "admin" }),
+                )
+                .await?;
             super::notifier::notify_bank_change(&state, &caller, &id, false);
         }
         caller.emit(&state, HR_EMPLOYEE_UPDATED, &id, &[]);
@@ -156,14 +258,30 @@ async fn payment_details(
     Ok(Data(result.details).into_response())
 }
 
-async fn create_compensation(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn create_compensation(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_compensation())?;
-    Ok(Created(svc::create_compensation(&caller.db, &id, &input, &caller.user_id).await?).into_response())
+    Ok(
+        Created(svc::create_compensation(&caller.db, &id, &input, &caller.user_id).await?)
+            .into_response(),
+    )
 }
 
-async fn create_component(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn create_component(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_component())?;
-    Ok(Created(svc::create_component(&caller.db, &id, &input, &caller.user_id).await?).into_response())
+    Ok(
+        Created(svc::create_component(&caller.db, &id, &input, &caller.user_id).await?)
+            .into_response(),
+    )
 }
 
 async fn list_elections(caller: Caller, Path(id): Path<String>) -> HrResult {
@@ -172,7 +290,12 @@ async fn list_elections(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 /// HR enters a paper form: source `admin`, signed by the member who entered
 /// it, in the signer's typed name.
-async fn create_election(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn create_election(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_election())?;
     let election = svc::create_election(&caller.db, &id, &input, &caller.user_id, "admin").await?;
     caller
@@ -190,7 +313,12 @@ async fn delete_compensation(caller: Caller, Path(id): Path<String>) -> HrResult
     Ok(NoContent.into_response())
 }
 
-async fn update_component(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn update_component(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::update_component())?;
     Ok(Data(svc::update_component(&caller.db, &id, &input).await?).into_response())
 }
@@ -201,11 +329,17 @@ async fn delete_component(caller: Caller, Path(id): Path<String>) -> HrResult {
 }
 
 async fn employee_payslips(caller: Caller, Path(id): Path<String>) -> HrResult {
-    Ok(Data(Value::Array(super::payslips::list_employee_payslips(&caller.db, &id).await?)).into_response())
+    Ok(Data(Value::Array(
+        super::payslips::list_employee_payslips(&caller.db, &id).await?,
+    ))
+    .into_response())
 }
 
 async fn employee_annual_statements(caller: Caller, Path(id): Path<String>) -> HrResult {
-    Ok(Data(Value::Array(super::annual::list_annual_statements(&caller.db, &id).await?)).into_response())
+    Ok(Data(Value::Array(
+        super::annual::list_annual_statements(&caller.db, &id).await?,
+    ))
+    .into_response())
 }
 
 /// The statement carries the employee's BSN / SSN: reading it is on record.
@@ -216,12 +350,14 @@ async fn employee_annual_statement(
     RawQuery(raw): RawQuery,
 ) -> HrResult {
     let year = super::self_service::integer_param(&year);
-    let employer_id = crate::query_param(&crate::query_values(raw.as_deref()), "employerId").filter(|e| !e.is_empty());
+    let employer_id = crate::query_param(&crate::query_values(raw.as_deref()), "employerId")
+        .filter(|e| !e.is_empty());
     let (Some(year), Some(employer_id)) = (year, employer_id) else {
         return Err(crate::HrError::validation("Give the year and ?employerId="));
     };
     let deps = super::Deps::of(&state, &caller);
-    let (bytes, file_name) = super::annual::annual_statement_pdf(&caller.db, &id, year, &employer_id, &deps).await?;
+    let (bytes, file_name) =
+        super::annual::annual_statement_pdf(&caller.db, &id, year, &employer_id, &deps).await?;
     caller
         .audit(
             "payroll.annual_statement_viewed",

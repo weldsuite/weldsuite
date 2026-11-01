@@ -690,7 +690,11 @@ fn hr_state(state: &AppState) -> weldsuite_hr::HrState {
         // send none: the worker sends it as raw MIME over the test's `SEND_EMAIL`,
         // which the payroll suites leave unbound (weldsuite-emails' render cases
         // check the templates).
-        mail: state.infra.mail.clone().filter(|_| !cfg!(feature = "conformance")),
+        mail: state
+            .infra
+            .mail
+            .clone()
+            .filter(|_| !cfg!(feature = "conformance")),
         // Expo push. Conformance builds take the test's bridge per request.
         http: (!cfg!(feature = "conformance"))
             .then(|| {

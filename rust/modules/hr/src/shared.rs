@@ -300,35 +300,6 @@ pub(crate) async fn record_hr_audit(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn numbers_like_javascript() {
-        assert_eq!(js_to_fixed(1.005, 2), "1.00");
-        assert_eq!(js_to_fixed(0.25, 1), "0.3");
-        assert_eq!(js_to_fixed(1.379, 1), "1.4");
-        assert_eq!(js_to_fixed(9.96, 1), "10.0");
-        assert_eq!(js_to_fixed(-1.5, 0), "-2");
-        assert_eq!(js_to_fixed(12.0, 2), "12.00");
-        assert!((js_round(-2.5) - -2.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn dates_like_javascript() {
-        assert_eq!(add_days("2026-02-27", 2), "2026-03-01");
-        assert_eq!(add_days("2026-02-30", 0), "2026-03-02");
-        assert_eq!(add_days("2026-12-31", 1), "2027-01-01");
-        assert_eq!(working_days_between("2026-10-30", "2026-11-02"), 2);
-        assert!(
-            (employed_share_of_year(2026, Some("2026-07-01"), None) - 184.0 / 365.0).abs() < 1e-12
-        );
-        assert!(is_iso_date_shape("2026-13-45"));
-        assert!(parse_date("2026-13-45").is_none());
-    }
-}
-
 /// `a.localeCompare(b)`: ICU's root collation, as Node's default locale sorts.
 static COLLATOR: std::sync::LazyLock<Option<icu_collator::CollatorBorrowed<'static>>> =
     std::sync::LazyLock::new(|| {
@@ -349,12 +320,6 @@ pub(crate) fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
 /// A text field of a Drizzle row, `""` when missing or null.
 pub(crate) fn text<'a>(row: &'a Value, key: &str) -> &'a str {
     row[key].as_str().unwrap_or_default()
-}
-
-/// A text field of a Drizzle row, `None` when missing, null or empty
-/// (`row.x || undefined`).
-pub(crate) fn non_empty<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
-    row[key].as_str().filter(|value| !value.is_empty())
 }
 
 /// One query string value (`c.req.query(name)`): the first when repeated.
@@ -401,4 +366,33 @@ pub(crate) fn js_time(value: &Value) -> Value {
         .as_str()
         .and_then(weldsuite_db::js_timestamp)
         .map_or(Value::Null, Value::String)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers_like_javascript() {
+        assert_eq!(js_to_fixed(1.005, 2), "1.00");
+        assert_eq!(js_to_fixed(0.25, 1), "0.3");
+        assert_eq!(js_to_fixed(1.379, 1), "1.4");
+        assert_eq!(js_to_fixed(9.96, 1), "10.0");
+        assert_eq!(js_to_fixed(-1.5, 0), "-2");
+        assert_eq!(js_to_fixed(12.0, 2), "12.00");
+        assert!((js_round(-2.5) - -2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn dates_like_javascript() {
+        assert_eq!(add_days("2026-02-27", 2), "2026-03-01");
+        assert_eq!(add_days("2026-02-30", 0), "2026-03-02");
+        assert_eq!(add_days("2026-12-31", 1), "2027-01-01");
+        assert_eq!(working_days_between("2026-10-30", "2026-11-02"), 2);
+        assert!(
+            (employed_share_of_year(2026, Some("2026-07-01"), None) - 184.0 / 365.0).abs() < 1e-12
+        );
+        assert!(is_iso_date_shape("2026-13-45"));
+        assert!(parse_date("2026-13-45").is_none());
+    }
 }

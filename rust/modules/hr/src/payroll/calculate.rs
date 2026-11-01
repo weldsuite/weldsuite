@@ -10,25 +10,34 @@ use serde_json::{Map, Value, json};
 use weldsuite_db::{Keyring, PgPool, js_row};
 use weldsuite_kit::generate_id;
 use weldsuite_payroll_domain::money::to_cents_text;
-use weldsuite_payroll_domain::nl::{nl_annual_wage_for_special_rewards, nl_holiday_allowance_balance};
+use weldsuite_payroll_domain::nl::{
+    nl_annual_wage_for_special_rewards, nl_holiday_allowance_balance,
+};
 use weldsuite_payroll_domain::periods::periods_per_year;
 use weldsuite_payroll_domain::types::{PayFrequency, PayslipInput, PayslipResult, Ytd};
 use weldsuite_payroll_domain::{PayrollError, calculate_payslip};
 
 use super::common::{employee_issue, num, push_issue, sort_issues};
-use super::corrections::{CorrectionBase, Recalculated, Totals, correction_from, result_totals, snapshot_ytd};
+use super::corrections::{
+    CorrectionBase, Recalculated, Totals, correction_from, result_totals, snapshot_ytd,
+};
 use super::employees::{
-    EmployeePayrollData, compensation_on, components_overlapping, election_of, elections_in_force, load_employee_payroll_data,
-    readiness_issues,
+    EmployeePayrollData, compensation_on, components_overlapping, election_of, elections_in_force,
+    load_employee_payroll_data, readiness_issues,
 };
 use super::employers::{employer_issues, read_employer_bank, work_states_of};
-use super::runs::{assert_editable, included_employee_ids, int_of, payslip_sql, profile_window, require_run, run_input_rows, s};
+use super::runs::{
+    assert_editable, included_employee_ids, int_of, payslip_sql, profile_window, require_run,
+    run_input_rows, s,
+};
 use super::ytd::{
-    carried_over_ytd, employees_with_final_payslips, final_payslips_by_employee, latest_by_approval, ytd_of,
+    carried_over_ytd, employees_with_final_payslips, final_payslips_by_employee,
+    latest_by_approval, ytd_of,
 };
 use crate::{HrError, js_round, locale_compare, now};
 
-const RUN_CHANGED: &str = "This pay run was approved, cancelled or changed by someone else. Reload it and try again.";
+const RUN_CHANGED: &str =
+    "This pay run was approved, cancelled or changed by someone else. Reload it and try again.";
 
 fn n(x: f64) -> Value {
     weldsuite_core_domain::js::number_value(x)
@@ -40,7 +49,11 @@ fn present(value: Option<&Value>) -> Option<&Value> {
 }
 
 fn coalesce(values: &[Option<&Value>]) -> Value {
-    values.iter().find_map(|v| present(*v)).cloned().unwrap_or(Value::Null)
+    values
+        .iter()
+        .find_map(|v| present(*v))
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 /// `Boolean(x)`.
@@ -75,7 +88,12 @@ fn num_or_null(value: Option<&Value>) -> Value {
 }
 
 /// `periodOf(run, frequency)`.
-pub(crate) fn period_of(run: &Value, pay_date: &str, tax_year: i64, frequency: PayFrequency) -> Value {
+pub(crate) fn period_of(
+    run: &Value,
+    pay_date: &str,
+    tax_year: i64,
+    frequency: PayFrequency,
+) -> Value {
     json!({
         "start": run["periodStart"], "end": run["periodEnd"], "payDate": pay_date, "frequency": frequency.as_str(),
         "taxYear": tax_year, "periodNumber": run["periodNumber"], "periodsPerYear": periods_per_year(frequency),
@@ -151,11 +169,20 @@ pub(crate) struct BuiltInput {
 /// `buildPayslipInput(args)`. Compensation must exist.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
-    let BuildInputArgs { period, employer, data, inputs, ytd, .. } = &args;
+    let BuildInputArgs {
+        period,
+        employer,
+        data,
+        inputs,
+        ytd,
+        ..
+    } = &args;
     let profile = data.profile.clone().unwrap_or(Value::Null);
     let period_end = period["end"].as_str().unwrap_or("");
     let period_start = period["start"].as_str().unwrap_or("");
-    let comp = compensation_on(&data.compensations, period_end).cloned().unwrap_or(Value::Null);
+    let comp = compensation_on(&data.compensations, period_end)
+        .cloned()
+        .unwrap_or(Value::Null);
     let (start, end) = profile_window(&profile, &data.employee);
     let nl = &profile["nl"];
     let compensation = json!({
@@ -189,7 +216,10 @@ pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
     if employer["country"] == "NL" {
         let settings = &employer["nlSettings"];
         let year = &settings["years"][period["taxYear"].as_i64().unwrap_or(0).to_string()];
-        let contract_hours = coalesce(&[nl.get("contractHoursPerWeek"), data.employee.get("weeklyHours")]);
+        let contract_hours = coalesce(&[
+            nl.get("contractHoursPerWeek"),
+            data.employee.get("weeklyHours"),
+        ]);
         let election = election_of(&data.elections, period_end, "nl_loonheffingskorting", None);
         let expat = &nl["expatRuling"];
         let expat_percent = if truthy(Some(expat))
@@ -202,7 +232,11 @@ pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
         };
         let is_dga = present(nl.get("isDga")).cloned().unwrap_or(json!(false));
         let not_dga = json!(!truthy(Some(&is_dga)));
-        let flag = |key: &str, fallback: &Value| present(nl.get(key)).cloned().unwrap_or_else(|| fallback.clone());
+        let flag = |key: &str, fallback: &Value| {
+            present(nl.get(key))
+                .cloned()
+                .unwrap_or_else(|| fallback.clone())
+        };
         base.insert("country".into(), json!("NL"));
         base.insert(
             "employer".into(),
@@ -214,10 +248,13 @@ pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
                 "holidayAllowancePayoutMonth": coalesce(&[settings.get("holidayAllowancePayoutMonth")]),
             }),
         );
-        let usual = present(nl.get("usualWorkDaysPerWeek")).cloned().unwrap_or_else(|| {
-            let short = contract_hours.as_f64().is_some_and(|h| h < 36.0) && !contract_hours.is_null();
-            json!(if short { 4 } else { 5 })
-        });
+        let usual = present(nl.get("usualWorkDaysPerWeek"))
+            .cloned()
+            .unwrap_or_else(|| {
+                let short =
+                    contract_hours.as_f64().is_some_and(|h| h < 36.0) && !contract_hours.is_null();
+                json!(if short { 4 } else { 5 })
+            });
         base.insert(
             "nl".into(),
             json!({
@@ -245,27 +282,36 @@ pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
         if let Some(states) = settings["states"].as_object() {
             for (state, config) in states {
                 sui.insert(state.clone(), coalesce(&[config["suiRates"].get(&year)]));
-                extra.insert(state.clone(), present(config["extraRates"].get(&year)).cloned().unwrap_or_else(|| json!({})));
+                extra.insert(
+                    state.clone(),
+                    present(config["extraRates"].get(&year))
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                );
             }
         }
         let us = &profile["us"];
         let work_state = coalesce(&[us.get("workState")]);
-        if let Some(state) = work_state.as_str().filter(|s| !s.is_empty()) {
-            if !sui.contains_key(state) {
-                sui.insert(state.to_owned(), Value::Null);
-            }
+        if let Some(state) = work_state.as_str().filter(|s| !s.is_empty())
+            && !sui.contains_key(state)
+        {
+            sui.insert(state.to_owned(), Value::Null);
         }
         let w4 = election_of(&data.elections, period_end, "us_w4", None);
         let mut certificates = Map::new();
         for election in elections_in_force(&data.elections, period_end) {
-            if election["kind"] == "us_state_certificate" {
-                if let Some(state) = election["state"].as_str().filter(|s| !s.is_empty()) {
-                    certificates.insert(state.to_owned(), to_state_certificate(&election["data"]));
-                }
+            if election["kind"] == "us_state_certificate"
+                && let Some(state) = election["state"].as_str().filter(|s| !s.is_empty())
+            {
+                certificates.insert(state.to_owned(), to_state_certificate(&election["data"]));
             }
         }
         let flsa = present(us.get("flsaStatus")).cloned().unwrap_or_else(|| {
-            json!(if comp["payType"] == "hourly" { "nonexempt" } else { "exempt" })
+            json!(if comp["payType"] == "hourly" {
+                "nonexempt"
+            } else {
+                "exempt"
+            })
         });
         let flag = |key: &str| present(us.get(key)).cloned().unwrap_or(json!(false));
         base.insert("country".into(), json!("US"));
@@ -294,13 +340,15 @@ pub(crate) fn build_payslip_input(args: BuildInputArgs<'_>) -> BuiltInput {
         );
     }
     let json = Value::Object(base);
-    let typed = serde_json::from_value::<PayslipInput>(json.clone()).map_err(|e| e.to_string()).map(|mut input| {
-        match &mut input {
-            PayslipInput::Nl(nl) => nl.ytd = ytd.clone(),
-            PayslipInput::Us(us) => us.ytd = ytd.clone(),
-        }
-        input
-    });
+    let typed = serde_json::from_value::<PayslipInput>(json.clone())
+        .map_err(|e| e.to_string())
+        .map(|mut input| {
+            match &mut input {
+                PayslipInput::Nl(nl) => nl.ytd = ytd.clone(),
+                PayslipInput::Us(us) => us.ytd = ytd.clone(),
+            }
+            input
+        });
     BuiltInput { json, typed }
 }
 
@@ -329,11 +377,19 @@ pub(crate) fn safe_calculate(input: &BuiltInput, ytd: &Ytd) -> Outcome {
     };
     match result {
         Ok(result) => Outcome {
-            lines: result.lines.iter().map(weldsuite_payroll_domain::js::to_value).collect(),
+            lines: result
+                .lines
+                .iter()
+                .map(weldsuite_payroll_domain::js::to_value)
+                .collect(),
             totals: result_totals(&result),
             ytd: result.ytd.clone(),
             filing_data: weldsuite_payroll_domain::js::to_value(&result.filing_data),
-            issues: result.issues.iter().map(weldsuite_payroll_domain::js::to_value).collect(),
+            issues: result
+                .issues
+                .iter()
+                .map(weldsuite_payroll_domain::js::to_value)
+                .collect(),
             rule_set: result.rule_set,
         },
         Err(error) => {
@@ -426,10 +482,10 @@ pub(crate) async fn run_inputs_stamp(db: &PgPool, run_id: &str) -> Result<String
     let mut latest = String::new();
     for row in rows.iter().cloned().map(js_row) {
         for key in ["createdAt", "updatedAt"] {
-            if let Some(iso) = row[key].as_str() {
-                if iso > latest.as_str() {
-                    latest = iso.to_owned();
-                }
+            if let Some(iso) = row[key].as_str()
+                && iso > latest.as_str()
+            {
+                iso.clone_into(&mut latest);
             }
         }
     }
@@ -438,7 +494,11 @@ pub(crate) async fn run_inputs_stamp(db: &PgPool, run_id: &str) -> Result<String
 
 /// `dataVersion(db, employerId, employeeIds)`: the latest change time across
 /// what payroll reads, from the database's own clock.
-pub(crate) async fn data_version(db: &PgPool, employer_id: &str, employee_ids: &[String]) -> Result<String, HrError> {
+pub(crate) async fn data_version(
+    db: &PgPool,
+    employer_id: &str,
+    employee_ids: &[String],
+) -> Result<String, HrError> {
     let row: Value = sqlx::query_scalar(
         "select jsonb_build_object('at', greatest(
             (select max(updated_at) from hr_payroll_employers where id = $1),
@@ -457,7 +517,11 @@ pub(crate) async fn data_version(db: &PgPool, employer_id: &str, employee_ids: &
 
 /// `previousFinalNets(db, run, employeeIds)`: net pay (cents) of each
 /// employee's previous final, non-correction payslip at the employer.
-async fn previous_final_nets(db: &PgPool, run: &Value, employee_ids: &[String]) -> Result<HashMap<String, f64>, HrError> {
+async fn previous_final_nets(
+    db: &PgPool,
+    run: &Value,
+    employee_ids: &[String],
+) -> Result<HashMap<String, f64>, HrError> {
     let mut out = HashMap::new();
     if employee_ids.is_empty() {
         return Ok(out);
@@ -473,13 +537,22 @@ async fn previous_final_nets(db: &PgPool, run: &Value, employee_ids: &[String]) 
     rows.retain(|r| r.3.is_none() && r.4 != s(run, "id") && r.2.as_str() < s(run, "periodEnd"));
     rows.sort_by(|a, b| b.2.cmp(&a.2));
     for (employee, net, ..) in rows {
-        out.entry(employee).or_insert_with(|| to_cents_text(Some(&net)).unwrap_or(0.0));
+        out.entry(employee)
+            .or_insert_with(|| to_cents_text(Some(&net)).unwrap_or(0.0));
     }
     Ok(out)
 }
 
-fn frequency_for(run: &Value, d: &EmployeePayrollData, frequencies: &HashMap<String, String>) -> PayFrequency {
-    let of = |id: Option<&str>| id.filter(|v| !v.is_empty()).and_then(|id| frequencies.get(id)).and_then(|f| PayFrequency::parse(f));
+fn frequency_for(
+    run: &Value,
+    d: &EmployeePayrollData,
+    frequencies: &HashMap<String, String>,
+) -> PayFrequency {
+    let of = |id: Option<&str>| {
+        id.filter(|v| !v.is_empty())
+            .and_then(|id| frequencies.get(id))
+            .and_then(|f| PayFrequency::parse(f))
+    };
     of(run["payScheduleId"].as_str())
         .or_else(|| of(d.profile.as_ref().and_then(|p| p["payScheduleId"].as_str())))
         .unwrap_or(PayFrequency::Monthly)
@@ -500,15 +573,25 @@ fn merge_readiness(employee_issues: &mut Vec<Value>, readiness: &[Value]) {
 
 /// `calculateRun(db, runId, deps, { userId })`.
 #[allow(clippy::too_many_lines)]
-pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, user_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn calculate_run(
+    db: &PgPool,
+    run_id: &str,
+    keyring: &Keyring,
+    user_id: &str,
+) -> Result<Value, HrError> {
     let run = require_run(db, run_id).await?;
     assert_editable(&run)?;
-    let employer: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1")
-        .bind(s(&run, "employerId"))
-        .fetch_optional(db)
-        .await?;
+    let employer: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1",
+    )
+    .bind(s(&run, "employerId"))
+    .fetch_optional(db)
+    .await?;
     let Some(employer) = employer.map(js_row) else {
-        return Err(HrError::not_found("Payroll employer", s(&run, "employerId")));
+        return Err(HrError::not_found(
+            "Payroll employer",
+            s(&run, "employerId"),
+        ));
     };
     claim_for_calculation(db, run_id).await?;
     let run = require_run(db, run_id).await?;
@@ -518,12 +601,24 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
     let inputs_stamp = run_inputs_stamp(db, run_id).await?;
     let data = load_employee_payroll_data(db, &included, keyring).await?;
     let data_of = |id: &str| data.iter().find(|d| s(&d.employee, "id") == id);
-    let input_rows = if included.is_empty() { vec![] } else { run_input_rows(db, run_id, Some(&included)).await? };
-    let inputs_of = |id: &str| input_rows.iter().filter(|r| r["employeeId"] == id).collect::<Vec<_>>();
+    let input_rows = if included.is_empty() {
+        vec![]
+    } else {
+        run_input_rows(db, run_id, Some(&included)).await?
+    };
+    let inputs_of = |id: &str| {
+        input_rows
+            .iter()
+            .filter(|r| r["employeeId"] == id)
+            .collect::<Vec<_>>()
+    };
 
     let mut schedule_ids: Vec<String> = vec![];
     for id in std::iter::once(run["payScheduleId"].as_str())
-        .chain(data.iter().map(|d| d.profile.as_ref().and_then(|p| p["payScheduleId"].as_str())))
+        .chain(
+            data.iter()
+                .map(|d| d.profile.as_ref().and_then(|p| p["payScheduleId"].as_str())),
+        )
         .flatten()
     {
         if !id.is_empty() && !schedule_ids.iter().any(|x| x == id) {
@@ -533,12 +628,14 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
     let frequencies: HashMap<String, String> = if schedule_ids.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>("select id, frequency from hr_pay_schedules where id = any($1)")
-            .bind(&schedule_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect()
+        sqlx::query_as::<_, (String, String)>(
+            "select id, frequency from hr_pay_schedules where id = any($1)",
+        )
+        .bind(&schedule_ids)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .collect()
     };
 
     let mut issues: Vec<Value> = vec![];
@@ -547,15 +644,35 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
     let country = s(&employer, "country").to_owned();
 
     if run["kind"] == "correction" {
-        calculate_corrections(db, &run, &employer, &included, &data, &input_rows, &frequencies, &mut issues, &mut slips).await?;
+        calculate_corrections(
+            db,
+            &run,
+            &employer,
+            &included,
+            &data,
+            &input_rows,
+            &frequencies,
+            &mut issues,
+            &mut slips,
+        )
+        .await?;
     } else {
         let chain = final_payslips_by_employee(db, &included, s(&employer, "id"), tax_year).await?;
-        let previous_year = final_payslips_by_employee(db, &included, s(&employer, "id"), tax_year - 1).await?;
-        let ever_paid: HashSet<String> = employees_with_final_payslips(db, &included, s(&employer, "id")).await?;
+        let previous_year =
+            final_payslips_by_employee(db, &included, s(&employer, "id"), tax_year - 1).await?;
+        let ever_paid: HashSet<String> =
+            employees_with_final_payslips(db, &included, s(&employer, "id")).await?;
         let previous_nets = previous_final_nets(db, &run, &included).await?;
         for employee_id in &included {
-            let Some(d) = data_of(employee_id).filter(|d| d.profile.is_some() && d.employer.is_some()) else {
-                issues.push(employee_issue("error", "employer_incomplete", employee_id, Some(json!({ "field": "payroll_profile" }))));
+            let Some(d) =
+                data_of(employee_id).filter(|d| d.profile.is_some() && d.employer.is_some())
+            else {
+                issues.push(employee_issue(
+                    "error",
+                    "employer_incomplete",
+                    employee_id,
+                    Some(json!({ "field": "payroll_profile" })),
+                ));
                 continue;
             };
             let readiness = readiness_issues(d, s(&run, "periodEnd"), false, &[]);
@@ -567,7 +684,8 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
             }
             let empty = vec![];
             let tip = latest_by_approval(chain.get(employee_id).unwrap_or(&empty));
-            let last_year_tip = latest_by_approval(previous_year.get(employee_id).unwrap_or(&empty));
+            let last_year_tip =
+                latest_by_approval(previous_year.get(employee_id).unwrap_or(&empty));
             let ytd = match tip {
                 Some(tip) => ytd_of(tip),
                 None if country == "US" => carried_over_ytd(last_year_tip),
@@ -575,13 +693,20 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
             };
             let nl = country == "NL";
             let built = build_payslip_input(BuildInputArgs {
-                period: period_of(&run, s(&run, "payDate"), tax_year, frequency_for(&run, d, &frequencies)),
+                period: period_of(
+                    &run,
+                    s(&run, "payDate"),
+                    tax_year,
+                    frequency_for(&run, d, &frequencies),
+                ),
                 employer: &employer,
                 data: d,
                 inputs: inputs_of(employee_id),
                 ytd: ytd.clone(),
                 previous_year_annual_wage_cents: match last_year_tip {
-                    Some(t) if nl => nl_annual_wage_for_special_rewards(&ytd_of(t)).map_or(Value::Null, n),
+                    Some(t) if nl => {
+                        nl_annual_wage_for_special_rewards(&ytd_of(t)).map_or(Value::Null, n)
+                    }
                     _ => Value::Null,
                 },
                 holiday_allowance_opening_balance_cents: match last_year_tip {
@@ -594,19 +719,24 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
             let mut employee_issues = as_issues(employee_id, &result.issues);
             merge_readiness(&mut employee_issues, &readiness);
             if !ever_paid.contains(employee_id) {
-                employee_issues.push(employee_issue("warning", "first_payslip", employee_id, None));
+                employee_issues.push(employee_issue(
+                    "warning",
+                    "first_payslip",
+                    employee_id,
+                    None,
+                ));
             }
-            if run["kind"] == "regular" {
-                if let Some(previous) = previous_nets.get(employee_id).copied().filter(|p| *p > 0.0) {
-                    let change = (result.totals.net - previous).abs() / previous;
-                    if change > 0.2 {
-                        employee_issues.push(employee_issue(
-                            "warning",
-                            "large_change",
-                            employee_id,
-                            Some(json!({ "percent": n(js_round(change * 100.0)) })),
-                        ));
-                    }
+            if run["kind"] == "regular"
+                && let Some(previous) = previous_nets.get(employee_id).copied().filter(|p| *p > 0.0)
+            {
+                let change = (result.totals.net - previous).abs() / previous;
+                if change > 0.2 {
+                    employee_issues.push(employee_issue(
+                        "warning",
+                        "large_change",
+                        employee_id,
+                        Some(json!({ "percent": n(js_round(change * 100.0)) })),
+                    ));
                 }
             }
             for issue in &employee_issues {
@@ -641,8 +771,16 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
 
     // Run-level checks: the employer once for the whole run.
     let bank = read_employer_bank(&employer, keyring)?;
-    let profiles: Vec<Value> = data.iter().filter_map(|d| d.profile.as_ref().map(|p| json!({ "us": p["us"] }))).collect();
-    for issue in employer_issues(&employer, bank.as_ref(), &work_states_of(&profiles), tax_year) {
+    let profiles: Vec<Value> = data
+        .iter()
+        .filter_map(|d| d.profile.as_ref().map(|p| json!({ "us": p["us"] })))
+        .collect();
+    for issue in employer_issues(
+        &employer,
+        bank.as_ref(),
+        &work_states_of(&profiles),
+        tax_year,
+    ) {
         push_issue(&mut issues, issue);
     }
 
@@ -718,7 +856,10 @@ pub(crate) async fn calculate_run(db: &PgPool, run_id: &str, keyring: &Keyring, 
     .fetch_all(db)
     .await?;
     if done.is_empty() {
-        sqlx::query("delete from hr_payslips where run_id = $1 and status = 'draft'").bind(run_id).execute(db).await?;
+        sqlx::query("delete from hr_payslips where run_id = $1 and status = 'draft'")
+            .bind(run_id)
+            .execute(db)
+            .await?;
         return Err(HrError::conflict(
             "This pay run was cancelled or changed while it was being calculated. Reload it and try again.",
         ));
@@ -740,33 +881,53 @@ async fn calculate_corrections(
     slips: &mut Vec<StoredPayslip>,
 ) -> Result<(), HrError> {
     let Some(corrects) = run["correctsRunId"].as_str().filter(|v| !v.is_empty()) else {
-        return Err(HrError::conflict("This correction run does not say which run it corrects"));
+        return Err(HrError::conflict(
+            "This correction run does not say which run it corrects",
+        ));
     };
-    let originals: Vec<Value> = sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'final'"))
-        .bind(corrects)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
-    let all_corrections: Vec<Value> = if originals.is_empty() {
-        vec![]
-    } else {
-        let ids: Vec<&str> = originals.iter().map(|o| s(o, "id")).collect();
-        sqlx::query_scalar(payslip_sql("s.corrects_payslip_id = any($1) and s.status = 'final'"))
-            .bind(ids)
+    let originals: Vec<Value> =
+        sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'final'"))
+            .bind(corrects)
             .fetch_all(db)
             .await?
             .into_iter()
             .map(js_row)
-            .collect()
+            .collect();
+    let all_corrections: Vec<Value> = if originals.is_empty() {
+        vec![]
+    } else {
+        let ids: Vec<&str> = originals.iter().map(|o| s(o, "id")).collect();
+        sqlx::query_scalar(payslip_sql(
+            "s.corrects_payslip_id = any($1) and s.status = 'final'",
+        ))
+        .bind(ids)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect()
     };
-    let headcount = run["includedEmployeeIds"].as_array().map_or(1.0, |a| a.len() as f64);
+    let headcount = run["includedEmployeeIds"]
+        .as_array()
+        .map_or(1.0, |a| a.len() as f64);
     for employee_id in included {
-        let original = originals.iter().rev().find(|o| o["employeeId"] == employee_id.as_str());
-        let d = data.iter().find(|d| s(&d.employee, "id") == employee_id.as_str());
-        let (Some(original), Some(d)) = (original, d.filter(|d| d.profile.is_some() && d.employer.is_some())) else {
-            issues.push(employee_issue("error", "employer_incomplete", employee_id, Some(json!({ "field": "payroll_profile" }))));
+        let original = originals
+            .iter()
+            .rev()
+            .find(|o| o["employeeId"] == employee_id.as_str());
+        let d = data
+            .iter()
+            .find(|d| s(&d.employee, "id") == employee_id.as_str());
+        let (Some(original), Some(d)) = (
+            original,
+            d.filter(|d| d.profile.is_some() && d.employer.is_some()),
+        ) else {
+            issues.push(employee_issue(
+                "error",
+                "employer_incomplete",
+                employee_id,
+                Some(json!({ "field": "payroll_profile" })),
+            ));
             continue;
         };
         let readiness = readiness_issues(d, s(run, "periodEnd"), false, &[]);
@@ -777,7 +938,13 @@ async fn calculate_corrections(
             continue;
         }
         let original_year = int_of(original, "taxYear");
-        let chain = final_payslips_by_employee(db, std::slice::from_ref(employee_id), s(employer, "id"), original_year).await?;
+        let chain = final_payslips_by_employee(
+            db,
+            std::slice::from_ref(employee_id),
+            s(employer, "id"),
+            original_year,
+        )
+        .await?;
         let empty = vec![];
         let chain_rows = chain.get(employee_id).unwrap_or(&empty);
         let tip = latest_by_approval(chain_rows);
@@ -802,13 +969,24 @@ async fn calculate_corrections(
         let original_input = &original["snapshot"]["input"];
         let nl_original = original_input["country"] == "NL";
         let built = build_payslip_input(BuildInputArgs {
-            period: period_of(run, s(original, "payDate"), original_year, frequency_for(run, d, frequencies)),
+            period: period_of(
+                run,
+                s(original, "payDate"),
+                original_year,
+                frequency_for(run, d, frequencies),
+            ),
             employer,
             data: d,
-            inputs: input_rows.iter().filter(|r| r["employeeId"] == employee_id.as_str()).collect(),
+            inputs: input_rows
+                .iter()
+                .filter(|r| r["employeeId"] == employee_id.as_str())
+                .collect(),
             ytd: ytd_before.clone(),
             previous_year_annual_wage_cents: if nl_original {
-                original_input["nl"].get("previousYearAnnualWageCents").cloned().unwrap_or(Value::Null)
+                original_input["nl"]
+                    .get("previousYearAnnualWageCents")
+                    .cloned()
+                    .unwrap_or(Value::Null)
             } else {
                 Value::Null
             },
@@ -820,13 +998,28 @@ async fn calculate_corrections(
             headcount,
         });
         let result = safe_calculate(&built, &ytd_before);
-        let mut corrections: Vec<&Value> =
-            all_corrections.iter().filter(|c| c["correctsPayslipId"] == original["id"]).collect();
-        corrections.sort_by(|a, b| locale_compare(a["number"].as_str().unwrap_or(""), b["number"].as_str().unwrap_or("")));
+        let mut corrections: Vec<&Value> = all_corrections
+            .iter()
+            .filter(|c| c["correctsPayslipId"] == original["id"])
+            .collect();
+        corrections.sort_by(|a, b| {
+            locale_compare(
+                a["number"].as_str().unwrap_or(""),
+                b["number"].as_str().unwrap_or(""),
+            )
+        });
         let diff = correction_from(
-            &Recalculated { lines: &result.lines, totals: result.totals, ytd: &result.ytd, filing_data: &result.filing_data },
+            &Recalculated {
+                lines: &result.lines,
+                totals: result.totals,
+                ytd: &result.ytd,
+                filing_data: &result.filing_data,
+            },
             &ytd_before,
-            &CorrectionBase { original, corrections },
+            &CorrectionBase {
+                original,
+                corrections,
+            },
         );
         let mut ytd = match tip {
             Some(tip) => ytd_of(tip),

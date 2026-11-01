@@ -41,7 +41,14 @@ use crate::{
     member_names, now, query_date, query_text, query_values, text, today_iso,
 };
 
-const CATEGORIES: [&str; 6] = ["travel", "meals", "accommodation", "equipment", "training", "other"];
+const CATEGORIES: [&str; 6] = [
+    "travel",
+    "meals",
+    "accommodation",
+    "equipment",
+    "training",
+    "other",
+];
 const CURRENCIES: [&str; 3] = ["EUR", "USD", "GBP"];
 const RECEIPT_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const RECEIPT_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -53,16 +60,35 @@ where
 {
     let approve = || gate.require([DECLARATIONS_APPROVE]);
     Router::new()
-        .route("/declarations", get(list).route_layer(gate.require([DECLARATIONS_READ])))
-        .route("/declarations", post(create).route_layer(gate.require([DECLARATIONS_CREATE])))
-        .route("/declarations/{id}", patch(update).route_layer(gate.require([DECLARATIONS_UPDATE])))
-        .route("/declarations/{id}/review", post(review).route_layer(approve()))
+        .route(
+            "/declarations",
+            get(list).route_layer(gate.require([DECLARATIONS_READ])),
+        )
+        .route(
+            "/declarations",
+            post(create).route_layer(gate.require([DECLARATIONS_CREATE])),
+        )
+        .route(
+            "/declarations/{id}",
+            patch(update).route_layer(gate.require([DECLARATIONS_UPDATE])),
+        )
+        .route(
+            "/declarations/{id}/review",
+            post(review).route_layer(approve()),
+        )
         .route("/declarations/{id}/pay", post(pay).route_layer(approve()))
-        .route("/declarations/{id}/cancel", post(cancel).route_layer(gate.require([DECLARATIONS_UPDATE])))
-        .route("/declarations/{id}", delete(remove).route_layer(gate.require([DECLARATIONS_DELETE])))
+        .route(
+            "/declarations/{id}/cancel",
+            post(cancel).route_layer(gate.require([DECLARATIONS_UPDATE])),
+        )
+        .route(
+            "/declarations/{id}",
+            delete(remove).route_layer(gate.require([DECLARATIONS_DELETE])),
+        )
         .route(
             "/declarations/{id}/receipt",
-            post(upload_receipt).route_layer(gate.require([DECLARATIONS_CREATE, DECLARATIONS_UPDATE])),
+            post(upload_receipt)
+                .route_layer(gate.require([DECLARATIONS_CREATE, DECLARATIONS_UPDATE])),
         )
         .route(
             "/declarations/{id}/receipt",
@@ -91,13 +117,19 @@ pub(crate) fn to_public_declaration(row: &Value) -> Value {
 /// "Not in the future", with a day of slack for clients east of UTC.
 fn assert_expense_date(expense_date: &str) -> Result<(), HrError> {
     if expense_date > add_days(&today_iso(), 1).as_str() {
-        return Err(HrError::validation("The expense date cannot be in the future"));
+        return Err(HrError::validation(
+            "The expense date cannot be in the future",
+        ));
     }
     Ok(())
 }
 
 /// `requireDeclaration(db, id, onlyEmployeeId?)`.
-pub(crate) async fn require_declaration(db: &PgPool, id: &str, only_employee_id: Option<&str>) -> Result<Value, HrError> {
+pub(crate) async fn require_declaration(
+    db: &PgPool,
+    id: &str,
+    only_employee_id: Option<&str>,
+) -> Result<Value, HrError> {
     let row: Option<Value> =
         sqlx::query_scalar("select to_jsonb(t) from hr_declarations t where t.id = $1 limit 1")
             .bind(id)
@@ -134,7 +166,10 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     .bind(query_date(&q, "to"))
     .fetch_all(&caller.db)
     .await?;
-    let reviewers: Vec<Option<&str>> = rows.iter().map(|(d, _)| d["reviewed_by"].as_str()).collect();
+    let reviewers: Vec<Option<&str>> = rows
+        .iter()
+        .map(|(d, _)| d["reviewed_by"].as_str())
+        .collect();
     let names = member_names(&caller.db, &reviewers).await?;
     let data: Vec<Value> = rows
         .into_iter()
@@ -166,7 +201,17 @@ struct DeclarationFields {
 
 /// `declarationAmount`: positive, at most a million, at most two decimals.
 fn amount(issues: &mut Issues, fields: &Fields, presence: Presence) -> Field<f64> {
-    let field = issues.number(fields, "amount", presence, Number { coerce: false, int: false, min: None, max: None });
+    let field = issues.number(
+        fields,
+        "amount",
+        presence,
+        Number {
+            coerce: false,
+            int: false,
+            min: None,
+            max: None,
+        },
+    );
     let Field::Set(value) = field else {
         return field;
     };
@@ -203,15 +248,24 @@ fn amount_refine(issues: &mut Issues, fields: &Fields) {
 }
 
 fn declaration_fields(issues: &mut Issues, fields: &Fields, partial: bool) -> DeclarationFields {
-    let required = if partial { Presence::Optional } else { Presence::Required };
-    let out = DeclarationFields {
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
+
+    DeclarationFields {
         expense_date: iso_date(issues, fields, "expenseDate", required),
         category: issues.choice(fields, "category", required, &CATEGORIES),
-        description: issues.text_with(fields, "description", required, Text::trimmed(Some(1), Some(2000))),
+        description: issues.text_with(
+            fields,
+            "description",
+            required,
+            Text::trimmed(Some(1), Some(2000)),
+        ),
         amount: amount(issues, fields, required),
         currency: issues.choice(fields, "currency", Presence::Optional, &CURRENCIES),
-    };
-    out
+    }
 }
 
 /// `createDeclaration(db, input, submittedBy)`.
@@ -279,7 +333,12 @@ pub(crate) fn declaration_body(
 }
 
 /// The `hr_declaration` event data: `{ id, employeeId, status }`.
-fn emit(caller: &Caller, state: &HrState, event: weldsuite_catalogs::entity_events::EventName, row: &Value) {
+fn emit(
+    caller: &Caller,
+    state: &HrState,
+    event: weldsuite_catalogs::entity_events::EventName,
+    row: &Value,
+) {
     caller.emit(
         state,
         event,
@@ -291,9 +350,20 @@ fn emit(caller: &Caller, state: &HrState, event: weldsuite_catalogs::entity_even
     );
 }
 
-async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn create(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (employee, input) = declaration_body(&headers, &body, true)?;
-    let row = create_declaration(&caller.db, &employee.unwrap_or_default(), &input, &caller.user_id).await?;
+    let row = create_declaration(
+        &caller.db,
+        &employee.unwrap_or_default(),
+        &input,
+        &caller.user_id,
+    )
+    .await?;
     emit(&caller, &state, HR_DECLARATION_CREATED, &row);
     Ok(Created(to_public_declaration(&row)).into_response())
 }
@@ -354,7 +424,12 @@ async fn review(
 ) -> HrResult {
     let (decision, note) = hr_json(&headers, &body, |issues, fields| {
         (
-            issues.choice(fields, "decision", Presence::Required, &["approved", "rejected"]),
+            issues.choice(
+                fields,
+                "decision",
+                Presence::Required,
+                &["approved", "rejected"],
+            ),
             issues.text(fields, "note", Presence::Nullish, None, Some(2000)),
         )
     })?;
@@ -392,7 +467,9 @@ async fn pay(State(state): State<HrState>, caller: Caller, Path(id): Path<String
     let db = &caller.db;
     let existing = require_declaration(db, &id, None).await?;
     if existing["status"] != "approved" {
-        return Err(HrError::conflict("Only an approved declaration can be marked as paid"));
+        return Err(HrError::conflict(
+            "Only an approved declaration can be marked as paid",
+        ));
     }
     let row: Value = sqlx::query_scalar(
         "update hr_declarations set status = 'paid', paid_by = $2, paid_at = $3::timestamp,
@@ -410,7 +487,11 @@ async fn pay(State(state): State<HrState>, caller: Caller, Path(id): Path<String
 }
 
 /// `cancelDeclaration(db, id, onlyEmployeeId?)`.
-pub(crate) async fn cancel_declaration(db: &PgPool, id: &str, only_employee_id: Option<&str>) -> Result<Value, HrError> {
+pub(crate) async fn cancel_declaration(
+    db: &PgPool,
+    id: &str,
+    only_employee_id: Option<&str>,
+) -> Result<Value, HrError> {
     let existing = require_declaration(db, id, only_employee_id).await?;
     let status = text(&existing, "status");
     let cancellable = if only_employee_id.is_some() {
@@ -419,7 +500,9 @@ pub(crate) async fn cancel_declaration(db: &PgPool, id: &str, only_employee_id: 
         status == "pending" || status == "approved"
     };
     if !cancellable {
-        return Err(HrError::conflict(format!("This declaration is already {status}")));
+        return Err(HrError::conflict(format!(
+            "This declaration is already {status}"
+        )));
     }
     let row: Value = sqlx::query_scalar(
         "update hr_declarations set status = 'cancelled', updated_at = $2::timestamp
@@ -444,7 +527,10 @@ async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
         .bind(&id)
         .execute(&caller.db)
         .await?;
-    if let Some(key) = existing["receiptFileKey"].as_str().filter(|k| !k.is_empty()) {
+    if let Some(key) = existing["receiptFileKey"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+    {
         let storage = receipt_bucket(&caller, &state)?;
         let key = key.to_owned();
         state.events.tracker().spawn(async move {
@@ -467,7 +553,10 @@ async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
 // ---------------------------------------------------------------------------
 
 /// `receiptBucket(c)`: a missing binding is a deploy error (500).
-pub(crate) fn receipt_bucket(caller: &Caller, state: &HrState) -> Result<Arc<dyn DynFileStore>, HrError> {
+pub(crate) fn receipt_bucket(
+    caller: &Caller,
+    state: &HrState,
+) -> Result<Arc<dyn DynFileStore>, HrError> {
     caller
         .storage(state)
         .ok_or_else(|| HrError::internal("hr-api is missing its STORAGE (R2) binding"))
@@ -519,9 +608,11 @@ pub(crate) async fn receipt_file_from(request: Request) -> Result<UploadedFile, 
         }
         // `FormData` escapes `"`, CR and LF in a part's file name as %22,
         // %0D and %0A; the worker's parser reads them back.
-        let name = field
-            .file_name()
-            .map(|n| n.replace("%22", "\"").replace("%0D", "\r").replace("%0A", "\n"));
+        let name = field.file_name().map(|n| {
+            n.replace("%22", "\"")
+                .replace("%0D", "\r")
+                .replace("%0A", "\n")
+        });
         let content_type = field.content_type().unwrap_or_default().to_owned();
         let bytes = field.bytes().await.map_err(|_| missing())?;
         found = Some(name.map(|name| UploadedFile {
@@ -550,7 +641,9 @@ pub(crate) async fn attach_declaration_receipt(
         )));
     }
     if !RECEIPT_TYPES.contains(&file.content_type.as_str()) {
-        return Err(HrError::validation("A receipt must be a JPEG, PNG or WebP image, or a PDF"));
+        return Err(HrError::validation(
+            "A receipt must be a JPEG, PNG or WebP image, or a PDF",
+        ));
     }
     if file.bytes.is_empty() {
         return Err(HrError::validation("The receipt file is empty"));
@@ -566,7 +659,11 @@ pub(crate) async fn attach_declaration_receipt(
     );
     let size = i32::try_from(file.bytes.len()).unwrap_or(i32::MAX);
     storage
-        .put_boxed(&key, file.bytes, &PutOptions::content_type(file.content_type.clone()))
+        .put_boxed(
+            &key,
+            file.bytes,
+            &PutOptions::content_type(file.content_type.clone()),
+        )
         .await
         .map_err(|error| HrError::internal(error.to_string()))?;
     let row: Value = sqlx::query_scalar(
@@ -582,7 +679,10 @@ pub(crate) async fn attach_declaration_receipt(
     .bind(now())
     .fetch_one(db)
     .await?;
-    if let Some(old) = existing["receiptFileKey"].as_str().filter(|k| !k.is_empty()) {
+    if let Some(old) = existing["receiptFileKey"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+    {
         storage
             .delete_boxed(old)
             .await
@@ -593,8 +693,7 @@ pub(crate) async fn attach_declaration_receipt(
 
 /// 16 random bytes in hex (`crypto.randomUUID()` without its dashes).
 fn hex_random() -> String {
-    let token = weldsuite_kit::random_string(32, "0123456789abcdef");
-    token
+    weldsuite_kit::random_string(32, "0123456789abcdef")
 }
 
 /// `loadDeclarationReceipt(…)` and `receiptResponse(…)`: the stored file,
@@ -620,7 +719,10 @@ pub(crate) async fn receipt_response(
     let Some(object) = object else {
         return Err(HrError::not_found("Receipt", id));
     };
-    let file_name = row["receiptFileName"].as_str().unwrap_or("receipt").replace('"', "");
+    let file_name = row["receiptFileName"]
+        .as_str()
+        .unwrap_or("receipt")
+        .replace('"', "");
     let content_type = row["receiptContentType"]
         .as_str()
         .unwrap_or("application/octet-stream")
@@ -628,7 +730,10 @@ pub(crate) async fn receipt_response(
     let response = Response::builder()
         .status(200)
         .header("content-type", content_type)
-        .header("content-disposition", format!("inline; filename=\"{file_name}\""))
+        .header(
+            "content-disposition",
+            format!("inline; filename=\"{file_name}\""),
+        )
         .header("cache-control", "private, no-store")
         .header("x-content-type-options", "nosniff")
         .body(Body::from(object.bytes))
@@ -649,14 +754,21 @@ async fn upload_receipt(
     Ok(Data(to_public_declaration(&row)).into_response())
 }
 
-async fn download_receipt(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn download_receipt(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let storage = receipt_bucket(&caller, &state)?;
     receipt_response(&caller, &storage, &id, None).await
 }
 
 /// `employeeDeclarations(db, employeeId)`: the employee's own declarations
 /// and what is still open, per currency.
-pub(crate) async fn employee_declarations(db: &PgPool, employee_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn employee_declarations(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Value, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from hr_declarations t where t.employee_id = $1
          order by t.expense_date desc, t.created_at desc limit 500",
@@ -694,12 +806,11 @@ pub(crate) async fn employee_declarations(db: &PgPool, employee_id: &str) -> Res
         }
         let currency = text(d, "currency").to_owned();
         let amount = d["amount"].as_f64().unwrap_or(f64::NAN);
-        let index = match totals.iter().position(|(c, _, _)| *c == currency) {
-            Some(index) => index,
-            None => {
-                totals.push((currency, 0.0, 0.0));
-                totals.len() - 1
-            }
+        let index = if let Some(index) = totals.iter().position(|(c, _, _)| *c == currency) {
+            index
+        } else {
+            totals.push((currency, 0.0, 0.0));
+            totals.len() - 1
         };
         let entry = &mut totals[index];
         if status == "pending" {

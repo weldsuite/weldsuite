@@ -40,11 +40,26 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .route("/absences", get(list).route_layer(gate.require([ABSENCES_READ])))
-        .route("/absences", post(create).route_layer(gate.require([ABSENCES_CREATE])))
-        .route("/absences/{id}", patch(update).route_layer(gate.require([ABSENCES_UPDATE])))
-        .route("/absences/{id}/recover", post(recover).route_layer(gate.require([ABSENCES_UPDATE])))
-        .route("/absences/{id}", delete(remove).route_layer(gate.require([ABSENCES_DELETE])))
+        .route(
+            "/absences",
+            get(list).route_layer(gate.require([ABSENCES_READ])),
+        )
+        .route(
+            "/absences",
+            post(create).route_layer(gate.require([ABSENCES_CREATE])),
+        )
+        .route(
+            "/absences/{id}",
+            patch(update).route_layer(gate.require([ABSENCES_UPDATE])),
+        )
+        .route(
+            "/absences/{id}/recover",
+            post(recover).route_layer(gate.require([ABSENCES_UPDATE])),
+        )
+        .route(
+            "/absences/{id}",
+            delete(remove).route_layer(gate.require([ABSENCES_DELETE])),
+        )
 }
 
 /// `absenceStatus(endDate, today)`.
@@ -188,7 +203,10 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     let page_size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > page_size;
     let page: Vec<(Value, Value)> = rows.into_iter().take(page_size).collect();
-    let reporters: Vec<Option<&str>> = page.iter().map(|(a, _)| a["reported_by"].as_str()).collect();
+    let reporters: Vec<Option<&str>> = page
+        .iter()
+        .map(|(a, _)| a["reported_by"].as_str())
+        .collect();
     let names = member_names(db, &reporters).await?;
     let cursor = if has_more {
         page.last().map(|(a, _)| text(a, "id").to_owned())
@@ -199,10 +217,14 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         .into_iter()
         .map(|(absence, extra)| {
             let absence = js_row(absence);
-            let reported_by = absence["reportedBy"].as_str().filter(|r| !r.is_empty()).map(str::to_owned);
+            let reported_by = absence["reportedBy"]
+                .as_str()
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned);
             let employee_id = text(&absence, "employeeId").to_owned();
             let reported_by_self = reported_by.as_deref().is_some_and(|by| {
-                Some(by) == extra["employeeUserId"].as_str() || by == format!("portal:{employee_id}")
+                Some(by) == extra["employeeUserId"].as_str()
+                    || by == format!("portal:{employee_id}")
             });
             let reported_by_name = reported_by
                 .as_deref()
@@ -219,13 +241,21 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
             row
         })
         .collect();
-    Ok(List::new(data, Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor))
-        .into_response())
+    Ok(List::new(
+        data,
+        Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor),
+    )
+    .into_response())
 }
 
 /// `absenceNote`: `z.string().trim().max(1000).nullable().optional()`.
 fn note(issues: &mut Issues, fields: &Fields) -> Field<String> {
-    issues.text_with(fields, "note", Presence::Nullish, Text::trimmed(None, Some(1000)))
+    issues.text_with(
+        fields,
+        "note",
+        Presence::Nullish,
+        Text::trimmed(None, Some(1000)),
+    )
 }
 
 /// `note?.trim() || null`.
@@ -271,16 +301,22 @@ pub(crate) async fn create_absence(
     Ok(js_row(row))
 }
 
-async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let (employee_id, start, first_day, end, note_field) = hr_json(&headers, &body, |issues, fields| {
-        (
-            id(issues, fields, "employeeId", Presence::Required),
-            iso_date(issues, fields, "startDate", Presence::Required),
-            issues.choice(fields, "firstDay", Presence::Optional, &FIRST_DAYS),
-            iso_date(issues, fields, "endDate", Presence::Nullish),
-            note(issues, fields),
-        )
-    })?;
+async fn create(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let (employee_id, start, first_day, end, note_field) =
+        hr_json(&headers, &body, |issues, fields| {
+            (
+                id(issues, fields, "employeeId", Presence::Required),
+                iso_date(issues, fields, "startDate", Presence::Required),
+                issues.choice(fields, "firstDay", Presence::Optional, &FIRST_DAYS),
+                iso_date(issues, fields, "endDate", Presence::Nullish),
+                note(issues, fields),
+            )
+        })?;
     let row = create_absence(
         &caller.db,
         employee_id.as_set().map_or("", String::as_str),
@@ -322,7 +358,14 @@ async fn update(
         Field::Set(end) => Some(end.clone()),
     };
     assert_date_order(Some(&start_date), end_date.as_deref(), "Sick report")?;
-    assert_no_overlap(db, text(&existing, "employeeId"), &start_date, end_date.as_deref(), Some(&id)).await?;
+    assert_no_overlap(
+        db,
+        text(&existing, "employeeId"),
+        &start_date,
+        end_date.as_deref(),
+        Some(&id),
+    )
+    .await?;
     let now = now();
     let closing = end_date.is_some() && existing["endDate"].is_null();
     let reopening = end_date.is_none() && !existing["endDate"].is_null();
@@ -368,9 +411,15 @@ pub(crate) async fn recover_absence(
     if !existing["endDate"].is_null() {
         return Err(HrError::conflict("This sick report is already closed"));
     }
-    assert_date_order(existing["startDate"].as_str(), Some(end_date), "Sick report")?;
+    assert_date_order(
+        existing["startDate"].as_str(),
+        Some(end_date),
+        "Sick report",
+    )?;
     if only_employee_id.is_some() && end_date > today_iso().as_str() {
-        return Err(HrError::validation("The last sick day cannot be in the future"));
+        return Err(HrError::validation(
+            "The last sick day cannot be in the future",
+        ));
     }
     let row: Value = sqlx::query_scalar(
         "update hr_absences set end_date = $2::date, recovered_reported_by = $3,
@@ -430,7 +479,11 @@ pub(crate) fn self_absence_body(
             note(issues, fields),
         )
     })?;
-    Ok((start.into_option().unwrap_or_default(), first_day.into_option(), note_value(&note_field)))
+    Ok((
+        start.into_option().unwrap_or_default(),
+        first_day.into_option(),
+        note_value(&note_field),
+    ))
 }
 
 /// `reportSick(db, employeeId, input, reportedBy)`.
@@ -443,14 +496,25 @@ pub(crate) async fn report_sick(
 ) -> Result<Value, HrError> {
     let today = today_iso();
     if start > today.as_str() {
-        return Err(HrError::validation("The first sick day cannot be in the future"));
+        return Err(HrError::validation(
+            "The first sick day cannot be in the future",
+        ));
     }
     if start < add_days(&today, -RELAPSE_WINDOW_DAYS).as_str() {
         return Err(HrError::validation(
             "Ask HR to add a sick report that started more than four weeks ago",
         ));
     }
-    create_absence(&caller.db, employee_id, start, first_day, None, note, &caller.user_id).await
+    create_absence(
+        &caller.db,
+        employee_id,
+        start,
+        first_day,
+        None,
+        note,
+        &caller.user_id,
+    )
+    .await
 }
 
 /// `employeeAbsences(db, employeeId)`: the open report and the history.

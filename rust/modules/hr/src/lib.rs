@@ -15,6 +15,26 @@
 //! starter data seeded on a workspace's first request ([`defaults`]), and
 //! the readable 400s of `hrJson` ([`validation`]).
 
+// The routes follow the TypeScript services function by function (long
+// handlers, many arguments, names like `row`/`rows`), and amounts and counts
+// are JavaScript numbers (`f64`), converted where a column is an integer.
+#![allow(
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::similar_names,
+    clippy::struct_excessive_bools,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::float_cmp,
+    clippy::neg_cmp_op_on_partial_ord,
+    clippy::manual_clamp,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::case_sensitive_file_extension_comparisons
+)]
+
 mod defaults;
 mod fields;
 mod shared;
@@ -63,8 +83,13 @@ use weldsuite_ports::{
 };
 
 pub use books::{BooksInternal, BooksRequest, BooksResponse, InProcessBooks, RequestBooksInternal};
-pub(crate) use shared::*;
-pub(crate) use validation::{hr_json, query_values, zod_json, zod_query};
+pub(crate) use shared::{
+    add_days, assert_date_order, company_names, employed_share_of_year, is_iso_date_shape,
+    js_number, js_number_of, js_round, js_time, js_to_fixed, js_trim, locale_compare, member_names,
+    now, number_text, parse_date, query_date, query_param, query_text, text, today_iso,
+    working_days_between, year_of,
+};
+pub(crate) use validation::{hr_json, query_values, zod_query};
 
 /// What the hr handlers share.
 #[derive(Clone)]

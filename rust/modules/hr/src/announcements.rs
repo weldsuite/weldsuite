@@ -27,7 +27,9 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use crate::departments::{department_lineage, employees_in_departments};
 use crate::employees::{display_name_of, require_employee};
 use crate::fields::{Fields, short_text};
-use crate::{Caller, HrError, HrResult, HrState, hr_json, js_trim, locale_compare, member_names, now, text};
+use crate::{
+    Caller, HrError, HrResult, HrState, hr_json, js_trim, locale_compare, member_names, now, text,
+};
 
 /// Recipients notified at once.
 const BATCH: usize = 10;
@@ -41,9 +43,18 @@ where
     let read = || gate.require([ANNOUNCEMENTS_READ]);
     Router::new()
         .route("/announcements", get(list).route_layer(read()))
-        .route("/announcements", post(create).route_layer(gate.require([ANNOUNCEMENTS_CREATE])))
-        .route("/announcements/{id}", patch(update).route_layer(gate.require([ANNOUNCEMENTS_UPDATE])))
-        .route("/announcements/{id}", delete(remove).route_layer(gate.require([ANNOUNCEMENTS_DELETE])))
+        .route(
+            "/announcements",
+            post(create).route_layer(gate.require([ANNOUNCEMENTS_CREATE])),
+        )
+        .route(
+            "/announcements/{id}",
+            patch(update).route_layer(gate.require([ANNOUNCEMENTS_UPDATE])),
+        )
+        .route(
+            "/announcements/{id}",
+            delete(remove).route_layer(gate.require([ANNOUNCEMENTS_DELETE])),
+        )
         .route("/announcements/{id}/reads", get(reads).route_layer(read()))
 }
 
@@ -62,7 +73,11 @@ async fn require_announcement(db: &PgPool, id: &str) -> Result<Value, HrError> {
 fn department_ids(row: &Value) -> Vec<String> {
     row["departmentIds"]
         .as_array()
-        .map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_owned)).collect())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| id.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -114,7 +129,10 @@ async fn list_announcements(db: &PgPool) -> Result<Vec<Value>, HrError> {
             key.split(',').map(str::to_owned).collect()
         };
         let employees = employees_in_departments(db, &ids).await?;
-        audiences.insert(key, employees.iter().map(|e| text(e, "id").to_owned()).collect());
+        audiences.insert(
+            key,
+            employees.iter().map(|e| text(e, "id").to_owned()).collect(),
+        );
     }
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
     let reads: Vec<(String, String)> = sqlx::query_as(
@@ -134,23 +152,30 @@ async fn list_announcements(db: &PgPool) -> Result<Vec<Value>, HrError> {
     let departments: HashMap<String, String> = if all_departments.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>("select id, name from hr_departments where id = any($1)")
-            .bind(&all_departments)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect()
+        sqlx::query_as::<_, (String, String)>(
+            "select id, name from hr_departments where id = any($1)",
+        )
+        .bind(&all_departments)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .collect()
     };
     let authors_of: Vec<Option<&str>> = rows.iter().map(|r| r["createdBy"].as_str()).collect();
     let authors = member_names(db, &authors_of).await?;
     Ok(rows
         .into_iter()
         .map(|mut row| {
-            let audience = audiences.get(&audience_key(&row)).cloned().unwrap_or_default();
+            let audience = audiences
+                .get(&audience_key(&row))
+                .cloned()
+                .unwrap_or_default();
             let id = text(&row, "id").to_owned();
             let read_count = reads
                 .iter()
-                .filter(|(announcement, employee)| *announcement == id && audience.contains(employee))
+                .filter(|(announcement, employee)| {
+                    *announcement == id && audience.contains(employee)
+                })
                 .count();
             let names: Vec<String> = department_ids(&row)
                 .iter()
@@ -223,14 +248,28 @@ struct AnnouncementInput {
 }
 
 fn announcement_input(issues: &mut Issues, fields: &Fields, partial: bool) -> AnnouncementInput {
-    let required = if partial { Presence::Optional } else { Presence::Required };
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
     AnnouncementInput {
         title: short_text(issues, fields, "title", required, 200, true),
-        body: issues.text_with(fields, "body", required, Text::trimmed(Some(1), Some(20000))),
+        body: issues.text_with(
+            fields,
+            "body",
+            required,
+            Text::trimmed(Some(1), Some(20000)),
+        ),
         pinned: issues.boolean(fields, "pinned", Presence::Optional),
-        department_ids: issues.list(fields, "departmentIds", Presence::Optional, None, Some(100), |issues, item| {
-            issues.item_text(item, Text::length(Some(1), Some(30)))
-        }),
+        department_ids: issues.list(
+            fields,
+            "departmentIds",
+            Presence::Optional,
+            None,
+            Some(100),
+            |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+        ),
         notify: if partial {
             Field::Absent
         } else {
@@ -239,8 +278,15 @@ fn announcement_input(issues: &mut Issues, fields: &Fields, partial: bool) -> An
     }
 }
 
-async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| announcement_input(issues, fields, false))?;
+async fn create(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        announcement_input(issues, fields, false)
+    })?;
     let db = &caller.db;
     let departments = dedupe(input.department_ids.into_option().unwrap_or_default());
     assert_departments(db, &departments).await?;
@@ -267,7 +313,9 @@ async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap
         let actor = caller.user_id.clone();
         let announcement = row.clone();
         state.events.tracker().spawn(async move {
-            if let Err(error) = notify_announcement(&db, &notifier, &workspace, &announcement, &actor).await {
+            if let Err(error) =
+                notify_announcement(&db, &notifier, &workspace, &announcement, &actor).await
+            {
                 tracing::error!(?error, "[weldhr] announcement push failed");
             }
         });
@@ -282,7 +330,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| announcement_input(issues, fields, true))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        announcement_input(issues, fields, true)
+    })?;
     let db = &caller.db;
     require_announcement(db, &id).await?;
     let departments = input.department_ids.into_option().map(dedupe);
@@ -430,7 +480,10 @@ fn meant_for(row: &Value, lineage: &HashSet<String>) -> bool {
 }
 
 /// `announcementsForEmployee(db, employeeId)`.
-pub(crate) async fn announcements_for_employee(db: &PgPool, employee_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn announcements_for_employee(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
     let rows: Vec<Value> = sqlx::query_scalar(
@@ -479,12 +532,18 @@ pub(crate) async fn announcements_for_employee(db: &PgPool, employee_id: &str) -
             })
         })
         .collect();
-    let unread = announcements.iter().filter(|a| a["readAt"].is_null()).count();
+    let unread = announcements
+        .iter()
+        .filter(|a| a["readAt"].is_null())
+        .count();
     Ok(json!({ "announcements": announcements, "unread": unread }))
 }
 
 /// `unreadAnnouncementCount(db, employeeId)`.
-pub(crate) async fn unread_announcement_count(db: &PgPool, employee_id: &str) -> Result<usize, HrError> {
+pub(crate) async fn unread_announcement_count(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<usize, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
     let rows: Vec<Value> = sqlx::query_scalar(
@@ -500,7 +559,11 @@ pub(crate) async fn unread_announcement_count(db: &PgPool, employee_id: &str) ->
 }
 
 /// `markAnnouncementRead(db, id, employeeId)`.
-pub(crate) async fn mark_announcement_read(db: &PgPool, id: &str, employee_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn mark_announcement_read(
+    db: &PgPool,
+    id: &str,
+    employee_id: &str,
+) -> Result<Value, HrError> {
     let row = require_announcement(db, id).await?;
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;

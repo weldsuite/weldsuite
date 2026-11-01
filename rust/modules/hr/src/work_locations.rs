@@ -19,7 +19,9 @@ use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::fields::{Fields, change, int, number, short_text};
-use crate::{Caller, HrError, HrResult, HrState, hr_json, js_round, js_to_fixed, now, query_values};
+use crate::{
+    Caller, HrError, HrResult, HrState, hr_json, js_round, js_to_fixed, now, query_values,
+};
 
 /// At most this much of a GPS fix's uncertainty is given the benefit of the doubt.
 const MAX_ACCURACY_ALLOWANCE_METERS: f64 = 50.0;
@@ -33,17 +35,15 @@ where
     Router::new()
         .route(
             "/work-locations",
-            get(list).route_layer(gate.require([EMPLOYEES_READ, ATTENDANCE_READ, EMPLOYEES_MANAGE])),
+            get(list).route_layer(gate.require([
+                EMPLOYEES_READ,
+                ATTENDANCE_READ,
+                EMPLOYEES_MANAGE,
+            ])),
         )
         .route("/work-locations", post(create).route_layer(manage()))
-        .route(
-            "/work-locations/{id}",
-            patch(update).route_layer(manage()),
-        )
-        .route(
-            "/work-locations/{id}",
-            delete(remove).route_layer(manage()),
-        )
+        .route("/work-locations/{id}", patch(update).route_layer(manage()))
+        .route("/work-locations/{id}", delete(remove).route_layer(manage()))
 }
 
 /// `distanceMeters(a, b)`: great-circle distance (haversine).
@@ -119,9 +119,30 @@ fn location_input(
             Presence::Nullish,
             weldsuite_kit::validation::Text::trimmed(None, Some(500)),
         ),
-        latitude: number(issues, fields, "latitude", required, Some(-90.0), Some(90.0)),
-        longitude: number(issues, fields, "longitude", required, Some(-180.0), Some(180.0)),
-        radius_meters: int(issues, fields, "radiusMeters", Presence::Optional, Some(25.0), Some(5000.0)),
+        latitude: number(
+            issues,
+            fields,
+            "latitude",
+            required,
+            Some(-90.0),
+            Some(90.0),
+        ),
+        longitude: number(
+            issues,
+            fields,
+            "longitude",
+            required,
+            Some(-180.0),
+            Some(180.0),
+        ),
+        radius_meters: int(
+            issues,
+            fields,
+            "radiusMeters",
+            Presence::Optional,
+            Some(25.0),
+            Some(5000.0),
+        ),
         is_active: issues.boolean(fields, "isActive", Presence::Optional),
     }
 }
@@ -155,7 +176,12 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     Ok(Created(js_row(row)).into_response())
 }
 
-async fn update(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn update(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = hr_json(&headers, &body, |issues, fields| {
         location_input(issues, fields, true)
     })?;
@@ -211,7 +237,10 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 /// `assertWorkLocations(db, ids)`: every id in an employee's allowed list
 /// is a live location.
-pub(crate) async fn assert_work_locations(db: &PgPool, ids: Option<&[String]>) -> Result<(), HrError> {
+pub(crate) async fn assert_work_locations(
+    db: &PgPool,
+    ids: Option<&[String]>,
+) -> Result<(), HrError> {
     let Some(ids) = ids.filter(|ids| !ids.is_empty()) else {
         return Ok(());
     };
@@ -228,7 +257,9 @@ pub(crate) async fn assert_work_locations(db: &PgPool, ids: Option<&[String]>) -
     .fetch_one(db)
     .await?;
     if usize::try_from(count).unwrap_or_default() != unique.len() {
-        return Err(HrError::validation("One of the work locations does not exist"));
+        return Err(HrError::validation(
+            "One of the work locations does not exist",
+        ));
     }
     Ok(())
 }
@@ -366,11 +397,12 @@ pub(crate) async fn clock_place_for(
     if !requires_location {
         return Ok(ClockPlace::default());
     }
-    let ids: Option<Option<Value>> =
-        sqlx::query_scalar("select to_jsonb(work_location_ids) from hr_employees where id = $1 limit 1")
-            .bind(employee_id)
-            .fetch_optional(db)
-            .await?;
+    let ids: Option<Option<Value>> = sqlx::query_scalar(
+        "select to_jsonb(work_location_ids) from hr_employees where id = $1 limit 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(db)
+    .await?;
     let ids = ids.flatten().and_then(|ids| {
         ids.as_array().map(|ids| {
             ids.iter()

@@ -11,8 +11,8 @@ use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::js::number_text;
 
-use crate::validation::{body_of, query_values};
 use crate::HrError;
+use crate::validation::{body_of, query_values};
 
 /// A string check, in the order the schema adds it.
 #[derive(Clone, Copy)]
@@ -28,7 +28,11 @@ pub(crate) enum Check {
 #[derive(Clone)]
 pub(crate) enum S {
     Str(Vec<Check>),
-    Num { int: bool, min: Option<f64>, max: Option<f64> },
+    Num {
+        int: bool,
+        min: Option<f64>,
+        max: Option<f64>,
+    },
     Bool,
     Null,
     Enum(&'static [&'static str]),
@@ -45,7 +49,11 @@ pub(crate) enum S {
     /// `z.array(item)` with an optional `.max(n)`.
     Array(Box<S>, Option<usize>),
     /// `z.coerce.number()` (`.int()`, bounds): `Number(input)` first.
-    CoerceNum { int: bool, min: Option<f64>, max: Option<f64> },
+    CoerceNum {
+        int: bool,
+        min: Option<f64>,
+        max: Option<f64>,
+    },
 }
 
 impl S {
@@ -80,12 +88,20 @@ pub(crate) fn short_text_required(max: usize) -> S {
 
 /// `z.number()` with bounds.
 pub(crate) fn number(min: Option<f64>, max: Option<f64>) -> S {
-    S::Num { int: false, min, max }
+    S::Num {
+        int: false,
+        min,
+        max,
+    }
 }
 
 /// `z.number().int()` with bounds.
 pub(crate) fn int(min: Option<f64>, max: Option<f64>) -> S {
-    S::Num { int: true, min, max }
+    S::Num {
+        int: true,
+        min,
+        max,
+    }
 }
 
 pub(crate) fn is_iso_date_shape(text: &str) -> bool {
@@ -93,7 +109,9 @@ pub(crate) fn is_iso_date_shape(text: &str) -> bool {
     b.len() == 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
 /// `isoDate`.
@@ -125,7 +143,10 @@ fn two_upper(text: &str) -> bool {
 
 /// `usState`.
 pub(crate) fn us_state() -> S {
-    S::Str(vec![Check::Regex(two_upper, "Expected a two-letter state code")])
+    S::Str(vec![Check::Regex(
+        two_upper,
+        "Expected a two-letter state code",
+    )])
 }
 
 pub(crate) fn year_key(text: &str) -> bool {
@@ -166,8 +187,11 @@ struct Ctx {
 impl Ctx {
     fn invalid_type(&mut self, path: &[Value], expected: &str, value: Option<&Value>) {
         let received = parsed_type(value);
-        let message =
-            if received == "undefined" { "Required".to_owned() } else { format!("Expected {expected}, received {received}") };
+        let message = if received == "undefined" {
+            "Required".to_owned()
+        } else {
+            format!("Expected {expected}, received {received}")
+        };
         self.issues.push(json!({
             "code": "invalid_type", "expected": expected, "received": received, "path": path, "message": message,
         }));
@@ -175,7 +199,11 @@ impl Ctx {
 }
 
 fn quote_join(options: &[&str]) -> String {
-    options.iter().map(|o| format!("'{o}'")).collect::<Vec<_>>().join(" | ")
+    options
+        .iter()
+        .map(|o| format!("'{o}'"))
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 /// The outcome of one schema on one value, as Zod's parse status: valid,
@@ -231,10 +259,21 @@ fn string_out(ctx: &mut Ctx, checks: &[Check], raw: &str, path: &[Value]) -> Out
             }
         }
     }
-    if ctx.issues.len() > before { Out::Dirty(Value::String(text)) } else { Out::Value(Value::String(text)) }
+    if ctx.issues.len() > before {
+        Out::Dirty(Value::String(text))
+    } else {
+        Out::Value(Value::String(text))
+    }
 }
 
-fn number_out(ctx: &mut Ctx, int: bool, min: Option<f64>, max: Option<f64>, value: &Value, path: &[Value]) -> Out {
+fn number_out(
+    ctx: &mut Ctx,
+    int: bool,
+    min: Option<f64>,
+    max: Option<f64>,
+    value: &Value,
+    path: &[Value],
+) -> Out {
     let n = value.as_f64().unwrap_or(f64::NAN);
     let before = ctx.issues.len();
     if int && n.fract() != 0.0 {
@@ -255,11 +294,20 @@ fn number_out(ctx: &mut Ctx, int: bool, min: Option<f64>, max: Option<f64>, valu
             "message": format!("Number must be less than or equal to {}", number_text(max)), "path": path,
         }));
     }
-    if ctx.issues.len() > before { Out::Dirty(value.clone()) } else { Out::Value(value.clone()) }
+    if ctx.issues.len() > before {
+        Out::Dirty(value.clone())
+    } else {
+        Out::Value(value.clone())
+    }
 }
 
 /// The fields of an object schema over `fields`.
-fn object_out(ctx: &mut Ctx, shape: &[(&'static str, S)], fields: &Map<String, Value>, path: &[Value]) -> Out {
+fn object_out(
+    ctx: &mut Ctx,
+    shape: &[(&'static str, S)],
+    fields: &Map<String, Value>,
+    path: &[Value],
+) -> Out {
     let mut out = Map::new();
     let (mut dirty, mut aborted) = (false, false);
     for (key, schema) in shape {
@@ -300,27 +348,30 @@ fn parse(ctx: &mut Ctx, schema: &S, value: Option<&Value>, path: &[Value]) -> Ou
             None => Out::Value(default.clone()),
             Some(_) => parse(ctx, inner, value, path),
         },
-        S::Null => match value {
-            Some(Value::Null) => Out::Value(Value::Null),
-            _ => {
+        S::Null => {
+            if let Some(Value::Null) = value {
+                Out::Value(Value::Null)
+            } else {
                 ctx.invalid_type(path, "null", value);
                 Out::Aborted
             }
-        },
-        S::Bool => match value {
-            Some(Value::Bool(b)) => Out::Value(Value::Bool(*b)),
-            _ => {
+        }
+        S::Bool => {
+            if let Some(Value::Bool(b)) = value {
+                Out::Value(Value::Bool(*b))
+            } else {
                 ctx.invalid_type(path, "boolean", value);
                 Out::Aborted
             }
-        },
-        S::Str(checks) => match value {
-            Some(Value::String(raw)) => string_out(ctx, checks, raw, path),
-            _ => {
+        }
+        S::Str(checks) => {
+            if let Some(Value::String(raw)) = value {
+                string_out(ctx, checks, raw, path)
+            } else {
                 ctx.invalid_type(path, "string", value);
                 Out::Aborted
             }
-        },
+        }
         S::CoerceNum { int, min, max } => {
             let n = match value {
                 None => f64::NAN,
@@ -339,15 +390,18 @@ fn parse(ctx: &mut Ctx, schema: &S, value: Option<&Value>, path: &[Value]) -> Ou
             }
             number_out(ctx, *int, *min, *max, &js_number(n), path)
         }
-        S::Num { int, min, max } => match value {
-            Some(v @ Value::Number(_)) => number_out(ctx, *int, *min, *max, v, path),
-            _ => {
+        S::Num { int, min, max } => {
+            if let Some(v @ Value::Number(_)) = value {
+                number_out(ctx, *int, *min, *max, v, path)
+            } else {
                 ctx.invalid_type(path, "number", value);
                 Out::Aborted
             }
-        },
+        }
         S::Enum(options) => match value {
-            Some(Value::String(text)) if options.contains(&text.as_str()) => Out::Value(Value::String(text.clone())),
+            Some(Value::String(text)) if options.contains(&text.as_str()) => {
+                Out::Value(Value::String(text.clone()))
+            }
             Some(Value::String(text)) => {
                 ctx.issues.push(json!({
                     "received": text, "code": "invalid_enum_value", "options": options, "path": path,
@@ -361,7 +415,9 @@ fn parse(ctx: &mut Ctx, schema: &S, value: Option<&Value>, path: &[Value]) -> Ou
             }
         },
         S::NumLiteral(expected) => match value {
-            Some(Value::Number(n)) if n.as_f64() == Some(*expected) => Out::Value(js_number(*expected)),
+            Some(Value::Number(n)) if n.as_f64() == Some(*expected) => {
+                Out::Value(js_number(*expected))
+            }
             _ => {
                 let mut issue = json!({
                     "code": "invalid_literal", "expected": js_number(*expected), "path": path,
@@ -374,13 +430,14 @@ fn parse(ctx: &mut Ctx, schema: &S, value: Option<&Value>, path: &[Value]) -> Ou
                 Out::Aborted
             }
         },
-        S::Obj(shape) => match value {
-            Some(Value::Object(fields)) => object_out(ctx, shape, fields, path),
-            _ => {
+        S::Obj(shape) => {
+            if let Some(Value::Object(fields)) = value {
+                object_out(ctx, shape, fields, path)
+            } else {
                 ctx.invalid_type(path, "object", value);
                 Out::Aborted
             }
-        },
+        }
         S::Record(key_schema, value_schema) => {
             let Some(Value::Object(fields)) = value else {
                 ctx.invalid_type(path, "object", value);

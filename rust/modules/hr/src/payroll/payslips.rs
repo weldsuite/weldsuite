@@ -6,7 +6,9 @@ use serde_json::{Value, json};
 use weldsuite_db::{Keyring, PgPool, js_row};
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::ordered::OrderedMap;
-use weldsuite_payroll_domain::payslip_pdf::{PayslipView, PayslipYtdView, payslip_line_key, render_payslip_pdf};
+use weldsuite_payroll_domain::payslip_pdf::{
+    PayslipView, PayslipYtdView, payslip_line_key, render_payslip_pdf,
+};
 use weldsuite_payroll_domain::types::PayslipLine;
 use weldsuite_ports::PutOptions;
 
@@ -22,10 +24,22 @@ use crate::employees::display_name_of;
 
 /// `requirePayslip(db, id, onlyEmployeeId?)`: someone else's (or a draft)
 /// reads as missing.
-pub(crate) async fn require_payslip(db: &PgPool, id: &str, only_employee_id: Option<&str>) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(payslip_sql("s.id = $1 limit 1")).bind(id).fetch_optional(db).await?;
+pub(crate) async fn require_payslip(
+    db: &PgPool,
+    id: &str,
+    only_employee_id: Option<&str>,
+) -> Result<Value, HrError> {
+    let row: Option<Value> = sqlx::query_scalar(payslip_sql("s.id = $1 limit 1"))
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
     match row.map(js_row) {
-        Some(row) if only_employee_id.is_none_or(|only| row["employeeId"] == only && row["status"] == "final") => Ok(row),
+        Some(row)
+            if only_employee_id
+                .is_none_or(|only| row["employeeId"] == only && row["status"] == "final") =>
+        {
+            Ok(row)
+        }
         _ => Err(HrError::not_found("Payslip", id)),
     }
 }
@@ -73,7 +87,10 @@ pub(crate) async fn get_payslip(db: &PgPool, id: &str) -> Result<Value, HrError>
 }
 
 /// `listEmployeePayslips(db, employeeId)`: newest first (back office).
-pub(crate) async fn list_employee_payslips(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn list_employee_payslips(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<Value>, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(payslip_sql(
         "s.employee_id = $1 and s.status = 'final' order by s.pay_date desc, s.created_at desc limit 200",
     ))
@@ -136,7 +153,12 @@ pub(crate) async fn mark_payslip_viewed(db: &PgPool, id: &str) -> Result<(), HrE
 pub(crate) fn lines_of(row: &Value) -> Vec<PayslipLine> {
     row["lines"]
         .as_array()
-        .map(|lines| lines.iter().filter_map(|l| serde_json::from_value(l.clone()).ok()).collect())
+        .map(|lines| {
+            lines
+                .iter()
+                .filter_map(|l| serde_json::from_value(l.clone()).ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -175,7 +197,8 @@ async fn ytd_view_of(db: &PgPool, row: &Value) -> Result<PayslipYtdView, HrError
             by_line.insert(key, current + line.amount_cents);
         }
     }
-    let totals = serde_json::from_value(totals_view(totals)).map_err(|e| HrError::internal(e.to_string()))?;
+    let totals = serde_json::from_value(totals_view(totals))
+        .map_err(|e| HrError::internal(e.to_string()))?;
     Ok(PayslipYtdView { totals, by_line })
 }
 
@@ -184,17 +207,22 @@ fn lang_of(text: &str) -> Lang {
 }
 
 /// `buildPayslipView(db, row, deps)`.
-pub(crate) async fn build_payslip_view(db: &PgPool, row: &Value, keyring: &Keyring) -> Result<(PayslipView, Lang), HrError> {
+pub(crate) async fn build_payslip_view(
+    db: &PgPool,
+    row: &Value,
+    keyring: &Keyring,
+) -> Result<(PayslipView, Lang), HrError> {
     let employer = employer_by_id(db, s(row, "employerId")).await?;
     let employee = employee_by_id(db, s(row, "employeeId")).await?;
     let (Some(employer), Some(employee)) = (employer, employee) else {
         return Err(HrError::not_found("Payslip", s(row, "id")));
     };
-    let profile: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1")
-            .bind(s(row, "employeeId"))
-            .fetch_optional(db)
-            .await?;
+    let profile: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
+    )
+    .bind(s(row, "employeeId"))
+    .fetch_optional(db)
+    .await?;
     let profile = profile.map(js_row);
     let sensitive = decrypt_sensitive(&employee, keyring)?;
     let lang = language_of(&employer);
@@ -212,15 +240,24 @@ pub(crate) async fn build_payslip_view(db: &PgPool, row: &Value, keyring: &Keyri
         None => Value::Null,
     };
     let tax_id = if nl {
-        truthy_str(&employer["nlSettings"], "loonheffingennummer")
-            .map_or(Value::Null, |v| json!({ "label": "Loonheffingennummer", "value": v }))
+        truthy_str(&employer["nlSettings"], "loonheffingennummer").map_or(
+            Value::Null,
+            |v| json!({ "label": "Loonheffingennummer", "value": v }),
+        )
     } else {
-        truthy_str(&employer["usSettings"], "ein").map_or(Value::Null, |v| json!({ "label": "EIN", "value": v }))
+        truthy_str(&employer["usSettings"], "ein")
+            .map_or(Value::Null, |v| json!({ "label": "EIN", "value": v }))
     };
     let home = sensitive.get("homeAddress").cloned().unwrap_or(Value::Null);
     let lines = row["lines"].clone();
     let profile_nl = profile.as_ref().map_or(Value::Null, |p| p["nl"].clone());
-    let or_false = |key: &str| profile_nl.get(key).filter(|v| !v.is_null()).cloned().unwrap_or(json!(false));
+    let or_false = |key: &str| {
+        profile_nl
+            .get(key)
+            .filter(|v| !v.is_null())
+            .cloned()
+            .unwrap_or(json!(false))
+    };
     let minimum = lines
         .as_array()
         .and_then(|l| l.iter().find(|line| line["code"] == "nl.minimum_wage"))
@@ -276,35 +313,50 @@ pub(crate) async fn build_payslip_view(db: &PgPool, row: &Value, keyring: &Keyri
         "correction": correction,
         "watermark": if row["status"] == "final" { Value::Null } else { json!(if lang == "nl" { "CONCEPT" } else { "DRAFT" }) },
     });
-    let mut view: PayslipView = serde_json::from_value(view).map_err(|e| HrError::internal(format!("payslip view: {e}")))?;
+    let mut view: PayslipView = serde_json::from_value(view)
+        .map_err(|e| HrError::internal(format!("payslip view: {e}")))?;
     view.ytd = Some(ytd_view_of(db, row).await?);
     Ok((view, lang_of(lang)))
 }
 
 /// `payslipFileKey(workspaceKey, row)`.
 pub(crate) fn payslip_file_key(workspace_key: &str, row: &Value) -> String {
-    format!("workspaces/{workspace_key}/hr/payslips/{}/{}.pdf", int_of(row, "taxYear"), s(row, "id"))
+    format!(
+        "workspaces/{workspace_key}/hr/payslips/{}/{}.pdf",
+        int_of(row, "taxYear"),
+        s(row, "id")
+    )
 }
 
 /// `renderAndStorePayslip(db, row, deps)`: once final, the PDF is kept in
 /// R2; failing to store it is logged, never fatal.
-pub(crate) async fn render_and_store_payslip(db: &PgPool, row: &Value, deps: &Deps) -> Result<Vec<u8>, HrError> {
+pub(crate) async fn render_and_store_payslip(
+    db: &PgPool,
+    row: &Value,
+    deps: &Deps,
+) -> Result<Vec<u8>, HrError> {
     let (view, lang) = build_payslip_view(db, row, &deps.keyring).await?;
     let bytes = render_payslip_pdf(&view, lang);
-    if row["status"] == "final" {
-        if let Some(bucket) = &deps.bucket {
-            let key = payslip_file_key(&deps.workspace_key, row);
-            let stored = bucket.put_boxed(&key, bytes.clone(), &PutOptions::content_type("application/pdf".to_owned())).await;
-            match stored {
-                Ok(_) => {
-                    sqlx::query("update hr_payslips set file_key = $2 where id = $1")
-                        .bind(s(row, "id"))
-                        .bind(&key)
-                        .execute(db)
-                        .await?;
-                }
-                Err(error) => tracing::error!(%error, "[payroll] could not store the payslip PDF"),
+    if row["status"] == "final"
+        && let Some(bucket) = &deps.bucket
+    {
+        let key = payslip_file_key(&deps.workspace_key, row);
+        let stored = bucket
+            .put_boxed(
+                &key,
+                bytes.clone(),
+                &PutOptions::content_type("application/pdf".to_owned()),
+            )
+            .await;
+        match stored {
+            Ok(_) => {
+                sqlx::query("update hr_payslips set file_key = $2 where id = $1")
+                    .bind(s(row, "id"))
+                    .bind(&key)
+                    .execute(db)
+                    .await?;
             }
+            Err(error) => tracing::error!(%error, "[payroll] could not store the payslip PDF"),
         }
     }
     Ok(bytes)
@@ -313,14 +365,19 @@ pub(crate) async fn render_and_store_payslip(db: &PgPool, row: &Value, deps: &De
 /// `payslipPdf(db, row, deps)`: the stored file of a final payslip, else
 /// rendered (and stored) again; a draft is rendered with a watermark.
 pub(crate) async fn payslip_pdf(db: &PgPool, row: &Value, deps: &Deps) -> Result<Vec<u8>, HrError> {
-    if row["status"] == "final" {
-        if let (Some(key), Some(bucket)) = (row["fileKey"].as_str().filter(|k| !k.is_empty()), &deps.bucket) {
-            if key.starts_with(&format!("workspaces/{}/hr/payslips/", deps.workspace_key)) {
-                let object = bucket.get_boxed(key).await.map_err(|e| HrError::internal(e.to_string()))?;
-                if let Some(object) = object {
-                    return Ok(object.bytes);
-                }
-            }
+    if row["status"] == "final"
+        && let (Some(key), Some(bucket)) = (
+            row["fileKey"].as_str().filter(|k| !k.is_empty()),
+            &deps.bucket,
+        )
+        && key.starts_with(&format!("workspaces/{}/hr/payslips/", deps.workspace_key))
+    {
+        let object = bucket
+            .get_boxed(key)
+            .await
+            .map_err(|e| HrError::internal(e.to_string()))?;
+        if let Some(object) = object {
+            return Ok(object.bytes);
         }
     }
     render_and_store_payslip(db, row, deps).await
@@ -328,7 +385,10 @@ pub(crate) async fn payslip_pdf(db: &PgPool, row: &Value, deps: &Deps) -> Result
 
 /// `employeesToNotify(db, employeeIds)`: employees linked to a workspace
 /// member (who can open My HR).
-pub(crate) async fn employees_to_notify(db: &PgPool, employee_ids: &[String]) -> Result<Vec<(String, String, String)>, HrError> {
+pub(crate) async fn employees_to_notify(
+    db: &PgPool,
+    employee_ids: &[String],
+) -> Result<Vec<(String, String, String)>, HrError> {
     if employee_ids.is_empty() {
         return Ok(vec![]);
     }
@@ -338,5 +398,15 @@ pub(crate) async fn employees_to_notify(db: &PgPool, employee_ids: &[String]) ->
     .bind(employee_ids)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(js_row).map(|e| (s(&e, "id").to_owned(), s(&e, "email").to_owned(), display_name_of(&e))).collect())
+    Ok(rows
+        .into_iter()
+        .map(js_row)
+        .map(|e| {
+            (
+                s(&e, "id").to_owned(),
+                s(&e, "email").to_owned(),
+                display_name_of(&e),
+            )
+        })
+        .collect())
 }

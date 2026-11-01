@@ -12,7 +12,9 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use weldsuite_db::{PgPool, js_row};
-use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, format_date, format_time, render, send_system_email};
+use weldsuite_emails::{
+    EmailBrand, EmailLocale, SystemEmail, format_date, format_time, render, send_system_email,
+};
 
 use crate::{Caller, HrState};
 
@@ -42,8 +44,12 @@ fn encode_uri_component(value: &str) -> String {
 /// (`workspaceAppUrl(base, orgId, '/weldhr/me/payroll')`); `APP_URL`
 /// overrides the host.
 pub(crate) fn my_payroll_url(caller: &Caller) -> String {
-    let app_url = caller.env("APP_URL").map(|u| u.trim().to_owned()).filter(|u| !u.is_empty());
-    let base = app_url.unwrap_or_else(|| platform_url(caller.env("ENVIRONMENT").as_deref()).to_owned());
+    let app_url = caller
+        .env("APP_URL")
+        .map(|u| u.trim().to_owned())
+        .filter(|u| !u.is_empty());
+    let base =
+        app_url.unwrap_or_else(|| platform_url(caller.env("ENVIRONMENT").as_deref()).to_owned());
     let base = base.trim().trim_end_matches('/');
     match caller.org_id.as_deref().filter(|o| !o.is_empty()) {
         Some(org) => format!("{base}/w/{}/weldhr/me/payroll", encode_uri_component(org)),
@@ -54,7 +60,11 @@ pub(crate) fn my_payroll_url(caller: &Caller) -> String {
 /// `languageOf(employer)`: a Dutch employer's payslip language, else English.
 pub(crate) fn language_of(employer: &Value) -> &'static str {
     if employer["country"] == "NL" {
-        return if employer["nlSettings"]["payslipLanguage"] == "en" { "en" } else { "nl" };
+        return if employer["nlSettings"]["payslipLanguage"] == "en" {
+            "en"
+        } else {
+            "nl"
+        };
     }
     "en"
 }
@@ -65,7 +75,10 @@ fn locale_of(lang: &str) -> EmailLocale {
 
 fn name_vars(name: &str) -> (bool, Option<String>) {
     let trimmed = name.trim();
-    (!trimmed.is_empty(), (!trimmed.is_empty()).then(|| trimmed.to_owned()))
+    (
+        !trimmed.is_empty(),
+        (!trimmed.is_empty()).then(|| trimmed.to_owned()),
+    )
 }
 
 /// What `payslipReady` needs.
@@ -92,19 +105,32 @@ pub(crate) async fn payslip_ready(state: &HrState, url: &str, args: PayslipReady
     if !url.is_empty() {
         flags.push("url");
     }
-    let rendered = format_date(&format!("{}T12:00:00Z", args.pay_date), locale, "UTC").and_then(|date| {
-        let mut vars = BTreeMap::new();
-        vars.insert("recipient_name".to_owned(), name.unwrap_or_default().into());
-        vars.insert("employer_name".to_owned(), args.employer_name.clone().into());
-        vars.insert("pay_date".to_owned(), date.into());
-        vars.insert("url".to_owned(), url.to_owned().into());
-        render("hr.payslip-ready", locale, &EmailBrand::weldsuite("WeldHR"), &flags, vars)
-    });
+    let rendered =
+        format_date(&format!("{}T12:00:00Z", args.pay_date), locale, "UTC").and_then(|date| {
+            let mut vars = BTreeMap::new();
+            vars.insert("recipient_name".to_owned(), name.unwrap_or_default().into());
+            vars.insert(
+                "employer_name".to_owned(),
+                args.employer_name.clone().into(),
+            );
+            vars.insert("pay_date".to_owned(), date.into());
+            vars.insert("url".to_owned(), url.to_owned().into());
+            render(
+                "hr.payslip-ready",
+                locale,
+                &EmailBrand::weldsuite("WeldHR"),
+                &flags,
+                vars,
+            )
+        });
     let sent = match rendered {
-        Ok(rendered) => send_system_email(transport, SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), &args.email))
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
+        Ok(rendered) => send_system_email(
+            transport,
+            SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), &args.email),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string()),
         Err(error) => Err(error.to_string()),
     };
     if let Err(error) = sent {
@@ -113,7 +139,14 @@ pub(crate) async fn payslip_ready(state: &HrState, url: &str, args: PayslipReady
 }
 
 /// `notifier.bankChanged(args)`.
-async fn bank_changed(state: &HrState, email: &str, name: &str, employer_name: &str, by_employee: bool, lang: &str) {
+async fn bank_changed(
+    state: &HrState,
+    email: &str,
+    name: &str,
+    employer_name: &str,
+    by_employee: bool,
+    lang: &str,
+) {
     let Some(transport) = state.mail.as_deref() else {
         return;
     };
@@ -129,20 +162,30 @@ async fn bank_changed(state: &HrState, email: &str, name: &str, employer_name: &
     let now = time::OffsetDateTime::now_utc();
     let millis = i64::try_from(now.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
     let iso = weldsuite_events::iso_timestamp(now);
-    let when = format_date(&iso, locale, "UTC")
-        .and_then(|date| format_time(millis, locale, "UTC", true).map(|time| format!("{date}, {time}")));
+    let when = format_date(&iso, locale, "UTC").and_then(|date| {
+        format_time(millis, locale, "UTC", true).map(|time| format!("{date}, {time}"))
+    });
     let rendered = when.and_then(|when| {
         let mut vars = BTreeMap::new();
         vars.insert("recipient_name".to_owned(), name.unwrap_or_default().into());
         vars.insert("employer_name".to_owned(), employer_name.to_owned().into());
         vars.insert("when".to_owned(), when.into());
-        render("hr.bank-changed", locale, &EmailBrand::weldsuite("WeldHR"), &flags, vars)
+        render(
+            "hr.bank-changed",
+            locale,
+            &EmailBrand::weldsuite("WeldHR"),
+            &flags,
+            vars,
+        )
     });
     let sent = match rendered {
-        Ok(rendered) => send_system_email(transport, SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), email))
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
+        Ok(rendered) => send_system_email(
+            transport,
+            SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), email),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string()),
         Err(error) => Err(error.to_string()),
     };
     if let Err(error) = sent {
@@ -150,12 +193,18 @@ async fn bank_changed(state: &HrState, email: &str, name: &str, employer_name: &
     }
 }
 
-async fn bank_change_task(state: &HrState, db: &PgPool, employee_id: &str, by_employee: bool) -> Result<(), sqlx::Error> {
-    let row: Option<(String, String, String)> =
-        sqlx::query_as("select email, first_name, last_name from hr_employees where id = $1 limit 1")
-            .bind(employee_id)
-            .fetch_optional(db)
-            .await?;
+async fn bank_change_task(
+    state: &HrState,
+    db: &PgPool,
+    employee_id: &str,
+    by_employee: bool,
+) -> Result<(), sqlx::Error> {
+    let row: Option<(String, String, String)> = sqlx::query_as(
+        "select email, first_name, last_name from hr_employees where id = $1 limit 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(db)
+    .await?;
     let Some((email, first, last)) = row else {
         return Ok(());
     };
@@ -169,15 +218,32 @@ async fn bank_change_task(state: &HrState, db: &PgPool, employee_id: &str, by_em
     .await?;
     let employer = employer.map(js_row);
     let name = format!("{first} {last}");
-    let employer_name = employer.as_ref().and_then(|e| e["name"].as_str()).unwrap_or("").to_owned();
+    let employer_name = employer
+        .as_ref()
+        .and_then(|e| e["name"].as_str())
+        .unwrap_or("")
+        .to_owned();
     let lang = employer.as_ref().map_or("en", language_of);
-    bank_changed(state, &email, name.trim(), &employer_name, by_employee, lang).await;
+    bank_changed(
+        state,
+        &email,
+        name.trim(),
+        &employer_name,
+        by_employee,
+        lang,
+    )
+    .await;
     Ok(())
 }
 
 /// `notifyBankChange(c, employeeId, byEmployee)`: tell the employee their
 /// bank details changed, after the response is on its way. Best effort.
-pub(crate) fn notify_bank_change(state: &HrState, caller: &Caller, employee_id: &str, by_employee: bool) {
+pub(crate) fn notify_bank_change(
+    state: &HrState,
+    caller: &Caller,
+    employee_id: &str,
+    by_employee: bool,
+) {
     if state.mail.is_none() {
         return;
     }
@@ -185,7 +251,8 @@ pub(crate) fn notify_bank_change(state: &HrState, caller: &Caller, employee_id: 
     let db = caller.db.clone();
     let employee_id = employee_id.to_owned();
     state.events.tracker().spawn(async move {
-        if let Err(error) = bank_change_task(&state_for_task, &db, &employee_id, by_employee).await {
+        if let Err(error) = bank_change_task(&state_for_task, &db, &employee_id, by_employee).await
+        {
             tracing::error!(%error, "[payroll] bank change notification failed");
         }
     });

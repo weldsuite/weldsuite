@@ -43,19 +43,43 @@ where
             "/checklist-templates",
             get(list_templates_route).route_layer(gate.require([EMPLOYEES_READ])),
         )
-        .route("/checklist-templates", post(create_template).route_layer(manage()))
-        .route("/checklist-templates/{id}", patch(update_template).route_layer(manage()))
-        .route("/checklist-templates/{id}", delete(delete_template).route_layer(manage()))
+        .route(
+            "/checklist-templates",
+            post(create_template).route_layer(manage()),
+        )
+        .route(
+            "/checklist-templates/{id}",
+            patch(update_template).route_layer(manage()),
+        )
+        .route(
+            "/checklist-templates/{id}",
+            delete(delete_template).route_layer(manage()),
+        )
         .route(
             "/checklists",
             get(list_checklists_route).route_layer(gate.require([EMPLOYEES_READ])),
         )
         .route("/checklists", post(start_route).route_layer(update()))
-        .route("/checklists/{id}/cancel", post(cancel_route).route_layer(update()))
-        .route("/checklists/{id}", delete(delete_checklist_route).route_layer(update()))
-        .route("/checklists/{id}/tasks", post(add_task_route).route_layer(update()))
-        .route("/checklists/tasks/{task_id}", patch(update_task_route).route_layer(update()))
-        .route("/checklists/tasks/{task_id}", delete(delete_task_route).route_layer(update()))
+        .route(
+            "/checklists/{id}/cancel",
+            post(cancel_route).route_layer(update()),
+        )
+        .route(
+            "/checklists/{id}",
+            delete(delete_checklist_route).route_layer(update()),
+        )
+        .route(
+            "/checklists/{id}/tasks",
+            post(add_task_route).route_layer(update()),
+        )
+        .route(
+            "/checklists/tasks/{task_id}",
+            patch(update_task_route).route_layer(update()),
+        )
+        .route(
+            "/checklists/tasks/{task_id}",
+            delete(delete_task_route).route_layer(update()),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +130,14 @@ fn template_item(issues: &mut Issues, item: &Value) -> Option<Value> {
     let title = short_text(issues, fields, "title", Presence::Required, 255, true);
     let description = text_max(issues, fields, "description", Presence::Nullish, 2000);
     let role = issues.choice(fields, "assigneeRole", Presence::Required, &ROLES);
-    let offset = int(issues, fields, "dueOffsetDays", Presence::Required, Some(-365.0), Some(365.0));
+    let offset = int(
+        issues,
+        fields,
+        "dueOffsetDays",
+        Presence::Required,
+        Some(-365.0),
+        Some(365.0),
+    );
     let visible = issues.boolean(fields, "visibleToEmployee", Presence::Required);
     let mut out = Map::new();
     out.insert("id".to_owned(), json!(item_id.as_set()?));
@@ -121,7 +152,10 @@ fn template_item(issues: &mut Issues, item: &Value) -> Option<Value> {
         }
     }
     out.insert("assigneeRole".to_owned(), json!(role.as_set()?));
-    out.insert("dueOffsetDays".to_owned(), crate::js_number(*offset.as_set()?));
+    out.insert(
+        "dueOffsetDays".to_owned(),
+        crate::js_number(*offset.as_set()?),
+    );
     out.insert("visibleToEmployee".to_owned(), json!(visible.as_set()?));
     Some(Value::Object(out))
 }
@@ -157,7 +191,9 @@ async fn clear_default(db: &PgPool, kind: &str, except_id: Option<&str>) -> Resu
 }
 
 async fn create_template(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| template_input(issues, fields, false))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        template_input(issues, fields, false)
+    })?;
     let kind = input.kind.as_set().cloned().unwrap_or_default();
     if input.is_default.as_set() == Some(&true) {
         clear_default(&caller.db, &kind, None).await?;
@@ -179,8 +215,15 @@ async fn create_template(caller: Caller, headers: HeaderMap, body: Bytes) -> HrR
     Ok(Created(js_row(row)).into_response())
 }
 
-async fn update_template(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| template_input(issues, fields, true))?;
+async fn update_template(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        template_input(issues, fields, true)
+    })?;
     let existing = require_template(&caller.db, &id).await?;
     if input.is_default.as_set() == Some(&true) {
         let kind = input
@@ -304,7 +347,12 @@ pub(crate) async fn list_checklists(
     let tasks: Vec<Value> = tasks.into_iter().map(js_row).collect();
     let people: Vec<Option<&str>> = tasks
         .iter()
-        .flat_map(|task| [task["assigneeUserId"].as_str(), task["completedBy"].as_str()])
+        .flat_map(|task| {
+            [
+                task["assigneeUserId"].as_str(),
+                task["completedBy"].as_str(),
+            ]
+        })
         .collect();
     let names = member_names(db, &people).await?;
     let mut by_checklist: std::collections::HashMap<String, Vec<Value>> =
@@ -332,12 +380,18 @@ pub(crate) async fn list_checklists(
             let list = by_checklist
                 .remove(text(&checklist, "id"))
                 .unwrap_or_default();
-            let done = list.iter().filter(|task| !task["completedAt"].is_null()).count();
+            let done = list
+                .iter()
+                .filter(|task| !task["completedAt"].is_null())
+                .count();
             let total = list.len();
             if let Some(map) = checklist.as_object_mut() {
                 map.insert("employeeName".to_owned(), json!(display_name_of(&employee)));
                 map.insert("tasks".to_owned(), Value::Array(list));
-                map.insert("progress".to_owned(), json!({ "done": done, "total": total }));
+                map.insert(
+                    "progress".to_owned(),
+                    json!({ "done": done, "total": total }),
+                );
             }
             checklist
         })
@@ -357,7 +411,11 @@ async fn list_checklists_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
 }
 
 /// `assertCanOffboard(employee, input)`.
-fn assert_can_offboard(employee: &Value, anchor_date: Option<&str>, force: bool) -> Result<(), HrError> {
+fn assert_can_offboard(
+    employee: &Value,
+    anchor_date: Option<&str>,
+    force: bool,
+) -> Result<(), HrError> {
     let not_started = employee["status"] == "onboarding"
         || employee["startDate"]
             .as_str()
@@ -497,12 +555,14 @@ pub(crate) async fn start_checklist(
         .await?;
     }
     if let Some(status) = status_when_starting(&kind, text(&employee, "status")) {
-        sqlx::query("update hr_employees set status = $2, updated_at = $3::timestamp where id = $1")
-            .bind(employee_id)
-            .bind(status)
-            .bind(now())
-            .execute(db)
-            .await?;
+        sqlx::query(
+            "update hr_employees set status = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(employee_id)
+        .bind(status)
+        .bind(now())
+        .execute(db)
+        .await?;
     }
     Ok(js_row(checklist))
 }
@@ -573,7 +633,10 @@ impl ChecklistOutcome {
 
 /// `settleChecklist(db, checklistId)`: close a checklist whose tasks are all
 /// done (and move the employee on), reopen one with a task open again.
-pub(crate) async fn settle_checklist(db: &PgPool, checklist_id: &str) -> Result<ChecklistOutcome, HrError> {
+pub(crate) async fn settle_checklist(
+    db: &PgPool,
+    checklist_id: &str,
+) -> Result<ChecklistOutcome, HrError> {
     let checklist = require_checklist(db, checklist_id).await?;
     let mut outcome = ChecklistOutcome {
         checklist_completed: false,
@@ -672,7 +735,12 @@ fn emit_outcome(caller: &Caller, state: &HrState, checklist_id: &str, outcome: &
     }
 }
 
-async fn start_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn start_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (template_id, anchor, force, employee_id) = hr_json(&headers, &body, |issues, fields| {
         (
             id(issues, fields, "templateId", Presence::Required),
@@ -703,7 +771,11 @@ async fn start_route(State(state): State<HrState>, caller: Caller, headers: Head
     Ok(Created(checklist).into_response())
 }
 
-async fn cancel_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn cancel_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let existing = require_checklist(&caller.db, &id).await?;
     let row: Value = sqlx::query_scalar(
         "update hr_checklists set status = 'cancelled', updated_at = $2::timestamp where id = $1
@@ -727,7 +799,11 @@ async fn cancel_route(State(state): State<HrState>, caller: Caller, Path(id): Pa
     Ok(Data(row).into_response())
 }
 
-async fn delete_checklist_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn delete_checklist_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let checklist = require_checklist(&caller.db, &id).await?;
     let existing = require_checklist(&caller.db, &id).await?;
     sqlx::query("delete from hr_checklist_tasks where checklist_id = $1")
@@ -792,7 +868,9 @@ async fn add_task_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| task_input(issues, fields, false))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        task_input(issues, fields, false)
+    })?;
     let db = &caller.db;
     let checklist = require_checklist(db, &checklist_id).await?;
     let max: i64 = sqlx::query_scalar(
@@ -851,7 +929,9 @@ pub(crate) async fn update_task(
     let now = now();
     // `completed: true` stamps a task not done yet; `false` clears the stamp.
     let (set_completed, completed_at, completed_by) = match input.completed {
-        Some(true) if task["completedAt"].is_null() => (true, Some(now.clone()), Some(actor_id.to_owned())),
+        Some(true) if task["completedAt"].is_null() => {
+            (true, Some(now.clone()), Some(actor_id.to_owned()))
+        }
         Some(false) => (true, None, None),
         _ => (false, None, None),
     };
@@ -916,7 +996,9 @@ async fn update_task_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| task_input(issues, fields, true))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        task_input(issues, fields, true)
+    })?;
     let patch = TaskPatch {
         title: input.title,
         description: input.description,
@@ -938,7 +1020,11 @@ async fn update_task_route(
     Ok(Data(json!({ "task": task, "outcome": outcome.json() })).into_response())
 }
 
-async fn delete_task_route(State(state): State<HrState>, caller: Caller, Path(task_id): Path<String>) -> HrResult {
+async fn delete_task_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(task_id): Path<String>,
+) -> HrResult {
     let task = require_task(&caller.db, &task_id).await?;
     // deleteTask reads the task again before deleting it.
     require_task(&caller.db, &task_id).await?;
@@ -982,7 +1068,12 @@ pub(crate) async fn ensure_default_templates(db: &PgPool) -> Result<(), HrError>
         item("Send contract and collect signature", "hr", -10, false),
         item("Collect ID and tax documents", "hr", -5, true),
         item("Create accounts and order equipment", "it", -3, false),
-        item("Complete your profile and emergency contact", "employee", 0, true),
+        item(
+            "Complete your profile and emergency contact",
+            "employee",
+            0,
+            true
+        ),
         item("Welcome meeting and team introduction", "manager", 0, true),
         item("Client account training", "manager", 5, true),
         item("30-day check-in", "manager", 30, true),

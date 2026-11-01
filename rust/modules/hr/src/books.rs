@@ -25,7 +25,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use weldsuite_books_domain::payroll::{WeldHrImport, WeldHrReply, WeldHrTotals, post_weldhr_import};
+use weldsuite_books_domain::payroll::{
+    WeldHrImport, WeldHrReply, WeldHrTotals, post_weldhr_import,
+};
 use weldsuite_db::PgPool;
 
 /// One call over the binding.
@@ -91,7 +93,10 @@ impl BooksInternal for InProcessBooks {
                 return Ok(answer(404, &error("NOT_FOUND", "Not Found")));
             }
             let Some(import) = import_of(&request.body) else {
-                return Ok(answer(400, &error("BAD_REQUEST", "Invalid payroll payload")));
+                return Ok(answer(
+                    400,
+                    &error("BAD_REQUEST", "Invalid payroll payload"),
+                ));
             };
             let entity_id = import.entity_id.clone();
             match post_weldhr_import(db, import, Some("system")).await {
@@ -111,10 +116,15 @@ impl BooksInternal for InProcessBooks {
                         &format!("Accounting entity with ID '{entity_id}' not found"),
                     ),
                 )),
-                Ok(WeldHrReply::BadRequest(message)) => Ok(answer(400, &error("BAD_REQUEST", &message))),
+                Ok(WeldHrReply::BadRequest(message)) => {
+                    Ok(answer(400, &error("BAD_REQUEST", &message)))
+                }
                 Err(failure) => {
                     tracing::error!(error = %failure, "hr: posting the payroll to WeldBooks failed");
-                    Ok(answer(500, &error("INTERNAL_ERROR", "Failed to post the payroll")))
+                    Ok(answer(
+                        500,
+                        &error("INTERNAL_ERROR", "Failed to post the payroll"),
+                    ))
                 }
             }
         })
@@ -122,7 +132,11 @@ impl BooksInternal for InProcessBooks {
 }
 
 fn answer(status: u16, body: &Value) -> BooksResponse {
-    BooksResponse { status, body: body.to_string(), created_event: None }
+    BooksResponse {
+        status,
+        body: body.to_string(),
+        created_event: None,
+    }
 }
 
 fn error(code: &str, message: &str) -> Value {
@@ -142,7 +156,9 @@ fn import_of(body: &Value) -> Option<WeldHrImport> {
         b.len() == 10
             && b[4] == b'-'
             && b[7] == b'-'
-            && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+            && b.iter()
+                .enumerate()
+                .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
     };
     let optional_date = |key: &str| -> Option<Option<String>> {
         match body.get(key) {

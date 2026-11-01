@@ -24,10 +24,13 @@ use crate::employees::{display_name_of, require_employee};
 use crate::fields::text_max;
 use crate::open_shifts::{assert_can_sign_up, assert_open_shift_has_spot, settle_open_shift};
 use crate::timekeeping::{
-    ShiftDetails, assert_no_overlapping_shift, assert_shift_break, assert_shift_window, create_shift,
-    instant, iso, now_ms, row_instant,
+    ShiftDetails, assert_no_overlapping_shift, assert_shift_break, assert_shift_window,
+    create_shift, instant, iso, now_ms, row_instant,
 };
-use crate::{Caller, HrError, HrResult, HrState, hr_json, js_trim, member_names, now, query_date, query_text, query_values, text};
+use crate::{
+    Caller, HrError, HrResult, HrState, hr_json, js_trim, member_names, now, query_date,
+    query_text, query_values, text,
+};
 
 /// The routes, relative to `/api/weldhr`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -35,7 +38,10 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .route("/shift-requests", get(list).route_layer(gate.require([ATTENDANCE_READ])))
+        .route(
+            "/shift-requests",
+            get(list).route_layer(gate.require([ATTENDANCE_READ])),
+        )
         .route(
             "/shift-requests/{id}/review",
             post(review).route_layer(gate.require([ATTENDANCE_CREATE])),
@@ -44,11 +50,13 @@ where
 
 /// `requireShiftRequest(db, id)`.
 pub(crate) async fn require_shift_request(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_shift_requests t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Shift request", id))
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_shift_requests t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Shift request", id))
 }
 
 /// `listShiftRequests(db, filters)`.
@@ -82,7 +90,10 @@ pub(crate) async fn list_shift_requests(
     .bind(to.map(|t| format!("{t}T23:59:59Z")))
     .fetch_all(db)
     .await?;
-    let reviewers: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["reviewed_by"].as_str()).collect();
+    let reviewers: Vec<Option<&str>> = rows
+        .iter()
+        .map(|(r, _)| r["reviewed_by"].as_str())
+        .collect();
     let names = member_names(db, &reviewers).await?;
     Ok(rows
         .into_iter()
@@ -129,7 +140,9 @@ pub(crate) fn to_self_shift_request(row: &Value) -> Value {
 
 /// `x?.trim() || null`.
 fn trimmed(value: Option<&str>) -> Option<String> {
-    value.map(|v| js_trim(v).to_owned()).filter(|v| !v.is_empty())
+    value
+        .map(|v| js_trim(v).to_owned())
+        .filter(|v| !v.is_empty())
 }
 
 /// `requestShift(db, employeeId, input, requestedBy)`.
@@ -148,9 +161,19 @@ pub(crate) async fn request_shift(
     let ends = instant(ends_at).unwrap_or(0);
     assert_shift_window(starts, ends)?;
     if starts <= now_ms() {
-        return Err(HrError::validation("Ask for a shift that has not started yet"));
+        return Err(HrError::validation(
+            "Ask for a shift that has not started yet",
+        ));
     }
-    assert_no_overlapping_shift(db, employee_id, starts, ends, None, Some("You already have a shift at this time")).await?;
+    assert_no_overlapping_shift(
+        db,
+        employee_id,
+        starts,
+        ends,
+        None,
+        Some("You already have a shift at this time"),
+    )
+    .await?;
     let waiting: Option<String> = sqlx::query_scalar(
         "select id from hr_shift_requests where employee_id = $1 and status = 'pending'
            and starts_at < $2::timestamptz and ends_at > $3::timestamptz limit 1",
@@ -161,7 +184,9 @@ pub(crate) async fn request_shift(
     .fetch_optional(db)
     .await?;
     if waiting.is_some() {
-        return Err(HrError::conflict("You already asked for a shift at this time"));
+        return Err(HrError::conflict(
+            "You already asked for a shift at this time",
+        ));
     }
     let row: Value = sqlx::query_scalar(
         "insert into hr_shift_requests (id, employee_id, open_shift_id, starts_at, ends_at, work_type, note,
@@ -277,7 +302,9 @@ async fn claim_open_shift_spot(
         return Ok(after);
     }
     if after["status"] != "pending" {
-        return Err(HrError::conflict("This request was answered in the meantime"));
+        return Err(HrError::conflict(
+            "This request was answered in the meantime",
+        ));
     }
     Err(HrError::conflict("All spots on this shift are filled"))
 }
@@ -292,7 +319,10 @@ async fn review_shift_request(
 ) -> Result<Value, HrError> {
     let existing = require_shift_request(db, id).await?;
     if existing["status"] != "pending" {
-        return Err(HrError::conflict(format!("This request is already {}", text(&existing, "status"))));
+        return Err(HrError::conflict(format!(
+            "This request is already {}",
+            text(&existing, "status")
+        )));
     }
     if decision == "approved"
         && let Some(open_shift_id) = existing["openShiftId"].as_str().filter(|o| !o.is_empty())
@@ -342,7 +372,9 @@ async fn review_shift_request(
                 .execute(db)
                 .await?;
         }
-        return Err(HrError::conflict("This request was answered in the meantime"));
+        return Err(HrError::conflict(
+            "This request was answered in the meantime",
+        ));
     };
     Ok(js_row(row))
 }
@@ -370,7 +402,12 @@ async fn review(
 ) -> HrResult {
     let (decision, note) = hr_json(&headers, &body, |issues, fields| {
         (
-            issues.choice(fields, "decision", Presence::Required, &["approved", "rejected"]),
+            issues.choice(
+                fields,
+                "decision",
+                Presence::Required,
+                &["approved", "rejected"],
+            ),
             text_max(issues, fields, "note", Presence::Nullish, 2000),
         )
     })?;
@@ -383,22 +420,34 @@ async fn review(
         &caller.user_id,
     )
     .await?;
-    let event = if row["status"] == "approved" { HR_SHIFT_REQUEST_APPROVED } else { HR_SHIFT_REQUEST_REJECTED };
+    let event = if row["status"] == "approved" {
+        HR_SHIFT_REQUEST_APPROVED
+    } else {
+        HR_SHIFT_REQUEST_REJECTED
+    };
     caller.emit(
         &state,
         event,
         text(&row, "id"),
-        &[("employeeId", Some(row["employeeId"].clone())), ("status", Some(row["status"].clone()))],
+        &[
+            ("employeeId", Some(row["employeeId"].clone())),
+            ("status", Some(row["status"].clone())),
+        ],
     );
     if let Some(open_shift_id) = row["openShiftId"].as_str().filter(|o| !o.is_empty())
         && row["status"] == "approved"
     {
-        for (closed, employee, status) in settle_open_shift(db, open_shift_id, &caller.user_id).await? {
+        for (closed, employee, status) in
+            settle_open_shift(db, open_shift_id, &caller.user_id).await?
+        {
             caller.emit(
                 &state,
                 HR_SHIFT_REQUEST_REJECTED,
                 &closed,
-                &[("employeeId", Some(json!(employee))), ("status", Some(json!(status)))],
+                &[
+                    ("employeeId", Some(json!(employee))),
+                    ("status", Some(json!(status))),
+                ],
             );
         }
         caller.emit(&state, HR_OPEN_SHIFT_UPDATED, open_shift_id, &[]);
@@ -407,13 +456,20 @@ async fn review(
 }
 
 /// `cancelShiftRequest(db, id, employeeId)`.
-pub(crate) async fn cancel_shift_request(db: &PgPool, id: &str, employee_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn cancel_shift_request(
+    db: &PgPool,
+    id: &str,
+    employee_id: &str,
+) -> Result<Value, HrError> {
     let existing = require_shift_request(db, id).await?;
     if existing["employeeId"] != employee_id {
         return Err(HrError::not_found("Shift request", id));
     }
     if existing["status"] != "pending" {
-        return Err(HrError::conflict(format!("This request is already {}", text(&existing, "status"))));
+        return Err(HrError::conflict(format!(
+            "This request is already {}",
+            text(&existing, "status")
+        )));
     }
     let row: Option<Value> = sqlx::query_scalar(
         "update hr_shift_requests set status = 'cancelled', updated_at = $2::timestamp

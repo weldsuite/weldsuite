@@ -23,8 +23,10 @@ fn n(x: f64) -> Value {
 pub(crate) fn journal_totals_for(totals: &Value) -> Value {
     let c = |key: &str| totals[key].as_f64().unwrap_or(0.0);
     let gross = c("grossCents");
-    let net_excluding_reimbursements = gross - c("employeeTaxesCents") - c("employeeDeductionsCents");
-    let benefits = c("employerCostCents") - gross - c("employerTaxesCents") - c("reimbursementsCents");
+    let net_excluding_reimbursements =
+        gross - c("employeeTaxesCents") - c("employeeDeductionsCents");
+    let benefits =
+        c("employerCostCents") - gross - c("employerTaxesCents") - c("reimbursementsCents");
     let engine_net = c("netCents") - c("reimbursementsCents");
     if engine_net != net_excluding_reimbursements {
         tracing::warn!(
@@ -50,16 +52,15 @@ pub(crate) struct JournalOutcome {
     pub(crate) journal_entry_id: Option<String>,
 }
 
-impl JournalOutcome {
-    pub(crate) fn to_json(&self) -> Value {
-        json!({ "status": self.status, "error": self.error, "journalEntryId": self.journal_entry_id })
-    }
-}
-
 fn failed(error: impl Into<String>) -> JournalOutcome {
     let error: String = error.into();
-    let cut: String = String::from_utf16_lossy(&error.encode_utf16().take(500).collect::<Vec<u16>>());
-    JournalOutcome { status: "failed", error: Some(cut), journal_entry_id: None }
+    let cut: String =
+        String::from_utf16_lossy(&error.encode_utf16().take(500).collect::<Vec<u16>>());
+    JournalOutcome {
+        status: "failed",
+        error: Some(cut),
+        journal_entry_id: None,
+    }
 }
 
 /// `postPayroll` over `BOOKS_INTERNAL`, read as the TypeScript bridge reads
@@ -68,7 +69,9 @@ async fn post_payroll(state: &HrState, db: &PgPool, deps: &Deps, body: Value) ->
     let Some(books) = &deps.books else {
         return JournalOutcome {
             status: "skipped",
-            error: Some("The WeldBooks link (BOOKS_INTERNAL) is not configured on this worker".into()),
+            error: Some(
+                "The WeldBooks link (BOOKS_INTERNAL) is not configured on this worker".into(),
+            ),
             journal_entry_id: None,
         };
     };
@@ -87,24 +90,36 @@ async fn post_payroll(state: &HrState, db: &PgPool, deps: &Deps, body: Value) ->
         // in-process, hr publishes it with the same context.
         let id = event["id"].as_str().unwrap_or("").to_owned();
         let context = EventContext::new(deps.workspace_key.clone(), "system", EventSource::System);
-        state.events.publish(&context, EntityEvent::new(PAYROLL_IMPORT_CREATED, id, event.clone()));
+        state.events.publish(
+            &context,
+            EntityEvent::new(PAYROLL_IMPORT_CREATED, id, event.clone()),
+        );
     }
     let body: Option<Value> = serde_json::from_str(&response.body).ok();
     let data = body.as_ref().map(|b| &b["data"]);
-    let import_id = data.and_then(|d| d["importId"].as_str()).filter(|v| !v.is_empty());
+    let import_id = data
+        .and_then(|d| d["importId"].as_str())
+        .filter(|v| !v.is_empty());
     let ok = (200..300).contains(&response.status);
     let Some(_import) = import_id.filter(|_| ok) else {
         let message = body
             .as_ref()
             .and_then(|b| b["error"]["message"].as_str())
-            .map_or_else(|| format!("books-api answered {}", response.status), str::to_owned);
+            .map_or_else(
+                || format!("books-api answered {}", response.status),
+                str::to_owned,
+            );
         return failed(message);
     };
     let data = data.cloned().unwrap_or(Value::Null);
     if data["status"] == "reversed" {
         return failed("This payroll was posted to WeldBooks and has since been reversed there.");
     }
-    JournalOutcome { status: "posted", error: None, journal_entry_id: data["journalEntryId"].as_str().map(str::to_owned) }
+    JournalOutcome {
+        status: "posted",
+        error: None,
+        journal_entry_id: data["journalEntryId"].as_str().map(str::to_owned),
+    }
 }
 
 /// `postRunJournal(db, runId, deps, { userId })`: post (or re-post, books-api
@@ -126,14 +141,28 @@ pub(crate) async fn post_run_journal(
         ));
     }
     let Some(employer) = employer_by_id(db, s(&run, "employerId")).await? else {
-        return Err(HrError::not_found("Payroll employer", s(&run, "employerId")));
+        return Err(HrError::not_found(
+            "Payroll employer",
+            s(&run, "employerId"),
+        ));
     };
-    let outcome = match employer["accountingEntityId"].as_str().filter(|v| !v.is_empty()) {
-        None => JournalOutcome { status: "skipped", error: None, journal_entry_id: None },
+    let outcome = match employer["accountingEntityId"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+    {
+        None => JournalOutcome {
+            status: "skipped",
+            error: None,
+            journal_entry_id: None,
+        },
         Some(_) if deps.books.is_none() => post_payroll(state, db, deps, Value::Null).await,
         Some(_) if run["totals"].is_null() => failed("The run has no totals to post"),
         Some(entity) => {
-            let label = if run["kind"] == "correction" { "Payroll correction" } else { "Payroll" };
+            let label = if run["kind"] == "correction" {
+                "Payroll correction"
+            } else {
+                "Payroll"
+            };
             let body = json!({
                 "entityId": entity,
                 "externalId": run["id"],

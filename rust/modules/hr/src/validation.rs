@@ -4,8 +4,8 @@
 //!   with the standard error envelope, one readable sentence per issue
 //!   (`describeIssue`, de-duplicated, joined with `. `) and the raw Zod
 //!   issues in `details`.
-//! - [`zod_json`] / [`zod_query`]: a plain `zValidator('json' | 'query',
-//!   schema)` (the payroll routes): Zod's `safeParse` result as the body.
+//! - [`zod_query`]: a plain `zValidator('query', schema)`: Zod's `safeParse`
+//!   result as the body (the payroll routes have their own, `payroll/schema.rs`).
 
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
@@ -40,21 +40,6 @@ pub(crate) fn hr_json<T>(
         return Err(readable(invalid.issues()).into());
     }
     value.ok_or_else(|| HrError::internal("hrJson: the body was not an object"))
-}
-
-/// `zValidator('json', schema)` without a hook: Zod's result as the 400.
-pub(crate) fn zod_json<T>(
-    headers: &HeaderMap,
-    body: &Bytes,
-    read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
-) -> Result<T, HrError> {
-    let body = body_of(headers, body)?;
-    let mut issues = Issues::default();
-    let value = issues.object(&body).map(|fields| read(&mut issues, fields));
-    issues
-        .finish()
-        .map_err(|invalid| HrError::from(invalid.into_response()))?;
-    value.ok_or_else(|| HrError::internal("zValidator: the body was not an object"))
 }
 
 /// `zValidator('query', schema)`: the query string read by `read`.

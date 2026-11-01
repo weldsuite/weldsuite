@@ -28,7 +28,10 @@ where
 {
     let manage = || gate.require([EMPLOYEES_MANAGE]);
     Router::new()
-        .route("/departments", get(list).route_layer(gate.require([EMPLOYEES_READ])))
+        .route(
+            "/departments",
+            get(list).route_layer(gate.require([EMPLOYEES_READ])),
+        )
         .route("/departments", post(create).route_layer(manage()))
         .route("/departments/{id}", patch(update).route_layer(manage()))
         .route("/departments/{id}", delete(remove).route_layer(manage()))
@@ -77,7 +80,11 @@ pub(crate) async fn require_department(db: &PgPool, id: &str) -> Result<Value, H
 }
 
 /// `assertUniqueDepartmentName(db, name, exceptId?)`.
-async fn assert_unique_name(db: &PgPool, name: &str, except_id: Option<&str>) -> Result<(), HrError> {
+async fn assert_unique_name(
+    db: &PgPool,
+    name: &str,
+    except_id: Option<&str>,
+) -> Result<(), HrError> {
     let clash: Option<String> = sqlx::query_scalar(
         "select id from hr_departments where deleted_at is null and lower(name) = $1
            and ($2::text is null or id <> $2) limit 1",
@@ -97,9 +104,11 @@ async fn assert_unique_name(db: &PgPool, name: &str, except_id: Option<&str>) ->
 
 /// The live tree as `(id, parentId)`.
 pub(crate) async fn live_tree(db: &PgPool) -> Result<Vec<(String, Option<String>)>, HrError> {
-    Ok(sqlx::query_as("select id, parent_id from hr_departments where deleted_at is null")
-        .fetch_all(db)
-        .await?)
+    Ok(
+        sqlx::query_as("select id, parent_id from hr_departments where deleted_at is null")
+            .fetch_all(db)
+            .await?,
+    )
 }
 
 /// `departmentAndDescendants(departments, rootId)`.
@@ -126,7 +135,10 @@ pub(crate) fn department_and_descendants(
 }
 
 /// `departmentLineage(db, departmentId)`: the department and every one above it.
-pub(crate) async fn department_lineage(db: &PgPool, department_id: Option<&str>) -> Result<HashSet<String>, HrError> {
+pub(crate) async fn department_lineage(
+    db: &PgPool,
+    department_id: Option<&str>,
+) -> Result<HashSet<String>, HrError> {
     let mut out = HashSet::new();
     let Some(department_id) = department_id.filter(|id| !id.is_empty()) else {
         return Ok(out);
@@ -138,14 +150,21 @@ pub(crate) async fn department_lineage(db: &PgPool, department_id: Option<&str>)
             break;
         }
         out.insert(current.clone());
-        cursor = parent_of.get(&current).cloned().flatten().filter(|p| !p.is_empty());
+        cursor = parent_of
+            .get(&current)
+            .cloned()
+            .flatten()
+            .filter(|p| !p.is_empty());
     }
     Ok(out)
 }
 
 /// `employeesInDepartments(db, departmentIds)`: active employees in any of
 /// them or below; every active employee for an empty list.
-pub(crate) async fn employees_in_departments(db: &PgPool, department_ids: &[String]) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn employees_in_departments(
+    db: &PgPool,
+    department_ids: &[String],
+) -> Result<Vec<Value>, HrError> {
     let reach: Option<Vec<String>> = if department_ids.is_empty() {
         None
     } else {
@@ -203,7 +222,9 @@ fn department_input(issues: &mut Issues, fields: &Fields, partial: bool) -> Depa
 }
 
 async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| department_input(issues, fields, false))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        department_input(issues, fields, false)
+    })?;
     let db = &caller.db;
     let name = input.name.as_set().cloned().unwrap_or_default();
     assert_unique_name(db, &name, None).await?;
@@ -228,8 +249,15 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     Ok(Created(js_row(row)).into_response())
 }
 
-async fn update(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| department_input(issues, fields, true))?;
+async fn update(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        department_input(issues, fields, true)
+    })?;
     let db = &caller.db;
     require_department(db, &id).await?;
     if let Some(name) = input.name.as_set() {
@@ -296,11 +324,13 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> HrResult {
         .bind(&now)
         .execute(db)
         .await?;
-    sqlx::query("update hr_departments set parent_id = $2, updated_at = $3::timestamp where parent_id = $1")
-        .bind(&id)
-        .bind(department["parentId"].as_str())
-        .bind(&now)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "update hr_departments set parent_id = $2, updated_at = $3::timestamp where parent_id = $1",
+    )
+    .bind(&id)
+    .bind(department["parentId"].as_str())
+    .bind(&now)
+    .execute(db)
+    .await?;
     Ok(NoContent.into_response())
 }

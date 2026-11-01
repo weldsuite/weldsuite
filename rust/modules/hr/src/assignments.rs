@@ -72,7 +72,10 @@ pub(crate) async fn require_company(db: &PgPool, company_id: &str) -> Result<Val
 }
 
 /// `deletedCompanyIds(db, companyIds)`.
-async fn deleted_company_ids(db: &PgPool, company_ids: &[String]) -> Result<HashSet<String>, HrError> {
+async fn deleted_company_ids(
+    db: &PgPool,
+    company_ids: &[String],
+) -> Result<HashSet<String>, HrError> {
     if company_ids.is_empty() {
         return Ok(HashSet::new());
     }
@@ -182,9 +185,15 @@ pub(crate) async fn list_assignments(
         if let Some(map) = row.as_object_mut() {
             map.insert("companyName".to_owned(), json!(names.get(&company_id)));
             map.insert("companyDeleted".to_owned(), Value::Bool(company_deleted));
-            map.insert("employeeName".to_owned(), Value::String(display_name_of(&employee)));
+            map.insert(
+                "employeeName".to_owned(),
+                Value::String(display_name_of(&employee)),
+            );
             map.insert("employeeJobTitle".to_owned(), employee["jobTitle"].clone());
-            map.insert("employeeAvatarUrl".to_owned(), employee["avatarUrl"].clone());
+            map.insert(
+                "employeeAvatarUrl".to_owned(),
+                employee["avatarUrl"].clone(),
+            );
             map.insert("employeeStatus".to_owned(), employee["status"].clone());
             map.insert("isActive".to_owned(), Value::Bool(active));
         }
@@ -229,7 +238,14 @@ fn assignment_input(issues: &mut Issues, fields: &Fields, partial: bool) -> Assi
         employee_id,
         company_id,
         role: short_text(issues, fields, "role", Presence::Nullish, 120, false),
-        allocation_percent: number(issues, fields, "allocationPercent", Presence::Optional, Some(0.0), Some(100.0)),
+        allocation_percent: number(
+            issues,
+            fields,
+            "allocationPercent",
+            Presence::Optional,
+            Some(0.0),
+            Some(100.0),
+        ),
         is_primary: issues.boolean(fields, "isPrimary", Presence::Optional),
         start_date: iso_date(
             issues,
@@ -247,7 +263,11 @@ fn assignment_input(issues: &mut Issues, fields: &Fields, partial: bool) -> Assi
 }
 
 /// `clearPrimary(db, employeeId, exceptId?)`.
-async fn clear_primary(db: &PgPool, employee_id: &str, except_id: Option<&str>) -> Result<(), HrError> {
+async fn clear_primary(
+    db: &PgPool,
+    employee_id: &str,
+    except_id: Option<&str>,
+) -> Result<(), HrError> {
     sqlx::query(
         "update hr_client_assignments set is_primary = false, updated_at = $3::timestamp
          where employee_id = $1 and is_primary = true and ($2::text is null or id <> $2)",
@@ -261,7 +281,12 @@ async fn clear_primary(db: &PgPool, employee_id: &str, except_id: Option<&str>) 
 }
 
 /// The `hr_client_assignment` event data: `{ id, employeeId, companyId }`.
-fn emit_assignment(caller: &Caller, state: &HrState, event: weldsuite_catalogs::entity_events::EventName, row: &Value) {
+fn emit_assignment(
+    caller: &Caller,
+    state: &HrState,
+    event: weldsuite_catalogs::entity_events::EventName,
+    row: &Value,
+) {
     caller.emit(
         state,
         event,
@@ -273,8 +298,15 @@ fn emit_assignment(caller: &Caller, state: &HrState, event: weldsuite_catalogs::
     );
 }
 
-async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| assignment_input(issues, fields, false))?;
+async fn create(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        assignment_input(issues, fields, false)
+    })?;
     let employee_id = input.employee_id.as_set().cloned().unwrap_or_default();
     let company_id = input.company_id.as_set().cloned().unwrap_or_default();
     let start_date = input.start_date.as_set().cloned().unwrap_or_default();
@@ -283,7 +315,15 @@ async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap
     let db = &caller.db;
     require_employee(db, &employee_id).await?;
     require_company(db, &company_id).await?;
-    assert_no_overlapping_assignment(db, &employee_id, &company_id, &start_date, end_date.as_deref(), None).await?;
+    assert_no_overlapping_assignment(
+        db,
+        &employee_id,
+        &company_id,
+        &start_date,
+        end_date.as_deref(),
+        None,
+    )
+    .await?;
     if input.is_primary.as_set() == Some(&true) {
         clear_primary(db, &employee_id, None).await?;
     }
@@ -317,7 +357,9 @@ async fn edit(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| assignment_input(issues, fields, true))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        assignment_input(issues, fields, true)
+    })?;
     let db = &caller.db;
     let existing = require_assignment(db, &id).await?;
     let start_date = input
@@ -396,7 +438,11 @@ async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
 }
 
 /// `endAssignmentsFor(db, employeeId, endDate)`: end every open assignment.
-pub(crate) async fn end_assignments_for(db: &PgPool, employee_id: &str, end_date: &str) -> Result<(), HrError> {
+pub(crate) async fn end_assignments_for(
+    db: &PgPool,
+    employee_id: &str,
+    end_date: &str,
+) -> Result<(), HrError> {
     sqlx::query(
         "update hr_client_assignments set end_date = $2::date, updated_at = $3::timestamp
          where employee_id = $1 and (end_date is null or end_date > $2::date)",
@@ -439,7 +485,10 @@ pub(crate) async fn list_client_accounts(db: &PgPool) -> Result<Vec<Value>, HrEr
             entry.insert("companyName".to_owned(), json!(name));
             entry.insert("activeCount".to_owned(), json!(active));
             entry.insert("totalCount".to_owned(), json!(total));
-            entry.insert("fte".to_owned(), crate::js_number(js_round(fte * 100.0) / 100.0));
+            entry.insert(
+                "fte".to_owned(),
+                crate::js_number(js_round(fte * 100.0) / 100.0),
+            );
             (name.unwrap_or_default(), Value::Object(entry))
         })
         .collect();

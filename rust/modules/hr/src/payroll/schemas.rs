@@ -4,8 +4,8 @@
 use serde_json::{Value, json};
 
 use super::schema::{
-    Check, S, id, int, iso_date, money, non_negative_money, number, percent, short_text, short_text_required, string, us_state,
-    year_key,
+    Check, S, id, int, iso_date, money, non_negative_money, number, percent, short_text,
+    short_text_required, string, us_state, year_key,
 };
 
 fn loonheffingennummer(text: &str) -> bool {
@@ -20,7 +20,10 @@ fn ein(text: &str) -> bool {
     let digits: Vec<u8> = text.bytes().filter(|b| *b != b'-').collect();
     let b = text.as_bytes();
     (b.len() == 9 && b.iter().all(u8::is_ascii_digit))
-        || (b.len() == 10 && b[2] == b'-' && digits.len() == 9 && digits.iter().all(u8::is_ascii_digit))
+        || (b.len() == 10
+            && b[2] == b'-'
+            && digits.len() == 9
+            && digits.iter().all(u8::is_ascii_digit))
 }
 
 fn nine_digits(text: &str) -> bool {
@@ -50,7 +53,14 @@ fn bsn_or_ssn(text: &str) -> bool {
                 && all_digits(rest)
                 && ((a.len() == 3 && rest.len() == 6) || (a.len() == 5 && rest.len() == 4))
         }
-        [a, b2, c] => a.len() == 3 && b2.len() == 2 && c.len() == 4 && all_digits(a) && all_digits(b2) && all_digits(c),
+        [a, b2, c] => {
+            a.len() == 3
+                && b2.len() == 2
+                && c.len() == 4
+                && all_digits(a)
+                && all_digits(b2)
+                && all_digits(c)
+        }
         _ => false,
     }
 }
@@ -80,20 +90,32 @@ fn nl_settings() -> S {
     obj(vec![
         (
             "loonheffingennummer",
-            string(&[Check::Trim, Check::Regex(loonheffingennummer, "Expected a loonheffingennummer like 123456789L01")])
-                .nullish(),
+            string(&[
+                Check::Trim,
+                Check::Regex(
+                    loonheffingennummer,
+                    "Expected a loonheffingennummer like 123456789L01",
+                ),
+            ])
+            .nullish(),
         ),
         ("sectorCode", int(Some(1.0), Some(99.0)).nullish()),
         (
             "years",
             S::Record(
                 Box::new(year_string()),
-                Box::new(obj(vec![("whkRate", percent().nullish()), ("aofSmallEmployer", S::Bool.nullish())])),
+                Box::new(obj(vec![
+                    ("whkRate", percent().nullish()),
+                    ("aofSmallEmployer", S::Bool.nullish()),
+                ])),
             )
             .optional(),
         ),
         ("holidayAllowancePercent", percent().nullish()),
-        ("holidayAllowancePayoutMonth", int(Some(1.0), Some(12.0)).nullish()),
+        (
+            "holidayAllowancePayoutMonth",
+            int(Some(1.0), Some(12.0)).nullish(),
+        ),
         ("payslipLanguage", S::Enum(&["nl", "en"]).nullish()),
         ("contactName", short_text(120).nullish()),
         ("contactPhone", short_text(40).nullish()),
@@ -104,12 +126,18 @@ fn us_state_settings() -> S {
     obj(vec![
         ("withholdingAccountNumber", short_text(60).nullish()),
         ("suiAccountNumber", short_text(60).nullish()),
-        ("suiRates", S::Record(Box::new(year_string()), Box::new(percent())).optional()),
+        (
+            "suiRates",
+            S::Record(Box::new(year_string()), Box::new(percent())).optional(),
+        ),
         (
             "extraRates",
             S::Record(
                 Box::new(year_string()),
-                Box::new(S::Record(Box::new(string(&[Check::Max(60)])), Box::new(percent()))),
+                Box::new(S::Record(
+                    Box::new(string(&[Check::Max(60)])),
+                    Box::new(percent()),
+                )),
             )
             .optional(),
         ),
@@ -118,11 +146,27 @@ fn us_state_settings() -> S {
 
 fn us_settings() -> S {
     obj(vec![
-        ("ein", string(&[Check::Trim, Check::Regex(ein, "Expected an EIN like 12-3456789")]).nullish()),
-        ("depositSchedule", S::Enum(&["monthly", "semiweekly"]).nullish()),
+        (
+            "ein",
+            string(&[
+                Check::Trim,
+                Check::Regex(ein, "Expected an EIN like 12-3456789"),
+            ])
+            .nullish(),
+        ),
+        (
+            "depositSchedule",
+            S::Enum(&["monthly", "semiweekly"]).nullish(),
+        ),
         ("workweekStartDay", int(Some(0.0), Some(6.0)).nullish()),
-        ("states", S::Record(Box::new(us_state()), Box::new(us_state_settings())).optional()),
-        ("employeeCountEstimate", int(Some(0.0), Some(1_000_000.0)).nullish()),
+        (
+            "states",
+            S::Record(Box::new(us_state()), Box::new(us_state_settings())).optional(),
+        ),
+        (
+            "employeeCountEstimate",
+            int(Some(0.0), Some(1_000_000.0)).nullish(),
+        ),
     ])
 }
 
@@ -162,10 +206,27 @@ pub(crate) fn employer_bank() -> S {
         ("accountHolder", short_text(140).nullish()),
         ("iban", string(&[Check::Trim, Check::Max(34)]).nullish()),
         ("bic", string(&[Check::Trim, Check::Max(11)]).nullish()),
-        ("routingNumber", string(&[Check::Trim, Check::Regex(nine_digits, "Expected a 9-digit routing number")]).nullish()),
-        ("accountNumber", string(&[Check::Trim, Check::Regex(four_to_seventeen_digits, "Expected 4–17 digits")]).nullish()),
+        (
+            "routingNumber",
+            string(&[
+                Check::Trim,
+                Check::Regex(nine_digits, "Expected a 9-digit routing number"),
+            ])
+            .nullish(),
+        ),
+        (
+            "accountNumber",
+            string(&[
+                Check::Trim,
+                Check::Regex(four_to_seventeen_digits, "Expected 4–17 digits"),
+            ])
+            .nullish(),
+        ),
         ("accountType", S::Enum(&["checking", "savings"]).nullish()),
-        ("nachaCompanyId", string(&[Check::Trim, Check::Max(10)]).nullish()),
+        (
+            "nachaCompanyId",
+            string(&[Check::Trim, Check::Max(10)]).nullish(),
+        ),
         ("bankName", short_text(23).nullish()),
     ])
 }
@@ -174,14 +235,26 @@ fn pay_date_rule() -> S {
     S::DiscUnion(
         "kind",
         vec![
-            ("day_of_month", obj(vec![("day", int(Some(1.0), Some(31.0)))])),
-            ("offset_after_end", obj(vec![("days", int(Some(-14.0), Some(31.0)))])),
+            (
+                "day_of_month",
+                obj(vec![("day", int(Some(1.0), Some(31.0)))]),
+            ),
+            (
+                "offset_after_end",
+                obj(vec![("days", int(Some(-14.0), Some(31.0)))]),
+            ),
             ("last_business_day", obj(vec![])),
         ],
     )
 }
 
-const FREQUENCIES: &[&str] = &["monthly", "four_weekly", "semimonthly", "biweekly", "weekly"];
+const FREQUENCIES: &[&str] = &[
+    "monthly",
+    "four_weekly",
+    "semimonthly",
+    "biweekly",
+    "weekly",
+];
 
 /// `createHrPayScheduleSchema`.
 pub(crate) fn create_schedule() -> S {
@@ -217,19 +290,44 @@ fn profile_nl() -> S {
         ("insuredWw", S::Bool.nullish()),
         ("insuredZw", S::Bool.nullish()),
         ("insuredWao", S::Bool.nullish()),
-        ("incomeRelationshipNumber", int(Some(1.0), Some(999_999_999.0)).nullish()),
+        (
+            "incomeRelationshipNumber",
+            int(Some(1.0), Some(999_999_999.0)).nullish(),
+        ),
         ("caoCode", int(Some(0.0), Some(9999.0)).nullish()),
-        ("endReasonCode", string(&[Check::Regex(two_digits, "Expected a two-digit code")]).nullish()),
-        ("usualWorkDaysPerWeek", number(Some(1.0), Some(7.0)).nullish()),
+        (
+            "endReasonCode",
+            string(&[Check::Regex(two_digits, "Expected a two-digit code")]).nullish(),
+        ),
+        (
+            "usualWorkDaysPerWeek",
+            number(Some(1.0), Some(7.0)).nullish(),
+        ),
         (
             "expatRuling",
-            obj(vec![("from", iso_date()), ("to", iso_date().nullish()), ("percent", percent())]).nullish(),
+            obj(vec![
+                ("from", iso_date()),
+                ("to", iso_date().nullish()),
+                ("percent", percent()),
+            ])
+            .nullish(),
         ),
         ("surnamePrefix", short_text(20).nullish()),
         ("initials", short_text(20).nullish()),
-        ("gender", S::Union(vec![S::NumLiteral(0.0), S::NumLiteral(1.0), S::NumLiteral(2.0)]).nullish()),
+        (
+            "gender",
+            S::Union(vec![
+                S::NumLiteral(0.0),
+                S::NumLiteral(1.0),
+                S::NumLiteral(2.0),
+            ])
+            .nullish(),
+        ),
         ("nationality", string(&[Check::Length(2)]).nullish()),
-        ("contractHoursPerWeek", number(Some(0.0), Some(80.0)).nullish()),
+        (
+            "contractHoursPerWeek",
+            number(Some(0.0), Some(80.0)).nullish(),
+        ),
     ])
 }
 
@@ -275,7 +373,12 @@ pub(crate) fn create_compensation() -> S {
 fn component_params(max: usize) -> S {
     S::Record(
         Box::new(string(&[Check::Max(60)])),
-        Box::new(S::Union(vec![number(None, None), string(&[Check::Max(max)]), S::Bool, S::Null])),
+        Box::new(S::Union(vec![
+            number(None, None),
+            string(&[Check::Max(max)]),
+            S::Bool,
+            S::Null,
+        ])),
     )
 }
 
@@ -306,7 +409,10 @@ pub(crate) fn update_component() -> S {
 pub(crate) fn create_election() -> S {
     let w4 = obj(vec![
         ("formYear", int(Some(1990.0), Some(2100.0))),
-        ("filingStatus", S::Enum(&["single", "married_jointly", "head_of_household"])),
+        (
+            "filingStatus",
+            S::Enum(&["single", "married_jointly", "head_of_household"]),
+        ),
         ("multipleJobs", S::Bool),
         ("dependentsAmount", non_negative_money()),
         ("otherIncome", non_negative_money()),
@@ -336,7 +442,11 @@ pub(crate) fn create_election() -> S {
             ),
             (
                 "us_w4",
-                obj(vec![("effectiveFrom", iso_date()), ("data", w4), ("signatureName", short_text_required(255))]),
+                obj(vec![
+                    ("effectiveFrom", iso_date()),
+                    ("data", w4),
+                    ("signatureName", short_text_required(255)),
+                ]),
             ),
             (
                 "us_state_certificate",
@@ -354,22 +464,43 @@ pub(crate) fn create_election() -> S {
 /// `hrPayrollPaymentDetailsSchema`.
 pub(crate) fn payment_details() -> S {
     obj(vec![
-        ("nationalId", string(&[Check::Trim, Check::Regex(bsn_or_ssn, "Expected a BSN or SSN")]).nullish()),
+        (
+            "nationalId",
+            string(&[
+                Check::Trim,
+                Check::Regex(bsn_or_ssn, "Expected a BSN or SSN"),
+            ])
+            .nullish(),
+        ),
         ("dateOfBirth", iso_date().nullish()),
         ("bankAccountHolder", short_text(140).nullish()),
         ("bankIban", string(&[Check::Trim, Check::Max(34)]).nullish()),
         ("bankBic", string(&[Check::Trim, Check::Max(11)]).nullish()),
         (
             "bankRoutingNumber",
-            string(&[Check::Trim, Check::Regex(nine_digits, "Expected a 9-digit routing number")]).nullish(),
+            string(&[
+                Check::Trim,
+                Check::Regex(nine_digits, "Expected a 9-digit routing number"),
+            ])
+            .nullish(),
         ),
         (
             "bankAccountNumber",
-            string(&[Check::Trim, Check::Regex(four_to_seventeen_digits, "Expected 4–17 digits")]).nullish(),
+            string(&[
+                Check::Trim,
+                Check::Regex(four_to_seventeen_digits, "Expected 4–17 digits"),
+            ])
+            .nullish(),
         ),
-        ("bankAccountType", S::Enum(&["checking", "savings"]).nullish()),
+        (
+            "bankAccountType",
+            S::Enum(&["checking", "savings"]).nullish(),
+        ),
         ("homeAddress", address().nullish()),
-        ("idDocumentType", S::Enum(&["passport", "id_card", "residence_permit", "drivers_license"]).nullish()),
+        (
+            "idDocumentType",
+            S::Enum(&["passport", "id_card", "residence_permit", "drivers_license"]).nullish(),
+        ),
         ("idDocumentNumber", short_text(40).nullish()),
         ("idDocumentExpiresOn", iso_date().nullish()),
         ("idVerifiedAt", iso_date().nullish()),
@@ -380,12 +511,21 @@ pub(crate) fn payment_details() -> S {
 pub(crate) fn create_run() -> S {
     obj(vec![
         ("employerId", id()),
-        ("kind", S::Default(Box::new(S::Enum(&["regular", "off_cycle", "correction"])), json!("regular"))),
+        (
+            "kind",
+            S::Default(
+                Box::new(S::Enum(&["regular", "off_cycle", "correction"])),
+                json!("regular"),
+            ),
+        ),
         ("payScheduleId", id().nullish()),
         ("periodStart", iso_date().optional()),
         ("periodEnd", iso_date().optional()),
         ("payDate", iso_date().optional()),
-        ("employeeIds", S::Array(Box::new(id()), Some(1000)).optional()),
+        (
+            "employeeIds",
+            S::Array(Box::new(id()), Some(1000)).optional(),
+        ),
         ("correctsRunId", id().optional()),
         ("notes", string(&[Check::Max(2000)]).nullish()),
     ])
@@ -395,14 +535,22 @@ pub(crate) fn create_run() -> S {
 pub(crate) fn create_run_refine(value: &Value) -> Vec<Value> {
     let mut issues = vec![];
     let kind = value.get("kind").and_then(Value::as_str).unwrap_or("");
-    let truthy = |key: &str| value.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty());
+    let truthy = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    };
     if kind == "regular" && !truthy("payScheduleId") {
         issues.push(json!({ "code": "custom", "path": ["payScheduleId"], "message": "A regular run needs a pay schedule" }));
     }
     if kind == "correction" && !truthy("correctsRunId") {
         issues.push(json!({ "code": "custom", "path": ["correctsRunId"], "message": "A correction run needs the run it corrects" }));
     }
-    if kind != "regular" && (!truthy("periodStart") || !truthy("periodEnd") || !truthy("payDate")) && kind != "correction" {
+    if kind != "regular"
+        && (!truthy("periodStart") || !truthy("periodEnd") || !truthy("payDate"))
+        && kind != "correction"
+    {
         issues.push(json!({ "code": "custom", "path": ["periodStart"], "message": "An off-cycle run needs its period and pay date" }));
     }
     issues
@@ -410,7 +558,10 @@ pub(crate) fn create_run_refine(value: &Value) -> Vec<Value> {
 
 /// `updateHrPayRunSchema`.
 pub(crate) fn update_run() -> S {
-    obj(vec![("payDate", iso_date().optional()), ("notes", string(&[Check::Max(2000)]).nullish())])
+    obj(vec![
+        ("payDate", iso_date().optional()),
+        ("notes", string(&[Check::Max(2000)]).nullish()),
+    ])
 }
 
 /// `setHrPayRunEmployeeSchema`.
@@ -421,7 +572,10 @@ pub(crate) fn set_run_employee() -> S {
 fn run_input_fields() -> Vec<(&'static str, S)> {
     vec![
         ("label", short_text(160).nullish()),
-        ("quantity", number(Some(-10_000.0), Some(10_000.0)).nullish()),
+        (
+            "quantity",
+            number(Some(-10_000.0), Some(10_000.0)).nullish(),
+        ),
         ("rate", number(Some(0.0), Some(100_000.0)).nullish()),
         ("amount", money().nullish()),
         ("workDate", iso_date().nullish()),
@@ -431,7 +585,10 @@ fn run_input_fields() -> Vec<(&'static str, S)> {
 
 /// `createHrPayRunInputSchema`.
 pub(crate) fn create_run_input() -> S {
-    let mut fields = vec![("employeeId", id()), ("code", string(&[Check::Min(1), Check::Max(60)]))];
+    let mut fields = vec![
+        ("employeeId", id()),
+        ("code", string(&[Check::Min(1), Check::Max(60)])),
+    ];
     fields.extend(run_input_fields());
     obj(fields)
 }
@@ -448,7 +605,10 @@ pub(crate) fn mark_paid() -> S {
 
 /// `markHrPayrollFilingFiledSchema`.
 pub(crate) fn mark_filed() -> S {
-    obj(vec![("externalReference", short_text(120).nullish()), ("filedOn", iso_date().optional())])
+    obj(vec![
+        ("externalReference", short_text(120).nullish()),
+        ("filedOn", iso_date().optional()),
+    ])
 }
 
 /// `{ employeeId?: string }` as a query.
@@ -458,17 +618,29 @@ pub(crate) fn employee_query() -> S {
 
 /// `{ employerId?, onPayroll?: 'true' | 'false' }` (the payroll employees list).
 pub(crate) fn payroll_employees_query() -> S {
-    obj(vec![("employerId", string(&[]).optional()), ("onPayroll", S::Enum(&["true", "false"]).optional())])
+    obj(vec![
+        ("employerId", string(&[]).optional()),
+        ("onPayroll", S::Enum(&["true", "false"]).optional()),
+    ])
 }
 
 /// `z.coerce.number().int().min(2000).max(2100).optional()`.
 fn year_query() -> S {
-    S::CoerceNum { int: true, min: Some(2000.0), max: Some(2100.0) }.optional()
+    S::CoerceNum {
+        int: true,
+        min: Some(2000.0),
+        max: Some(2100.0),
+    }
+    .optional()
 }
 
 /// The runs list query.
 pub(crate) fn runs_query() -> S {
-    obj(vec![("employerId", string(&[]).optional()), ("status", string(&[]).optional()), ("year", year_query())])
+    obj(vec![
+        ("employerId", string(&[]).optional()),
+        ("status", string(&[]).optional()),
+        ("year", year_query()),
+    ])
 }
 
 /// The filings list query.

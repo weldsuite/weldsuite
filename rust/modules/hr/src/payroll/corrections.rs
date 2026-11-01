@@ -103,11 +103,20 @@ pub(crate) fn result_totals(result: &PayslipResult) -> Totals {
 // ── lines ───────────────────────────────────────────────────────────────────
 
 fn opt_text(line: &Value, key: &str) -> String {
-    line.get(key).and_then(Value::as_str).unwrap_or("").to_owned()
+    line.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned()
 }
 
 fn line_key(line: &Value) -> String {
-    format!("{}|{}|{}|{}", opt_text(line, "section"), opt_text(line, "code"), opt_text(line, "jurisdiction"), opt_text(line, "label"))
+    format!(
+        "{}|{}|{}|{}",
+        opt_text(line, "section"),
+        opt_text(line, "code"),
+        opt_text(line, "jurisdiction"),
+        opt_text(line, "label")
+    )
 }
 
 fn amount_of(line: &Value) -> f64 {
@@ -117,7 +126,10 @@ fn amount_of(line: &Value) -> f64 {
 fn with_amount(line: &Value, amount: f64) -> Value {
     let mut out = line.clone();
     if let Some(map) = out.as_object_mut() {
-        map.insert("amountCents".into(), weldsuite_core_domain::js::number_value(amount));
+        map.insert(
+            "amountCents".into(),
+            weldsuite_core_domain::js::number_value(amount),
+        );
     }
     out
 }
@@ -138,20 +150,32 @@ pub(crate) fn sum_lines(sets: &[&[Value]]) -> Vec<Value> {
             }
         }
     }
-    by_key.into_iter().map(|(_, l)| l).filter(|l| amount_of(l) != 0.0).collect()
+    by_key
+        .into_iter()
+        .map(|(_, l)| l)
+        .filter(|l| amount_of(l) != 0.0)
+        .collect()
 }
 
 /// `diffLines(after, before)`: quantity and rate are the recalculated ones.
 pub(crate) fn diff_lines(after: &[Value], before: &[Value]) -> Vec<Value> {
-    let after_by_key: Vec<(String, Value)> = sum_lines(&[after]).into_iter().map(|l| (line_key(&l), l)).collect();
-    let before_by_key: Vec<(String, Value)> = sum_lines(&[before]).into_iter().map(|l| (line_key(&l), l)).collect();
+    let after_by_key: Vec<(String, Value)> = sum_lines(&[after])
+        .into_iter()
+        .map(|l| (line_key(&l), l))
+        .collect();
+    let before_by_key: Vec<(String, Value)> = sum_lines(&[before])
+        .into_iter()
+        .map(|l| (line_key(&l), l))
+        .collect();
     let mut keys: Vec<&String> = vec![];
     for (key, _) in after_by_key.iter().chain(before_by_key.iter()) {
         if !keys.contains(&key) {
             keys.push(key);
         }
     }
-    let find = |list: &[(String, Value)], key: &str| list.iter().find(|(k, _)| k == key).map(|(_, l)| l.clone());
+    let find = |list: &[(String, Value)], key: &str| {
+        list.iter().find(|(k, _)| k == key).map(|(_, l)| l.clone())
+    };
     let mut out = vec![];
     for key in keys {
         let a = find(&after_by_key, key);
@@ -160,10 +184,17 @@ pub(crate) fn diff_lines(after: &[Value], before: &[Value]) -> Vec<Value> {
         if amount == 0.0 {
             continue;
         }
-        let Some(base) = a.clone().or(b) else { continue };
+        let Some(base) = a.clone().or(b) else {
+            continue;
+        };
         let mut line = with_amount(&base, amount);
         if let Some(map) = line.as_object_mut() {
-            let field = |k: &str| a.as_ref().and_then(|a| a.get(k)).cloned().unwrap_or(Value::Null);
+            let field = |k: &str| {
+                a.as_ref()
+                    .and_then(|a| a.get(k))
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            };
             map.insert("quantity".into(), field("quantity"));
             map.insert("rate".into(), field("rate"));
         }
@@ -229,7 +260,10 @@ pub(crate) struct SnapshotInput {
 
 /// A payslip row's snapshot accumulators, in stored key order.
 pub(crate) fn snapshot_ytd(row: &Value) -> SnapshotYtd {
-    row["snapshotText"].as_str().and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default()
+    row["snapshotText"]
+        .as_str()
+        .and_then(|t| serde_json::from_str(t).ok())
+        .unwrap_or_default()
 }
 
 /// `CorrectionBase`: the original payslip and its final corrections, oldest
@@ -263,15 +297,24 @@ fn effective_of(base: &CorrectionBase<'_>) -> Effective {
     let lines = sum_lines(&refs);
     let mut filing_data = base.original["filingData"].clone();
     for row in rows.iter().skip(1) {
-        filing_data = combine_numeric(Some(&filing_data), Some(&row["filingData"]), 1.0).unwrap_or(Value::Null);
+        filing_data = combine_numeric(Some(&filing_data), Some(&row["filingData"]), 1.0)
+            .unwrap_or(Value::Null);
     }
-    let before = snapshot_ytd(base.original).input.and_then(|i| i.ytd).unwrap_or_default();
+    let before = snapshot_ytd(base.original)
+        .input
+        .and_then(|i| i.ytd)
+        .unwrap_or_default();
     let mut contribution = add_ytd(&ytd_of(base.original), &before, -1.0);
     for row in &base.corrections {
         let delta = snapshot_ytd(row).ytd_delta.unwrap_or_default();
         contribution = add_ytd(&contribution, &delta, 1.0);
     }
-    Effective { totals, lines, filing_data, contribution }
+    Effective {
+        totals,
+        lines,
+        filing_data,
+        contribution,
+    }
 }
 
 /// `CorrectionResult`.
@@ -291,13 +334,18 @@ pub(crate) struct Recalculated<'a> {
 }
 
 /// `correctionFrom(result, ytdBefore, base)`.
-pub(crate) fn correction_from(result: &Recalculated<'_>, ytd_before: &Ytd, base: &CorrectionBase<'_>) -> CorrectionResult {
+pub(crate) fn correction_from(
+    result: &Recalculated<'_>,
+    ytd_before: &Ytd,
+    base: &CorrectionBase<'_>,
+) -> CorrectionResult {
     let effective = effective_of(base);
     let recalculated = add_ytd(result.ytd, ytd_before, -1.0);
     CorrectionResult {
         totals: result.totals.add(effective.totals, -1.0),
         lines: diff_lines(result.lines, &effective.lines),
-        filing_data: combine_numeric(Some(result.filing_data), Some(&effective.filing_data), -1.0).unwrap_or(Value::Null),
+        filing_data: combine_numeric(Some(result.filing_data), Some(&effective.filing_data), -1.0)
+            .unwrap_or(Value::Null),
         ytd_delta: add_ytd(&recalculated, &effective.contribution, -1.0),
     }
 }

@@ -53,7 +53,12 @@ pub(crate) fn iso_date_time(
 }
 
 /// `id` (`z.string().min(1).max(30)`) with `presence`.
-pub(crate) fn id(issues: &mut Issues, fields: &Fields, key: &str, presence: Presence) -> Field<String> {
+pub(crate) fn id(
+    issues: &mut Issues,
+    fields: &Fields,
+    key: &str,
+    presence: Presence,
+) -> Field<String> {
     issues.text(fields, key, presence, Some(1), Some(30))
 }
 

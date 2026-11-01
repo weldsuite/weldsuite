@@ -28,7 +28,10 @@ use crate::employees::display_name_of;
 use crate::{HrError, locale_compare};
 
 /// `listAnnualStatements(db, employeeId)`: one per year and employer.
-pub(crate) async fn list_annual_statements(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn list_annual_statements(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<Value>, HrError> {
     let rows: Vec<(i32, String, String, String)> = sqlx::query_as(
         "select s.tax_year, s.employer_id, e.name, e.country from hr_payslips s
          join hr_payroll_employers e on e.id = s.employer_id
@@ -61,20 +64,29 @@ fn opt(value: &Value) -> Option<String> {
 
 /// The employer's US state accounts (`Object.fromEntries(...)`), in stored
 /// key order.
-pub(crate) async fn us_employer_for_forms(db: &PgPool, employer: &Value) -> Result<UsEmployerForForms, HrError> {
-    let text: Option<String> =
-        sqlx::query_scalar("select (us_settings -> 'states')::text from hr_payroll_employers where id = $1")
-            .bind(s(employer, "id"))
-            .fetch_optional(db)
-            .await?
-            .flatten();
-    let states: OrderedMap<Value> = text.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+pub(crate) async fn us_employer_for_forms(
+    db: &PgPool,
+    employer: &Value,
+) -> Result<UsEmployerForForms, HrError> {
+    let text: Option<String> = sqlx::query_scalar(
+        "select (us_settings -> 'states')::text from hr_payroll_employers where id = $1",
+    )
+    .bind(s(employer, "id"))
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let states: OrderedMap<Value> = text
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
     let us = &employer["usSettings"];
     Ok(UsEmployerForForms {
         name: s(employer, "legalName").to_owned(),
         ein: opt(&us["ein"]),
         address: address_lines(&employer["address"], "US"),
-        deposit_schedule: us["depositSchedule"].as_str().unwrap_or("monthly").to_owned(),
+        deposit_schedule: us["depositSchedule"]
+            .as_str()
+            .unwrap_or("monthly")
+            .to_owned(),
         states: states
             .iter()
             .map(|(state, cfg)| {
@@ -145,26 +157,43 @@ pub(crate) async fn annual_statement_pdf(
         return Err(not_found());
     }
     let sensitive = decrypt_sensitive(&employee, &deps.keyring)?;
-    let profile: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1")
-            .bind(employee_id)
-            .fetch_optional(db)
-            .await?;
+    let profile: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(db)
+    .await?;
     let profile = profile.map(js_row);
-    let lang = if language_of(&employer) == "nl" { Lang::Nl } else { Lang::En };
+    let lang = if language_of(&employer) == "nl" {
+        Lang::Nl
+    } else {
+        Lang::En
+    };
     let country = s(&employer, "country");
     let file_name = annual_statement_file_name(country, year);
     let home = sensitive.get("homeAddress").cloned().unwrap_or(Value::Null);
 
     if country == "NL" {
         let pick = |key: &str| {
-            profile.as_ref().and_then(|p| p[key].as_str()).or_else(|| employee[key].as_str()).map(str::to_owned)
+            profile
+                .as_ref()
+                .and_then(|p| p[key].as_str())
+                .or_else(|| employee[key].as_str())
+                .map(str::to_owned)
         };
         let mut payslips = vec![];
         for slip in slips.iter().filter(|x| filing_kind(x) == "nl") {
-            let filing_data =
-                nl_filing_of(slip).map_err(|e| engine_error("The jaaropgaaf builder", &weldsuite_payroll_domain::PayrollError(e)))?;
-            payslips.push(AnnualPayslip { pay_date: s(slip, "payDate").to_owned(), filing_data, ytd: ytd_of(slip) });
+            let filing_data = nl_filing_of(slip).map_err(|e| {
+                engine_error(
+                    "The jaaropgaaf builder",
+                    &weldsuite_payroll_domain::PayrollError(e),
+                )
+            })?;
+            payslips.push(AnnualPayslip {
+                pay_date: s(slip, "payDate").to_owned(),
+                filing_data,
+                ytd: ytd_of(slip),
+            });
         }
         let input = NlAnnualStatementInput {
             lang,
@@ -192,10 +221,12 @@ pub(crate) async fn annual_statement_pdf(
     let employer_forms = us_employer_for_forms(db, &employer).await?;
     let mut payslips = vec![];
     for slip in slips.iter().filter(|x| filing_kind(x) == "us") {
-        payslips.push(
-            form_payslip(slip, false)
-                .map_err(|e| engine_error("The W-2 builder", &weldsuite_payroll_domain::PayrollError(e)))?,
-        );
+        payslips.push(form_payslip(slip, false).map_err(|e| {
+            engine_error(
+                "The W-2 builder",
+                &weldsuite_payroll_domain::PayrollError(e),
+            )
+        })?);
     }
     let employee_forms = UsEmployeeForForms {
         employee_id: employee_id.to_owned(),
@@ -203,6 +234,7 @@ pub(crate) async fn annual_statement_pdf(
         ssn: mask_ssn(sensitive.get("nationalId").and_then(Value::as_str)),
         address: address_lines(&home, "US"),
     };
-    let result = form_w2(&employer_forms, &employee_forms, year, &payslips).map_err(|e| engine_error("The W-2 builder", &e))?;
+    let result = form_w2(&employer_forms, &employee_forms, year, &payslips)
+        .map_err(|e| engine_error("The W-2 builder", &e))?;
     Ok((render_document_pdf(&result.document), file_name))
 }

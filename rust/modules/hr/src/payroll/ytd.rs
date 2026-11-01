@@ -61,15 +61,19 @@ pub(crate) fn latest_by_approval(rows: &[Value]) -> Option<&Value> {
 
 /// `approvedBefore(rows, number)`: oldest first.
 pub(crate) fn approved_before(rows: &[Value], number: Option<&str>) -> Vec<Value> {
-    let mut out: Vec<Value> =
-        rows.iter().filter(|r| compare_numbers(number_of(r), number) == Ordering::Less).cloned().collect();
+    let mut out: Vec<Value> = rows
+        .iter()
+        .filter(|r| compare_numbers(number_of(r), number) == Ordering::Less)
+        .cloned()
+        .collect();
     out.sort_by(compare_number_order);
     out
 }
 
 /// A stored accumulator object (`ytd_text`, …) in its stored key order.
 pub(crate) fn ordered_ytd(text: Option<&str>) -> Ytd {
-    text.and_then(|t| serde_json::from_str::<OrderedMap<f64>>(t).ok()).unwrap_or_default()
+    text.and_then(|t| serde_json::from_str::<OrderedMap<f64>>(t).ok())
+        .unwrap_or_default()
 }
 
 /// A payslip row's `ytd`, in stored key order.

@@ -28,16 +28,20 @@ use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::employees::{display_name_of, require_employee};
-use crate::fields::{Fields, change, color, id, int, iso_date, iso_date_time, number, short_text, text_max};
+use crate::fields::{
+    Fields, change, color, id, int, iso_date, iso_date_time, number, short_text, text_max,
+};
 use crate::work_locations::{ClockPlace, work_location_names};
 use crate::{
-    Caller, HrError, HrResult, HrState, add_days, assert_date_order, company_names, employed_share_of_year,
-    hr_json, js_number, js_round, member_names, now, number_text, query_date, query_param, query_text,
-    query_values, text, today_iso, working_days_between, year_of,
+    Caller, HrError, HrResult, HrState, add_days, assert_date_order, company_names,
+    employed_share_of_year, hr_json, js_number, js_round, member_names, now, number_text,
+    query_date, query_param, query_text, query_values, text, today_iso, working_days_between,
+    year_of,
 };
 
 const LATE_GRACE_MINUTES: f64 = 5.0;
-const ATTENDANCE_STATUSES: [&str; 6] = ["present", "late", "absent", "excused", "remote", "half_day"];
+const ATTENDANCE_STATUSES: [&str; 6] =
+    ["present", "late", "absent", "excused", "remote", "half_day"];
 
 /// The routes, relative to `/api/weldhr`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -46,31 +50,94 @@ where
 {
     let manage = || gate.require([EMPLOYEES_MANAGE]);
     Router::new()
-        .route("/shifts", get(list_shifts_route).route_layer(gate.require([ATTENDANCE_READ])))
-        .route("/shifts", post(create_shift_route).route_layer(gate.require([ATTENDANCE_CREATE])))
-        .route("/shifts/{id}", patch(update_shift_route).route_layer(gate.require([ATTENDANCE_UPDATE])))
-        .route("/shifts/{id}", delete(delete_shift_route).route_layer(gate.require([ATTENDANCE_DELETE])))
-        .route("/attendance", get(list_attendance_route).route_layer(gate.require([ATTENDANCE_READ])))
-        .route("/attendance/summary", get(summary_route).route_layer(gate.require([ATTENDANCE_READ])))
-        .route("/attendance", post(create_attendance_route).route_layer(gate.require([ATTENDANCE_CREATE])))
-        .route("/attendance/import", post(import_route).route_layer(gate.require([ATTENDANCE_CREATE])))
-        .route("/attendance/approve", post(approve_route).route_layer(gate.require([ATTENDANCE_APPROVE])))
-        .route("/attendance/{id}", patch(update_attendance_route).route_layer(gate.require([ATTENDANCE_UPDATE])))
-        .route("/attendance/{id}", delete(delete_attendance_route).route_layer(gate.require([ATTENDANCE_DELETE])))
-        .route("/leave-types", get(list_leave_types_route).route_layer(gate.require([LEAVE_READ, EMPLOYEES_READ])))
-        .route("/leave-types", post(create_leave_type_route).route_layer(manage()))
-        .route("/leave-types/{id}", patch(update_leave_type_route).route_layer(manage()))
-        .route("/leave-types/{id}", delete(delete_leave_type_route).route_layer(manage()))
+        .route(
+            "/shifts",
+            get(list_shifts_route).route_layer(gate.require([ATTENDANCE_READ])),
+        )
+        .route(
+            "/shifts",
+            post(create_shift_route).route_layer(gate.require([ATTENDANCE_CREATE])),
+        )
+        .route(
+            "/shifts/{id}",
+            patch(update_shift_route).route_layer(gate.require([ATTENDANCE_UPDATE])),
+        )
+        .route(
+            "/shifts/{id}",
+            delete(delete_shift_route).route_layer(gate.require([ATTENDANCE_DELETE])),
+        )
+        .route(
+            "/attendance",
+            get(list_attendance_route).route_layer(gate.require([ATTENDANCE_READ])),
+        )
+        .route(
+            "/attendance/summary",
+            get(summary_route).route_layer(gate.require([ATTENDANCE_READ])),
+        )
+        .route(
+            "/attendance",
+            post(create_attendance_route).route_layer(gate.require([ATTENDANCE_CREATE])),
+        )
+        .route(
+            "/attendance/import",
+            post(import_route).route_layer(gate.require([ATTENDANCE_CREATE])),
+        )
+        .route(
+            "/attendance/approve",
+            post(approve_route).route_layer(gate.require([ATTENDANCE_APPROVE])),
+        )
+        .route(
+            "/attendance/{id}",
+            patch(update_attendance_route).route_layer(gate.require([ATTENDANCE_UPDATE])),
+        )
+        .route(
+            "/attendance/{id}",
+            delete(delete_attendance_route).route_layer(gate.require([ATTENDANCE_DELETE])),
+        )
+        .route(
+            "/leave-types",
+            get(list_leave_types_route).route_layer(gate.require([LEAVE_READ, EMPLOYEES_READ])),
+        )
+        .route(
+            "/leave-types",
+            post(create_leave_type_route).route_layer(manage()),
+        )
+        .route(
+            "/leave-types/{id}",
+            patch(update_leave_type_route).route_layer(manage()),
+        )
+        .route(
+            "/leave-types/{id}",
+            delete(delete_leave_type_route).route_layer(manage()),
+        )
         .route(
             "/leave-allowances/balances/{employee_id}",
             get(balances_route).route_layer(gate.require([LEAVE_READ])),
         )
-        .route("/leave-allowances", put(set_allowance_route).route_layer(gate.require([LEAVE_UPDATE])))
-        .route("/leave-requests", get(list_leave_requests_route).route_layer(gate.require([LEAVE_READ])))
-        .route("/leave-requests", post(create_leave_request_route).route_layer(gate.require([LEAVE_CREATE])))
-        .route("/leave-requests/{id}/review", post(review_leave_route).route_layer(gate.require([LEAVE_APPROVE])))
-        .route("/leave-requests/{id}/cancel", post(cancel_leave_route).route_layer(gate.require([LEAVE_UPDATE])))
-        .route("/leave-requests/{id}", delete(delete_leave_route).route_layer(gate.require([LEAVE_DELETE])))
+        .route(
+            "/leave-allowances",
+            put(set_allowance_route).route_layer(gate.require([LEAVE_UPDATE])),
+        )
+        .route(
+            "/leave-requests",
+            get(list_leave_requests_route).route_layer(gate.require([LEAVE_READ])),
+        )
+        .route(
+            "/leave-requests",
+            post(create_leave_request_route).route_layer(gate.require([LEAVE_CREATE])),
+        )
+        .route(
+            "/leave-requests/{id}/review",
+            post(review_leave_route).route_layer(gate.require([LEAVE_APPROVE])),
+        )
+        .route(
+            "/leave-requests/{id}/cancel",
+            post(cancel_leave_route).route_layer(gate.require([LEAVE_UPDATE])),
+        )
+        .route(
+            "/leave-requests/{id}",
+            delete(delete_leave_route).route_layer(gate.require([LEAVE_DELETE])),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -116,8 +183,12 @@ pub(crate) fn instant(text: &str) -> Option<i64> {
         let minutes: i64 = digits.get(2..4).map_or(Some(0), |m| m.parse().ok())?;
         sign * (hours * 60 + minutes)
     };
-    let days = (day - time::Date::from_calendar_date(1970, time::Month::January, 1).ok()?).whole_days();
-    Some(((days * 86_400 + hour * 3600 + minute * 60 + second - offset_minutes * 60) * 1000) + millis)
+    let days =
+        (day - time::Date::from_calendar_date(1970, time::Month::January, 1).ok()?).whole_days();
+    Some(
+        ((days * 86_400 + hour * 3600 + minute * 60 + second - offset_minutes * 60) * 1000)
+            + millis,
+    )
 }
 
 /// `new Date(ms).toISOString()`.
@@ -184,7 +255,10 @@ pub(crate) async fn list_shifts(
                 .filter(|c| !c.is_empty())
                 .and_then(|c| names.get(c).cloned());
             if let Some(map) = shift.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&names_row)));
+                map.insert(
+                    "employeeName".to_owned(),
+                    json!(employee_name_of(&names_row)),
+                );
                 map.insert("companyName".to_owned(), json!(company));
             }
             shift
@@ -193,11 +267,13 @@ pub(crate) async fn list_shifts(
 }
 
 async fn require_shift(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_shifts t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Shift", id))
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_shifts t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Shift", id))
 }
 
 /// `assertShiftWindow(startsAt, endsAt)`.
@@ -206,7 +282,9 @@ pub(crate) fn assert_shift_window(starts: i64, ends: i64) -> Result<(), HrError>
         return Err(HrError::validation("A shift must end after it starts"));
     }
     if ends - starts > 24 * 3600 * 1000 {
-        return Err(HrError::validation("A shift cannot be longer than 24 hours"));
+        return Err(HrError::validation(
+            "A shift cannot be longer than 24 hours",
+        ));
     }
     Ok(())
 }
@@ -256,7 +334,9 @@ pub(crate) fn assert_shift_break(
             }
             Ok(())
         }
-        _ => Err(HrError::validation("A break needs both a start and an end time")),
+        _ => Err(HrError::validation(
+            "A break needs both a start and an end time",
+        )),
     }
 }
 
@@ -289,9 +369,17 @@ struct ShiftInput {
 }
 
 fn shift_input(issues: &mut Issues, fields: &Fields, partial: bool) -> ShiftInput {
-    let required = if partial { Presence::Optional } else { Presence::Required };
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
     ShiftInput {
-        employee_id: if partial { Field::Absent } else { id(issues, fields, "employeeId", Presence::Required) },
+        employee_id: if partial {
+            Field::Absent
+        } else {
+            id(issues, fields, "employeeId", Presence::Required)
+        },
         company_id: id(issues, fields, "companyId", Presence::Nullish),
         starts_at: iso_date_time(issues, fields, "startsAt", required),
         ends_at: iso_date_time(issues, fields, "endsAt", required),
@@ -368,7 +456,9 @@ async fn list_shifts_route(caller: Caller, RawQuery(query): RawQuery) -> HrResul
 }
 
 async fn create_shift_route(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| shift_input(issues, fields, false))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        shift_input(issues, fields, false)
+    })?;
     let details = ShiftDetails {
         company_id: input.company_id.as_set().map(String::as_str),
         work_type: work_type_value(&input.work_type),
@@ -388,8 +478,15 @@ async fn create_shift_route(caller: Caller, headers: HeaderMap, body: Bytes) -> 
     Ok(Created(row).into_response())
 }
 
-async fn update_shift_route(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| shift_input(issues, fields, true))?;
+async fn update_shift_route(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        shift_input(issues, fields, true)
+    })?;
     let db = &caller.db;
     let existing = require_shift(db, &id).await?;
     let pick = |field: &Field<String>, key: &str| {
@@ -403,10 +500,21 @@ async fn update_shift_route(caller: Caller, Path(id): Path<String>, headers: Hea
     let starts = pick(&input.starts_at, "startsAt");
     let ends = pick(&input.ends_at, "endsAt");
     assert_shift_window(starts, ends)?;
-    let bs = resolve_instant(&input.break_starts_at, row_instant(&existing, "breakStartsAt"));
+    let bs = resolve_instant(
+        &input.break_starts_at,
+        row_instant(&existing, "breakStartsAt"),
+    );
     let be = resolve_instant(&input.break_ends_at, row_instant(&existing, "breakEndsAt"));
     assert_shift_break(starts, ends, bs, be)?;
-    assert_no_overlapping_shift(db, text(&existing, "employeeId"), starts, ends, Some(&id), None).await?;
+    assert_no_overlapping_shift(
+        db,
+        text(&existing, "employeeId"),
+        starts,
+        ends,
+        Some(&id),
+        None,
+    )
+    .await?;
     let (set_company, company) = change(&input.company_id);
     let set_work = !input.work_type.is_absent();
     let (set_notes, notes) = change(&input.notes);
@@ -447,7 +555,12 @@ async fn delete_shift_route(caller: Caller, Path(id): Path<String>) -> HrResult 
 }
 
 /// `shiftFor(db, employeeId, date, shiftId)`.
-async fn shift_for(db: &PgPool, employee_id: &str, date: &str, shift_id: Option<&str>) -> Result<Option<Value>, HrError> {
+async fn shift_for(
+    db: &PgPool,
+    employee_id: &str,
+    date: &str,
+    shift_id: Option<&str>,
+) -> Result<Option<Value>, HrError> {
     if let Some(shift_id) = shift_id.filter(|s| !s.is_empty()) {
         let own: Option<Value> = sqlx::query_scalar(
             "select to_jsonb(s) from hr_shifts s where s.id = $1 and s.employee_id = $2
@@ -482,7 +595,11 @@ async fn shift_for(db: &PgPool, employee_id: &str, date: &str, shift_id: Option<
 
 /// `workedMinutes(clockIn, clockOut, breakMinutes)`.
 #[allow(clippy::cast_precision_loss)]
-pub(crate) fn worked_minutes(clock_in: Option<i64>, clock_out: Option<i64>, break_minutes: f64) -> Option<f64> {
+pub(crate) fn worked_minutes(
+    clock_in: Option<i64>,
+    clock_out: Option<i64>,
+    break_minutes: f64,
+) -> Option<f64> {
     let (Some(start), Some(end)) = (clock_in, clock_out) else {
         return None;
     };
@@ -502,7 +619,11 @@ pub(crate) fn late_minutes_for(clock_in: Option<i64>, shift_start: Option<i64>) 
 
 /// `assertAttendanceTimes(clockIn, clockOut, breakMinutes)`.
 #[allow(clippy::cast_precision_loss)]
-pub(crate) fn assert_attendance_times(clock_in: Option<i64>, clock_out: Option<i64>, break_minutes: f64) -> Result<(), HrError> {
+pub(crate) fn assert_attendance_times(
+    clock_in: Option<i64>,
+    clock_out: Option<i64>,
+    break_minutes: f64,
+) -> Result<(), HrError> {
     let (Some(start), Some(end)) = (clock_in, clock_out) else {
         return Ok(());
     };
@@ -511,7 +632,9 @@ pub(crate) fn assert_attendance_times(clock_in: Option<i64>, clock_out: Option<i
     }
     let span = (end - start) as f64 / 60_000.0;
     if span > 24.0 * 60.0 {
-        return Err(HrError::validation("A record cannot span more than 24 hours"));
+        return Err(HrError::validation(
+            "A record cannot span more than 24 hours",
+        ));
     }
     if break_minutes >= span {
         return Err(HrError::validation(
@@ -540,20 +663,30 @@ struct Merged<'a> {
 }
 
 /// `derive(db, employeeId, merged, explicitStatus)`.
-async fn derive(db: &PgPool, employee_id: &str, merged: &Merged<'_>, explicit_status: bool) -> Result<Derived, HrError> {
+async fn derive(
+    db: &PgPool,
+    employee_id: &str,
+    merged: &Merged<'_>,
+    explicit_status: bool,
+) -> Result<Derived, HrError> {
     assert_attendance_times(merged.clock_in, merged.clock_out, merged.break_minutes)?;
     let shift = shift_for(db, employee_id, merged.date, merged.shift_id).await?;
-    let late = late_minutes_for(merged.clock_in, shift.as_ref().and_then(|s| row_instant(s, "startsAt")));
+    let late = late_minutes_for(
+        merged.clock_in,
+        shift.as_ref().and_then(|s| row_instant(s, "startsAt")),
+    );
     let mut status = merged.status.unwrap_or("present").to_owned();
     if !explicit_status && merged.clock_in.is_some() {
-        status = if late > 0.0 { "late" } else { "present" }.to_owned();
+        if late > 0.0 { "late" } else { "present" }.clone_into(&mut status);
     }
     Ok(Derived {
         shift_id: shift
             .as_ref()
             .and_then(|s| s["id"].as_str().map(str::to_owned))
             .or_else(|| merged.shift_id.map(str::to_owned)),
-        company_id: shift.as_ref().and_then(|s| s["companyId"].as_str().map(str::to_owned)),
+        company_id: shift
+            .as_ref()
+            .and_then(|s| s["companyId"].as_str().map(str::to_owned)),
         worked: worked_minutes(merged.clock_in, merged.clock_out, merged.break_minutes),
         late,
         status,
@@ -562,11 +695,12 @@ async fn derive(db: &PgPool, employee_id: &str, merged: &Merged<'_>, explicit_st
 
 /// `requireAttendance(db, id)`.
 pub(crate) async fn require_attendance(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_attendance_records t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from hr_attendance_records t where t.id = $1 limit 1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
     row.map(js_row)
         .ok_or_else(|| HrError::not_found("Attendance record", id))
 }
@@ -596,11 +730,14 @@ pub(crate) async fn list_attendance(
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_owned).collect());
-    let cursor: Option<(String, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty()) {
-        Some(cursor) => sqlx::query_as("select date::text, id from hr_attendance_records where id = $1 limit 1")
-            .bind(cursor)
-            .fetch_optional(db)
-            .await?,
+    let cursor: Option<(String, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty())
+    {
+        Some(cursor) => {
+            sqlx::query_as("select date::text, id from hr_attendance_records where id = $1 limit 1")
+                .bind(cursor)
+                .fetch_optional(db)
+                .await?
+        }
         None => None,
     };
     let rows: Vec<(Value, Value)> = sqlx::query_as(
@@ -651,10 +788,18 @@ pub(crate) async fn list_attendance(
     let has_more = rows.len() > page_size;
     let page: Vec<(Value, Value)> = rows.into_iter().take(page_size).collect();
     let companies: Vec<Option<&str>> = page.iter().map(|(r, _)| r["company_id"].as_str()).collect();
-    let approvers: Vec<Option<&str>> = page.iter().map(|(r, _)| r["approved_by"].as_str()).collect();
+    let approvers: Vec<Option<&str>> = page
+        .iter()
+        .map(|(r, _)| r["approved_by"].as_str())
+        .collect();
     let places: Vec<Option<&str>> = page
         .iter()
-        .flat_map(|(r, _)| [r["clock_in_location_id"].as_str(), r["clock_out_location_id"].as_str()])
+        .flat_map(|(r, _)| {
+            [
+                r["clock_in_location_id"].as_str(),
+                r["clock_out_location_id"].as_str(),
+            ]
+        })
         .collect();
     let company_name = company_names(db, &companies).await?;
     let approver_name = member_names(db, &approvers).await?;
@@ -665,7 +810,12 @@ pub(crate) async fn list_attendance(
         None
     };
     let lookup = |map: &HashMap<String, String>, row: &Value, key: &str| -> Value {
-        json!(row[key].as_str().filter(|v| !v.is_empty()).and_then(|v| map.get(v).cloned()))
+        json!(
+            row[key]
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .and_then(|v| map.get(v).cloned())
+        )
     };
     let data = page
         .into_iter()
@@ -676,7 +826,10 @@ pub(crate) async fn list_attendance(
             let clock_in_place = lookup(&place_name, &record, "clockInLocationId");
             let clock_out_place = lookup(&place_name, &record, "clockOutLocationId");
             if let Some(map) = record.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&names_row)));
+                map.insert(
+                    "employeeName".to_owned(),
+                    json!(employee_name_of(&names_row)),
+                );
                 map.insert("companyName".to_owned(), company);
                 map.insert("approvedByName".to_owned(), approver);
                 map.insert("clockInLocationName".to_owned(), clock_in_place);
@@ -710,7 +863,10 @@ pub(crate) struct AttendanceOrigin<'a> {
 
 /// An instant field as `x ? new Date(x) : null`.
 fn instant_of(field: &Field<String>) -> Option<i64> {
-    field.as_set().filter(|c| !c.is_empty()).and_then(|c| instant(c))
+    field
+        .as_set()
+        .filter(|c| !c.is_empty())
+        .and_then(|c| instant(c))
 }
 
 /// `createAttendance(db, input, opts)`.
@@ -735,8 +891,18 @@ pub(crate) async fn create_attendance(
         status,
         shift_id: origin.shift_id,
     };
-    let derived = derive(db, employee_id, &merged, status.is_some_and(|s| !s.is_empty())).await?;
-    let company = input.company_id.as_set().cloned().or(derived.company_id.clone());
+    let derived = derive(
+        db,
+        employee_id,
+        &merged,
+        status.is_some_and(|s| !s.is_empty()),
+    )
+    .await?;
+    let company = input
+        .company_id
+        .as_set()
+        .cloned()
+        .or(derived.company_id.clone());
     let place = origin.place;
     let row: Value = sqlx::query_scalar(
         "insert into hr_attendance_records (id, employee_id, company_id, shift_id, date, clock_in, clock_out,
@@ -799,7 +965,8 @@ pub(crate) async fn update_attendance(
         .as_set()
         .copied()
         .unwrap_or_else(|| existing["breakMinutes"].as_f64().unwrap_or(0.0));
-    let times_changed = !input.clock_in.is_absent() || !input.clock_out.is_absent() || !input.date.is_absent();
+    let times_changed =
+        !input.clock_in.is_absent() || !input.clock_out.is_absent() || !input.date.is_absent();
     let status = input
         .status
         .as_set()
@@ -854,16 +1021,37 @@ pub(crate) async fn update_attendance(
 fn attendance_write(issues: &mut Issues, fields: &Fields, partial: bool) -> AttendanceWrite {
     AttendanceWrite {
         company_id: id(issues, fields, "companyId", Presence::Nullish),
-        date: iso_date(issues, fields, "date", if partial { Presence::Optional } else { Presence::Required }),
+        date: iso_date(
+            issues,
+            fields,
+            "date",
+            if partial {
+                Presence::Optional
+            } else {
+                Presence::Required
+            },
+        ),
         clock_in: iso_date_time(issues, fields, "clockIn", Presence::Nullish),
         clock_out: iso_date_time(issues, fields, "clockOut", Presence::Nullish),
-        break_minutes: int(issues, fields, "breakMinutes", Presence::Optional, Some(0.0), Some(1440.0)),
+        break_minutes: int(
+            issues,
+            fields,
+            "breakMinutes",
+            Presence::Optional,
+            Some(0.0),
+            Some(1440.0),
+        ),
         status: issues.choice(fields, "status", Presence::Optional, &ATTENDANCE_STATUSES),
         notes: text_max(issues, fields, "notes", Presence::Nullish, 2000),
     }
 }
 
-fn emit_attendance(caller: &Caller, state: &HrState, event: weldsuite_catalogs::entity_events::EventName, row: &Value) {
+fn emit_attendance(
+    caller: &Caller,
+    state: &HrState,
+    event: weldsuite_catalogs::entity_events::EventName,
+    row: &Value,
+) {
     caller.emit(
         state,
         event,
@@ -888,7 +1076,11 @@ async fn list_attendance_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
         cursor: query_text(&q, "cursor"),
     };
     let (data, total, has_more, cursor) = list_attendance(&caller.db, &filters).await?;
-    Ok(List::new(data, Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor)).into_response())
+    Ok(List::new(
+        data,
+        Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor),
+    )
+    .into_response())
 }
 
 /// `attendanceSummary(db, filters)`.
@@ -900,7 +1092,9 @@ pub(crate) async fn attendance_summary(
     company_id: Option<&str>,
 ) -> Result<Value, HrError> {
     if employee_ids.is_some_and(<[String]>::is_empty) {
-        return Ok(json!({ "records": 0, "workedMinutes": 0, "lateMinutes": 0, "byStatus": {}, "attendanceRate": null }));
+        return Ok(
+            json!({ "records": 0, "workedMinutes": 0, "lateMinutes": 0, "byStatus": {}, "attendanceRate": null }),
+        );
     }
     let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
         "select status, count(*), coalesce(sum(worked_minutes), 0)::bigint, coalesce(sum(late_minutes), 0)::bigint
@@ -926,7 +1120,8 @@ pub(crate) async fn attendance_summary(
     }
     let absent = by_status.get("absent").and_then(Value::as_i64).unwrap_or(0);
     #[allow(clippy::cast_precision_loss)]
-    let rate = (records != 0).then(|| js_number(js_round(((records - absent) as f64 / records as f64) * 1000.0) / 10.0));
+    let rate = (records != 0)
+        .then(|| js_number(js_round(((records - absent) as f64 / records as f64) * 1000.0) / 10.0));
     Ok(json!({
         "records": records,
         "workedMinutes": worked,
@@ -952,7 +1147,12 @@ async fn summary_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     Ok(Data(summary).into_response())
 }
 
-async fn create_attendance_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn create_attendance_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (employee_id, write) = hr_json(&headers, &body, |issues, fields| {
         let employee = id(issues, fields, "employeeId", Presence::Required);
         (employee, attendance_write(issues, fields, false))
@@ -978,13 +1178,19 @@ async fn update_attendance_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let write = hr_json(&headers, &body, |issues, fields| attendance_write(issues, fields, true))?;
+    let write = hr_json(&headers, &body, |issues, fields| {
+        attendance_write(issues, fields, true)
+    })?;
     let row = update_attendance(&caller.db, &id, &write, None).await?;
     emit_attendance(&caller, &state, HR_ATTENDANCE_UPDATED, &row);
     Ok(Data(row).into_response())
 }
 
-async fn delete_attendance_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn delete_attendance_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let row = require_attendance(&caller.db, &id).await?;
     require_attendance(&caller.db, &id).await?;
     sqlx::query("delete from hr_attendance_records where id = $1")
@@ -1000,11 +1206,21 @@ async fn delete_attendance_route(State(state): State<HrState>, caller: Caller, P
     Ok(NoContent.into_response())
 }
 
-async fn approve_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn approve_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let ids = hr_json(&headers, &body, |issues, fields| {
-        issues.list(fields, "ids", Presence::Required, Some(1), Some(1000), |issues, item| {
-            issues.item_text(item, Text::length(Some(1), Some(30)))
-        })
+        issues.list(
+            fields,
+            "ids",
+            Presence::Required,
+            Some(1),
+            Some(1000),
+            |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+        )
     })?;
     let ids = ids.into_option().unwrap_or_default();
     let approved: Vec<(String, String)> = if ids.is_empty() {
@@ -1021,13 +1237,21 @@ async fn approve_route(State(state): State<HrState>, caller: Caller, headers: He
         .await?
     };
     for (id, employee) in &approved {
-        caller.emit(&state, HR_ATTENDANCE_APPROVED, id, &[("employeeId", Some(json!(employee)))]);
+        caller.emit(
+            &state,
+            HR_ATTENDANCE_APPROVED,
+            id,
+            &[("employeeId", Some(json!(employee)))],
+        );
     }
     Ok(Data(json!({ "approved": approved.len() })).into_response())
 }
 
 /// `resolveEmployeeRefs(db, refs)`: email (case-insensitive) or employee number → id.
-pub(crate) async fn resolve_employee_refs(db: &PgPool, refs: &[String]) -> Result<HashMap<String, String>, HrError> {
+pub(crate) async fn resolve_employee_refs(
+    db: &PgPool,
+    refs: &[String],
+) -> Result<HashMap<String, String>, HrError> {
     let mut unique: Vec<String> = Vec::new();
     for r in refs {
         let trimmed = crate::js_trim(r).to_owned();
@@ -1060,11 +1284,14 @@ pub(crate) async fn resolve_employee_refs(db: &PgPool, refs: &[String]) -> Resul
 /// `err.message` of what a service threw.
 pub(crate) fn error_message(error: &HrError) -> String {
     match error {
-        HrError::NotFound { user_message: Some(m), .. } => m.clone(),
+        HrError::NotFound {
+            user_message: Some(m),
+            ..
+        } => m.clone(),
         HrError::NotFound { resource, id, .. } => format!("{resource} {id} not found"),
-        HrError::Validation { message, .. } | HrError::Conflict(message) | HrError::Payroll { message, .. } => {
-            message.clone()
-        }
+        HrError::Validation { message, .. }
+        | HrError::Conflict(message)
+        | HrError::Payroll { message, .. } => message.clone(),
         HrError::Database(error) => error.to_string(),
         HrError::Internal(reason) => reason.clone(),
         HrError::Response(_) => String::new(),
@@ -1088,7 +1315,14 @@ fn import_row(issues: &mut Issues, item: &Value) -> Option<ImportRow> {
     let date = iso_date(issues, fields, "date", Presence::Required);
     let clock_in = iso_date_time(issues, fields, "clockIn", Presence::Nullish);
     let clock_out = iso_date_time(issues, fields, "clockOut", Presence::Nullish);
-    let break_minutes = int(issues, fields, "breakMinutes", Presence::Optional, Some(0.0), Some(1440.0));
+    let break_minutes = int(
+        issues,
+        fields,
+        "breakMinutes",
+        Presence::Optional,
+        Some(0.0),
+        Some(1440.0),
+    );
     let status = issues.choice(fields, "status", Presence::Optional, &ATTENDANCE_STATUSES);
     let notes = text_max(issues, fields, "notes", Presence::Nullish, 2000);
     Some(ImportRow {
@@ -1143,14 +1377,24 @@ async fn import_attendance_row(
         update_attendance(db, &existing, &write, None).await?;
         return Ok(true);
     }
-    let origin = AttendanceOrigin { source: Some("import"), ..AttendanceOrigin::default() };
+    let origin = AttendanceOrigin {
+        source: Some("import"),
+        ..AttendanceOrigin::default()
+    };
     create_attendance(db, employee_id, &row.date, &write, created_by, &origin).await?;
     Ok(false)
 }
 
 async fn import_route(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     let (rows, dry_run) = hr_json(&headers, &body, |issues, fields| {
-        let rows = issues.list(fields, "rows", Presence::Required, Some(1), Some(5000), import_row);
+        let rows = issues.list(
+            fields,
+            "rows",
+            Presence::Required,
+            Some(1),
+            Some(5000),
+            import_row,
+        );
         (rows, issues.boolean(fields, "dryRun", Presence::Optional))
     })?;
     let rows = rows.into_option().unwrap_or_default();
@@ -1180,7 +1424,12 @@ async fn import_route(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResu
 }
 
 /// The shift a self-service clock picks (`clockableShift`).
-async fn clockable_shift(db: &PgPool, employee_id: &str, shift_id: &str, now_ms: i64) -> Result<Value, HrError> {
+async fn clockable_shift(
+    db: &PgPool,
+    employee_id: &str,
+    shift_id: &str,
+    now_ms: i64,
+) -> Result<Value, HrError> {
     let shift: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(s) from hr_shifts s where s.id = $1 and s.employee_id = $2 limit 1",
     )
@@ -1201,7 +1450,11 @@ async fn clockable_shift(db: &PgPool, employee_id: &str, shift_id: &str, now_ms:
 }
 
 /// `currentShift(db, employeeId, now)`.
-async fn current_shift(db: &PgPool, employee_id: &str, now_ms: i64) -> Result<Option<Value>, HrError> {
+async fn current_shift(
+    db: &PgPool,
+    employee_id: &str,
+    now_ms: i64,
+) -> Result<Option<Value>, HrError> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(s) from hr_shifts s where s.employee_id = $1 and s.ends_at > $2::timestamptz
            and s.starts_at <= $3::timestamptz order by s.starts_at asc limit 1",
@@ -1215,7 +1468,10 @@ async fn current_shift(db: &PgPool, employee_id: &str, now_ms: i64) -> Result<Op
 }
 
 /// `openClockRecord(db, employeeId)`.
-pub(crate) async fn open_clock_record(db: &PgPool, employee_id: &str) -> Result<Option<Value>, HrError> {
+pub(crate) async fn open_clock_record(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Option<Value>, HrError> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(a) from hr_attendance_records a where a.employee_id = $1 and a.clock_out is null
            and a.clock_in is not null order by a.clock_in desc limit 1",
@@ -1294,7 +1550,10 @@ pub(crate) async fn switch_shift(
     let closed = update_attendance(
         db,
         text(&open, "id"),
-        &AttendanceWrite { clock_out: Field::Set(iso(now_ms)), ..AttendanceWrite::default() },
+        &AttendanceWrite {
+            clock_out: Field::Set(iso(now_ms)),
+            ..AttendanceWrite::default()
+        },
         Some(place),
     )
     .await?;
@@ -1307,7 +1566,10 @@ pub(crate) async fn switch_shift(
         db,
         employee_id,
         &date_of(now_ms),
-        &AttendanceWrite { clock_in: Field::Set(iso(now_ms)), ..AttendanceWrite::default() },
+        &AttendanceWrite {
+            clock_in: Field::Set(iso(now_ms)),
+            ..AttendanceWrite::default()
+        },
         created_by,
         &origin,
     )
@@ -1320,7 +1582,10 @@ pub(crate) async fn switch_shift(
 // ---------------------------------------------------------------------------
 
 /// `listLeaveTypes(db, includeInactive)`.
-pub(crate) async fn list_leave_types(db: &PgPool, include_inactive: bool) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn list_leave_types(
+    db: &PgPool,
+    include_inactive: bool,
+) -> Result<Vec<Value>, HrError> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from hr_leave_types t where ($1 or t.is_active = true) order by t.name asc",
     )
@@ -1331,11 +1596,13 @@ pub(crate) async fn list_leave_types(db: &PgPool, include_inactive: bool) -> Res
 }
 
 async fn require_leave_type(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_leave_types t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Leave type", id))
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_leave_types t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Leave type", id))
 }
 
 /// `ensureDefaultLeaveTypes(db)`: annual, sick and unpaid leave.
@@ -1359,7 +1626,8 @@ pub(crate) async fn ensure_default_leave_types(db: &PgPool) -> Result<(), HrErro
 }
 
 async fn list_leave_types_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
-    let include = query_param(&query_values(query.as_deref()), "includeInactive").as_deref() == Some("true");
+    let include =
+        query_param(&query_values(query.as_deref()), "includeInactive").as_deref() == Some("true");
     Ok(Data(list_leave_types(&caller.db, include).await?).into_response())
 }
 
@@ -1375,18 +1643,43 @@ struct LeaveTypeInput {
 
 fn leave_type_input(issues: &mut Issues, fields: &Fields, partial: bool) -> LeaveTypeInput {
     LeaveTypeInput {
-        name: short_text(issues, fields, "name", if partial { Presence::Optional } else { Presence::Required }, 120, true),
+        name: short_text(
+            issues,
+            fields,
+            "name",
+            if partial {
+                Presence::Optional
+            } else {
+                Presence::Required
+            },
+            120,
+            true,
+        ),
         color: color(issues, fields, "color"),
         is_paid: issues.boolean(fields, "isPaid", Presence::Optional),
         requires_approval: issues.boolean(fields, "requiresApproval", Presence::Optional),
-        default_allowance_days: number(issues, fields, "defaultAllowanceDays", Presence::Nullish, Some(0.0), Some(366.0)),
-        over_allowance: issues.choice(fields, "overAllowance", Presence::Optional, &["allow", "block"]),
+        default_allowance_days: number(
+            issues,
+            fields,
+            "defaultAllowanceDays",
+            Presence::Nullish,
+            Some(0.0),
+            Some(366.0),
+        ),
+        over_allowance: issues.choice(
+            fields,
+            "overAllowance",
+            Presence::Optional,
+            &["allow", "block"],
+        ),
         is_active: issues.boolean(fields, "isActive", Presence::Optional),
     }
 }
 
 async fn create_leave_type_route(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| leave_type_input(issues, fields, false))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        leave_type_input(issues, fields, false)
+    })?;
     let row: Value = sqlx::query_scalar(
         "insert into hr_leave_types (id, name, color, is_paid, requires_approval, default_allowance_days,
              over_allowance, is_active)
@@ -1406,8 +1699,15 @@ async fn create_leave_type_route(caller: Caller, headers: HeaderMap, body: Bytes
     Ok(Created(js_row(row)).into_response())
 }
 
-async fn update_leave_type_route(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| leave_type_input(issues, fields, true))?;
+async fn update_leave_type_route(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        leave_type_input(issues, fields, true)
+    })?;
     require_leave_type(&caller.db, &id).await?;
     let (set_name, name) = change(&input.name);
     let (set_color, color) = change(&input.color);
@@ -1452,16 +1752,19 @@ async fn update_leave_type_route(caller: Caller, Path(id): Path<String>, headers
 async fn delete_leave_type_route(caller: Caller, Path(id): Path<String>) -> HrResult {
     let db = &caller.db;
     require_leave_type(db, &id).await?;
-    let used: Option<String> = sqlx::query_scalar("select id from hr_leave_requests where leave_type_id = $1 limit 1")
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
-    if used.is_some() {
-        sqlx::query("update hr_leave_types set is_active = false, updated_at = $2::timestamp where id = $1")
+    let used: Option<String> =
+        sqlx::query_scalar("select id from hr_leave_requests where leave_type_id = $1 limit 1")
             .bind(&id)
-            .bind(now())
-            .execute(db)
+            .fetch_optional(db)
             .await?;
+    if used.is_some() {
+        sqlx::query(
+            "update hr_leave_types set is_active = false, updated_at = $2::timestamp where id = $1",
+        )
+        .bind(&id)
+        .bind(now())
+        .execute(db)
+        .await?;
         return Ok(Data(json!({ "archived": true })).into_response());
     }
     sqlx::query("delete from hr_leave_allowances where leave_type_id = $1")
@@ -1480,8 +1783,22 @@ async fn set_allowance_route(caller: Caller, headers: HeaderMap, body: Bytes) ->
         (
             id(issues, fields, "employeeId", Presence::Required),
             id(issues, fields, "leaveTypeId", Presence::Required),
-            int(issues, fields, "year", Presence::Required, Some(2000.0), Some(2100.0)),
-            number(issues, fields, "days", Presence::Required, Some(0.0), Some(366.0)),
+            int(
+                issues,
+                fields,
+                "year",
+                Presence::Required,
+                Some(2000.0),
+                Some(2100.0),
+            ),
+            number(
+                issues,
+                fields,
+                "days",
+                Presence::Required,
+                Some(0.0),
+                Some(366.0),
+            ),
         )
     })?;
     let db = &caller.db;
@@ -1526,9 +1843,17 @@ async fn set_allowance_route(caller: Caller, headers: HeaderMap, body: Bytes) ->
 }
 
 /// `leaveBalances(db, employeeId, year)`.
-pub(crate) async fn leave_balances(db: &PgPool, employee_id: &str, year: i32) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn leave_balances(
+    db: &PgPool,
+    employee_id: &str,
+    year: i32,
+) -> Result<Vec<Value>, HrError> {
     let employee = require_employee(db, employee_id).await?;
-    let share = employed_share_of_year(year, employee["startDate"].as_str(), employee["endDate"].as_str());
+    let share = employed_share_of_year(
+        year,
+        employee["startDate"].as_str(),
+        employee["endDate"].as_str(),
+    );
     let types = list_leave_types(db, false).await?;
     let allowances: Vec<(String, f64)> = sqlx::query_as(
         "select leave_type_id, days from hr_leave_allowances where employee_id = $1 and year = $2",
@@ -1585,7 +1910,11 @@ pub(crate) async fn leave_balances(db: &PgPool, employee_id: &str, year: i32) ->
         .collect())
 }
 
-async fn balances_route(caller: Caller, Path(employee_id): Path<String>, RawQuery(query): RawQuery) -> HrResult {
+async fn balances_route(
+    caller: Caller,
+    Path(employee_id): Path<String>,
+    RawQuery(query): RawQuery,
+) -> HrResult {
     let year = query_param(&query_values(query.as_deref()), "year")
         .map(|y| crate::js_number_of(&y))
         .filter(|y| *y != 0.0 && !y.is_nan())
@@ -1616,7 +1945,11 @@ async fn assert_within_allowance(
     if balance["overAllowance"] != "block" {
         return Ok(());
     }
-    let pending = if pending_counts { balance["pending"].as_f64().unwrap_or(0.0) } else { 0.0 };
+    let pending = if pending_counts {
+        balance["pending"].as_f64().unwrap_or(0.0)
+    } else {
+        0.0
+    };
     let available = js_round((remaining - pending) * 10.0) / 10.0;
     if days > available {
         let name = text(balance, "name");
@@ -1631,11 +1964,13 @@ async fn assert_within_allowance(
 
 /// `requireLeaveRequest(db, id)`.
 pub(crate) async fn require_leave_request(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_leave_requests t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Leave request", id))
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_leave_requests t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Leave request", id))
 }
 
 /// `listLeaveRequests(db, filters)`.
@@ -1669,7 +2004,10 @@ pub(crate) async fn list_leave_requests(
     .bind(to)
     .fetch_all(db)
     .await?;
-    let reviewers: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["reviewed_by"].as_str()).collect();
+    let reviewers: Vec<Option<&str>> = rows
+        .iter()
+        .map(|(r, _)| r["reviewed_by"].as_str())
+        .collect();
     let names = member_names(db, &reviewers).await?;
     Ok(rows
         .into_iter()
@@ -1721,12 +2059,16 @@ pub(crate) async fn create_leave_request(
 ) -> Result<Value, HrError> {
     assert_date_order(Some(input.start_date), Some(input.end_date), "Leave")?;
     if year_of(input.end_date) - year_of(input.start_date) > 1 {
-        return Err(HrError::validation("Split leave that spans more than one year into separate requests"));
+        return Err(HrError::validation(
+            "Split leave that spans more than one year into separate requests",
+        ));
     }
     require_employee(db, input.employee_id).await?;
     let leave_type = require_leave_type(db, input.leave_type_id).await?;
     if leave_type["isActive"] != true {
-        return Err(HrError::validation("This leave type is no longer available"));
+        return Err(HrError::validation(
+            "This leave type is no longer available",
+        ));
     }
     let overlap: Option<String> = sqlx::query_scalar(
         "select id from hr_leave_requests where employee_id = $1 and status in ('pending', 'approved')
@@ -1745,9 +2087,19 @@ pub(crate) async fn create_leave_request(
         .days
         .unwrap_or_else(|| working_days_between(input.start_date, input.end_date) as f64);
     if days <= 0.0 {
-        return Err(HrError::validation("The selected dates contain no working days"));
+        return Err(HrError::validation(
+            "The selected dates contain no working days",
+        ));
     }
-    assert_within_allowance(db, input.employee_id, input.leave_type_id, input.start_date, days, true).await?;
+    assert_within_allowance(
+        db,
+        input.employee_id,
+        input.leave_type_id,
+        input.start_date,
+        days,
+        true,
+    )
+    .await?;
     let auto_approve = leave_type["requiresApproval"] != true;
     let row: Value = sqlx::query_scalar(
         "insert into hr_leave_requests (id, employee_id, leave_type_id, start_date, end_date, days, reason,
@@ -1774,7 +2126,11 @@ pub(crate) async fn create_leave_request(
 /// created) or of another change (updated).
 pub(crate) fn emit_leave(caller: &Caller, state: &HrState, row: &Value, created: bool) {
     let event = if created {
-        if row["status"] == "approved" { HR_LEAVE_REQUEST_APPROVED } else { HR_LEAVE_REQUEST_CREATED }
+        if row["status"] == "approved" {
+            HR_LEAVE_REQUEST_APPROVED
+        } else {
+            HR_LEAVE_REQUEST_CREATED
+        }
     } else {
         HR_LEAVE_REQUEST_UPDATED
     };
@@ -1782,21 +2138,37 @@ pub(crate) fn emit_leave(caller: &Caller, state: &HrState, row: &Value, created:
         state,
         event,
         text(row, "id"),
-        &[("employeeId", Some(row["employeeId"].clone())), ("status", Some(row["status"].clone()))],
+        &[
+            ("employeeId", Some(row["employeeId"].clone())),
+            ("status", Some(row["status"].clone())),
+        ],
     );
 }
 
-async fn create_leave_request_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let (employee, leave_type, start, end, days, reason) = hr_json(&headers, &body, |issues, fields| {
-        (
-            id(issues, fields, "employeeId", Presence::Required),
-            id(issues, fields, "leaveTypeId", Presence::Required),
-            iso_date(issues, fields, "startDate", Presence::Required),
-            iso_date(issues, fields, "endDate", Presence::Required),
-            number(issues, fields, "days", Presence::Optional, Some(0.5), Some(366.0)),
-            text_max(issues, fields, "reason", Presence::Nullish, 2000),
-        )
-    })?;
+async fn create_leave_request_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let (employee, leave_type, start, end, days, reason) =
+        hr_json(&headers, &body, |issues, fields| {
+            (
+                id(issues, fields, "employeeId", Presence::Required),
+                id(issues, fields, "leaveTypeId", Presence::Required),
+                iso_date(issues, fields, "startDate", Presence::Required),
+                iso_date(issues, fields, "endDate", Presence::Required),
+                number(
+                    issues,
+                    fields,
+                    "days",
+                    Presence::Optional,
+                    Some(0.5),
+                    Some(366.0),
+                ),
+                text_max(issues, fields, "reason", Presence::Nullish, 2000),
+            )
+        })?;
     let input = LeaveRequestInput {
         employee_id: employee.as_set().map_or("", String::as_str),
         leave_type_id: leave_type.as_set().map_or("", String::as_str),
@@ -1819,7 +2191,12 @@ async fn review_leave_route(
 ) -> HrResult {
     let (decision, note) = hr_json(&headers, &body, |issues, fields| {
         (
-            issues.choice(fields, "decision", Presence::Required, &["approved", "rejected"]),
+            issues.choice(
+                fields,
+                "decision",
+                Presence::Required,
+                &["approved", "rejected"],
+            ),
             text_max(issues, fields, "note", Presence::Nullish, 2000),
         )
     })?;
@@ -1827,7 +2204,10 @@ async fn review_leave_route(
     let db = &caller.db;
     let existing = require_leave_request(db, &id).await?;
     if existing["status"] != "pending" {
-        return Err(HrError::conflict(format!("This request is already {}", text(&existing, "status"))));
+        return Err(HrError::conflict(format!(
+            "This request is already {}",
+            text(&existing, "status")
+        )));
     }
     if decision == "approved" {
         assert_within_allowance(
@@ -1853,28 +2233,46 @@ async fn review_leave_route(
     .fetch_one(db)
     .await?;
     let row = js_row(row);
-    let event = if row["status"] == "approved" { HR_LEAVE_REQUEST_APPROVED } else { HR_LEAVE_REQUEST_REJECTED };
+    let event = if row["status"] == "approved" {
+        HR_LEAVE_REQUEST_APPROVED
+    } else {
+        HR_LEAVE_REQUEST_REJECTED
+    };
     caller.emit(
         &state,
         event,
         text(&row, "id"),
-        &[("employeeId", Some(row["employeeId"].clone())), ("status", Some(row["status"].clone()))],
+        &[
+            ("employeeId", Some(row["employeeId"].clone())),
+            ("status", Some(row["status"].clone())),
+        ],
     );
     Ok(Data(row).into_response())
 }
 
 /// `cancelLeaveRequest(db, id, onlyEmployeeId?)`.
-pub(crate) async fn cancel_leave_request(db: &PgPool, id: &str, only_employee_id: Option<&str>) -> Result<Value, HrError> {
+pub(crate) async fn cancel_leave_request(
+    db: &PgPool,
+    id: &str,
+    only_employee_id: Option<&str>,
+) -> Result<Value, HrError> {
     let existing = require_leave_request(db, id).await?;
     if only_employee_id.is_some_and(|only| existing["employeeId"] != only) {
         return Err(HrError::not_found("Leave request", id));
     }
     let status = text(&existing, "status");
     if status == "cancelled" || status == "rejected" {
-        return Err(HrError::conflict(format!("This request is already {status}")));
+        return Err(HrError::conflict(format!(
+            "This request is already {status}"
+        )));
     }
-    if only_employee_id.is_some() && status == "approved" && text(&existing, "startDate") <= today_iso().as_str() {
-        return Err(HrError::conflict("Leave that has started can only be cancelled by HR"));
+    if only_employee_id.is_some()
+        && status == "approved"
+        && text(&existing, "startDate") <= today_iso().as_str()
+    {
+        return Err(HrError::conflict(
+            "Leave that has started can only be cancelled by HR",
+        ));
     }
     let row: Value = sqlx::query_scalar(
         "update hr_leave_requests set status = 'cancelled', updated_at = $2::timestamp where id = $1
@@ -1887,13 +2285,21 @@ pub(crate) async fn cancel_leave_request(db: &PgPool, id: &str, only_employee_id
     Ok(js_row(row))
 }
 
-async fn cancel_leave_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn cancel_leave_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let row = cancel_leave_request(&caller.db, &id, None).await?;
     emit_leave(&caller, &state, &row, false);
     Ok(Data(row).into_response())
 }
 
-async fn delete_leave_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn delete_leave_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let row = require_leave_request(&caller.db, &id).await?;
     require_leave_request(&caller.db, &id).await?;
     sqlx::query("delete from hr_leave_requests where id = $1")
@@ -1944,9 +2350,18 @@ mod tests {
     #[test]
     fn instants_like_javascript() {
         assert_eq!(instant("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(instant("2026-10-31T10:00:00.123456+02:00"), instant("2026-10-31T08:00:00.123Z"));
-        assert_eq!(instant("2026-10-31T10:00:00+0130"), instant("2026-10-31T08:30:00Z"));
-        assert_eq!(iso(instant("2026-10-31T08:00:00.5Z").unwrap_or(0)), "2026-10-31T08:00:00.500Z");
+        assert_eq!(
+            instant("2026-10-31T10:00:00.123456+02:00"),
+            instant("2026-10-31T08:00:00.123Z")
+        );
+        assert_eq!(
+            instant("2026-10-31T10:00:00+0130"),
+            instant("2026-10-31T08:30:00Z")
+        );
+        assert_eq!(
+            iso(instant("2026-10-31T08:00:00.5Z").unwrap_or(0)),
+            "2026-10-31T08:00:00.500Z"
+        );
         assert!((late_minutes_for(Some(6 * 60_000), Some(0)) - 6.0).abs() < f64::EPSILON);
         assert!(late_minutes_for(Some(5 * 60_000), Some(0)).abs() < f64::EPSILON);
     }

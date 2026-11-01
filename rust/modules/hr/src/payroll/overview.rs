@@ -12,8 +12,16 @@ use super::runs::{s, to_run_dtos};
 use crate::HrError;
 
 /// `payrollOverview(db, keyring, { today, digipoortAvailable })`.
-pub(crate) async fn payroll_overview(db: &PgPool, keyring: &Keyring, today: &str) -> Result<Value, HrError> {
-    let employers: Vec<Value> = list_employers(db, keyring).await?.into_iter().filter(|e| e["isActive"] == true).collect();
+pub(crate) async fn payroll_overview(
+    db: &PgPool,
+    keyring: &Keyring,
+    today: &str,
+) -> Result<Value, HrError> {
+    let employers: Vec<Value> = list_employers(db, keyring)
+        .await?
+        .into_iter()
+        .filter(|e| e["isActive"] == true)
+        .collect();
     let schedules: Vec<Value> = list_schedules(db, None)
         .await?
         .into_iter()
@@ -38,10 +46,12 @@ pub(crate) async fn payroll_overview(db: &PgPool, keyring: &Keyring, today: &str
         if next.is_null() {
             continue;
         }
-        let Some(employer) = employers.iter().find(|e| e["id"] == schedule["employerId"]) else { continue };
-        let run = live_runs
-            .iter()
-            .find(|(_, sid, start, _)| sid.as_deref() == Some(s(schedule, "id")) && start.as_str() == s(next, "start"));
+        let Some(employer) = employers.iter().find(|e| e["id"] == schedule["employerId"]) else {
+            continue;
+        };
+        let run = live_runs.iter().find(|(_, sid, start, _)| {
+            sid.as_deref() == Some(s(schedule, "id")) && start.as_str() == s(next, "start")
+        });
         upcoming.push(json!({
             "scheduleId": schedule["id"], "scheduleName": schedule["name"], "employerId": employer["id"],
             "employerName": employer["name"], "country": employer["country"], "period": next,
@@ -57,7 +67,11 @@ pub(crate) async fn payroll_overview(db: &PgPool, keyring: &Keyring, today: &str
     let recent: Vec<Value> = recent.into_iter().map(js_row).collect();
     let not_ready = on_payroll
         .iter()
-        .filter(|e| e["issues"].as_array().is_some_and(|i| i.iter().any(|x| x["severity"] == "error")))
+        .filter(|e| {
+            e["issues"]
+                .as_array()
+                .is_some_and(|i| i.iter().any(|x| x["severity"] == "error"))
+        })
         .count();
     Ok(json!({
         "employers": employers.iter().map(|e| json!({

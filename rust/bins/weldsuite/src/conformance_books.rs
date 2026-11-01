@@ -7,12 +7,12 @@
 //!   X-Workspace-Id: <key>, Content-Type: application/json, the JSON body
 //! ```
 //!
-//! The bridge replays the call into the stub (`binding.fetch('https://internal'
-//! + path, …)`) and answers with the stub's status and body; a stub that
-//! threw is a `502` with `x-binding-error: fetch-threw` and the error's
-//! message as the body. Both runs' calls are compared as side effects.
-//! A test without the binding gets none, as the worker then skips the
-//! journal.
+//! The bridge replays the call into the stub (`binding.fetch` on
+//! `https://internal` and the path) and answers with the stub's status and
+//! body; a stub that threw is a `502` with `x-binding-error: fetch-threw` and
+//! the error's message as the body. Both runs' calls are compared as side
+//! effects. A test without the binding gets none, as the worker then skips
+//! the journal.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -39,7 +39,10 @@ impl BooksInternal for BridgedBooks {
                 .map_err(|error| error.to_string())?;
             let url = reqwest::Url::parse_with_params(
                 &format!("{}/fetch", self.bridge),
-                [("binding", "BOOKS_INTERNAL"), ("path", request.path.as_str())],
+                [
+                    ("binding", "BOOKS_INTERNAL"),
+                    ("path", request.path.as_str()),
+                ],
             )
             .map_err(|error| error.to_string())?;
             let response = self
@@ -57,7 +60,11 @@ impl BooksInternal for BridgedBooks {
             if threw {
                 return Err(body);
             }
-            Ok(BooksResponse { status, body, created_event: None })
+            Ok(BooksResponse {
+                status,
+                body,
+                created_event: None,
+            })
         })
     }
 }

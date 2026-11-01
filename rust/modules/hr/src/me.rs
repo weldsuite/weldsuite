@@ -24,22 +24,25 @@ use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::employees::{active_clients_for, display_name_of, employee_for_user, link_invited_employees, require_employee};
+use crate::employees::{
+    active_clients_for, display_name_of, employee_for_user, link_invited_employees,
+    require_employee,
+};
 use crate::fields::{id, iso_date, iso_date_time, number, short_text, text_max};
 use crate::lifecycle::settle_checklist;
 use crate::performance::{
-    CoachingFilters, EvaluationFilters, acknowledge_coaching_log, acknowledge_evaluation, list_coaching_logs,
-    list_evaluations, list_kpi_values, list_milestones,
+    CoachingFilters, EvaluationFilters, acknowledge_coaching_log, acknowledge_evaluation,
+    list_coaching_logs, list_evaluations, list_kpi_values, list_milestones,
 };
 use crate::settings::HrFeatures;
 use crate::timekeeping::{
-    AttendanceFilters, LeaveRequestInput, clock, emit_leave, leave_balances, list_attendance, list_leave_requests,
-    list_leave_types, list_shifts, now_ms, open_clock_record, switch_shift,
+    AttendanceFilters, LeaveRequestInput, clock, emit_leave, leave_balances, list_attendance,
+    list_leave_requests, list_leave_types, list_shifts, now_ms, open_clock_record, switch_shift,
 };
 use crate::work_locations::{GeoPoint, clock_place_for};
 use crate::{
-    Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, now, query_date, query_param, query_values,
-    text, today_iso, year_of,
+    Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, now, query_date, query_param,
+    query_values, text, today_iso, year_of,
 };
 
 /// The routes, relative to `/api/weldhr/me`.
@@ -62,7 +65,10 @@ where
         .route("/leave/{id}/cancel", post(cancel_leave))
         .route("/declarations", get(declarations).post(file_declaration))
         .route("/declarations/{id}/cancel", post(cancel_declaration))
-        .route("/declarations/{id}/receipt", post(upload_receipt).get(download_receipt))
+        .route(
+            "/declarations/{id}/receipt",
+            post(upload_receipt).get(download_receipt),
+        )
         .route("/absences", get(absences).post(report_sick))
         .route("/absences/{id}/recover", post(recover))
         .route("/tasks", get(tasks))
@@ -70,13 +76,19 @@ where
         .route("/coaching", get(coaching))
         .route("/coaching/{id}/acknowledge", post(acknowledge_coaching))
         .route("/evaluations", get(evaluations))
-        .route("/evaluations/{id}/acknowledge", post(acknowledge_evaluation_route))
+        .route(
+            "/evaluations/{id}/acknowledge",
+            post(acknowledge_evaluation_route),
+        )
         .route("/performance", get(performance))
 }
 
 /// `selfEmployee(c)`: the caller's employee, linked from an accepted invite
 /// on first use.
-pub(crate) async fn self_employee(state: &HrState, caller: &Caller) -> Result<Option<Value>, HrError> {
+pub(crate) async fn self_employee(
+    state: &HrState,
+    caller: &Caller,
+) -> Result<Option<Value>, HrError> {
     if let Some(employee) = employee_for_user(&caller.db, &caller.user_id).await? {
         return Ok(Some(employee));
     }
@@ -97,7 +109,11 @@ pub(crate) async fn self_employee_id(state: &HrState, caller: &Caller) -> Result
 
 /// The listed keys of a row, as a new object.
 fn pick(row: &Value, keys: &[&str]) -> Value {
-    Value::Object(keys.iter().map(|k| ((*k).to_owned(), row[*k].clone())).collect())
+    Value::Object(
+        keys.iter()
+            .map(|k| ((*k).to_owned(), row[*k].clone()))
+            .collect(),
+    )
 }
 
 /// An entity event with `{ employeeId, status }`.
@@ -112,7 +128,10 @@ fn emit_status(
         state,
         event,
         text(row, "id"),
-        &[("employeeId", Some(json!(employee_id))), ("status", Some(row["status"].clone()))],
+        &[
+            ("employeeId", Some(json!(employee_id))),
+            ("status", Some(row["status"].clone())),
+        ],
     );
 }
 
@@ -124,21 +143,25 @@ fn emit_status(
 async fn employee_profile(db: &PgPool, employee_id: &str) -> Result<Value, HrError> {
     let e = require_employee(db, employee_id).await?;
     let department: Option<String> = match e["departmentId"].as_str().filter(|d| !d.is_empty()) {
-        Some(department) => sqlx::query_scalar("select name from hr_departments where id = $1 limit 1")
-            .bind(department)
-            .fetch_optional(db)
-            .await?,
+        Some(department) => {
+            sqlx::query_scalar("select name from hr_departments where id = $1 limit 1")
+                .bind(department)
+                .fetch_optional(db)
+                .await?
+        }
         None => None,
     };
     let manager: Option<Value> = match e["managerId"].as_str().filter(|m| !m.is_empty()) {
-        Some(manager) => sqlx::query_scalar(
-            "select jsonb_build_object('firstName', first_name, 'lastName', last_name,
+        Some(manager) => {
+            sqlx::query_scalar(
+                "select jsonb_build_object('firstName', first_name, 'lastName', last_name,
                  'preferredName', preferred_name, 'email', email)
              from hr_employees where id = $1 limit 1",
-        )
-        .bind(manager)
-        .fetch_optional(db)
-        .await?,
+            )
+            .bind(manager)
+            .fetch_optional(db)
+            .await?
+        }
         None => None,
     };
     let id = text(&e, "id").to_owned();
@@ -237,10 +260,13 @@ async fn overview(State(state): State<HrState>, caller: Caller) -> HrResult {
     let milestones = list_milestones(db, Some(&employee_id), None, None).await?;
     let unread = crate::announcements::unread_announcement_count(db, &employee_id).await?;
     let open_shifts = crate::open_shifts::open_shifts_for_employee(db, &employee_id).await?;
-    let upcoming: Vec<Value> = shifts.iter().map(|s| pick(s, &["id", "startsAt", "endsAt", "companyName"])).collect();
-    let latest = evaluations
-        .first()
-        .map_or(Value::Null, |e| pick(e, &["id", "overallScore", "formName", "submittedAt"]));
+    let upcoming: Vec<Value> = shifts
+        .iter()
+        .map(|s| pick(s, &["id", "startsAt", "endsAt", "companyName"]))
+        .collect();
+    let latest = evaluations.first().map_or(Value::Null, |e| {
+        pick(e, &["id", "overallScore", "formName", "submittedAt"])
+    });
     Ok(Data(json!({
         "profile": profile,
         "clock": {
@@ -280,10 +306,11 @@ async fn complete_task(
     let employee_id = self_employee_id(&state, &caller).await?;
     let done = query_param(&query_values(query.as_deref()), "undo").as_deref() != Some("true");
     let db = &caller.db;
-    let task: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_checklist_tasks t where t.id = $1 limit 1")
-        .bind(&task_id)
-        .fetch_optional(db)
-        .await?;
+    let task: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_checklist_tasks t where t.id = $1 limit 1")
+            .bind(&task_id)
+            .fetch_optional(db)
+            .await?;
     let Some(task) = task
         .map(js_row)
         .filter(|t| t["employeeId"] == employee_id.as_str() && t["visibleToEmployee"] == true)
@@ -291,7 +318,9 @@ async fn complete_task(
         return Err(HrError::not_found("Task", &task_id));
     };
     if task["assigneeRole"] != "employee" {
-        return Err(HrError::validation("This task is completed by your team, not by you"));
+        return Err(HrError::validation(
+            "This task is completed by your team, not by you",
+        ));
     }
     let now = now();
     sqlx::query(
@@ -306,12 +335,29 @@ async fn complete_task(
     .await?;
     let checklist_id = text(&task, "checklistId").to_owned();
     let outcome = settle_checklist(db, &checklist_id).await?;
-    let event = if outcome.checklist_completed { HR_CHECKLIST_COMPLETED } else { HR_CHECKLIST_UPDATED };
-    caller.emit(&state, event, &checklist_id, &[("employeeId", Some(json!(employee_id)))]);
+    let event = if outcome.checklist_completed {
+        HR_CHECKLIST_COMPLETED
+    } else {
+        HR_CHECKLIST_UPDATED
+    };
+    caller.emit(
+        &state,
+        event,
+        &checklist_id,
+        &[("employeeId", Some(json!(employee_id)))],
+    );
     if outcome.employee_status == Some("active") {
-        caller.emit(&state, HR_EMPLOYEE_ONBOARDED, &employee_id, &[("status", Some(json!("active")))]);
+        caller.emit(
+            &state,
+            HR_EMPLOYEE_ONBOARDED,
+            &employee_id,
+            &[("status", Some(json!("active")))],
+        );
     }
-    Ok(Data(json!({ "ok": true, "checklistCompleted": outcome.checklist_completed })).into_response())
+    Ok(
+        Data(json!({ "ok": true, "checklistCompleted": outcome.checklist_completed }))
+            .into_response(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +378,10 @@ fn hourly_rate_of(comp: &Value) -> Option<f64> {
     if period == "hour" {
         return Some(amount);
     }
-    let hours = comp["hoursPerWeek"].as_f64().filter(|h| *h > 0.0).unwrap_or(40.0);
+    let hours = comp["hoursPerWeek"]
+        .as_f64()
+        .filter(|h| *h > 0.0)
+        .unwrap_or(40.0);
     let per_year = match period {
         "week" => 52.0,
         "month" => 12.0,
@@ -347,12 +396,18 @@ pub(crate) fn compensation_on<'a>(rows: &'a [Value], date: &str) -> Option<&'a V
     let mut sorted: Vec<&Value> = rows.iter().collect();
     sorted.sort_by(|a, b| text(b, "effectiveFrom").cmp(text(a, "effectiveFrom")));
     sorted.into_iter().find(|row| {
-        text(row, "effectiveFrom") <= date && row["effectiveTo"].as_str().is_none_or(|to| to >= date)
+        text(row, "effectiveFrom") <= date
+            && row["effectiveTo"].as_str().is_none_or(|to| to >= date)
     })
 }
 
 /// `employeeAttendance(db, employeeId, from, to, { withPay: true, withRequests: true })`.
-async fn employee_attendance(db: &PgPool, employee_id: &str, from: &str, to: &str) -> Result<Value, HrError> {
+async fn employee_attendance(
+    db: &PgPool,
+    employee_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, HrError> {
     let filters = AttendanceFilters {
         employee_id: Some(employee_id.to_owned()),
         from: Some(from.to_owned()),
@@ -379,15 +434,31 @@ async fn employee_attendance(db: &PgPool, employee_id: &str, from: &str, to: &st
     .await?;
     let pay_on = |date: &str, out: &mut serde_json::Map<String, Value>| {
         let comp = compensation_on(&compensations, date);
-        out.insert("hourlyRate".to_owned(), comp.and_then(hourly_rate_of).map_or(Value::Null, js_number));
-        out.insert("currency".to_owned(), comp.map_or(Value::Null, |c| c["currency"].clone()));
+        out.insert(
+            "hourlyRate".to_owned(),
+            comp.and_then(hourly_rate_of).map_or(Value::Null, js_number),
+        );
+        out.insert(
+            "currency".to_owned(),
+            comp.map_or(Value::Null, |c| c["currency"].clone()),
+        );
     };
     let records: Vec<Value> = records
         .iter()
         .map(|r| {
             let mut out = serde_json::Map::new();
             pay_on(text(r, "date"), &mut out);
-            for key in ["id", "date", "clockIn", "clockOut", "breakMinutes", "workedMinutes", "lateMinutes", "status", "source"] {
+            for key in [
+                "id",
+                "date",
+                "clockIn",
+                "clockOut",
+                "breakMinutes",
+                "workedMinutes",
+                "lateMinutes",
+                "status",
+                "source",
+            ] {
                 out.insert(key.to_owned(), r[key].clone());
             }
             out.insert("approved".to_owned(), json!(!r["approvedAt"].is_null()));
@@ -403,17 +474,33 @@ async fn employee_attendance(db: &PgPool, employee_id: &str, from: &str, to: &st
             let mut out = serde_json::Map::new();
             let day: String = text(s, "startsAt").chars().take(10).collect();
             pay_on(&day, &mut out);
-            for key in ["id", "startsAt", "endsAt", "workType", "breakStartsAt", "breakEndsAt", "companyName", "notes"] {
+            for key in [
+                "id",
+                "startsAt",
+                "endsAt",
+                "workType",
+                "breakStartsAt",
+                "breakEndsAt",
+                "companyName",
+                "notes",
+            ] {
                 out.insert(key.to_owned(), s[key].clone());
             }
             Value::Object(out)
         })
         .collect();
-    let requests: Vec<Value> = requests.iter().map(crate::shift_requests::to_self_shift_request).collect();
+    let requests: Vec<Value> = requests
+        .iter()
+        .map(crate::shift_requests::to_self_shift_request)
+        .collect();
     Ok(json!({ "records": records, "shifts": shifts, "requests": requests }))
 }
 
-async fn attendance(State(state): State<HrState>, caller: Caller, RawQuery(query): RawQuery) -> HrResult {
+async fn attendance(
+    State(state): State<HrState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let q = query_values(query.as_deref());
     let today = today_iso();
@@ -425,7 +512,12 @@ async fn attendance(State(state): State<HrState>, caller: Caller, RawQuery(query
     Ok(Data(employee_attendance(&caller.db, &employee_id, &from, &to).await?).into_response())
 }
 
-async fn request_shift(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn request_shift(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (starts, ends, work_type, note) = hr_json(&headers, &body, |issues, fields| {
         (
             iso_date_time(issues, fields, "startsAt", Presence::Required),
@@ -446,20 +538,39 @@ async fn request_shift(State(state): State<HrState>, caller: Caller, headers: He
         &caller.user_id,
     )
     .await?;
-    emit_status(&caller, &state, HR_SHIFT_REQUEST_CREATED, &employee_id, &row);
+    emit_status(
+        &caller,
+        &state,
+        HR_SHIFT_REQUEST_CREATED,
+        &employee_id,
+        &row,
+    );
     Ok(Created(crate::shift_requests::to_self_shift_request(&row)).into_response())
 }
 
-async fn cancel_shift_request(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn cancel_shift_request(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let row = crate::shift_requests::cancel_shift_request(&caller.db, &id, &employee_id).await?;
-    emit_status(&caller, &state, HR_SHIFT_REQUEST_UPDATED, &employee_id, &row);
+    emit_status(
+        &caller,
+        &state,
+        HR_SHIFT_REQUEST_UPDATED,
+        &employee_id,
+        &row,
+    );
     Ok(Data(crate::shift_requests::to_self_shift_request(&row)).into_response())
 }
 
 async fn open_shifts(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
-    Ok(Data(crate::open_shifts::open_shifts_for_employee(&caller.db, &employee_id).await?).into_response())
+    Ok(
+        Data(crate::open_shifts::open_shifts_for_employee(&caller.db, &employee_id).await?)
+            .into_response(),
+    )
 }
 
 async fn sign_up(
@@ -481,19 +592,56 @@ async fn sign_up(
         &caller.user_id,
     )
     .await?;
-    emit_status(&caller, &state, HR_SHIFT_REQUEST_CREATED, &employee_id, &row);
+    emit_status(
+        &caller,
+        &state,
+        HR_SHIFT_REQUEST_CREATED,
+        &employee_id,
+        &row,
+    );
     Ok(Created(crate::shift_requests::to_self_shift_request(&row)).into_response())
 }
 
-async fn clock_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn clock_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (action, shift_id, location) = hr_json(&headers, &body, |issues, fields| {
         (
-            issues.choice(fields, "action", Presence::Required, &["in", "out", "switch"]),
+            issues.choice(
+                fields,
+                "action",
+                Presence::Required,
+                &["in", "out", "switch"],
+            ),
             id(issues, fields, "shiftId", Presence::Optional),
             issues.nested(fields, "location", Presence::Optional, |issues, fields| {
-                let latitude = number(issues, fields, "latitude", Presence::Required, Some(-90.0), Some(90.0));
-                let longitude = number(issues, fields, "longitude", Presence::Required, Some(-180.0), Some(180.0));
-                let accuracy = number(issues, fields, "accuracy", Presence::Nullish, Some(0.0), Some(100_000.0));
+                let latitude = number(
+                    issues,
+                    fields,
+                    "latitude",
+                    Presence::Required,
+                    Some(-90.0),
+                    Some(90.0),
+                );
+                let longitude = number(
+                    issues,
+                    fields,
+                    "longitude",
+                    Presence::Required,
+                    Some(-180.0),
+                    Some(180.0),
+                );
+                let accuracy = number(
+                    issues,
+                    fields,
+                    "accuracy",
+                    Presence::Nullish,
+                    Some(0.0),
+                    Some(100_000.0),
+                );
                 GeoPoint {
                     latitude: latitude.into_option().unwrap_or_default(),
                     longitude: longitude.into_option().unwrap_or_default(),
@@ -508,21 +656,68 @@ async fn clock_route(State(state): State<HrState>, caller: Caller, headers: Head
         return Err(HrError::forbidden("Clocking in yourself is turned off"));
     }
     let db = &caller.db;
-    let place = clock_place_for(db, &employee_id, features.clock_in_requires_location, location.into_option()).await?;
+    let place = clock_place_for(
+        db,
+        &employee_id,
+        features.clock_in_requires_location,
+        location.into_option(),
+    )
+    .await?;
     let action = action.into_option().unwrap_or_default();
     let shift_id = shift_id.into_option();
     let record = if action == "switch" {
-        let (closed, opened) = switch_shift(db, &employee_id, shift_id.as_deref(), now_ms(), &caller.user_id, &place).await?;
-        emit_status(&caller, &state, HR_ATTENDANCE_UPDATED, &employee_id, &closed);
-        emit_status(&caller, &state, HR_ATTENDANCE_CREATED, &employee_id, &opened);
+        let (closed, opened) = switch_shift(
+            db,
+            &employee_id,
+            shift_id.as_deref(),
+            now_ms(),
+            &caller.user_id,
+            &place,
+        )
+        .await?;
+        emit_status(
+            &caller,
+            &state,
+            HR_ATTENDANCE_UPDATED,
+            &employee_id,
+            &closed,
+        );
+        emit_status(
+            &caller,
+            &state,
+            HR_ATTENDANCE_CREATED,
+            &employee_id,
+            &opened,
+        );
         opened
     } else {
-        let record = clock(db, &employee_id, &action, now_ms(), &caller.user_id, shift_id.as_deref(), &place).await?;
-        let event = if action == "in" { HR_ATTENDANCE_CREATED } else { HR_ATTENDANCE_UPDATED };
+        let record = clock(
+            db,
+            &employee_id,
+            &action,
+            now_ms(),
+            &caller.user_id,
+            shift_id.as_deref(),
+            &place,
+        )
+        .await?;
+        let event = if action == "in" {
+            HR_ATTENDANCE_CREATED
+        } else {
+            HR_ATTENDANCE_UPDATED
+        };
         emit_status(&caller, &state, event, &employee_id, &record);
         record
     };
-    let keys = ["id", "date", "clockIn", "clockOut", "status", "workedMinutes", "lateMinutes"];
+    let keys = [
+        "id",
+        "date",
+        "clockIn",
+        "clockOut",
+        "status",
+        "workedMinutes",
+        "lateMinutes",
+    ];
     Ok(Data(pick(&record, &keys)).into_response())
 }
 
@@ -538,8 +733,19 @@ async fn leave(State(state): State<HrState>, caller: Caller) -> HrResult {
     let requests = list_leave_requests(db, Some(&employee_id), None, None, None).await?;
     let type_keys = ["id", "name", "color", "requiresApproval"];
     let request_keys = [
-        "id", "leaveTypeId", "leaveTypeName", "leaveTypeColor", "startDate", "endDate", "days", "reason", "status",
-        "reviewNote", "reviewedAt", "reviewedByName", "createdAt",
+        "id",
+        "leaveTypeId",
+        "leaveTypeName",
+        "leaveTypeColor",
+        "startDate",
+        "endDate",
+        "days",
+        "reason",
+        "status",
+        "reviewNote",
+        "reviewedAt",
+        "reviewedByName",
+        "createdAt",
     ];
     Ok(Data(json!({
         "types": types.iter().map(|t| pick(t, &type_keys)).collect::<Vec<_>>(),
@@ -549,7 +755,12 @@ async fn leave(State(state): State<HrState>, caller: Caller) -> HrResult {
     .into_response())
 }
 
-async fn request_leave(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn request_leave(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (leave_type, start, end, reason) = hr_json(&headers, &body, |issues, fields| {
         (
             id(issues, fields, "leaveTypeId", Presence::Required),
@@ -575,7 +786,11 @@ async fn request_leave(State(state): State<HrState>, caller: Caller, headers: He
     Ok(Created(row).into_response())
 }
 
-async fn cancel_leave(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn cancel_leave(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let row = crate::timekeeping::cancel_leave_request(&caller.db, &id, Some(&employee_id)).await?;
     emit_leave(&caller, &state, &row, false);
@@ -588,21 +803,35 @@ async fn cancel_leave(State(state): State<HrState>, caller: Caller, Path(id): Pa
 
 async fn declarations(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
-    Ok(Data(crate::declarations::employee_declarations(&caller.db, &employee_id).await?).into_response())
+    Ok(
+        Data(crate::declarations::employee_declarations(&caller.db, &employee_id).await?)
+            .into_response(),
+    )
 }
 
-async fn file_declaration(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn file_declaration(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (_, input) = crate::declarations::declaration_body(&headers, &body, false)?;
     let employee_id = self_employee_id(&state, &caller).await?;
     if !HrFeatures::load(&caller.db).await?.declarations {
         return Err(HrError::forbidden("Expense declarations are turned off"));
     }
-    let row = crate::declarations::create_declaration(&caller.db, &employee_id, &input, &caller.user_id).await?;
+    let row =
+        crate::declarations::create_declaration(&caller.db, &employee_id, &input, &caller.user_id)
+            .await?;
     emit_status(&caller, &state, HR_DECLARATION_CREATED, &employee_id, &row);
     Ok(Created(crate::declarations::to_public_declaration(&row)).into_response())
 }
 
-async fn cancel_declaration(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn cancel_declaration(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let row = crate::declarations::cancel_declaration(&caller.db, &id, Some(&employee_id)).await?;
     emit_status(&caller, &state, HR_DECLARATION_UPDATED, &employee_id, &row);
@@ -618,12 +847,23 @@ async fn upload_receipt(
     let employee_id = self_employee_id(&state, &caller).await?;
     let file = crate::declarations::receipt_file_from(request).await?;
     let storage = crate::declarations::receipt_bucket(&caller, &state)?;
-    let row = crate::declarations::attach_declaration_receipt(&caller, &storage, &id, file, Some(&employee_id)).await?;
+    let row = crate::declarations::attach_declaration_receipt(
+        &caller,
+        &storage,
+        &id,
+        file,
+        Some(&employee_id),
+    )
+    .await?;
     emit_status(&caller, &state, HR_DECLARATION_UPDATED, &employee_id, &row);
     Ok(Data(crate::declarations::to_public_declaration(&row)).into_response())
 }
 
-async fn download_receipt(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn download_receipt(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let storage = crate::declarations::receipt_bucket(&caller, &state)?;
     crate::declarations::receipt_response(&caller, &storage, &id, Some(&employee_id)).await
@@ -634,10 +874,17 @@ async fn absences(State(state): State<HrState>, caller: Caller) -> HrResult {
     Ok(Data(crate::absences::employee_absences(&caller.db, &employee_id).await?).into_response())
 }
 
-async fn report_sick(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn report_sick(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let (start, first_day, note) = crate::absences::self_absence_body(&headers, &body)?;
     let employee_id = self_employee_id(&state, &caller).await?;
-    let row = crate::absences::report_sick(&caller, &employee_id, &start, first_day.as_deref(), note).await?;
+    let row =
+        crate::absences::report_sick(&caller, &employee_id, &start, first_day.as_deref(), note)
+            .await?;
     caller.emit(&state, HR_ABSENCE_CREATED, text(&row, "id"), &[]);
     Ok(Created(row).into_response())
 }
@@ -651,7 +898,14 @@ async fn recover(
 ) -> HrResult {
     let end = crate::absences::recover_body(&headers, &body)?;
     let employee_id = self_employee_id(&state, &caller).await?;
-    let row = crate::absences::recover_absence(&caller.db, &id, &end, &caller.user_id, Some(&employee_id)).await?;
+    let row = crate::absences::recover_absence(
+        &caller.db,
+        &id,
+        &end,
+        &caller.user_id,
+        Some(&employee_id),
+    )
+    .await?;
     caller.emit(&state, HR_ABSENCE_RECOVERED, text(&row, "id"), &[]);
     Ok(Data(row).into_response())
 }
@@ -662,12 +916,22 @@ async fn recover(
 
 async fn announcements(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
-    Ok(Data(crate::announcements::announcements_for_employee(&caller.db, &employee_id).await?).into_response())
+    Ok(
+        Data(crate::announcements::announcements_for_employee(&caller.db, &employee_id).await?)
+            .into_response(),
+    )
 }
 
-async fn read_announcement(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn read_announcement(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
-    Ok(Data(crate::announcements::mark_announcement_read(&caller.db, &id, &employee_id).await?).into_response())
+    Ok(
+        Data(crate::announcements::mark_announcement_read(&caller.db, &id, &employee_id).await?)
+            .into_response(),
+    )
 }
 
 async fn coaching(State(state): State<HrState>, caller: Caller) -> HrResult {
@@ -682,8 +946,17 @@ async fn coaching(State(state): State<HrState>, caller: Caller) -> HrResult {
     )
     .await?;
     let keys = [
-        "id", "sessionDate", "category", "topic", "notes", "actionItems", "followUpDate", "status", "coachName",
-        "acknowledgedAt", "employeeComment",
+        "id",
+        "sessionDate",
+        "category",
+        "topic",
+        "notes",
+        "actionItems",
+        "followUpDate",
+        "status",
+        "coachName",
+        "acknowledgedAt",
+        "employeeComment",
     ];
     Ok(Data(logs.iter().map(|l| pick(l, &keys)).collect::<Vec<_>>()).into_response())
 }
@@ -709,7 +982,13 @@ async fn acknowledge_coaching(
     let comment = acknowledge_body(&headers, &body)?;
     let employee_id = self_employee_id(&state, &caller).await?;
     let row = acknowledge_coaching_log(&caller.db, &id, &employee_id, comment.as_deref()).await?;
-    emit_status(&caller, &state, HR_COACHING_LOG_ACKNOWLEDGED, &employee_id, &row);
+    emit_status(
+        &caller,
+        &state,
+        HR_COACHING_LOG_ACKNOWLEDGED,
+        &employee_id,
+        &row,
+    );
     Ok(Data(pick(&row, &["id", "acknowledgedAt", "status"])).into_response())
 }
 
@@ -725,8 +1004,19 @@ async fn evaluations(State(state): State<HrState>, caller: Caller) -> HrResult {
     )
     .await?;
     let keys = [
-        "id", "formName", "periodStart", "periodEnd", "criteria", "scores", "overallScore", "summary", "status",
-        "evaluatorName", "submittedAt", "acknowledgedAt", "employeeComment",
+        "id",
+        "formName",
+        "periodStart",
+        "periodEnd",
+        "criteria",
+        "scores",
+        "overallScore",
+        "summary",
+        "status",
+        "evaluatorName",
+        "submittedAt",
+        "acknowledgedAt",
+        "employeeComment",
     ];
     Ok(Data(rows.iter().map(|r| pick(r, &keys)).collect::<Vec<_>>()).into_response())
 }
@@ -741,17 +1031,51 @@ async fn acknowledge_evaluation_route(
     let comment = acknowledge_body(&headers, &body)?;
     let employee_id = self_employee_id(&state, &caller).await?;
     let row = acknowledge_evaluation(&caller.db, &id, &employee_id, comment.as_deref()).await?;
-    emit_status(&caller, &state, HR_EVALUATION_ACKNOWLEDGED, &employee_id, &row);
+    emit_status(
+        &caller,
+        &state,
+        HR_EVALUATION_ACKNOWLEDGED,
+        &employee_id,
+        &row,
+    );
     Ok(Data(pick(&row, &["id", "acknowledgedAt", "status"])).into_response())
 }
 
 async fn performance(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee_id = self_employee_id(&state, &caller).await?;
     let since = add_days(&today_iso(), -365);
-    let kpis = list_kpi_values(&caller.db, Some(&employee_id), None, None, Some(&since), None).await?;
+    let kpis = list_kpi_values(
+        &caller.db,
+        Some(&employee_id),
+        None,
+        None,
+        Some(&since),
+        None,
+    )
+    .await?;
     let milestones = list_milestones(&caller.db, Some(&employee_id), None, None).await?;
-    let kpi_keys = ["id", "kpiId", "kpiName", "unit", "direction", "target", "value", "onTarget", "periodStart", "periodEnd"];
-    let milestone_keys = ["id", "title", "description", "type", "status", "dueDate", "achievedAt", "companyName"];
+    let kpi_keys = [
+        "id",
+        "kpiId",
+        "kpiName",
+        "unit",
+        "direction",
+        "target",
+        "value",
+        "onTarget",
+        "periodStart",
+        "periodEnd",
+    ];
+    let milestone_keys = [
+        "id",
+        "title",
+        "description",
+        "type",
+        "status",
+        "dueDate",
+        "achievedAt",
+        "companyName",
+    ];
     Ok(Data(json!({
         "kpis": kpis.iter().map(|k| pick(k, &kpi_keys)).collect::<Vec<_>>(),
         "milestones": milestones.iter().map(|m| pick(m, &milestone_keys)).collect::<Vec<_>>(),

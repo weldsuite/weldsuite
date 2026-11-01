@@ -30,7 +30,10 @@ use crate::timekeeping::{
     assert_shift_break, assert_shift_window, instant, iso, now_ms, resolve_instant, row_instant,
     work_type_value,
 };
-use crate::{Caller, HrError, HrResult, HrState, company_names, hr_json, js_trim, now, query_date, query_text, query_values, text};
+use crate::{
+    Caller, HrError, HrResult, HrState, company_names, hr_json, js_trim, now, query_date,
+    query_text, query_values, text,
+};
 
 pub(crate) const OPEN_SHIFT_FULL_NOTE: &str = "All spots on this shift were filled";
 pub(crate) const OPEN_SHIFT_WITHDRAWN_NOTE: &str = "This open shift was withdrawn";
@@ -41,23 +44,40 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .route("/open-shifts", get(list).route_layer(gate.require([ATTENDANCE_READ])))
-        .route("/open-shifts", post(create).route_layer(gate.require([ATTENDANCE_CREATE])))
-        .route("/open-shifts/{id}", patch(update).route_layer(gate.require([ATTENDANCE_UPDATE])))
-        .route("/open-shifts/{id}/cancel", post(cancel).route_layer(gate.require([ATTENDANCE_DELETE])))
+        .route(
+            "/open-shifts",
+            get(list).route_layer(gate.require([ATTENDANCE_READ])),
+        )
+        .route(
+            "/open-shifts",
+            post(create).route_layer(gate.require([ATTENDANCE_CREATE])),
+        )
+        .route(
+            "/open-shifts/{id}",
+            patch(update).route_layer(gate.require([ATTENDANCE_UPDATE])),
+        )
+        .route(
+            "/open-shifts/{id}/cancel",
+            post(cancel).route_layer(gate.require([ATTENDANCE_DELETE])),
+        )
 }
 
 /// `requireOpenShift(db, id)`.
 pub(crate) async fn require_open_shift(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from hr_open_shifts t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Open shift", id))
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from hr_open_shifts t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Open shift", id))
 }
 
 /// `openShiftCounts(db, ids)`: approved sign-ups whose shift still exists, and pending ones.
-pub(crate) async fn open_shift_counts(db: &PgPool, ids: &[String]) -> Result<HashMap<String, (i64, i64)>, HrError> {
+pub(crate) async fn open_shift_counts(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<HashMap<String, (i64, i64)>, HrError> {
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -93,26 +113,36 @@ async fn with_details(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrErr
     let company_name = company_names(db, &companies).await?;
     let departments: Vec<String> = rows
         .iter()
-        .filter_map(|r| r["departmentId"].as_str().filter(|d| !d.is_empty()).map(str::to_owned))
+        .filter_map(|r| {
+            r["departmentId"]
+                .as_str()
+                .filter(|d| !d.is_empty())
+                .map(str::to_owned)
+        })
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
     let department_name: HashMap<String, String> = if departments.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>("select id, name from hr_departments where id = any($1)")
-            .bind(&departments)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect()
+        sqlx::query_as::<_, (String, String)>(
+            "select id, name from hr_departments where id = any($1)",
+        )
+        .bind(&departments)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .collect()
     };
     Ok(rows
         .into_iter()
         .map(|mut row| {
             let (filled, pending) = counts.get(text(&row, "id")).copied().unwrap_or((0, 0));
             let spots = row["spots"].as_i64().unwrap_or(0);
-            let company = row["companyId"].as_str().filter(|c| !c.is_empty()).and_then(|c| company_name.get(c).cloned());
+            let company = row["companyId"]
+                .as_str()
+                .filter(|c| !c.is_empty())
+                .and_then(|c| company_name.get(c).cloned());
             let department = row["departmentId"]
                 .as_str()
                 .filter(|d| !d.is_empty())
@@ -183,10 +213,11 @@ async fn assert_department(db: &PgPool, department_id: Option<&str>) -> Result<(
     let Some(department_id) = department_id.filter(|d| !d.is_empty()) else {
         return Ok(());
     };
-    let found: Option<String> = sqlx::query_scalar("select id from hr_departments where id = $1 limit 1")
-        .bind(department_id)
-        .fetch_optional(db)
-        .await?;
+    let found: Option<String> =
+        sqlx::query_scalar("select id from hr_departments where id = $1 limit 1")
+            .bind(department_id)
+            .fetch_optional(db)
+            .await?;
     if found.is_none() {
         return Err(HrError::not_found("Department", department_id));
     }
@@ -206,7 +237,11 @@ struct OpenShiftInput {
 }
 
 fn open_shift_input(issues: &mut Issues, fields: &Fields, partial: bool) -> OpenShiftInput {
-    let required = if partial { Presence::Optional } else { Presence::Required };
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
     OpenShiftInput {
         company_id: id(issues, fields, "companyId", Presence::Nullish),
         department_id: id(issues, fields, "departmentId", Presence::Nullish),
@@ -216,23 +251,46 @@ fn open_shift_input(issues: &mut Issues, fields: &Fields, partial: bool) -> Open
         break_starts_at: iso_date_time(issues, fields, "breakStartsAt", Presence::Nullish),
         break_ends_at: iso_date_time(issues, fields, "breakEndsAt", Presence::Nullish),
         notes: text_max(issues, fields, "notes", Presence::Nullish, 1000),
-        spots: int(issues, fields, "spots", Presence::Optional, Some(1.0), Some(100.0)),
+        spots: int(
+            issues,
+            fields,
+            "spots",
+            Presence::Optional,
+            Some(1.0),
+            Some(100.0),
+        ),
     }
 }
 
 /// `notes?.trim() || null`.
 fn notes_value(field: &Field<String>) -> Option<String> {
-    field.as_set().map(|n| js_trim(n).to_owned()).filter(|n| !n.is_empty())
+    field
+        .as_set()
+        .map(|n| js_trim(n).to_owned())
+        .filter(|n| !n.is_empty())
 }
 
-async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| open_shift_input(issues, fields, false))?;
+async fn create(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let input = hr_json(&headers, &body, |issues, fields| {
+        open_shift_input(issues, fields, false)
+    })?;
     let db = &caller.db;
-    let starts = input.starts_at.as_set().and_then(|s| instant(s)).unwrap_or(0);
+    let starts = input
+        .starts_at
+        .as_set()
+        .and_then(|s| instant(s))
+        .unwrap_or(0);
     let ends = input.ends_at.as_set().and_then(|s| instant(s)).unwrap_or(0);
     assert_shift_window(starts, ends)?;
     if ends <= now_ms() {
-        return Err(HrError::validation("An open shift has to end in the future"));
+        return Err(HrError::validation(
+            "An open shift has to end in the future",
+        ));
     }
     let bs = resolve_instant(&input.break_starts_at, None);
     let be = resolve_instant(&input.break_ends_at, None);
@@ -260,7 +318,12 @@ async fn create(State(state): State<HrState>, caller: Caller, headers: HeaderMap
     .await?;
     let row = js_row(row);
     let id = text(&row, "id").to_owned();
-    caller.emit(&state, HR_OPEN_SHIFT_CREATED, &id, &[("status", Some(row["status"].clone()))]);
+    caller.emit(
+        &state,
+        HR_OPEN_SHIFT_CREATED,
+        &id,
+        &[("status", Some(row["status"].clone()))],
+    );
     Ok(Created(open_shift_with_details(db, &id).await?).into_response())
 }
 
@@ -271,7 +334,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| open_shift_input(issues, fields, true))?;
+    let input = hr_json(&headers, &body, |issues, fields| {
+        open_shift_input(issues, fields, true)
+    })?;
     let db = &caller.db;
     let existing = require_open_shift(db, &id).await?;
     if existing["status"] == "cancelled" {
@@ -279,10 +344,23 @@ async fn update(
     }
     let old_starts = row_instant(&existing, "startsAt").unwrap_or(0);
     let old_ends = row_instant(&existing, "endsAt").unwrap_or(0);
-    let starts = input.starts_at.as_set().filter(|s| !s.is_empty()).and_then(|s| instant(s)).unwrap_or(old_starts);
-    let ends = input.ends_at.as_set().filter(|s| !s.is_empty()).and_then(|s| instant(s)).unwrap_or(old_ends);
+    let starts = input
+        .starts_at
+        .as_set()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| instant(s))
+        .unwrap_or(old_starts);
+    let ends = input
+        .ends_at
+        .as_set()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| instant(s))
+        .unwrap_or(old_ends);
     assert_shift_window(starts, ends)?;
-    let bs = resolve_instant(&input.break_starts_at, row_instant(&existing, "breakStartsAt"));
+    let bs = resolve_instant(
+        &input.break_starts_at,
+        row_instant(&existing, "breakStartsAt"),
+    );
     let be = resolve_instant(&input.break_ends_at, row_instant(&existing, "breakEndsAt"));
     assert_shift_break(starts, ends, bs, be)?;
     if !input.department_id.is_absent() {
@@ -346,7 +424,12 @@ async fn update(
         .await?;
     }
     let row = js_row(row);
-    caller.emit(&state, HR_OPEN_SHIFT_UPDATED, text(&row, "id"), &[("status", Some(row["status"].clone()))]);
+    caller.emit(
+        &state,
+        HR_OPEN_SHIFT_UPDATED,
+        text(&row, "id"),
+        &[("status", Some(row["status"].clone()))],
+    );
     Ok(Data(open_shift_with_details(db, &id).await?).into_response())
 }
 
@@ -387,15 +470,30 @@ async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
     .bind(now())
     .fetch_one(db)
     .await?;
-    let closed = close_pending_requests(db, &id, "cancelled", OPEN_SHIFT_WITHDRAWN_NOTE, &caller.user_id).await?;
+    let closed = close_pending_requests(
+        db,
+        &id,
+        "cancelled",
+        OPEN_SHIFT_WITHDRAWN_NOTE,
+        &caller.user_id,
+    )
+    .await?;
     let row = js_row(row);
-    caller.emit(&state, HR_OPEN_SHIFT_CANCELLED, text(&row, "id"), &[("status", Some(row["status"].clone()))]);
+    caller.emit(
+        &state,
+        HR_OPEN_SHIFT_CANCELLED,
+        text(&row, "id"),
+        &[("status", Some(row["status"].clone()))],
+    );
     for (request, employee, status) in &closed {
         caller.emit(
             &state,
             HR_SHIFT_REQUEST_UPDATED,
             request,
-            &[("employeeId", Some(json!(employee))), ("status", Some(json!(status)))],
+            &[
+                ("employeeId", Some(json!(employee))),
+                ("status", Some(json!(status))),
+            ],
         );
     }
     Ok(Data(open_shift_with_details(db, &id).await?).into_response())
@@ -403,7 +501,11 @@ async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
 
 /// `settleOpenShift(db, openShiftId, by)`: the last spot taken turns down
 /// whoever still waits for it.
-pub(crate) async fn settle_open_shift(db: &PgPool, open_shift_id: &str, by: &str) -> Result<Vec<(String, String, String)>, HrError> {
+pub(crate) async fn settle_open_shift(
+    db: &PgPool,
+    open_shift_id: &str,
+    by: &str,
+) -> Result<Vec<(String, String, String)>, HrError> {
     let shift = require_open_shift(db, open_shift_id).await?;
     let filled = filled_of(db, open_shift_id).await?;
     if filled < shift["spots"].as_i64().unwrap_or(0) {
@@ -413,7 +515,10 @@ pub(crate) async fn settle_open_shift(db: &PgPool, open_shift_id: &str, by: &str
 }
 
 /// `assertOpenShiftHasSpot(db, openShiftId)`.
-pub(crate) async fn assert_open_shift_has_spot(db: &PgPool, open_shift_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn assert_open_shift_has_spot(
+    db: &PgPool,
+    open_shift_id: &str,
+) -> Result<Value, HrError> {
     let shift = require_open_shift(db, open_shift_id).await?;
     if shift["status"] == "cancelled" {
         return Err(HrError::conflict("This open shift was withdrawn"));
@@ -432,7 +537,10 @@ fn visible_to(shift: &Value, lineage: &HashSet<String>) -> bool {
 }
 
 /// `openShiftsForEmployee(db, employeeId)`.
-pub(crate) async fn open_shifts_for_employee(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
+pub(crate) async fn open_shifts_for_employee(
+    db: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<Value>, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
     let rows: Vec<Value> = sqlx::query_scalar(
@@ -442,7 +550,11 @@ pub(crate) async fn open_shifts_for_employee(db: &PgPool, employee_id: &str) -> 
     .bind(iso(now_ms()))
     .fetch_all(db)
     .await?;
-    let rows: Vec<Value> = rows.into_iter().map(js_row).filter(|r| visible_to(r, &lineage)).collect();
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(js_row)
+        .filter(|r| visible_to(r, &lineage))
+        .collect();
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -459,7 +571,10 @@ pub(crate) async fn open_shifts_for_employee(db: &PgPool, employee_id: &str) -> 
     let mut my_request: HashMap<String, Value> = HashMap::new();
     for (id, open_shift, status, note) in mine {
         if let Some(open_shift) = open_shift {
-            my_request.insert(open_shift, json!({ "id": id, "status": status, "reviewNote": note }));
+            my_request.insert(
+                open_shift,
+                json!({ "id": id, "status": status, "reviewNote": note }),
+            );
         }
     }
     Ok(detailed
@@ -485,7 +600,11 @@ pub(crate) async fn open_shifts_for_employee(db: &PgPool, employee_id: &str) -> 
 }
 
 /// `assertCanSignUp(db, employeeId, openShiftId)`.
-pub(crate) async fn assert_can_sign_up(db: &PgPool, employee_id: &str, open_shift_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn assert_can_sign_up(
+    db: &PgPool,
+    employee_id: &str,
+    open_shift_id: &str,
+) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let shift = require_open_shift(db, open_shift_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;

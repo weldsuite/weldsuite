@@ -3,7 +3,7 @@
 //! year, and the state withholding and unemployment reports per quarter,
 //! built from FINAL payslips only.
 //!
-//! Sending the loonaangifte over Digipoort needs the PKIoverheid
+//! Sending the loonaangifte over Digipoort needs the `PKIoverheid`
 //! certificate binding of the Cloudflare worker; this edition has no
 //! Digipoort connection, so submitting and refreshing answer as the worker
 //! does without one (`DIGIPOORT_NOT_CONFIGURED`), and the file is filed by
@@ -17,22 +17,23 @@ use weldsuite_kit::generate_id;
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::money::from_cents;
 use weldsuite_payroll_domain::nl::loonaangifte::{
-    LoonaangifteCorrection, LoonaangifteEmployer, LoonaangifteIkv, LoonaangifteInput, NlAddress, NlEmployeeIdentity,
-    PeriodRange, Software, betalingskenmerk, build_loonaangifte, loonaangifte_due_date, loonaangifte_summary_document,
-    sum_nl_filing_data,
+    LoonaangifteCorrection, LoonaangifteEmployer, LoonaangifteIkv, LoonaangifteInput, NlAddress,
+    NlEmployeeIdentity, PeriodRange, Software, betalingskenmerk, build_loonaangifte,
+    loonaangifte_due_date, loonaangifte_summary_document, sum_nl_filing_data,
 };
 use weldsuite_payroll_domain::payslip_pdf::render_document_pdf;
 use weldsuite_payroll_domain::types::NlFilingData;
 use weldsuite_payroll_domain::us::forms::{
-    EmployeePayslips, Form941Input, UsEmployeeForForms, UsFormResult, form_w3, form940, form941, state_unemployment_report,
-    state_withholding_report,
+    EmployeePayslips, Form941Input, UsEmployeeForForms, UsFormResult, form_w3, form940, form941,
+    state_unemployment_report, state_withholding_report,
 };
 use weldsuite_ports::PutOptions;
 
 use super::Deps;
 use super::annual::{filing_kind, form_payslip, nl_filing_of, us_employer_for_forms};
 use super::common::{
-    address_lines, end_of_next_month, engine_error, file_safe, incomplete, invalid_with, month_bounds, quarter_bounds, safe_id,
+    address_lines, end_of_next_month, engine_error, file_safe, incomplete, invalid_with,
+    month_bounds, quarter_bounds, safe_id,
 };
 use super::employees::{decrypt_sensitive, transition_income_relationship_number};
 use super::files::{param_text, structured_issues};
@@ -42,10 +43,6 @@ use crate::employees::display_name_of;
 use crate::{HrError, add_days, locale_compare, now};
 
 const FILING_ROW: &str = "select to_jsonb(f) || jsonb_build_object('amount_due', f.amount_due::text) from hr_payroll_filings f";
-
-fn n(x: f64) -> Value {
-    weldsuite_core_domain::js::number_value(x)
-}
 
 fn filing_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
     sqlx::AssertSqlSafe(format!("{FILING_ROW} where {filter}"))
@@ -60,7 +57,10 @@ pub(crate) fn quarter_of_date(iso: &str) -> i64 {
 /// `toFilingDto(row, ctx)`. `canSubmit` needs Digipoort, which this edition
 /// does not have.
 pub(crate) fn to_filing_dto(row: &Value, employer_name: &str, currency: Option<&str>) -> Value {
-    let currency = currency.map_or_else(|| if row["country"] == "NL" { "EUR" } else { "USD" }.to_owned(), str::to_owned);
+    let currency = currency.map_or_else(
+        || if row["country"] == "NL" { "EUR" } else { "USD" }.to_owned(),
+        str::to_owned,
+    );
     json!({
         "id": row["id"], "employerId": row["employerId"], "employerName": employer_name, "country": row["country"],
         "kind": row["kind"], "state": row["state"], "taxYear": row["taxYear"], "period": row["period"],
@@ -78,27 +78,37 @@ pub(crate) async fn to_filing_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Va
     let employers: HashMap<String, (String, String)> = if ids.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String, String)>("select id, name, currency from hr_payroll_employers where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(|(id, name, currency)| (id, (name, currency)))
-            .collect()
+        sqlx::query_as::<_, (String, String, String)>(
+            "select id, name, currency from hr_payroll_employers where id = any($1)",
+        )
+        .bind(&ids)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .map(|(id, name, currency)| (id, (name, currency)))
+        .collect()
     };
     Ok(rows
         .iter()
         .map(|row| {
             let employer = employers.get(s(row, "employerId"));
-            to_filing_dto(row, employer.map_or("", |e| e.0.as_str()), employer.map(|e| e.1.as_str()))
+            to_filing_dto(
+                row,
+                employer.map_or("", |e| e.0.as_str()),
+                employer.map(|e| e.1.as_str()),
+            )
         })
         .collect())
 }
 
 /// `requireFilingRow(db, id)`.
 pub(crate) async fn require_filing_row(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(filing_sql("f.id = $1 limit 1")).bind(id).fetch_optional(db).await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("Payroll filing", id))
+    let row: Option<Value> = sqlx::query_scalar(filing_sql("f.id = $1 limit 1"))
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+    row.map(js_row)
+        .ok_or_else(|| HrError::not_found("Payroll filing", id))
 }
 
 /// `getFiling(db, id)`.
@@ -108,7 +118,9 @@ pub(crate) async fn get_filing(db: &PgPool, id: &str) -> Result<Value, HrError> 
 }
 
 fn split(value: Option<&str>) -> Option<Vec<String>> {
-    value.filter(|v| !v.is_empty()).map(|v| v.split(',').map(str::to_owned).collect())
+    value
+        .filter(|v| !v.is_empty())
+        .map(|v| v.split(',').map(str::to_owned).collect())
 }
 
 /// `listFilings(db, filters)`.
@@ -160,19 +172,49 @@ fn filing_keys_for(country: &str, slip: &Value) -> Vec<FilingKey> {
     let pay_year: i64 = pay_date.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(0);
     if country == "NL" {
         let month = pay_date.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(1);
-        return vec![FilingKey { kind: "nl_loonaangifte", state: None, tax_year: pay_year, period: month }];
+        return vec![FilingKey {
+            kind: "nl_loonaangifte",
+            state: None,
+            tax_year: pay_year,
+            period: month,
+        }];
     }
     let quarter = quarter_of_date(pay_date);
     let tax_year = int_of(slip, "taxYear");
     let mut keys = vec![
-        FilingKey { kind: "us_941", state: None, tax_year: pay_year, period: quarter },
-        FilingKey { kind: "us_940", state: None, tax_year, period: 0 },
-        FilingKey { kind: "us_w2", state: None, tax_year, period: 0 },
+        FilingKey {
+            kind: "us_941",
+            state: None,
+            tax_year: pay_year,
+            period: quarter,
+        },
+        FilingKey {
+            kind: "us_940",
+            state: None,
+            tax_year,
+            period: 0,
+        },
+        FilingKey {
+            kind: "us_w2",
+            state: None,
+            tax_year,
+            period: 0,
+        },
     ];
     if let Some(states) = slip["filingData"]["states"].as_object() {
         for state in states.keys() {
-            keys.push(FilingKey { kind: "us_state_withholding", state: Some(state.clone()), tax_year: pay_year, period: quarter });
-            keys.push(FilingKey { kind: "us_state_unemployment", state: Some(state.clone()), tax_year: pay_year, period: quarter });
+            keys.push(FilingKey {
+                kind: "us_state_withholding",
+                state: Some(state.clone()),
+                tax_year: pay_year,
+                period: quarter,
+            });
+            keys.push(FilingKey {
+                kind: "us_state_unemployment",
+                state: Some(state.clone()),
+                tax_year: pay_year,
+                period: quarter,
+            });
         }
     }
     keys
@@ -183,7 +225,10 @@ fn bounds_of(key: &FilingKey) -> (String, String) {
         return month_bounds(key.tax_year, key.period);
     }
     if key.period == 0 {
-        return (format!("{}-01-01", key.tax_year), format!("{}-12-31", key.tax_year));
+        return (
+            format!("{}-01-01", key.tax_year),
+            format!("{}-12-31", key.tax_year),
+        );
     }
     quarter_bounds(key.tax_year, key.period)
 }
@@ -207,12 +252,19 @@ pub(crate) fn was_sent(filing: &Value) -> bool {
     SENT_STATUSES.contains(&s(filing, "status"))
         || filing["history"].as_array().is_some_and(|history| {
             history.iter().any(|e| {
-                SENT_STATUSES.contains(&e["status"].as_str().unwrap_or("")) && e["version"].as_i64().unwrap_or(1) == version
+                SENT_STATUSES.contains(&e["status"].as_str().unwrap_or(""))
+                    && e["version"].as_i64().unwrap_or(1) == version
             })
         })
 }
 
-fn history_event(at: &str, status: &str, by: Option<&str>, message: Option<String>, version: i64) -> Value {
+fn history_event(
+    at: &str,
+    status: &str,
+    by: Option<&str>,
+    message: Option<String>,
+    version: i64,
+) -> Value {
     json!({ "at": at, "status": status, "by": by, "message": message, "version": version })
 }
 
@@ -282,11 +334,16 @@ pub(crate) async fn ensure_filings_for_run(
                     let current = existing["version"].as_i64().unwrap_or(1);
                     let version = if sent { current + 1 } else { current };
                     let message = if sent {
-                        format!("Reopened as version {version}: new payslips were approved for this period")
+                        format!(
+                            "Reopened as version {version}: new payslips were approved for this period"
+                        )
                     } else {
                         "Reopened: new payslips were approved for this period".to_owned()
                     };
-                    let history = with_event(&existing, history_event(&at, "open", user_id, Some(message), version));
+                    let history = with_event(
+                        &existing,
+                        history_event(&at, "open", user_id, Some(message), version),
+                    );
                     sqlx::query(
                         "update hr_payroll_filings set status = 'open', version = $2, history = $3,
                            channel = case when $4 then null else channel end,
@@ -331,18 +388,25 @@ struct BuiltFiling {
 
 /// `initialsOf(firstName)`.
 fn initials_of(first_name: &str) -> String {
-    first_name
+    let mut out = String::new();
+    for part in first_name
         .split(|c: char| c.is_whitespace() || c == '-')
         .filter(|p| !p.is_empty())
-        .map(|part| {
-            let first: Vec<u16> = part.encode_utf16().take(1).collect();
-            format!("{}.", String::from_utf16_lossy(&first).to_uppercase())
-        })
-        .collect()
+    {
+        let first: Vec<u16> = part.encode_utf16().take(1).collect();
+        out.push_str(&String::from_utf16_lossy(&first).to_uppercase());
+        out.push('.');
+    }
+    out
 }
 
 /// `previouslyReportedTotTeBet(db, employerId, filing, months)`.
-async fn previously_reported(db: &PgPool, employer_id: &str, filing: &Value, months: &[String]) -> Result<HashMap<String, f64>, HrError> {
+async fn previously_reported(
+    db: &PgPool,
+    employer_id: &str,
+    filing: &Value,
+    months: &[String],
+) -> Result<HashMap<String, f64>, HrError> {
     let mut out = HashMap::new();
     if months.is_empty() {
         return Ok(out);
@@ -360,8 +424,13 @@ async fn previously_reported(db: &PgPool, employer_id: &str, filing: &Value, mon
     let period = int_of(filing, "period");
     for month in months {
         let month_number: i64 = month.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(0);
-        let Some(original) = returns.iter().find(|r| int_of(r, "period") == month_number) else { continue };
-        let Some(base) = original["summary"]["TotTeBet"].as_f64().filter(|_| !original["generatedAt"].is_null()) else {
+        let Some(original) = returns.iter().find(|r| int_of(r, "period") == month_number) else {
+            continue;
+        };
+        let Some(base) = original["summary"]["TotTeBet"]
+            .as_f64()
+            .filter(|_| !original["generatedAt"].is_null())
+        else {
             continue;
         };
         let mut reported = base;
@@ -389,10 +458,23 @@ fn ensure_id(list: &mut Vec<String>, id: &str) {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, deps: &Deps) -> Result<BuiltFiling, HrError> {
+async fn build_nl(
+    db: &PgPool,
+    filing: &Value,
+    version: i64,
+    employer: &Value,
+    deps: &Deps,
+) -> Result<BuiltFiling, HrError> {
     let settings = &employer["nlSettings"];
-    let Some(lhn) = settings["loonheffingennummer"].as_str().filter(|v| !v.is_empty()).map(str::to_owned) else {
-        return Err(incomplete("The employer has no loonheffingennummer", "loonheffingennummer"));
+    let Some(lhn) = settings["loonheffingennummer"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+    else {
+        return Err(incomplete(
+            "The employer has no loonheffingennummer",
+            "loonheffingennummer",
+        ));
     };
     let tax_year = int_of(filing, "taxYear");
     let period = int_of(filing, "period");
@@ -429,7 +511,9 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
     let mut main: Vec<Value> = vec![];
     let mut earlier: Vec<Value> = vec![];
     for slip in &slips {
-        let original = slip["correctsPayslipId"].as_str().and_then(|id| originals.iter().find(|o| o["id"] == id));
+        let original = slip["correctsPayslipId"]
+            .as_str()
+            .and_then(|id| originals.iter().find(|o| o["id"] == id));
         match original {
             Some(original) if month_of(s(original, "payDate")) != month_of(s(slip, "payDate")) => {
                 if !earlier.iter().any(|e| e["id"] == original["id"]) {
@@ -492,38 +576,53 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
     let (people, profiles): (Vec<Value>, Vec<Value>) = if employee_ids.is_empty() {
         (vec![], vec![])
     } else {
-        let people: Vec<Value> = sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(&employee_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
-        let profiles: Vec<Value> = sqlx::query_scalar("select to_jsonb(p) from hr_payroll_profiles p where p.employee_id = any($1)")
-            .bind(&employee_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+        let people: Vec<Value> =
+            sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
+                .bind(&employee_ids)
+                .fetch_all(db)
+                .await?
+                .into_iter()
+                .map(js_row)
+                .collect();
+        let profiles: Vec<Value> = sqlx::query_scalar(
+            "select to_jsonb(p) from hr_payroll_profiles p where p.employee_id = any($1)",
+        )
+        .bind(&employee_ids)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect();
         (people, profiles)
     };
     let mut sensitive: HashMap<String, Value> = HashMap::new();
     for person in &people {
-        sensitive.insert(s(person, "id").to_owned(), decrypt_sensitive(person, &deps.keyring)?);
+        sensitive.insert(
+            s(person, "id").to_owned(),
+            decrypt_sensitive(person, &deps.keyring)?,
+        );
     }
     let pays_transition = |row: &Value| {
         row["lines"].as_array().is_some_and(|lines| {
-            lines.iter().any(|l| l["code"] == "nl.transition_payment" && l["amountCents"].as_f64().unwrap_or(0.0) != 0.0)
+            lines.iter().any(|l| {
+                l["code"] == "nl.transition_payment"
+                    && l["amountCents"].as_f64().unwrap_or(0.0) != 0.0
+            })
         })
     };
     let mut transition: HashMap<String, f64> = HashMap::new();
-    for row in main.iter().chain(correction_sets.iter().flat_map(|(_, set)| set.iter())) {
+    for row in main
+        .iter()
+        .chain(correction_sets.iter().flat_map(|(_, set)| set.iter()))
+    {
         let employee_id = s(row, "employeeId");
         if !pays_transition(row) || transition.contains_key(employee_id) {
             continue;
         }
-        if let Some(number) = transition_income_relationship_number(db, employee_id).await?.filter(|n| *n != 0.0) {
+        if let Some(number) = transition_income_relationship_number(db, employee_id)
+            .await?
+            .filter(|n| *n != 0.0)
+        {
             transition.insert(employee_id.to_owned(), number);
         }
     }
@@ -543,24 +642,36 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
         let mut ikvs = vec![];
         for (employee_id, items) in by_employee {
             let person = people.iter().find(|p| p["id"] == employee_id.as_str());
-            let profile = profiles.iter().find(|p| p["employeeId"] == employee_id.as_str());
-            let (Some(person), Some(profile)) = (person, profile) else { continue };
+            let profile = profiles
+                .iter()
+                .find(|p| p["employeeId"] == employee_id.as_str());
+            let (Some(person), Some(profile)) = (person, profile) else {
+                continue;
+            };
             let empty = json!({});
             let sens = sensitive.get(&employee_id).unwrap_or(&empty);
             let nl = &profile["nl"];
-            let address = sens.get("homeAddress").filter(|a| !a.is_null()).map(|a| NlAddress {
-                street: opt(&a["line1"]),
-                house_number: opt(&a["houseNumber"]),
-                house_number_addition: opt(&a["houseNumberAddition"]),
-                postal_code: opt(&a["postalCode"]),
-                city: opt(&a["city"]),
-                country: opt(&a["country"]),
-            });
+            let address = sens
+                .get("homeAddress")
+                .filter(|a| !a.is_null())
+                .map(|a| NlAddress {
+                    street: opt(&a["line1"]),
+                    house_number: opt(&a["houseNumber"]),
+                    house_number_addition: opt(&a["houseNumberAddition"]),
+                    postal_code: opt(&a["postalCode"]),
+                    city: opt(&a["city"]),
+                    country: opt(&a["country"]),
+                });
             let mut filings: Vec<NlFilingData> = vec![];
             for item in &items {
-                filings.push(nl_filing_of(item).map_err(|e| HrError::internal(format!("filing data: {e}")))?);
+                filings.push(
+                    nl_filing_of(item)
+                        .map_err(|e| HrError::internal(format!("filing data: {e}")))?,
+                );
             }
-            let Some(filing) = sum_nl_filing_data(&filings) else { continue };
+            let Some(filing) = sum_nl_filing_data(&filings) else {
+                continue;
+            };
             let start = profile["startDate"]
                 .as_str()
                 .or_else(|| person["startDate"].as_str())
@@ -569,7 +680,11 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
             ikvs.push(LoonaangifteIkv {
                 identity: NlEmployeeIdentity {
                     bsn: opt(&sens["nationalId"]),
-                    initials: Some(nl["initials"].as_str().map_or_else(|| initials_of(s(person, "firstName")), str::to_owned)),
+                    initials: Some(
+                        nl["initials"]
+                            .as_str()
+                            .map_or_else(|| initials_of(s(person, "firstName")), str::to_owned),
+                    ),
                     surname_prefix: opt(&nl["surnamePrefix"]),
                     surname: s(person, "lastName").to_owned(),
                     date_of_birth: opt(&sens["dateOfBirth"]),
@@ -580,18 +695,27 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
                 },
                 income_relationship_number: nl["incomeRelationshipNumber"].as_f64().unwrap_or(0.0),
                 employment_start: start,
-                employment_end: profile["endDate"].as_str().or_else(|| person["endDate"].as_str()).map(str::to_owned),
+                employment_end: profile["endDate"]
+                    .as_str()
+                    .or_else(|| person["endDate"].as_str())
+                    .map(str::to_owned),
                 filing,
                 end_reason_code: opt(&nl["endReasonCode"]),
                 cao_code: nl["caoCode"].as_f64(),
-                transition_payment_income_relationship_number: if items.iter().any(|i| pays_transition(i)) {
+                transition_payment_income_relationship_number: if items
+                    .iter()
+                    .any(|i| pays_transition(i))
+                {
                     transition.get(&employee_id).copied()
                 } else {
                     None
                 },
             });
         }
-        ikvs.sort_by(|a, b| a.income_relationship_number.total_cmp(&b.income_relationship_number));
+        ikvs.sort_by(|a, b| {
+            a.income_relationship_number
+                .total_cmp(&b.income_relationship_number)
+        });
         Ok(ikvs)
     };
 
@@ -607,7 +731,10 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
             previously_reported_tot_te_bet_cents: previously.get(month).copied(),
         });
     }
-    let message_id: String = format!("WS-{}-v{version}", safe_id(s(filing, "id"))).chars().take(35).collect();
+    let message_id: String = format!("WS-{}-v{version}", safe_id(s(filing, "id")))
+        .chars()
+        .take(35)
+        .collect();
     let input = LoonaangifteInput {
         employer: LoonaangifteEmployer {
             loonheffingennummer: lhn.clone(),
@@ -616,32 +743,64 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
             contact_phone: opt(&settings["contactPhone"]),
             sector_code: settings["sectorCode"].as_f64(),
         },
-        software: Software { name: "WeldSuite".into(), version: "1.0".into(), relation_number: deps.software_relation_number.clone() },
+        software: Software {
+            name: "WeldSuite".into(),
+            version: "1.0".into(),
+            relation_number: deps.software_relation_number.clone(),
+        },
         tax_year,
-        period: PeriodRange { start: month_start.clone(), end: month_end.clone() },
+        period: PeriodRange {
+            start: month_start.clone(),
+            end: month_end.clone(),
+        },
         ikvs: ikvs_for(&main)?,
         corrections,
         created_at: now(),
         message_id,
         kind: None,
     };
-    if input.ikvs.iter().any(|ikv| ikv.income_relationship_number == 0.0 || ikv.income_relationship_number.is_nan()) {
-        return Err(incomplete("An employee on this return has no income relationship number", "income_relationship_number"));
+    if input
+        .ikvs
+        .iter()
+        .any(|ikv| ikv.income_relationship_number == 0.0 || ikv.income_relationship_number.is_nan())
+    {
+        return Err(incomplete(
+            "An employee on this return has no income relationship number",
+            "income_relationship_number",
+        ));
     }
     let result = build_loonaangifte(&input);
     let mut relationship_of: HashMap<String, String> = HashMap::new();
     for profile in &profiles {
-        if let Some(number) = profile["nl"]["incomeRelationshipNumber"].as_f64().filter(|n| *n != 0.0) {
-            relationship_of.insert(weldsuite_core_domain::js::number_text(number), s(profile, "employeeId").to_owned());
+        if let Some(number) = profile["nl"]["incomeRelationshipNumber"]
+            .as_f64()
+            .filter(|n| *n != 0.0)
+        {
+            relationship_of.insert(
+                weldsuite_core_domain::js::number_text(number),
+                s(profile, "employeeId").to_owned(),
+            );
         }
     }
     let issues = structured_issues(&result.issues, &|key, value| {
-        if key == "incomeRelationship" { relationship_of.get(&param_text(value)).cloned() } else { None }
+        if key == "incomeRelationship" {
+            relationship_of.get(&param_text(value)).cloned()
+        } else {
+            None
+        }
     });
     if issues.iter().any(|i| i["severity"] == "error") {
-        return Err(invalid_with("FILING_INVALID", "The loonaangifte has errors and was not stored", issues));
+        return Err(invalid_with(
+            "FILING_INVALID",
+            "The loonaangifte has errors and was not stored",
+            issues,
+        ));
     }
-    let lang = if settings["payslipLanguage"] == "en" { Lang::En } else { Lang::Nl };
+    let lang = if settings["payslipLanguage"] == "en" {
+        Lang::En
+    } else {
+        Lang::Nl
+    };
     let summary_doc = loonaangifte_summary_document(&result, &input, lang);
     let extras = vec![BuiltFile {
         file_name: format!("loonaangifte-{tax_year}-{period:02}-summary.pdf"),
@@ -659,12 +818,20 @@ async fn build_nl(db: &PgPool, filing: &Value, version: i64, employer: &Value, d
         amount_due_cents: result.amount_due_cents,
         due_date: Some(loonaangifte_due_date(tax_year, period)),
         payment_reference: betalingskenmerk(&lhn, tax_year, period),
-        issues: issues.into_iter().filter(|i| i["severity"] != "error").collect(),
+        issues: issues
+            .into_iter()
+            .filter(|i| i["severity"] != "error")
+            .collect(),
     })
 }
 
 /// `usEmployeesForForms(db, rows, deps, { fullSsn })`.
-async fn us_employees_for_forms(db: &PgPool, rows: &[&Value], deps: &Deps, full_ssn: bool) -> Result<Vec<EmployeePayslips>, HrError> {
+async fn us_employees_for_forms(
+    db: &PgPool,
+    rows: &[&Value],
+    deps: &Deps,
+    full_ssn: bool,
+) -> Result<Vec<EmployeePayslips>, HrError> {
     let mut by_employee: Vec<(String, Vec<&Value>)> = vec![];
     for row in rows {
         if filing_kind(row) != "us" {
@@ -680,13 +847,14 @@ async fn us_employees_for_forms(db: &PgPool, rows: &[&Value], deps: &Deps, full_
         return Ok(vec![]);
     }
     let ids: Vec<&String> = by_employee.iter().map(|(id, _)| id).collect();
-    let mut people: Vec<Value> = sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-        .bind(ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
+    let mut people: Vec<Value> =
+        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
+            .bind(ids)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .map(js_row)
+            .collect();
     people.sort_by(|a, b| locale_compare(&display_name_of(a), &display_name_of(b)));
     let mut out = vec![];
     for person in &people {
@@ -697,14 +865,20 @@ async fn us_employees_for_forms(db: &PgPool, rows: &[&Value], deps: &Deps, full_
         } else {
             ssn.map(|v| {
                 let units: Vec<u16> = v.encode_utf16().collect();
-                format!("***-**-{}", String::from_utf16_lossy(&units[units.len().saturating_sub(4)..]))
+                format!(
+                    "***-**-{}",
+                    String::from_utf16_lossy(&units[units.len().saturating_sub(4)..])
+                )
             })
         };
         let home = sens.get("homeAddress").cloned().unwrap_or(Value::Null);
         let mut payslips = vec![];
         if let Some((_, rows)) = by_employee.iter().find(|(id, _)| id == s(person, "id")) {
             for row in rows {
-                payslips.push(form_payslip(row, true).map_err(|e| HrError::internal(format!("filing data: {e}")))?);
+                payslips.push(
+                    form_payslip(row, true)
+                        .map_err(|e| HrError::internal(format!("filing data: {e}")))?,
+                );
             }
         }
         out.push(EmployeePayslips {
@@ -721,7 +895,12 @@ async fn us_employees_for_forms(db: &PgPool, rows: &[&Value], deps: &Deps, full_
 }
 
 #[allow(clippy::too_many_lines)]
-async fn build_us(db: &PgPool, filing: &Value, employer: &Value, deps: &Deps) -> Result<BuiltFiling, HrError> {
+async fn build_us(
+    db: &PgPool,
+    filing: &Value,
+    employer: &Value,
+    deps: &Deps,
+) -> Result<BuiltFiling, HrError> {
     let employer_forms = us_employer_for_forms(db, employer).await?;
     let tax_year = int_of(filing, "taxYear");
     let quarter = int_of(filing, "period");
@@ -737,18 +916,22 @@ async fn build_us(db: &PgPool, filing: &Value, employer: &Value, deps: &Deps) ->
     .into_iter()
     .map(js_row)
     .collect();
-    let in_year: Vec<Value> = sqlx::query_scalar(payslip_sql("s.employer_id = $1 and s.status = 'final' and s.tax_year = $2"))
-        .bind(s(employer, "id"))
-        .bind(i32::try_from(tax_year).unwrap_or_default())
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
+    let in_year: Vec<Value> = sqlx::query_scalar(payslip_sql(
+        "s.employer_id = $1 and s.status = 'final' and s.tax_year = $2",
+    ))
+    .bind(s(employer, "id"))
+    .bind(i32::try_from(tax_year).unwrap_or_default())
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(js_row)
+    .collect();
     let us_payslips = |rows: &[Value]| -> Result<Vec<_>, HrError> {
         rows.iter()
             .filter(|x| filing_kind(x) == "us")
-            .map(|x| form_payslip(x, true).map_err(|e| HrError::internal(format!("filing data: {e}"))))
+            .map(|x| {
+                form_payslip(x, true).map_err(|e| HrError::internal(format!("filing data: {e}")))
+            })
             .collect()
     };
     let kind = s(filing, "kind").to_owned();
@@ -767,17 +950,21 @@ async fn build_us(db: &PgPool, filing: &Value, employer: &Value, deps: &Deps) ->
         }
         "us_940" => {
             let payslips = us_payslips(&in_year)?;
-            form940(&employer_forms, tax_year, &payslips, None).map_err(|e| engine_error("Form 940", &e))?
+            form940(&employer_forms, tax_year, &payslips, None)
+                .map_err(|e| engine_error("Form 940", &e))?
         }
         "us_w2" => {
             let rows: Vec<&Value> = in_year.iter().collect();
             let employees = us_employees_for_forms(db, &rows, deps, true).await?;
-            form_w3(&employer_forms, tax_year, &employees).map_err(|e| engine_error("Form W-3", &e))?
+            form_w3(&employer_forms, tax_year, &employees)
+                .map_err(|e| engine_error("Form W-3", &e))?
         }
         "us_state_withholding" | "us_state_unemployment" => {
             let state = s(filing, "state").to_owned();
-            let with_state: Vec<&Value> =
-                in_quarter.iter().filter(|x| super::common::truthy(x["filingData"]["states"].get(&state))).collect();
+            let with_state: Vec<&Value> = in_quarter
+                .iter()
+                .filter(|x| super::common::truthy(x["filingData"]["states"].get(&state)))
+                .collect();
             let employees = us_employees_for_forms(db, &with_state, deps, true).await?;
             if kind == "us_state_withholding" {
                 state_withholding_report(&employer_forms, &state, tax_year, quarter, &employees)
@@ -789,9 +976,20 @@ async fn build_us(db: &PgPool, filing: &Value, employer: &Value, deps: &Deps) ->
         }
         _ => return Err(HrError::conflict("This is not a US filing")),
     };
-    let state_suffix = filing["state"].as_str().filter(|v| !v.is_empty()).map(|st| format!("-{st}")).unwrap_or_default();
-    let label = format!("{}{state_suffix}", kind.replacen("us_", "", 1).replacen("state_", "state-", 1));
-    let quarter_suffix = if quarter == 0 { String::new() } else { format!("-q{quarter}") };
+    let state_suffix = filing["state"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .map(|st| format!("-{st}"))
+        .unwrap_or_default();
+    let label = format!(
+        "{}{state_suffix}",
+        kind.replacen("us_", "", 1).replacen("state_", "state-", 1)
+    );
+    let quarter_suffix = if quarter == 0 {
+        String::new()
+    } else {
+        format!("-q{quarter}")
+    };
     let pdf = BuiltFile {
         file_name: format!("{label}-{tax_year}{quarter_suffix}.pdf"),
         content_type: "application/pdf".into(),
@@ -802,12 +1000,20 @@ async fn build_us(db: &PgPool, filing: &Value, employer: &Value, deps: &Deps) ->
         .clone()
         .unwrap_or_default()
         .into_iter()
-        .map(|f| BuiltFile { file_name: f.file_name, content_type: f.content_type, body: f.content.into_bytes() })
+        .map(|f| BuiltFile {
+            file_name: f.file_name,
+            content_type: f.content_type,
+            body: f.content.into_bytes(),
+        })
         .collect();
     let state_report = kind == "us_state_withholding" || kind == "us_state_unemployment";
     let (primary, extras) = if state_report && !files.is_empty() {
         let mut files = files.into_iter();
-        let first = files.next().unwrap_or(BuiltFile { file_name: String::new(), content_type: String::new(), body: vec![] });
+        let first = files.next().unwrap_or(BuiltFile {
+            file_name: String::new(),
+            content_type: String::new(),
+            body: vec![],
+        });
         let mut extras = vec![pdf];
         extras.extend(files);
         (first, extras)
@@ -848,13 +1054,25 @@ fn filing_folder(deps: &Deps, filing: &Value) -> String {
 
 /// `generateFiling(db, id, deps, { userId })`: rebuild from final payslips
 /// and store the files.
-pub(crate) async fn generate_filing(db: &PgPool, id: &str, deps: &Deps, user_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn generate_filing(
+    db: &PgPool,
+    id: &str,
+    deps: &Deps,
+    user_id: &str,
+) -> Result<Value, HrError> {
     let filing = require_filing_row(db, id).await?;
     let Some(employer) = employer_by_id(db, s(&filing, "employerId")).await? else {
-        return Err(HrError::not_found("Payroll employer", s(&filing, "employerId")));
+        return Err(HrError::not_found(
+            "Payroll employer",
+            s(&filing, "employerId"),
+        ));
     };
     let Some(bucket) = deps.bucket.clone() else {
-        return Err(HrError::payroll("STORAGE_UNAVAILABLE", "File storage is not available on this worker", 503));
+        return Err(HrError::payroll(
+            "STORAGE_UNAVAILABLE",
+            "File storage is not available on this worker",
+            503,
+        ));
     };
     let resubmission = was_sent(&filing);
     let current = filing["version"].as_i64().unwrap_or(1);
@@ -867,24 +1085,34 @@ pub(crate) async fn generate_filing(db: &PgPool, id: &str, deps: &Deps, user_id:
     let built = match built {
         Ok(built) => built,
         Err(error) => {
-            if let HrError::Payroll { details: Some(details), .. } = &error {
-                if let Some(issues) = details.get("issues") {
-                    sqlx::query("update hr_payroll_filings set issues = $2, updated_at = $3::timestamp where id = $1")
+            if let HrError::Payroll {
+                details: Some(details),
+                ..
+            } = &error
+                && let Some(issues) = details.get("issues")
+            {
+                sqlx::query("update hr_payroll_filings set issues = $2, updated_at = $3::timestamp where id = $1")
                         .bind(id)
                         .bind(issues)
                         .bind(now())
                         .execute(db)
                         .await?;
-                }
             }
             return Err(error);
         }
     };
     let mut file_key = String::new();
-    for (index, file) in std::iter::once(&built.primary).chain(built.extras.iter()).enumerate() {
+    for (index, file) in std::iter::once(&built.primary)
+        .chain(built.extras.iter())
+        .enumerate()
+    {
         let key = filing_storage_key(deps, &filing, version, &file.file_name);
         bucket
-            .put_boxed(&key, file.body.clone(), &PutOptions::content_type(file.content_type.clone()))
+            .put_boxed(
+                &key,
+                file.body.clone(),
+                &PutOptions::content_type(file.content_type.clone()),
+            )
             .await
             .map_err(|e| HrError::internal(e.to_string()))?;
         if index == 0 {
@@ -892,8 +1120,15 @@ pub(crate) async fn generate_filing(db: &PgPool, id: &str, deps: &Deps, user_id:
         }
     }
     let at = now();
-    let message = if resubmission { format!("Regenerated (version {version})") } else { "Generated".to_owned() };
-    let history = with_event(&filing, history_event(&at, "ready", Some(user_id), Some(message), version));
+    let message = if resubmission {
+        format!("Regenerated (version {version})")
+    } else {
+        "Generated".to_owned()
+    };
+    let history = with_event(
+        &filing,
+        history_event(&at, "ready", Some(user_id), Some(message), version),
+    );
     sqlx::query(
         "update hr_payroll_filings set status = 'ready', version = $2, summary = $3, amount_due = $4::numeric,
            due_date = coalesce($5::date, due_date), payment_reference = $6, file_key = $7, file_name = $8, content_type = $9,
@@ -925,10 +1160,18 @@ pub(crate) async fn generate_filing(db: &PgPool, id: &str, deps: &Deps, user_id:
 
 /// `filingFile(db, id, deps, name)`: the stored file of a filing; `name`
 /// picks one of the extra files beside it.
-pub(crate) async fn filing_file(db: &PgPool, id: &str, deps: &Deps, name: Option<&str>) -> Result<(Vec<u8>, String, String), HrError> {
+pub(crate) async fn filing_file(
+    db: &PgPool,
+    id: &str,
+    deps: &Deps,
+    name: Option<&str>,
+) -> Result<(Vec<u8>, String, String), HrError> {
     let filing = require_filing_row(db, id).await?;
     let missing = || HrError::not_found("Filing file", id);
-    let (Some(key), Some(bucket)) = (filing["fileKey"].as_str().filter(|k| !k.is_empty()), &deps.bucket) else {
+    let (Some(key), Some(bucket)) = (
+        filing["fileKey"].as_str().filter(|k| !k.is_empty()),
+        &deps.bucket,
+    ) else {
         return Err(missing());
     };
     let folder = &key[..key.rfind('/').map_or(0, |i| i + 1)];
@@ -937,7 +1180,10 @@ pub(crate) async fn filing_file(db: &PgPool, id: &str, deps: &Deps, name: Option
     }
     let name = name.filter(|n| !n.is_empty());
     let object_key = name.map_or_else(|| key.to_owned(), |n| format!("{folder}{}", file_safe(n)));
-    let object = bucket.get_boxed(&object_key).await.map_err(|e| HrError::internal(e.to_string()))?;
+    let object = bucket
+        .get_boxed(&object_key)
+        .await
+        .map_err(|e| HrError::internal(e.to_string()))?;
     let Some(object) = object else {
         return Err(missing());
     };
@@ -946,9 +1192,15 @@ pub(crate) async fn filing_file(db: &PgPool, id: &str, deps: &Deps, name: Option
         Some(n) if n.ends_with(".csv") => "text/csv".to_owned(),
         Some(n) if n.ends_with(".xml") => "application/xml".to_owned(),
         Some(_) => "application/octet-stream".to_owned(),
-        None => filing["contentType"].as_str().unwrap_or("application/octet-stream").to_owned(),
+        None => filing["contentType"]
+            .as_str()
+            .unwrap_or("application/octet-stream")
+            .to_owned(),
     };
-    let file_name = name.map_or_else(|| filing["fileName"].as_str().unwrap_or("filing").to_owned(), file_safe);
+    let file_name = name.map_or_else(
+        || filing["fileName"].as_str().unwrap_or("filing").to_owned(),
+        file_safe,
+    );
     Ok((object.bytes, file_name, content_type))
 }
 
@@ -964,7 +1216,9 @@ fn not_configured() -> HrError {
 pub(crate) async fn submit_filing(db: &PgPool, id: &str) -> Result<Value, HrError> {
     let filing = require_filing_row(db, id).await?;
     if filing["kind"] != "nl_loonaangifte" {
-        return Err(HrError::conflict("Only the Dutch loonaangifte can be sent from WeldSuite"));
+        return Err(HrError::conflict(
+            "Only the Dutch loonaangifte can be sent from WeldSuite",
+        ));
     }
     Err(not_configured())
 }
@@ -972,14 +1226,23 @@ pub(crate) async fn submit_filing(db: &PgPool, id: &str) -> Result<Value, HrErro
 /// `refreshFilingStatus(db, id, deps, ctx)`: without a Digipoort connection.
 pub(crate) async fn refresh_filing_status(db: &PgPool, id: &str) -> Result<Value, HrError> {
     let filing = require_filing_row(db, id).await?;
-    if filing["channel"] != "digipoort" || filing["externalReference"].as_str().is_none_or(str::is_empty) {
+    if filing["channel"] != "digipoort"
+        || filing["externalReference"]
+            .as_str()
+            .is_none_or(str::is_empty)
+    {
         return Err(HrError::conflict("This filing was not sent over Digipoort"));
     }
     Err(not_configured())
 }
 
 /// `markFilingFiled(db, id, input, ctx)`.
-pub(crate) async fn mark_filing_filed(db: &PgPool, id: &str, input: &Value, user_id: &str) -> Result<Value, HrError> {
+pub(crate) async fn mark_filing_filed(
+    db: &PgPool,
+    id: &str,
+    input: &Value,
+    user_id: &str,
+) -> Result<Value, HrError> {
     let filing = require_filing_row(db, id).await?;
     let status = s(&filing, "status");
     if !["ready", "submitted", "rejected"].contains(&status) {
@@ -990,10 +1253,27 @@ pub(crate) async fn mark_filing_filed(db: &PgPool, id: &str, input: &Value, user
         }));
     }
     let at = now();
-    let filed_at = input["filedOn"].as_str().filter(|v| !v.is_empty()).map_or_else(|| at.clone(), |d| format!("{d}T12:00:00.000Z"));
-    let reference = input["externalReference"].as_str().filter(|v| !v.is_empty());
-    let message = reference.map_or_else(|| "Filed by the employer".to_owned(), |r| format!("Filed by the employer ({r})"));
-    let history = with_event(&filing, history_event(&at, "filed", Some(user_id), Some(message), filing["version"].as_i64().unwrap_or(1)));
+    let filed_at = input["filedOn"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| at.clone(), |d| format!("{d}T12:00:00.000Z"));
+    let reference = input["externalReference"]
+        .as_str()
+        .filter(|v| !v.is_empty());
+    let message = reference.map_or_else(
+        || "Filed by the employer".to_owned(),
+        |r| format!("Filed by the employer ({r})"),
+    );
+    let history = with_event(
+        &filing,
+        history_event(
+            &at,
+            "filed",
+            Some(user_id),
+            Some(message),
+            filing["version"].as_i64().unwrap_or(1),
+        ),
+    );
     let external = match input.get("externalReference") {
         Some(Value::String(r)) => Some(r.clone()),
         _ => filing["externalReference"].as_str().map(str::to_owned),

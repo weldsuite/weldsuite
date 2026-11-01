@@ -43,7 +43,13 @@ async fn payslip(State(state): State<HrState>, caller: Caller, Path(id): Path<St
     let deps = Deps::of(&state, &caller);
     let bytes = payslip_pdf(&caller.db, &row, &deps).await?;
     mark_payslip_viewed(&caller.db, &id).await?;
-    caller.audit("payroll.payslip_viewed", Some(&employee), json!({ "payslipId": row["id"] })).await?;
+    caller
+        .audit(
+            "payroll.payslip_viewed",
+            Some(&employee),
+            json!({ "payslipId": row["id"] }),
+        )
+        .await?;
     let name = payslip_file_name(
         row["country"].as_str().unwrap_or(""),
         row["periodStart"].as_str().unwrap_or(""),
@@ -54,7 +60,10 @@ async fn payslip(State(state): State<HrState>, caller: Caller, Path(id): Path<St
 
 async fn annual_statements(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee = self_employee_id(&state, &caller).await?;
-    Ok(Data(Value::Array(list_annual_statements(&caller.db, &employee).await?)).into_response())
+    Ok(Data(Value::Array(
+        list_annual_statements(&caller.db, &employee).await?,
+    ))
+    .into_response())
 }
 
 /// `Number(param)` as an integer, `None` when it is not one.
@@ -73,7 +82,8 @@ async fn annual_statement(
     let Some(year) = integer_param(&year).filter(|y| (2000..=2100).contains(y)) else {
         return Err(HrError::validation("The year is not valid"));
     };
-    let mut employer_id = query_param(&query_values(raw.as_deref()), "employerId").filter(|e| !e.is_empty());
+    let mut employer_id =
+        query_param(&query_values(raw.as_deref()), "employerId").filter(|e| !e.is_empty());
     if employer_id.is_none() {
         let options: Vec<Value> = list_annual_statements(&caller.db, &employee)
             .await?
@@ -84,25 +94,40 @@ async fn annual_statement(
             return Err(HrError::not_found("Annual statement", &year.to_string()));
         }
         if options.len() > 1 {
-            return Err(HrError::validation("Say which employer (employerId) the statement is for"));
+            return Err(HrError::validation(
+                "Say which employer (employerId) the statement is for",
+            ));
         }
         employer_id = options[0]["employerId"].as_str().map(str::to_owned);
     }
     let employer_id = employer_id.unwrap_or_default();
     let deps = Deps::of(&state, &caller);
-    let (bytes, file_name) = annual_statement_pdf(&caller.db, &employee, year, &employer_id, &deps).await?;
+    let (bytes, file_name) =
+        annual_statement_pdf(&caller.db, &employee, year, &employer_id, &deps).await?;
     caller
-        .audit("payroll.annual_statement_viewed", Some(&employee), json!({ "year": year, "employerId": employer_id }))
+        .audit(
+            "payroll.annual_statement_viewed",
+            Some(&employee),
+            json!({ "year": year, "employerId": employer_id }),
+        )
         .await?;
     Ok(file_response(bytes, &file_name, "application/pdf"))
 }
 
 async fn details(State(state): State<HrState>, caller: Caller) -> HrResult {
     let employee = self_employee_id(&state, &caller).await?;
-    Ok(Data(my_payroll_details(&caller.db, &employee, &caller.keyring(), &today_iso()).await?).into_response())
+    Ok(
+        Data(my_payroll_details(&caller.db, &employee, &caller.keyring(), &today_iso()).await?)
+            .into_response(),
+    )
 }
 
-async fn update_details(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn update_details(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::payment_details())?;
     let employee = self_employee_id(&state, &caller).await?;
     let keyring = caller.keyring();
@@ -112,26 +137,54 @@ async fn update_details(State(state): State<HrState>, caller: Caller, headers: H
         if result.id_verification_cleared {
             metadata["idVerificationCleared"] = json!(true);
         }
-        caller.audit("payroll.payment_details_updated", Some(&employee), metadata).await?;
+        caller
+            .audit("payroll.payment_details_updated", Some(&employee), metadata)
+            .await?;
         if result.bank_changed {
-            let bank: Vec<&String> = result.changed_fields.iter().filter(|f| f.starts_with("bank")).collect();
-            caller.audit("payroll.bank_changed", Some(&employee), json!({ "fields": bank, "by": "employee" })).await?;
+            let bank: Vec<&String> = result
+                .changed_fields
+                .iter()
+                .filter(|f| f.starts_with("bank"))
+                .collect();
+            caller
+                .audit(
+                    "payroll.bank_changed",
+                    Some(&employee),
+                    json!({ "fields": bank, "by": "employee" }),
+                )
+                .await?;
             notify_bank_change(&state, &caller, &employee, true);
         }
         caller.emit(&state, HR_EMPLOYEE_UPDATED, &employee, &[]);
     }
-    Ok(Data(my_payroll_details(&caller.db, &employee, &keyring, &today_iso()).await?).into_response())
+    Ok(
+        Data(my_payroll_details(&caller.db, &employee, &keyring, &today_iso()).await?)
+            .into_response(),
+    )
 }
 
-async fn sign_election(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
+async fn sign_election(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
     let input = json_body(&headers, &body, &schemas::create_election())?;
     let employee = self_employee_id(&state, &caller).await?;
     let today = today_iso();
-    let limit = format!("{}-12-31", today.get(0..4).and_then(|y| y.parse::<i64>().ok()).unwrap_or(0) + 1);
+    let limit = format!(
+        "{}-12-31",
+        today
+            .get(0..4)
+            .and_then(|y| y.parse::<i64>().ok())
+            .unwrap_or(0)
+            + 1
+    );
     if str_of(&input, "effectiveFrom").is_some_and(|from| from > limit.as_str()) {
         return Err(HrError::validation("The effective date is too far ahead"));
     }
-    let election = create_election(&caller.db, &employee, &input, &caller.user_id, "employee").await?;
+    let election =
+        create_election(&caller.db, &employee, &input, &caller.user_id, "employee").await?;
     caller
         .audit(
             "payroll.tax_election_signed",
@@ -139,5 +192,8 @@ async fn sign_election(State(state): State<HrState>, caller: Caller, headers: He
             json!({ "kind": election["kind"], "state": election["state"], "electionId": election["id"], "by": "employee" }),
         )
         .await?;
-    Ok(Created(my_payroll_details(&caller.db, &employee, &caller.keyring(), &today).await?).into_response())
+    Ok(
+        Created(my_payroll_details(&caller.db, &employee, &caller.keyring(), &today).await?)
+            .into_response(),
+    )
 }

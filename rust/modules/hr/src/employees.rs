@@ -14,7 +14,9 @@ use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
-use weldsuite_catalogs::entity_events::{HR_CHECKLIST_CREATED, HR_EMPLOYEE_CREATED, HR_EMPLOYEE_DELETED, HR_EMPLOYEE_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    HR_CHECKLIST_CREATED, HR_EMPLOYEE_CREATED, HR_EMPLOYEE_DELETED, HR_EMPLOYEE_UPDATED,
+};
 use weldsuite_catalogs::permission_keys::{
     EMPLOYEES_CREATE, EMPLOYEES_DELETE, EMPLOYEES_READ, EMPLOYEES_SENSITIVE, EMPLOYEES_UPDATE,
 };
@@ -27,8 +29,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::fields::{Fields, field_json, id, iso_date, short_text, text_max};
 use crate::{
-    Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number,
-    now, text, today_iso, zod_query,
+    Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number, now,
+    text, today_iso, zod_query,
 };
 
 /// `custom_field_definitions.entity_type` for employees.
@@ -47,18 +49,34 @@ where
         .route("/employees", get(list_route).route_layer(read()))
         .route(
             "/employees/available-members",
-            get(available_members_route).route_layer(gate.require([EMPLOYEES_CREATE, EMPLOYEES_UPDATE])),
+            get(available_members_route)
+                .route_layer(gate.require([EMPLOYEES_CREATE, EMPLOYEES_UPDATE])),
         )
         .route("/employees/{id}", get(detail_route).route_layer(read()))
-        .route("/employees", post(create_route).route_layer(gate.require([EMPLOYEES_CREATE])))
+        .route(
+            "/employees",
+            post(create_route).route_layer(gate.require([EMPLOYEES_CREATE])),
+        )
         .route(
             "/employees/from-member",
             post(from_member_route).route_layer(gate.require([EMPLOYEES_CREATE])),
         )
-        .route("/employees/{id}", patch(update_route).route_layer(gate.require([EMPLOYEES_UPDATE])))
-        .route("/employees/{id}", delete(delete_route).route_layer(gate.require([EMPLOYEES_DELETE])))
-        .route("/employees/{id}/sensitive", get(read_sensitive_route).route_layer(sensitive()))
-        .route("/employees/{id}/sensitive", put(write_sensitive_route).route_layer(sensitive()))
+        .route(
+            "/employees/{id}",
+            patch(update_route).route_layer(gate.require([EMPLOYEES_UPDATE])),
+        )
+        .route(
+            "/employees/{id}",
+            delete(delete_route).route_layer(gate.require([EMPLOYEES_DELETE])),
+        )
+        .route(
+            "/employees/{id}/sensitive",
+            get(read_sensitive_route).route_layer(sensitive()),
+        )
+        .route(
+            "/employees/{id}/sensitive",
+            put(write_sensitive_route).route_layer(sensitive()),
+        )
         .route("/org-chart", get(org_chart_route).route_layer(read()))
         .merge(crate::departments::routes(gate))
 }
@@ -70,13 +88,18 @@ where
 /// `displayNameOf(e)`: the preferred name (trimmed) or the first name, then
 /// the last name, trimmed.
 pub(crate) fn display_name_of(row: &Value) -> String {
-    let preferred = row["preferredName"].as_str().map(str::trim).unwrap_or_default();
+    let preferred = row["preferredName"]
+        .as_str()
+        .map(str::trim)
+        .unwrap_or_default();
     let first = if preferred.is_empty() {
         text(row, "firstName")
     } else {
         preferred
     };
-    format!("{first} {}", text(row, "lastName")).trim().to_owned()
+    format!("{first} {}", text(row, "lastName"))
+        .trim()
+        .to_owned()
 }
 
 /// `toPublicEmployee(row)`: the row without `sensitiveEncrypted`, with
@@ -109,23 +132,6 @@ pub(crate) async fn require_employee(db: &PgPool, id: &str) -> Result<Value, HrE
     .await?;
     row.map(js_row)
         .ok_or_else(|| HrError::not_found("Employee", id))
-}
-
-/// `existingEmployeeIds(db, ids)`: the live employees among `ids`.
-pub(crate) async fn existing_employee_ids(
-    db: &PgPool,
-    ids: &[String],
-) -> Result<HashSet<String>, HrError> {
-    if ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select id from hr_employees where id = any($1) and deleted_at is null",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().collect())
 }
 
 /// `activeClientsFor(db, employeeIds, on = todayIso())`: each employee's
@@ -167,16 +173,17 @@ pub(crate) async fn active_clients_for(
 
 /// `employeeForUser(db, userId)`: the caller's own employee, or `None` when
 /// none is linked, it is deleted or terminated.
-pub(crate) async fn employee_for_user(db: &PgPool, user_id: &str) -> Result<Option<Value>, HrError> {
+pub(crate) async fn employee_for_user(
+    db: &PgPool,
+    user_id: &str,
+) -> Result<Option<Value>, HrError> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from hr_employees t where t.user_id = $1 and t.deleted_at is null limit 1",
     )
     .bind(user_id)
     .fetch_optional(db)
     .await?;
-    Ok(row
-        .map(js_row)
-        .filter(|row| row["status"] != "terminated"))
+    Ok(row.map(js_row).filter(|row| row["status"] != "terminated"))
 }
 
 /// `decorate(db, rows)`: custom fields hydrated, department and manager
@@ -276,7 +283,10 @@ fn escape_like_term(term: &str) -> String {
 
 /// `listEmployees(db, filters)`: by last name, first name, id; the cursor
 /// is the last row's id.
-async fn list_employees(db: &PgPool, filters: &Map<String, Value>) -> Result<(Vec<Value>, i64, bool, Option<String>), HrError> {
+async fn list_employees(
+    db: &PgPool,
+    filters: &Map<String, Value>,
+) -> Result<(Vec<Value>, i64, bool, Option<String>), HrError> {
     let get = |key: &str| filters.get(key).and_then(Value::as_str).map(str::to_owned);
     #[allow(clippy::cast_possible_truncation)]
     let limit = filters
@@ -301,13 +311,16 @@ async fn list_employees(db: &PgPool, filters: &Map<String, Value>) -> Result<(Ve
     let manager = get("managerId").filter(|s| !s.is_empty());
     let company = get("companyId").filter(|s| !s.is_empty());
     let today = today_iso();
-    let cursor_row: Option<(String, String, String)> = match get("cursor").filter(|s| !s.is_empty()) {
-        Some(cursor) => sqlx::query_as(
-            "select last_name, first_name, id from hr_employees where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(db)
-        .await?,
+    let cursor_row: Option<(String, String, String)> = match get("cursor").filter(|s| !s.is_empty())
+    {
+        Some(cursor) => {
+            sqlx::query_as(
+                "select last_name, first_name, id from hr_employees where id = $1 limit 1",
+            )
+            .bind(cursor)
+            .fetch_optional(db)
+            .await?
+        }
         None => None,
     };
     let rows: Vec<Value> = sqlx::query_scalar(
@@ -371,7 +384,11 @@ async fn list_employees(db: &PgPool, filters: &Map<String, Value>) -> Result<(Ve
     Ok((decorate(db, rows).await?, total, has_more, cursor))
 }
 
-async fn list_route(State(state): State<HrState>, caller: Caller, RawQuery(query): RawQuery) -> HrResult {
+async fn list_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> HrResult {
     let filters = zod_query(query.as_deref(), |issues, q| {
         let mut out = Map::new();
         let mut keep = |key: &str, field: Field<String>| {
@@ -379,16 +396,30 @@ async fn list_route(State(state): State<HrState>, caller: Caller, RawQuery(query
                 out.insert(key.to_owned(), Value::String(value));
             }
         };
-        keep("search", issues.text(q, "search", Presence::Optional, None, Some(200)));
-        keep("status", issues.text(q, "status", Presence::Optional, None, Some(200)));
-        keep("departmentId", id(issues, q, "departmentId", Presence::Optional));
+        keep(
+            "search",
+            issues.text(q, "search", Presence::Optional, None, Some(200)),
+        );
+        keep(
+            "status",
+            issues.text(q, "status", Presence::Optional, None, Some(200)),
+        );
+        keep(
+            "departmentId",
+            id(issues, q, "departmentId", Presence::Optional),
+        );
         keep("managerId", id(issues, q, "managerId", Presence::Optional));
         keep("companyId", id(issues, q, "companyId", Presence::Optional));
         let limit = issues.number(
             q,
             "limit",
             Presence::Optional,
-            Number { coerce: true, int: true, min: Some(1.0), max: Some(200.0) },
+            Number {
+                coerce: true,
+                int: true,
+                min: Some(1.0),
+                max: Some(200.0),
+            },
         );
         let cursor = issues.text(q, "cursor", Presence::Optional, None, Some(60));
         if let Field::Set(limit) = limit {
@@ -437,7 +468,11 @@ async fn employee_detail(db: &PgPool, id: &str) -> Result<Value, HrError> {
     Ok(decorated)
 }
 
-async fn detail_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn detail_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     link_invited_employees(&state, &caller, None, Some(&id)).await?;
     Ok(Data(employee_detail(&caller.db, &id).await?).into_response())
 }
@@ -473,7 +508,12 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
                 q,
                 "limit",
                 Presence::Optional,
-                Number { coerce: true, int: true, min: Some(1.0), max: Some(200.0) },
+                Number {
+                    coerce: true,
+                    int: true,
+                    min: Some(1.0),
+                    max: Some(200.0),
+                },
             ),
         )
     })?;
@@ -624,8 +664,20 @@ enum Schema {
     FromMember,
 }
 
-const EMPLOYMENT_TYPES: [&str; 5] = ["full_time", "part_time", "contractor", "intern", "temporary"];
-const STATUSES: [&str; 5] = ["onboarding", "active", "on_leave", "offboarding", "terminated"];
+const EMPLOYMENT_TYPES: [&str; 5] = [
+    "full_time",
+    "part_time",
+    "contractor",
+    "intern",
+    "temporary",
+];
+const STATUSES: [&str; 5] = [
+    "onboarding",
+    "active",
+    "on_leave",
+    "offboarding",
+    "terminated",
+];
 const SALARY_PERIODS: [&str; 3] = ["hour", "month", "year"];
 
 /// `hrEmployeeSensitiveSchema`: the fields present, in schema order.
@@ -636,39 +688,126 @@ fn sensitive_fields(issues: &mut Issues, fields: &Fields) -> Vec<(&'static str, 
             out.push((key, value));
         }
     };
-    keep("dateOfBirth", field_json(&iso_date(issues, fields, "dateOfBirth", Presence::Nullish)));
-    keep("nationalId", field_json(&short_text(issues, fields, "nationalId", Presence::Nullish, 100, false)));
-    keep("taxId", field_json(&short_text(issues, fields, "taxId", Presence::Nullish, 100, false)));
-    keep("address", field_json(&text_max(issues, fields, "address", Presence::Nullish, 1000)));
+    keep(
+        "dateOfBirth",
+        field_json(&iso_date(issues, fields, "dateOfBirth", Presence::Nullish)),
+    );
+    keep(
+        "nationalId",
+        field_json(&short_text(
+            issues,
+            fields,
+            "nationalId",
+            Presence::Nullish,
+            100,
+            false,
+        )),
+    );
+    keep(
+        "taxId",
+        field_json(&short_text(
+            issues,
+            fields,
+            "taxId",
+            Presence::Nullish,
+            100,
+            false,
+        )),
+    );
+    keep(
+        "address",
+        field_json(&text_max(
+            issues,
+            fields,
+            "address",
+            Presence::Nullish,
+            1000,
+        )),
+    );
     keep(
         "personalEmail",
         field_json(&issues.text_with(
             fields,
             "personalEmail",
             Presence::Nullish,
-            Text { format: Some(Format::Email), max: Some(255), ..Text::default() },
+            Text {
+                format: Some(Format::Email),
+                max: Some(255),
+                ..Text::default()
+            },
         )),
     );
-    keep("personalPhone", field_json(&short_text(issues, fields, "personalPhone", Presence::Nullish, 50, false)));
+    keep(
+        "personalPhone",
+        field_json(&short_text(
+            issues,
+            fields,
+            "personalPhone",
+            Presence::Nullish,
+            50,
+            false,
+        )),
+    );
     keep(
         "emergencyContactName",
-        field_json(&short_text(issues, fields, "emergencyContactName", Presence::Nullish, 255, false)),
+        field_json(&short_text(
+            issues,
+            fields,
+            "emergencyContactName",
+            Presence::Nullish,
+            255,
+            false,
+        )),
     );
     keep(
         "emergencyContactPhone",
-        field_json(&short_text(issues, fields, "emergencyContactPhone", Presence::Nullish, 50, false)),
+        field_json(&short_text(
+            issues,
+            fields,
+            "emergencyContactPhone",
+            Presence::Nullish,
+            50,
+            false,
+        )),
     );
     keep(
         "emergencyContactRelation",
-        field_json(&short_text(issues, fields, "emergencyContactRelation", Presence::Nullish, 100, false)),
+        field_json(&short_text(
+            issues,
+            fields,
+            "emergencyContactRelation",
+            Presence::Nullish,
+            100,
+            false,
+        )),
     );
-    keep("bankAccount", field_json(&short_text(issues, fields, "bankAccount", Presence::Nullish, 100, false)));
-    let salary = crate::fields::number(issues, fields, "salaryAmount", Presence::Nullish, Some(0.0), None);
-    keep("salaryAmount", match salary {
-        Field::Absent => None,
-        Field::Null => Some(Value::Null),
-        Field::Set(amount) => Some(js_number(amount)),
-    });
+    keep(
+        "bankAccount",
+        field_json(&short_text(
+            issues,
+            fields,
+            "bankAccount",
+            Presence::Nullish,
+            100,
+            false,
+        )),
+    );
+    let salary = crate::fields::number(
+        issues,
+        fields,
+        "salaryAmount",
+        Presence::Nullish,
+        Some(0.0),
+        None,
+    );
+    keep(
+        "salaryAmount",
+        match salary {
+            Field::Absent => None,
+            Field::Null => Some(Value::Null),
+            Field::Set(amount) => Some(js_number(amount)),
+        },
+    );
     let currency = issues.text(fields, "salaryCurrency", Presence::Nullish, None, None);
     let currency = match currency {
         Field::Set(code) => {
@@ -683,69 +822,231 @@ fn sensitive_fields(issues: &mut Issues, fields: &Fields) -> Vec<(&'static str, 
         other => other,
     };
     keep("salaryCurrency", field_json(&currency));
-    keep("salaryPeriod", field_json(&issues.choice(fields, "salaryPeriod", Presence::Nullish, &SALARY_PERIODS)));
-    keep("notes", field_json(&text_max(issues, fields, "notes", Presence::Nullish, 5000)));
+    keep(
+        "salaryPeriod",
+        field_json(&issues.choice(fields, "salaryPeriod", Presence::Nullish, &SALARY_PERIODS)),
+    );
+    keep(
+        "notes",
+        field_json(&text_max(issues, fields, "notes", Presence::Nullish, 5000)),
+    );
     out
 }
 
 fn employee_body(issues: &mut Issues, fields: &Fields, schema: Schema) -> EmployeeBody {
     let partial = schema != Schema::Create;
-    let required = |p: bool| if p { Presence::Optional } else { Presence::Required };
+    let required = |p: bool| {
+        if p {
+            Presence::Optional
+        } else {
+            Presence::Required
+        }
+    };
     let mut input: Vec<(&'static str, Value)> = Vec::new();
     let mut keep = |key: &'static str, value: Option<Value>| {
         if let Some(value) = value {
             input.push((key, value));
         }
     };
-    keep("employeeNumber", field_json(&short_text(issues, fields, "employeeNumber", Presence::Nullish, 50, false)));
-    keep("firstName", field_json(&short_text(issues, fields, "firstName", required(partial), 120, true)));
-    keep("lastName", field_json(&short_text(issues, fields, "lastName", required(partial), 120, true)));
-    keep("preferredName", field_json(&short_text(issues, fields, "preferredName", Presence::Nullish, 120, false)));
+    keep(
+        "employeeNumber",
+        field_json(&short_text(
+            issues,
+            fields,
+            "employeeNumber",
+            Presence::Nullish,
+            50,
+            false,
+        )),
+    );
+    keep(
+        "firstName",
+        field_json(&short_text(
+            issues,
+            fields,
+            "firstName",
+            required(partial),
+            120,
+            true,
+        )),
+    );
+    keep(
+        "lastName",
+        field_json(&short_text(
+            issues,
+            fields,
+            "lastName",
+            required(partial),
+            120,
+            true,
+        )),
+    );
+    keep(
+        "preferredName",
+        field_json(&short_text(
+            issues,
+            fields,
+            "preferredName",
+            Presence::Nullish,
+            120,
+            false,
+        )),
+    );
     keep(
         "email",
         field_json(&issues.text_with(
             fields,
             "email",
             required(partial),
-            Text { trim: true, format: Some(Format::Email), max: Some(255), ..Text::default() },
+            Text {
+                trim: true,
+                format: Some(Format::Email),
+                max: Some(255),
+                ..Text::default()
+            },
         )),
     );
-    keep("phone", field_json(&short_text(issues, fields, "phone", Presence::Nullish, 50, false)));
+    keep(
+        "phone",
+        field_json(&short_text(
+            issues,
+            fields,
+            "phone",
+            Presence::Nullish,
+            50,
+            false,
+        )),
+    );
     keep(
         "avatarUrl",
         field_json(&issues.text_with(
             fields,
             "avatarUrl",
             Presence::Nullish,
-            Text { format: Some(Format::Url), max: Some(500), ..Text::default() },
+            Text {
+                format: Some(Format::Url),
+                max: Some(500),
+                ..Text::default()
+            },
         )),
     );
-    keep("pronouns", field_json(&short_text(issues, fields, "pronouns", Presence::Nullish, 40, false)));
-    keep("jobTitle", field_json(&short_text(issues, fields, "jobTitle", Presence::Nullish, 160, false)));
-    keep("departmentId", field_json(&id(issues, fields, "departmentId", Presence::Nullish)));
-    keep("managerId", field_json(&id(issues, fields, "managerId", Presence::Nullish)));
+    keep(
+        "pronouns",
+        field_json(&short_text(
+            issues,
+            fields,
+            "pronouns",
+            Presence::Nullish,
+            40,
+            false,
+        )),
+    );
+    keep(
+        "jobTitle",
+        field_json(&short_text(
+            issues,
+            fields,
+            "jobTitle",
+            Presence::Nullish,
+            160,
+            false,
+        )),
+    );
+    keep(
+        "departmentId",
+        field_json(&id(issues, fields, "departmentId", Presence::Nullish)),
+    );
+    keep(
+        "managerId",
+        field_json(&id(issues, fields, "managerId", Presence::Nullish)),
+    );
     if schema != Schema::FromMember {
         keep(
             "userId",
-            field_json(&issues.text_with(fields, "userId", Presence::Optional, Text::trimmed(Some(1), Some(255)))),
+            field_json(&issues.text_with(
+                fields,
+                "userId",
+                Presence::Optional,
+                Text::trimmed(Some(1), Some(255)),
+            )),
         );
     }
-    keep("employmentType", field_json(&issues.choice(fields, "employmentType", Presence::Optional, &EMPLOYMENT_TYPES)));
-    keep("status", field_json(&issues.choice(fields, "status", Presence::Optional, &STATUSES)));
-    keep("startDate", field_json(&iso_date(issues, fields, "startDate", Presence::Nullish)));
-    keep("endDate", field_json(&iso_date(issues, fields, "endDate", Presence::Nullish)));
-    keep("probationEndDate", field_json(&iso_date(issues, fields, "probationEndDate", Presence::Nullish)));
-    keep("location", field_json(&short_text(issues, fields, "location", Presence::Nullish, 160, false)));
-    keep("timezone", field_json(&short_text(issues, fields, "timezone", Presence::Nullish, 60, false)));
-    let hours = crate::fields::number(issues, fields, "weeklyHours", Presence::Nullish, Some(0.0), Some(168.0));
-    keep("weeklyHours", match hours {
-        Field::Absent => None,
-        Field::Null => Some(Value::Null),
-        Field::Set(h) => Some(js_number(h)),
-    });
-    let locations = issues.list(fields, "workLocationIds", Presence::Nullish, None, Some(50), |issues, item| {
-        issues.item_text(item, Text::length(Some(1), Some(30)))
-    });
+    keep(
+        "employmentType",
+        field_json(&issues.choice(
+            fields,
+            "employmentType",
+            Presence::Optional,
+            &EMPLOYMENT_TYPES,
+        )),
+    );
+    keep(
+        "status",
+        field_json(&issues.choice(fields, "status", Presence::Optional, &STATUSES)),
+    );
+    keep(
+        "startDate",
+        field_json(&iso_date(issues, fields, "startDate", Presence::Nullish)),
+    );
+    keep(
+        "endDate",
+        field_json(&iso_date(issues, fields, "endDate", Presence::Nullish)),
+    );
+    keep(
+        "probationEndDate",
+        field_json(&iso_date(
+            issues,
+            fields,
+            "probationEndDate",
+            Presence::Nullish,
+        )),
+    );
+    keep(
+        "location",
+        field_json(&short_text(
+            issues,
+            fields,
+            "location",
+            Presence::Nullish,
+            160,
+            false,
+        )),
+    );
+    keep(
+        "timezone",
+        field_json(&short_text(
+            issues,
+            fields,
+            "timezone",
+            Presence::Nullish,
+            60,
+            false,
+        )),
+    );
+    let hours = crate::fields::number(
+        issues,
+        fields,
+        "weeklyHours",
+        Presence::Nullish,
+        Some(0.0),
+        Some(168.0),
+    );
+    keep(
+        "weeklyHours",
+        match hours {
+            Field::Absent => None,
+            Field::Null => Some(Value::Null),
+            Field::Set(h) => Some(js_number(h)),
+        },
+    );
+    let locations = issues.list(
+        fields,
+        "workLocationIds",
+        Presence::Nullish,
+        None,
+        Some(50),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+    );
     keep("workLocationIds", field_json(&locations));
     let custom = match fields.get("customFields") {
         None => None,
@@ -785,7 +1086,12 @@ fn employee_body(issues: &mut Issues, fields: &Fields, schema: Schema) -> Employ
     if schema == Schema::FromMember {
         keep(
             "userId",
-            field_json(&issues.text_with(fields, "userId", Presence::Required, Text::trimmed(Some(1), Some(255)))),
+            field_json(&issues.text_with(
+                fields,
+                "userId",
+                Presence::Required,
+                Text::trimmed(Some(1), Some(255)),
+            )),
         );
     }
     EmployeeBody {
@@ -796,7 +1102,11 @@ fn employee_body(issues: &mut Issues, fields: &Fields, schema: Schema) -> Employ
 }
 
 /// `assertEmailFree(db, email, exceptId?)`.
-async fn assert_email_free(db: &PgPool, email: &str, except_id: Option<&str>) -> Result<(), HrError> {
+async fn assert_email_free(
+    db: &PgPool,
+    email: &str,
+    except_id: Option<&str>,
+) -> Result<(), HrError> {
     let dupe: Option<String> = sqlx::query_scalar(
         "select id from hr_employees where lower(email) = $1 and deleted_at is null limit 1",
     )
@@ -804,13 +1114,19 @@ async fn assert_email_free(db: &PgPool, email: &str, except_id: Option<&str>) ->
     .fetch_optional(db)
     .await?;
     if dupe.is_some_and(|dupe| Some(dupe.as_str()) != except_id) {
-        return Err(HrError::conflict("Another employee already uses this email address"));
+        return Err(HrError::conflict(
+            "Another employee already uses this email address",
+        ));
     }
     Ok(())
 }
 
 /// `assertUserIdFree(db, userId, exceptId?)`.
-async fn assert_user_id_free(db: &PgPool, user_id: Option<&str>, except_id: Option<&str>) -> Result<(), HrError> {
+async fn assert_user_id_free(
+    db: &PgPool,
+    user_id: Option<&str>,
+    except_id: Option<&str>,
+) -> Result<(), HrError> {
     let Some(user_id) = user_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
@@ -831,7 +1147,9 @@ async fn assert_user_id_free(db: &PgPool, user_id: Option<&str>, except_id: Opti
 /// `requireActiveWorkspaceMember(db, userId)`.
 async fn require_active_workspace_member(db: &PgPool, user_id: &str) -> Result<Value, HrError> {
     if user_id.is_empty() || user_id.starts_with("invited_") {
-        return Err(HrError::validation("That is not an active workspace member"));
+        return Err(HrError::validation(
+            "That is not an active workspace member",
+        ));
     }
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(m) from workspace_members m where m.user_id = $1 and m.deleted_at is null limit 1",
@@ -884,12 +1202,18 @@ async fn member_for_new_employee(db: &PgPool, email: &str) -> Result<Option<Stri
 }
 
 /// `assertManager(db, managerId, selfId?)`.
-async fn assert_manager(db: &PgPool, manager_id: Option<&str>, self_id: Option<&str>) -> Result<(), HrError> {
+async fn assert_manager(
+    db: &PgPool,
+    manager_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<(), HrError> {
     let Some(manager_id) = manager_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
     if Some(manager_id) == self_id {
-        return Err(HrError::validation("An employee cannot be their own manager"));
+        return Err(HrError::validation(
+            "An employee cannot be their own manager",
+        ));
     }
     require_employee(db, manager_id).await?;
     let Some(self_id) = self_id else {
@@ -937,7 +1261,10 @@ async fn prepare_custom_fields(db: &PgPool, values: Option<&Value>) -> Result<bo
 }
 
 /// The sealed sensitive block (`encryptSensitive`).
-pub(crate) fn encrypt_sensitive(value: &Value, keyring: &weldsuite_db::Keyring) -> Result<String, HrError> {
+pub(crate) fn encrypt_sensitive(
+    value: &Value,
+    keyring: &weldsuite_db::Keyring,
+) -> Result<String, HrError> {
     if keyring.is_empty() {
         return Err(HrError::validation(
             "Sensitive employee data cannot be stored: the worker has no encryption key",
@@ -948,7 +1275,12 @@ pub(crate) fn encrypt_sensitive(value: &Value, keyring: &weldsuite_db::Keyring) 
 
 /// The sensitive fields as the object `JSON.stringify` writes.
 fn sensitive_object(fields: &[(&'static str, Value)]) -> Value {
-    Value::Object(fields.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
+    Value::Object(
+        fields
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
 }
 
 /// `createEmployee(db, input, opts)`.
@@ -978,7 +1310,10 @@ async fn create_employee(
     let has_custom = prepare_custom_fields(db, custom).await?;
     let id = generate_id("hremp");
     let sealed = match sensitive {
-        Some(fields) => Some(encrypt_sensitive(&sensitive_object(fields), &caller.keyring())?),
+        Some(fields) => Some(encrypt_sensitive(
+            &sensitive_object(fields),
+            &caller.keyring(),
+        )?),
         None => None,
     };
     let mut record = Map::new();
@@ -993,7 +1328,9 @@ async fn create_employee(
     record
         .entry("employment_type".to_owned())
         .or_insert_with(|| json!("full_time"));
-    record.entry("status".to_owned()).or_insert_with(|| json!("onboarding"));
+    record
+        .entry("status".to_owned())
+        .or_insert_with(|| json!("onboarding"));
     record.insert("sensitive_encrypted".to_owned(), json!(sealed));
     record.insert("created_by".to_owned(), json!(caller.user_id));
     let row: Value = sqlx::query_scalar(
@@ -1048,7 +1385,11 @@ async fn after_create(
     if let Some(sensitive) = &body.sensitive {
         let fields: Vec<&str> = sensitive.iter().map(|(k, _)| *k).collect();
         caller
-            .audit("employee.sensitive_updated", Some(&employee_id), json!({ "fields": fields }))
+            .audit(
+                "employee.sensitive_updated",
+                Some(&employee_id),
+                json!({ "fields": fields }),
+            )
             .await?;
     }
     caller.emit(
@@ -1058,9 +1399,15 @@ async fn after_create(
         &[("status", Some(employee["status"].clone()))],
     );
     if let Some(template) = &body.onboarding_template_id {
-        let checklist =
-            crate::lifecycle::start_checklist(&caller.db, &employee_id, template, None, false, &caller.user_id)
-                .await?;
+        let checklist = crate::lifecycle::start_checklist(
+            &caller.db,
+            &employee_id,
+            template,
+            None,
+            false,
+            &caller.user_id,
+        )
+        .await?;
         caller.emit(
             state,
             HR_CHECKLIST_CREATED,
@@ -1074,8 +1421,15 @@ async fn after_create(
     Ok(Created(to_public_employee(employee)).into_response())
 }
 
-async fn create_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let body = hr_json(&headers, &body, |issues, fields| employee_body(issues, fields, Schema::Create))?;
+async fn create_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let body = hr_json(&headers, &body, |issues, fields| {
+        employee_body(issues, fields, Schema::Create)
+    })?;
     if body.sensitive.is_some() && !caller.can(EMPLOYEES_SENSITIVE) {
         return Err(HrError::forbidden(
             "You do not have permission to set sensitive employee data",
@@ -1085,8 +1439,15 @@ async fn create_route(State(state): State<HrState>, caller: Caller, headers: Hea
     after_create(&state, &caller, &employee, &body).await
 }
 
-async fn from_member_route(State(state): State<HrState>, caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
-    let body = hr_json(&headers, &body, |issues, fields| employee_body(issues, fields, Schema::FromMember))?;
+async fn from_member_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> HrResult {
+    let body = hr_json(&headers, &body, |issues, fields| {
+        employee_body(issues, fields, Schema::FromMember)
+    })?;
     if body.sensitive.is_some() && !caller.can(EMPLOYEES_SENSITIVE) {
         return Err(HrError::forbidden(
             "You do not have permission to set sensitive employee data",
@@ -1095,7 +1456,9 @@ async fn from_member_route(State(state): State<HrState>, caller: Caller, headers
     let user_id = body.text("userId").unwrap_or_default().to_owned();
     let member = require_active_workspace_member(&caller.db, &user_id).await?;
     if member["email"].as_str().is_none_or(str::is_empty) && body.get("email").is_none() {
-        return Err(HrError::validation("This workspace member has no email address"));
+        return Err(HrError::validation(
+            "This workspace member has no email address",
+        ));
     }
     let (first, last) = split_member_name(member["name"].as_str());
     // `member.hoursPerWeek == null ? null : Number(member.hoursPerWeek)`.
@@ -1130,7 +1493,10 @@ async fn from_member_route(State(state): State<HrState>, caller: Caller, headers
     let given_or = |key: &str, member_value: Value| body.get(key).cloned().unwrap_or(member_value);
     set("phone", given_or("phone", member["phone"].clone()));
     set("jobTitle", given_or("jobTitle", member["title"].clone()));
-    set("avatarUrl", given_or("avatarUrl", member["picture"].clone()));
+    set(
+        "avatarUrl",
+        given_or("avatarUrl", member["picture"].clone()),
+    );
     set("pronouns", given_or("pronouns", member["pronouns"].clone()));
     set("location", given_or("location", member["location"].clone()));
     set("weeklyHours", given_or("weeklyHours", member_hours));
@@ -1146,7 +1512,9 @@ async fn update_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let body = hr_json(&headers, &body, |issues, fields| employee_body(issues, fields, Schema::Update))?;
+    let body = hr_json(&headers, &body, |issues, fields| {
+        employee_body(issues, fields, Schema::Update)
+    })?;
     if body.sensitive.is_some() {
         return Err(HrError::bad_request(
             "Update sensitive data through PUT /employees/:employeeId/sensitive",
@@ -1160,7 +1528,11 @@ async fn update_route(
             None => existing[key].as_str().map(str::to_owned),
         }
     };
-    assert_date_order(pick("startDate").as_deref(), pick("endDate").as_deref(), "Employment")?;
+    assert_date_order(
+        pick("startDate").as_deref(),
+        pick("endDate").as_deref(),
+        "Employment",
+    )?;
     if let Some(email) = body.text("email").filter(|e| !e.is_empty())
         && email.to_lowercase() != text(&existing, "email").to_lowercase()
     {
@@ -1228,18 +1600,29 @@ async fn update_route(
         custom_fields::sync_values_for_entity(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, &id, custom).await;
     }
     let row = js_row(row);
-    caller.emit(&state, HR_EMPLOYEE_UPDATED, text(&row, "id"), &[("status", Some(row["status"].clone()))]);
+    caller.emit(
+        &state,
+        HR_EMPLOYEE_UPDATED,
+        text(&row, "id"),
+        &[("status", Some(row["status"].clone()))],
+    );
     Ok(Data(to_public_employee(&row)).into_response())
 }
 
-async fn delete_route(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
+async fn delete_route(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> HrResult {
     require_employee(&caller.db, &id).await?;
     sqlx::query("update hr_employees set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
         .bind(&id)
         .bind(now())
         .execute(&caller.db)
         .await?;
-    caller.audit("employee.deleted", Some(&id), json!({})).await?;
+    caller
+        .audit("employee.deleted", Some(&id), json!({}))
+        .await?;
     caller.emit(&state, HR_EMPLOYEE_DELETED, &id, &[]);
     Ok(NoContent.into_response())
 }
@@ -1249,18 +1632,25 @@ async fn delete_route(State(state): State<HrState>, caller: Caller, Path(id): Pa
 // ---------------------------------------------------------------------------
 
 /// `readSensitive(db, id, keyring)`: the opened block, `{}` without one.
-pub(crate) async fn read_sensitive(db: &PgPool, id: &str, keyring: &weldsuite_db::Keyring) -> Result<Value, HrError> {
+pub(crate) async fn read_sensitive(
+    db: &PgPool,
+    id: &str,
+    keyring: &weldsuite_db::Keyring,
+) -> Result<Value, HrError> {
     let row = require_employee(db, id).await?;
     let Some(sealed) = row["sensitiveEncrypted"].as_str().filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
     };
-    let plaintext = decrypt_field(sealed, keyring).map_err(|error| HrError::internal(error.to_string()))?;
+    let plaintext =
+        decrypt_field(sealed, keyring).map_err(|error| HrError::internal(error.to_string()))?;
     serde_json::from_str(&plaintext).map_err(|error| HrError::internal(error.to_string()))
 }
 
 async fn read_sensitive_route(caller: Caller, Path(id): Path<String>) -> HrResult {
     let value = read_sensitive(&caller.db, &id, &caller.keyring()).await?;
-    caller.audit("employee.sensitive_viewed", Some(&id), json!({})).await?;
+    caller
+        .audit("employee.sensitive_viewed", Some(&id), json!({}))
+        .await?;
     Ok(Data(value).into_response())
 }
 
@@ -1297,7 +1687,11 @@ async fn write_sensitive_route(
             .execute(&caller.db)
             .await?;
         caller
-            .audit("employee.sensitive_updated", Some(&id), json!({ "fields": changed }))
+            .audit(
+                "employee.sensitive_updated",
+                Some(&id),
+                json!({ "fields": changed }),
+            )
             .await?;
         // No field names on the event: which fields changed is itself personal.
         caller.emit(&state, HR_EMPLOYEE_UPDATED, &id, &[]);
@@ -1311,8 +1705,14 @@ mod tests {
 
     #[test]
     fn member_names_split_like_typescript() {
-        assert_eq!(split_member_name(None), ("Unknown".to_owned(), "Member".to_owned()));
-        assert_eq!(split_member_name(Some("Ann")), ("Ann".to_owned(), "Ann".to_owned()));
+        assert_eq!(
+            split_member_name(None),
+            ("Unknown".to_owned(), "Member".to_owned())
+        );
+        assert_eq!(
+            split_member_name(Some("Ann")),
+            ("Ann".to_owned(), "Ann".to_owned())
+        );
         assert_eq!(
             split_member_name(Some("  Ann  van der Berg ")),
             ("Ann".to_owned(), "van der Berg".to_owned())

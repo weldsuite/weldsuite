@@ -61,7 +61,9 @@ pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
 where
     Q: PermissionQueries + 'static,
 {
-    setup::routes(gate).merge(routes::routes(gate)).layer(axum::middleware::from_fn(require_payroll_flag))
+    setup::routes(gate)
+        .merge(routes::routes(gate))
+        .layer(axum::middleware::from_fn(require_payroll_flag))
 }
 
 /// The payroll routes of My HR, relative to `/api/weldhr/me`.
@@ -72,7 +74,10 @@ where
     self_service::routes().layer(axum::middleware::from_fn(require_payroll_flag))
 }
 
-const SECURITY_HEADERS: [(&str, &str); 2] = [("Cache-Control", "private, no-store"), ("X-Content-Type-Options", "nosniff")];
+const SECURITY_HEADERS: [(&str, &str); 2] = [
+    ("Cache-Control", "private, no-store"),
+    ("X-Content-Type-Options", "nosniff"),
+];
 
 /// `pdfResponse(bytes, fileName)` and `generatedFileResponse(file)`: always
 /// an attachment.
@@ -84,7 +89,9 @@ pub(crate) fn file_response(bytes: Vec<u8>, file_name: &str, content_type: &str)
     for (name, value) in SECURITY_HEADERS {
         builder = builder.header(name, value);
     }
-    builder.body(Body::from(bytes)).unwrap_or_else(|_| ApiError::internal().into_response())
+    builder
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| ApiError::internal().into_response())
 }
 
 /// What the payroll services depend on besides the database
