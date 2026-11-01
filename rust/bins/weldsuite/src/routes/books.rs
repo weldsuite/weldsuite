@@ -46,6 +46,7 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     // The other areas: one line each.
     routers.extend(weldsuite_books_banking::routers(&books, gate));
     routers.extend(weldsuite_books_purchases::routers(&books, gate));
+    routers.extend(weldsuite_books_sales::routers(&books, gate));
     routers
         .into_iter()
         .fold(router, |router, (prefix, routes)| {

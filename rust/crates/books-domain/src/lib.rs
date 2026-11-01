@@ -26,6 +26,7 @@
 //!   per-country rules and data.
 
 pub mod address;
+pub mod attachments;
 pub mod bad_debt;
 pub mod bank_accounts;
 pub mod catch_up;
@@ -40,6 +41,7 @@ pub mod fx;
 pub mod guards;
 pub mod http;
 pub mod identifiers;
+pub mod invoice_html;
 pub mod js;
 pub mod jurisdictions;
 pub mod payments;

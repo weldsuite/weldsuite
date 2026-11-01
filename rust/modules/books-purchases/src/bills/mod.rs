@@ -13,7 +13,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
-use http::{HeaderMap, HeaderValue};
+use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::{document_contact_fields, with_contact_names};
@@ -46,7 +46,7 @@ use weldsuite_catalogs::entity_events::{
     BILL_CREATED, BILL_DELETED, BILL_UPDATED, JOURNAL_ENTRY_CREATED,
 };
 use weldsuite_kit::validation::{Field, Issues};
-use weldsuite_kit::{ApiError, generate_id};
+use weldsuite_kit::generate_id;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use body::{BillBody, BillLine, read_bill};
@@ -257,20 +257,6 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 
 // ── GET /:id/attachments/:index ─────────────────────────────────────────────
 
-/// `isWorkspaceObjectKey(key, ...ids)`.
-fn is_workspace_object_key(key: &str, ids: &[Option<&str>]) -> bool {
-    let mut parts = key.split('/');
-    let (Some("workspaces"), Some(owner), Some(_)) = (parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-    let valid_owner = !owner.is_empty()
-        && owner
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    weldsuite_ports::is_safe_key(key) && valid_owner && ids.contains(&Some(owner))
-}
-
 async fn attachment(
     caller: Caller,
     State(state): State<BooksState>,
@@ -286,84 +272,10 @@ async fn attachment(
         let Some(keys) = keys else {
             return Err(Refusal::not_found("Bill", &id));
         };
-        stream_document_attachment(&caller, &state, keys.as_ref(), &index).await
+        weldsuite_books_domain::attachments::stream_document_attachment(&caller, &state, keys.as_ref(), &index).await
     }
     .await;
     reply(result, "Failed to download attachment")
-}
-
-/// `streamDocumentAttachment(c, { attachmentKeys, index })`.
-async fn stream_document_attachment(
-    caller: &Caller,
-    state: &BooksState,
-    keys: Option<&Value>,
-    raw_index: &str,
-) -> Reply {
-    // `Number(param)`: an integer of zero or more.
-    let index = weldsuite_kit::validation::js_number(raw_index);
-    if !(index.is_finite() && index.fract() == 0.0 && index >= 0.0) {
-        return Err(Refusal::bad_request("Invalid attachment index"));
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let position = index as usize;
-    let key = keys
-        .and_then(Value::as_array)
-        .and_then(|keys| keys.get(position))
-        .and_then(Value::as_str)
-        .filter(|k| !k.is_empty());
-    let Some(key) = key else {
-        return Err(Refusal::not_found("Attachment", &number_text(index)));
-    };
-    let Some(org) = caller
-        .clerk_org_id
-        .as_deref()
-        .map(weldsuite_books_domain::jurisdictions::js_trim)
-        .filter(|o| !o.is_empty())
-    else {
-        return Err(ApiError::org_required().into());
-    };
-    if !is_workspace_object_key(key, &[Some(org), Some(caller.workspace_id.as_str())]) {
-        return Err(Refusal::forbidden("Attachment is outside this workspace"));
-    }
-    let buckets = caller.buckets(state);
-    let Some(private) = buckets.private.clone().or_else(|| buckets.public.clone()) else {
-        return Err(Refusal::from(
-            ApiError::internal().with_message("Storage is not configured"),
-        ));
-    };
-    let public = buckets.private.as_ref().and(buckets.public.as_deref());
-    let object = weldsuite_ports::get_stored(private.as_ref(), public, key)
-        .await
-        .map_err(|error| Refusal::Internal(format!("{error:?}")))?;
-    let Some(object) = object else {
-        return Err(Refusal::not_found("Attachment", key));
-    };
-    let file_name = key
-        .rsplit('/')
-        .next()
-        .filter(|n| !n.is_empty())
-        .unwrap_or("attachment")
-        .replace('"', "");
-    let mut response = object.bytes.into_response();
-    let headers = response.headers_mut();
-    if let Some(content_type) = object.info.content_type.as_deref()
-        && let Ok(value) = HeaderValue::from_str(content_type)
-    {
-        headers.insert(http::header::CONTENT_TYPE, value);
-    }
-    if let Some(etag) = object.info.etag.as_deref()
-        && let Ok(value) = HeaderValue::from_str(&format!("\"{etag}\""))
-    {
-        headers.insert(http::header::ETAG, value);
-    }
-    headers.insert(
-        http::header::CACHE_CONTROL,
-        HeaderValue::from_static("private, max-age=3600"),
-    );
-    if let Ok(value) = HeaderValue::from_str(&format!("inline; filename=\"{file_name}\"")) {
-        headers.insert(http::header::CONTENT_DISPOSITION, value);
-    }
-    Ok(response)
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────

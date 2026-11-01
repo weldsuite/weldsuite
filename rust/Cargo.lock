@@ -3826,6 +3826,7 @@ dependencies = [
  "weldsuite-books-banking",
  "weldsuite-books-domain",
  "weldsuite-books-purchases",
+ "weldsuite-books-sales",
  "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-chat",
@@ -4029,6 +4030,27 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-sales"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",

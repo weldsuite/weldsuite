@@ -309,7 +309,8 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `vendor_tax` | `vendor-tax-data`, `w9-requests` (tokens) | purchases, reports (1099), tax (fiscal webhooks) | purchases | done: `read_vendor_tax` (the schema fields), `build_vendor_tax_change`, `read_sensitive`, `decrypt_party_tin`, `reveal_party_secret`, `vendor_tax_derived`, `strip_tax_fields_for_event`; the W-9 tokens (`generate_w9_token`, `sha256_hex`, `w9_kv_key`, `w9_url`, `to_w9_request_view`, `w9_event_data`); the US identifiers they need (`validate_tin`, `validate_itin`, `validate_routing_number`, `format_tin`, `is_allocatable_box`, `is_corporation_classification`) |
 | `bank_accounts` | `accounting-bank-accounts` (+ `bank-feeds/ledger`) | banking, purchases (payment runs) | banking | done: `is_valid_aba_routing`, `normalize_account_number`, `public_bank_account`, `seal_account_number`, `reveal_account_number` (`BankAccountError::Posting` is the routes' 400, `NoKey` their 500 with `NO_KEY_MESSAGE`), `assert_ledger_account_fits`, `plan_bank_ledger_account`, `create_ledger_account_for_bank`; real-schema test `tests/bank_accounts.rs` |
 | `reports_basis` | `accounting-reports-basis`, `accounting-report-periods` | reports | reports | |
-| `invoice_html`, `compliance` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | partial: `compliance::{get_contact_vat_number, collect_invoice_tax_categories, invoice_uses_reverse_charge}` |
+| `invoice_html`, `compliance` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | done: `generate_invoice_html`, `invoice_template_data`, `generate_templated_invoice_html` (`layout`, `svg`, `mobile`), Node's `Intl` money/number/date shapes and the PDF font metrics exported by `tools/invoice-export.mts` into `data/invoice.json` (checked against 3440 Node outputs, `data/intl-cases.json`); `compliance`: notices, `validate_invoice_for_finalize`, missing entity fields. Not yet: Brazil's Pix QR (`jurisdictions/br/pix`, uqr) — a BR invoice prints without the Pix block; VIES (`compliance::check_vat_number`) goes through `vies` (purchases) |
+| `attachments` | `lib/document-attachment` | sales, purchases (bills) | sales | done: `stream_document_attachment`, `is_workspace_object_key` |
 
 ## Order
 
@@ -339,7 +340,8 @@ mounts invoices and bank transactions can only pass when both are ported.
 |---|---|---|
 | `routes/accounting-entities/{integration,entity-lock,lock-dates,us-setup}` | ledger | `books: ledger` |
 | `routes/gl-accounts/*`, `routes/tax-rates/*`, `routes/fiscal-periods/*`, `routes/fx-rates/*`, `routes/journal-entries/*`, `routes/accounting-settings/*`, `routes/accounting-dimensions/*` | ledger | `books: ledger` |
-| `routes/invoices/{integration,index}`, `routes/invoice-templates/*`, `routes/recurring-invoices/*` | sales | `books: sales` |
+| `routes/invoices/{integration,index,lifecycle}`, `routes/invoice-templates/*`, `routes/recurring-invoices/crud`, `routes/payments/payments` | sales (+ ledger: entities are created through it) | `books: sales` |
+| `routes/recurring-invoices/integration` | sales, sales-tax (its entities are US: the engine answers) | `books: cross-area` |
 | `routes/invoices/{document-integrity,india-gst}`, `services/{accounting-fx,bad-debt-vat}.integration` | sales, purchases (bills), reports, tax (vat-returns) | `books: cross-area` |
 | `routes/invoices/brazil` | sales, purchases, tax (br-tax) | `books: cross-area` |
 | `routes/bills/*`, `routes/accounting-contacts/*`, `routes/accounting-documents/*`, `routes/w9-requests/*`, `routes/public-w9/*` | purchases | `books: purchases` |
@@ -416,5 +418,6 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 | Plan (this file) | done |
 | `books-domain` foundation modules | done: the rows marked done above (posting engine, documents, payments, bad debt, catch-up included); payroll (hr's in-process import) and `roles::promote_accounting_role` (connect) included |
 | `books` (ledger) and the `books: ledger` suite | all 8 groups ported; 17 test files, 395 requests at zero differences and zero schema failures, every ledger route reached |
-| Areas 1–6 | not started |
+| Area 1 (sales) and the `books: sales` suite | all 4 groups ported (36 routes: invoices, payments, recurring invoices, invoice templates); 6 test files, 41 tests, 187 requests at zero differences and zero schema failures, every sales route reached. Left for other areas: the US engine (`sales_tax::document_tax::{calculate_us_document_tax, accrue_use_tax}` stubs answer "engine unavailable"; US invoices draft untaxed and refuse to finalize, provider sync records `commit_failed`), Brazil's document tax hook (`tax::document_tax_hook`, a BR document fails until the tax area plugs the engine in), VIES (purchases), Pix (BR). For the `books-sweep` cron (recurring and overdue invoices), `books-sales`' `recurring::generate_recurring_invoice` takes the request's `Caller` today: the cron needs a variant on a tenant pool and a system user |
+| Areas 2–6 | other agents |
 | Cron, `RUST_PORTED_MODULES` | not started |

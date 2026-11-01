@@ -48,6 +48,62 @@ pub fn normalize_postal_address(input: Option<&Value>) -> Option<Value> {
     (!result.is_empty()).then_some(Value::Object(result))
 }
 
+/// `formatPostalAddressLines(input, { omitCountry })`: street lines, then
+/// "city, ST 12345" for the US and "1234 AB City" elsewhere (the state on
+/// its own line), then the country unless it is `omit_country`.
+pub fn format_postal_address_lines(
+    input: Option<&Value>,
+    omit_country: Option<&str>,
+) -> Vec<String> {
+    let Some(address) = normalize_postal_address(input) else {
+        return Vec::new();
+    };
+    let field = |key: &str| {
+        address
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+    };
+    let mut lines: Vec<String> = Vec::new();
+    lines.extend(field("line1").map(str::to_owned));
+    lines.extend(field("line2").map(str::to_owned));
+    let is_us = field("country") == Some("US");
+    let locality = if is_us {
+        let state_zip = [field("state"), field("postalCode")]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
+        [
+            field("city").map(str::to_owned),
+            Some(state_zip).filter(|s| !s.is_empty()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ")
+    } else {
+        [field("postalCode"), field("city")]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if !locality.is_empty() {
+        lines.push(locality);
+    }
+    if !is_us && let Some(state) = field("state") {
+        lines.push(state.to_owned());
+    }
+    let omit = omit_country.map(str::to_uppercase);
+    if let Some(country) = field("country")
+        && Some(country) != omit.as_deref()
+    {
+        lines.push(country.to_owned());
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

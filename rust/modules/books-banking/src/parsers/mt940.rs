@@ -22,9 +22,8 @@ static IBAN: LazyLock<Regex> =
 static IBAN_WORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?-u:\b)([A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,})(?-u:\b)").expect("iban pattern")
 });
-static CNTP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"/CNTP/([^/]*)/([^/]*)/([^/]*)/([^/]*)/").expect("cntp pattern")
-});
+static CNTP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/CNTP/([^/]*)/([^/]*)/([^/]*)/([^/]*)/").expect("cntp pattern"));
 static EREF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/EREF/([^/]+)").expect("eref"));
 static MARF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/MARF/([^/]+)").expect("marf"));
 static PREF: LazyLock<Regex> =
@@ -256,11 +255,18 @@ fn parse_tag86(value: &str) -> Info {
     }
 }
 
-fn parse_transaction(tag61: &Tag, tag86: Option<&Tag>, errors: &mut Vec<ParseIssue>) -> Option<Txn> {
+fn parse_transaction(
+    tag61: &Tag,
+    tag86: Option<&Tag>,
+    errors: &mut Vec<ParseIssue>,
+) -> Option<Txn> {
     let line = tag61.value.replace('\n', "");
     let Some(caps) = LINE61.captures(&line) else {
         let head = String::from_utf16_lossy(&line.encode_utf16().take(80).collect::<Vec<_>>());
-        errors.push(ParseIssue::at(tag61.line, format!("Cannot parse :61: line: {head}")));
+        errors.push(ParseIssue::at(
+            tag61.line,
+            format!("Cannot parse :61: line: {head}"),
+        ));
         return None;
     };
     let date_text = &caps[1];
@@ -383,7 +389,10 @@ mod tests {
         let credit = &result.transactions[1];
         assert_eq!(credit.reference.as_deref(), Some("INV-7"));
         assert_eq!(credit.description, "SEPA OVERBOEKING Factuur 7");
-        assert_eq!(credit.counterparty_iban.as_deref(), Some("NL02RABO0123456789"));
+        assert_eq!(
+            credit.counterparty_iban.as_deref(),
+            Some("NL02RABO0123456789")
+        );
         assert_eq!(credit.counterparty_name.as_deref(), Some("Klant"));
     }
 

@@ -20,15 +20,16 @@ static TIME_TAIL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[ T][0-9]{1,2}:[0-9]{2}.*$").expect("time tail pattern"));
 static COMPACT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([0-9]{4})([0-9]{2})([0-9]{2})$").expect("compact"));
-static ISO: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^([0-9]{4})[-/.]([0-9]{1,2})[-/.]([0-9]{1,2})$").expect("iso")
-});
+static ISO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([0-9]{4})[-/.]([0-9]{1,2})[-/.]([0-9]{1,2})$").expect("iso"));
 static NUMERIC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([0-9]{1,2})[-/.]([0-9]{1,2})[-/.]([0-9]{2}|[0-9]{4})$").expect("numeric")
 });
 static NAMED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[A-Za-z]+,?\s+)?([0-9]{1,2})[\s-]([A-Za-z]{3,9})\.?,?[\s-]([0-9]{2}|[0-9]{4})$")
-        .expect("named")
+    Regex::new(
+        r"^(?:[A-Za-z]+,?\s+)?([0-9]{1,2})[\s-]([A-Za-z]{3,9})\.?,?[\s-]([0-9]{2}|[0-9]{4})$",
+    )
+    .expect("named")
 });
 static NAMED_FIRST: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([A-Za-z]{3,9})\.?\s+([0-9]{1,2}),?\s+([0-9]{2}|[0-9]{4})$").expect("named first")
@@ -58,17 +59,18 @@ pub(crate) fn read_records(content: &str, delimiter: char) -> Vec<Record> {
     let mut line = 1;
     let mut record_line = 1;
     let mut touched = false;
-    let end_record = |cells: &mut Vec<String>, cell: &mut String, records: &mut Vec<Record>, at: usize| {
-        cells.push(std::mem::take(cell));
-        if cells.iter().any(|c| !js_trim(c).is_empty()) {
-            records.push(Record {
-                cells: std::mem::take(cells),
-                line: at,
-            });
-        } else {
-            cells.clear();
-        }
-    };
+    let end_record =
+        |cells: &mut Vec<String>, cell: &mut String, records: &mut Vec<Record>, at: usize| {
+            cells.push(std::mem::take(cell));
+            if cells.iter().any(|c| !js_trim(c).is_empty()) {
+                records.push(Record {
+                    cells: std::mem::take(cells),
+                    line: at,
+                });
+            } else {
+                cells.clear();
+            }
+        };
     let mut i = 0;
     while i < chars.len() {
         let ch = chars[i];
@@ -152,7 +154,11 @@ fn modal_of(tally: &BTreeMap<usize, usize>) -> (usize, usize) {
 
 fn days_in_month(year: i64, month: i64) -> i64 {
     // `Date.UTC` reads a year below 100 as 19xx.
-    let year = if (0..100).contains(&year) { year + 1900 } else { year };
+    let year = if (0..100).contains(&year) {
+        year + 1900
+    } else {
+        year
+    };
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     match month {
         2 if leap => 29,
@@ -226,10 +232,12 @@ pub(crate) fn parse_csv_date(raw: &str, order: &str) -> Option<String> {
         };
     }
     if let Some(c) = NAMED.captures(value) {
-        return month_of(&c[2]).and_then(|month| make_date(expand_year(num(&c[3]), c[3].len()), month, num(&c[1])));
+        return month_of(&c[2])
+            .and_then(|month| make_date(expand_year(num(&c[3]), c[3].len()), month, num(&c[1])));
     }
     if let Some(c) = NAMED_FIRST.captures(value) {
-        return month_of(&c[1]).and_then(|month| make_date(expand_year(num(&c[3]), c[3].len()), month, num(&c[2])));
+        return month_of(&c[1])
+            .and_then(|month| make_date(expand_year(num(&c[3]), c[3].len()), month, num(&c[2])));
     }
     None
 }
@@ -342,7 +350,9 @@ fn resolve_column(
             if name.bytes().all(|b| b.is_ascii_digit()) {
                 return name.parse().ok();
             }
-            problems.push(format!("{label} column \"{name}\" was not found in the header row"));
+            problems.push(format!(
+                "{label} column \"{name}\" was not found in the header row"
+            ));
             None
         }
         _ => None,
@@ -382,7 +392,9 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
     }
     let headers: Option<Vec<String>> =
         header.map(|h| h.cells.iter().map(|c| js_trim(c).to_owned()).collect());
-    let data = records.get(skip + usize::from(has_header)..).unwrap_or_default();
+    let data = records
+        .get(skip + usize::from(has_header)..)
+        .unwrap_or_default();
 
     let cols = &format["columns"];
     let mut problems = Vec::new();
@@ -404,7 +416,9 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
         problems.push("An amount, or a debit and credit column, is required".to_owned());
     }
     if !problems.is_empty() {
-        result.errors.extend(problems.into_iter().map(ParseIssue::new));
+        result
+            .errors
+            .extend(problems.into_iter().map(ParseIssue::new));
         return result;
     }
     let decimal = format["decimalSeparator"].as_str().unwrap_or(".");
@@ -422,9 +436,10 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
         let date_text = cell(cells, date);
         let Some(iso) = parse_csv_date(&date_text, order) else {
             if !date_text.is_empty() {
-                result
-                    .errors
-                    .push(ParseIssue::at(line, format!("Unreadable date \"{date_text}\"")));
+                result.errors.push(ParseIssue::at(
+                    line,
+                    format!("Unreadable date \"{date_text}\""),
+                ));
             }
             continue;
         };
@@ -459,9 +474,10 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
                 .into_iter()
                 .find(|t| !t.is_empty())
                 .unwrap_or_default();
-            result
-                .errors
-                .push(ParseIssue::at(line, format!("Unreadable amount in \"{shown}\"")));
+            result.errors.push(ParseIssue::at(
+                line,
+                format!("Unreadable amount in \"{shown}\""),
+            ));
             continue;
         };
         let described = clean_text(Some(&cell(cells, description)));
@@ -494,26 +510,72 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
 fn synonyms(field: &str) -> &'static [&'static str] {
     match field {
         "date" => &[
-            "date", "posted date", "posting date", "post date", "transaction date", "trans date",
-            "booking date", "effective date", "settlement date", "completed date",
+            "date",
+            "posted date",
+            "posting date",
+            "post date",
+            "transaction date",
+            "trans date",
+            "booking date",
+            "effective date",
+            "settlement date",
+            "completed date",
         ],
         "amount" => &["amount", "transaction amount", "amt", "net amount"],
         "debit" => &[
-            "debit", "debits", "debit amount", "withdrawal", "withdrawals", "money out", "paid out",
-            "payments out", "charges",
+            "debit",
+            "debits",
+            "debit amount",
+            "withdrawal",
+            "withdrawals",
+            "money out",
+            "paid out",
+            "payments out",
+            "charges",
         ],
-        "credit" => &["credit", "credits", "credit amount", "deposit", "deposits", "money in", "paid in"],
+        "credit" => &[
+            "credit",
+            "credits",
+            "credit amount",
+            "deposit",
+            "deposits",
+            "money in",
+            "paid in",
+        ],
         "checkNumber" => &[
-            "check number", "check no", "check #", "check num", "checknumber", "check or slip #",
-            "cheque number", "cheque no", "cheque", "check", "chk no", "chk #",
+            "check number",
+            "check no",
+            "check #",
+            "check num",
+            "checknumber",
+            "check or slip #",
+            "cheque number",
+            "cheque no",
+            "cheque",
+            "check",
+            "chk no",
+            "chk #",
         ],
         "reference" => &[
-            "reference", "reference number", "ref", "ref no", "transaction id", "trans id", "fitid",
-            "confirmation", "confirmation number",
+            "reference",
+            "reference number",
+            "ref",
+            "ref no",
+            "transaction id",
+            "trans id",
+            "fitid",
+            "confirmation",
+            "confirmation number",
         ],
         "description" => &[
-            "description", "transaction description", "original description", "extended description",
-            "memo", "details", "narrative", "payee description",
+            "description",
+            "transaction description",
+            "original description",
+            "extended description",
+            "memo",
+            "details",
+            "narrative",
+            "payee description",
         ],
         _ => &["payee", "merchant", "counterparty", "vendor", "name"],
     }
@@ -551,7 +613,9 @@ fn looks_like_date(value: &str) -> bool {
 fn numeric_core(value: &str) -> String {
     let v: String = js_trim(value)
         .chars()
-        .filter(|c| !(matches!(c, '(' | ')' | '$' | '€' | '£' | '¥' | '+') || is_minus(*c) || is_space(*c)))
+        .filter(|c| {
+            !(matches!(c, '(' | ')' | '$' | '€' | '£' | '¥' | '+') || is_minus(*c) || is_space(*c))
+        })
         .collect();
     let lower = v.to_ascii_lowercase();
     if lower.ends_with("dr") || lower.ends_with("cr") {
@@ -564,7 +628,9 @@ fn numeric_core(value: &str) -> String {
 /// `/^\d[\d.,]*$/`
 fn looks_like_number(value: &str) -> bool {
     let v = numeric_core(value);
-    v.starts_with(|c: char| c.is_ascii_digit()) && v.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ',')
+    v.starts_with(|c: char| c.is_ascii_digit())
+        && v.chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == ',')
 }
 
 /// `/^\d[\d.,]*[.,]\d{1,2}$/`
@@ -621,16 +687,25 @@ fn detect_number_format(cells: &[String]) -> (&'static str, &'static str) {
     for raw in cells {
         let v: String = raw
             .chars()
-            .filter(|c| !(matches!(c, '(' | ')' | '$' | '€' | '£' | '¥' | '+') || is_minus(*c) || c.is_ascii_alphabetic()))
+            .filter(|c| {
+                !(matches!(c, '(' | ')' | '$' | '€' | '£' | '¥' | '+')
+                    || is_minus(*c)
+                    || c.is_ascii_alphabetic())
+            })
             .collect();
         let v = js_trim(&v);
         let chars: Vec<char> = v.chars().collect();
         if chars.windows(5).any(|w| {
-            w[0].is_ascii_digit() && matches!(w[1], ' ' | '\u{a0}') && w[2..].iter().all(char::is_ascii_digit)
+            w[0].is_ascii_digit()
+                && matches!(w[1], ' ' | '\u{a0}')
+                && w[2..].iter().all(char::is_ascii_digit)
         }) {
             space_thousands = true;
         }
-        let s: String = v.chars().filter(|c| !is_space(*c) && *c != '\u{a0}').collect();
+        let s: String = v
+            .chars()
+            .filter(|c| !is_space(*c) && *c != '\u{a0}')
+            .collect();
         let tail_decimals = |mark: char| {
             s.rfind(mark).is_some_and(|at| {
                 let rest = &s[at + 1..];
@@ -665,7 +740,11 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
             *widths.entry(record.cells.len()).or_insert(0) += 1;
         }
     }
-    let modal_width = if widths.is_empty() { 0 } else { modal_of(&widths).0 };
+    let modal_width = if widths.is_empty() {
+        0
+    } else {
+        modal_of(&widths).0
+    };
     let skip_rows = all
         .iter()
         .position(|r| r.cells.len() == modal_width)
@@ -714,8 +793,16 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
     };
     let mut date = pick("date", &mut taken);
     let mut amount = pick("amount", &mut taken);
-    let debit = if amount.is_none() { pick("debit", &mut taken) } else { None };
-    let credit = if amount.is_none() { pick("credit", &mut taken) } else { None };
+    let debit = if amount.is_none() {
+        pick("debit", &mut taken)
+    } else {
+        None
+    };
+    let credit = if amount.is_none() {
+        pick("credit", &mut taken)
+    } else {
+        None
+    };
     let check_number = pick("checkNumber", &mut taken);
     let reference = pick("reference", &mut taken);
     let mut description = pick("description", &mut taken);
@@ -816,12 +903,18 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
             }
         }),
     );
-    for (key, at) in [("amount", amount), ("debit", debit), ("credit", credit), ("checkNumber", check_number)] {
+    for (key, at) in [
+        ("amount", amount),
+        ("debit", debit),
+        ("credit", credit),
+        ("checkNumber", check_number),
+    ] {
         if let Some(value) = reference_of(at) {
             columns.insert(key.to_owned(), value);
         }
     }
-    if payee.is_some() && payee != description
+    if payee.is_some()
+        && payee != description
         && let Some(value) = reference_of(payee)
     {
         columns.insert("payee".to_owned(), value);
@@ -829,7 +922,10 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
     if let Some(value) = reference_of(reference) {
         columns.insert("reference".to_owned(), value);
     }
-    if !columns.contains_key("amount") && !columns.contains_key("debit") && !columns.contains_key("credit") {
+    if !columns.contains_key("amount")
+        && !columns.contains_key("debit")
+        && !columns.contains_key("credit")
+    {
         let fallback = if has_header {
             headers.get(2).map_or(json!(2), |h| json!(h))
         } else {
@@ -837,11 +933,7 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
         };
         columns.insert("amount".to_owned(), fallback);
     }
-    let sample_rows: Vec<Value> = rows
-        .iter()
-        .take(8)
-        .map(|r| json!(r))
-        .collect();
+    let sample_rows: Vec<Value> = rows.iter().take(8).map(|r| json!(r)).collect();
     json!({
         "format": {
             "dateFormat": order,
@@ -875,11 +967,23 @@ mod tests {
 
     #[test]
     fn dates_and_amounts() {
-        assert_eq!(parse_csv_date("1/15/2024 12:00:00 AM", "MDY").as_deref(), Some("2024-01-15"));
-        assert_eq!(parse_csv_date("15/1/2024", "DMY").as_deref(), Some("2024-01-15"));
+        assert_eq!(
+            parse_csv_date("1/15/2024 12:00:00 AM", "MDY").as_deref(),
+            Some("2024-01-15")
+        );
+        assert_eq!(
+            parse_csv_date("15/1/2024", "DMY").as_deref(),
+            Some("2024-01-15")
+        );
         assert_eq!(parse_csv_date("2/30/2024", "MDY"), None);
-        assert_eq!(parse_csv_date("15 Jan 2024", "MDY").as_deref(), Some("2024-01-15"));
-        assert_eq!(parse_csv_date("Jan. 15, 24", "MDY").as_deref(), Some("2024-01-15"));
+        assert_eq!(
+            parse_csv_date("15 Jan 2024", "MDY").as_deref(),
+            Some("2024-01-15")
+        );
+        assert_eq!(
+            parse_csv_date("Jan. 15, 24", "MDY").as_deref(),
+            Some("2024-01-15")
+        );
         assert_eq!(parse_csv_amount("(1,234.50)", ".", ","), Some(-1234.5));
         assert_eq!(parse_csv_amount("1.234,50-", ",", "."), Some(-1234.5));
         assert_eq!(parse_csv_amount("$12.00 DR", ".", ","), Some(-12.0));
@@ -896,7 +1000,10 @@ mod tests {
         assert_eq!(proposal["format"]["hasHeader"], json!(true));
         assert_eq!(proposal["format"]["columns"]["date"], json!("Posted Date"));
         assert_eq!(proposal["format"]["columns"]["amount"], json!("Amount"));
-        assert_eq!(proposal["format"]["columns"]["checkNumber"], json!("Check Number"));
+        assert_eq!(
+            proposal["format"]["columns"]["checkNumber"],
+            json!("Check Number")
+        );
         assert_eq!(proposal["format"]["dateFormat"], json!("MDY"));
         assert_eq!(proposal["dateOrderAmbiguous"], json!(false));
         let parsed = parse_with_format(sample, &proposal["format"]);

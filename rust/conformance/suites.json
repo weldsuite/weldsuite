@@ -1944,6 +1944,32 @@
         "rust/crates/books-domain/",
         "rust/crates/crm-domain/"
       ]
+    },
+    {
+      "name": "books: sales",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/invoices/integration.test.ts",
+        "src/routes/invoices/index.test.ts",
+        "src/routes/invoices/lifecycle.integration.test.ts",
+        "src/routes/invoice-templates/invoice-templates.integration.test.ts",
+        "src/routes/recurring-invoices/crud.integration.test.ts",
+        "src/routes/payments/payments.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/invoices/",
+        "apps/workers/books-api/src/routes/recurring-invoices/",
+        "apps/workers/books-api/src/routes/invoice-templates/",
+        "apps/workers/books-api/src/routes/payments/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-sales-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-sales.ts",
+        "rust/modules/books-sales/",
+        "rust/crates/books-domain/"
+      ]
     }
   ]
 }
