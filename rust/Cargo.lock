@@ -3827,6 +3827,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-books-purchases",
  "weldsuite-books-sales",
+ "weldsuite-books-tax",
  "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-chat",
@@ -4045,6 +4046,32 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-tax"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "encoding_rs",
+ "form_urlencoded",
+ "getrandom 0.4.3",
+ "http",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",
