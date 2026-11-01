@@ -140,7 +140,10 @@ export const jsonResponse = (body: unknown, status = 200, headers: Record<string
 export function createFocusStub() {
   const calls: StubCall[] = [];
   const handlers: Array<{ method: string; pattern: RegExp; handler: StubHandler }> = [];
+  // Anything that is not Focus (the conformance harness's own loopback calls) goes out as before.
+  const realFetch = globalThis.fetch;
   const fetchStub = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(input).includes('focusnfe.com.br/')) return realFetch(input, init);
     const call: StubCall = {
       method: init?.method ?? 'GET',
       url: String(input),

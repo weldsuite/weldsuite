@@ -6,6 +6,7 @@
 //! checks, kind resolution, line mapping) is ported here.
 
 pub mod br;
+pub mod br_tax;
 pub mod india;
 pub mod nl;
 pub mod us;

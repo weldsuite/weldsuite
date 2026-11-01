@@ -6,15 +6,14 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget, conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { ENCRYPTION_KEY, fakeKv } from '../../services/form-1099/test-fixtures';
 import { createFocusStub, jsonResponse, seedBrEntity, seedInvoice, type BrFixture } from '../../services/br-fiscal/integration-fixtures';
 import { createPublicFiscalWebhookRoutes } from '../public-fiscal-webhooks';
 import { fiscalDocumentsRoutes } from './index';
-import type { Env, Variables } from '../../types';
 
 const KEY = '41261012345678000123550010000000221923094166';
 const TOKEN = 'tok-homolog-12345678';
@@ -55,19 +54,31 @@ async function api(method: string, path: string, body?: unknown, perms: string[]
   return { status: res.status, data: json.data, error: json.error, text };
 }
 
-const publicApp = new Hono<{ Bindings: Env; Variables: Variables }>();
-publicApp.route(
-  '/public/fiscal-webhooks',
-  createPublicFiscalWebhookRoutes({ openTenant: async () => ({ db, workspaceId: 'ws_test', suspended: false }), fetch: focus.fetch }),
-);
+/**
+ * The webhook routes as the worker mounts them, through the test harness (so
+ * conformance runs compare both backends). The tenant behind a token is the
+ * test's database: `conformanceTenantDb` hands the TypeScript side of a write
+ * its copy. Focus is the stubbed global `fetch`.
+ */
+const publicRoutes = createPublicFiscalWebhookRoutes({
+  openTenant: async () => ({ db: conformanceTenantDb(db), workspaceId: 'ws_test', suspended: false }),
+});
 
 async function webhook(token: string, secret: string, body: unknown) {
-  return publicApp.request(
-    `/public/fiscal-webhooks/${token}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: secret }, body: JSON.stringify(body) },
-    env as unknown as Record<string, unknown>,
-  );
+  const { request } = createTestApp('/public/fiscal-webhooks', publicRoutes, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    env: env as any,
+    context: { tenantDb: db, workspaceId: 'ws_test' },
+  });
+  return request(`/public/fiscal-webhooks/${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: secret },
+    body: JSON.stringify(body),
+  });
 }
+
+/** Both backends call the Focus stub in a conformance run: each provider call is made once per run. */
+const runs = conformanceTarget() ? 2 : 1;
 
 const goods = { description: 'Produto exemplo', quantity: '2', unitPrice: '100', profile: 'venda_mercadoria', ncm: '49111090' };
 const service = { description: 'Desenvolvimento de software', quantity: '1', unitPrice: '1500', profile: 'servico_iss_5', fiscalData: { serviceCode: '01.07' } };
@@ -135,11 +146,13 @@ describe('settings', () => {
     expect(JSON.stringify(entity.jurisdictionSettings)).not.toContain(res.data.webhookUrl.split('/').pop());
 
     const hooks = focus.callsTo('POST', /\/v2\/hooks$/);
-    expect(hooks.map((h) => h.body?.event)).toEqual(['nfe', 'nfse', 'nfsen']);
     expect(hooks[0].headers.Authorization).toBe(`Basic ${btoa(`${TOKEN}:`)}`);
     webhookUrl = res.data.webhookUrl;
-    secret = String(hooks[0].body?.authorization);
-    expect(hooks.every((h) => h.body?.url === webhookUrl && h.body?.authorization === secret)).toBe(true);
+    // The hooks of the answer's registration (a conformance run made two, one per backend).
+    const registered = hooks.filter((h) => h.body?.url === webhookUrl);
+    expect(registered.map((h) => h.body?.event)).toEqual(['nfe', 'nfse', 'nfsen']);
+    secret = String(registered[0].body?.authorization);
+    expect(registered.every((h) => h.body?.authorization === secret)).toBe(true);
     expect([...kv.store.keys()].filter((k) => k.startsWith('fiscalhook:'))).toHaveLength(1);
     const audit = await db.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'fiscal_settings'));
     expect(audit).toHaveLength(1);
@@ -247,7 +260,13 @@ describe('issuing', () => {
     const res = await webhook(hook.token, hook.secret, { ref: 'inv_goods-1', status: 'autorizado' });
     expect(res.status).toBe(200);
 
-    const [doc] = await db.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.providerRef, 'inv_goods-1'));
+    // The refresh runs after the answer (`waitUntil`).
+    const doc = await vi.waitFor(async () => {
+      const [row] = await db.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.providerRef, 'inv_goods-1'));
+      expect(row.status).toBe('authorized');
+      expect(sent.some((m) => JSON.stringify(m).includes('fiscal_document') && JSON.stringify(m).includes('updated'))).toBe(true);
+      return row;
+    });
     expect(doc).toMatchObject({
       status: 'authorized',
       number: '22',
@@ -438,7 +457,7 @@ describe('services', () => {
     const deletedBefore = focus.callsTo('DELETE', /\/v2\/hooks\//).length;
     const res = await api('PUT', '/settings', { environment: 'homologacao', token: null });
     expect(res.data).toMatchObject({ hasCredentials: false, webhook: { registered: false } });
-    expect(focus.callsTo('DELETE', /\/v2\/hooks\//).length - deletedBefore).toBe(3);
+    expect(focus.callsTo('DELETE', /\/v2\/hooks\//).length - deletedBefore).toBe(3 * runs);
     expect([...kv.store.keys()].filter((k) => k.startsWith('fiscalhook:'))).toHaveLength(0);
     // Without a token nothing can be issued.
     await seedInvoice(db, fx, 'inv_notoken', [goods]);

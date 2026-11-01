@@ -96,8 +96,8 @@ Features this backend lacks inside the modules it serves are listed in
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
-sending the loonaangifte over Digipoort, WeldBooks document OCR and buying
-or porting phone numbers.
+sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
+returns through Digipoort and buying or porting phone numbers.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
 host, meet, connect, agent, reach, sheets, docs and

@@ -48,6 +48,7 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     routers.extend(weldsuite_books_banking::routers(&books, gate));
     routers.extend(weldsuite_books_purchases::routers(&books, gate));
     routers.extend(weldsuite_books_sales_tax::routers(&books, gate));
+    routers.extend(weldsuite_books_tax::routers(&books, gate));
     routers
         .into_iter()
         .fold(router, |router, (prefix, routes)| {
@@ -66,6 +67,11 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     // The W-9 form (purchases).
     let router: Router<AppState> =
         weldsuite_books_purchases::public_router(&books, Some(Arc::clone(&state.workspaces)));
+    // Focus NFe's webhook (VAT, GST and Brazil).
+    let router = router.merge(weldsuite_books_tax::public_router(
+        &books,
+        Some(Arc::clone(&state.workspaces)),
+    ));
     #[cfg(feature = "conformance")]
     let router = router.route_layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),
