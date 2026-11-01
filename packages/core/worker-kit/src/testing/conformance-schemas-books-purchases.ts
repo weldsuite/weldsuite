@@ -23,6 +23,20 @@ import {
   taxIdRevealSchema,
   w9RequestSchema,
 } from '@weldsuite/app-api-client/schemas/books-purchases-responses';
+import {
+  approveRunResultSchema,
+  bankPaymentSettingsSchema,
+  checkPrintDataSchema,
+  checkRegisterPageSchema,
+  markPrintedResultSchema,
+  nachaFileResultSchema,
+  payableVendorSchema,
+  paymentRunDetailSchema,
+  paymentRunSummarySchema,
+  positivePayFileSchema,
+  positivePayFormatSchema,
+  voidCheckResultSchema,
+} from '@weldsuite/app-api-client/schemas/books-payment-runs-responses';
 import type { RouteSchema } from './conformance-schemas';
 
 export const BOOKS_PURCHASES_ROUTES: RouteSchema[] = [
@@ -65,4 +79,25 @@ export const BOOKS_PURCHASES_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/w9-requests/:id', envelope: 'single', data: w9RequestSchema },
   { method: 'POST', route: '/api/w9-requests', envelope: 'single', data: createdW9RequestSchema },
   { method: 'POST', route: '/api/w9-requests/:id/cancel', envelope: 'single', data: w9RequestSchema },
+  // payment-runs
+  { method: 'GET', route: '/api/payment-runs', envelope: 'list', data: paymentRunSummarySchema },
+  { method: 'POST', route: '/api/payment-runs', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'GET', route: '/api/payment-runs/payable-bills', envelope: 'list', data: payableVendorSchema },
+  { method: 'GET', route: '/api/payment-runs/:id', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'PATCH', route: '/api/payment-runs/:id', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/submit', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/approve', envelope: 'single', data: approveRunResultSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/reject', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/cancel', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/release-hold', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'GET', route: '/api/payment-runs/:id/checks', envelope: 'single', data: checkPrintDataSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/checks/printed', envelope: 'single', data: markPrintedResultSchema },
+  { method: 'GET', route: '/api/payment-runs/:id/nacha', envelope: 'single', data: nachaFileResultSchema },
+  { method: 'POST', route: '/api/payment-runs/:id/complete', envelope: 'single', data: paymentRunDetailSchema },
+  { method: 'POST', route: '/api/payment-runs/checks/:paymentId/void', envelope: 'single', data: voidCheckResultSchema },
+  { method: 'GET', route: '/api/payment-runs/check-register', envelope: 'body', data: checkRegisterPageSchema },
+  { method: 'GET', route: '/api/payment-runs/positive-pay', envelope: 'single', data: positivePayFileSchema },
+  { method: 'GET', route: '/api/payment-runs/positive-pay/formats', envelope: 'list', data: positivePayFormatSchema },
+  { method: 'GET', route: '/api/payment-runs/settings/:bankAccountId', envelope: 'single', data: bankPaymentSettingsSchema },
+  { method: 'PUT', route: '/api/payment-runs/settings/:bankAccountId', envelope: 'single', data: bankPaymentSettingsSchema },
 ];

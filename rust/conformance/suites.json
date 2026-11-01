@@ -1936,7 +1936,8 @@
         "src/routes/accounting-documents/tax-form-ocr.integration.test.ts",
         "src/routes/accounting-documents/inbox.integration.test.ts",
         "src/routes/bills/integration.test.ts",
-        "src/routes/bills/lifecycle.integration.test.ts"
+        "src/routes/bills/lifecycle.integration.test.ts",
+        "src/routes/payment-runs/payment-runs.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bills/",

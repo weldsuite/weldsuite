@@ -156,6 +156,9 @@ export const FORWARDED_ENV = [
   'DATABASE_ENCRYPTION_KEY_V2',
   // WeldBooks: the platform page a W-9 request link points at.
   'PLATFORM_URL',
+  // WeldBooks payment runs: a test that makes the payments service fail after
+  // n payments (a vi.mock on the TypeScript side) hands Rust the same n.
+  'CONFORMANCE_FAIL_RECORD_PAYMENT_AFTER',
   // WeldMail: the outbound guard's staff API secret, and whether the worker
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
@@ -217,6 +220,10 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
+  // WeldBooks payment runs: the NACHA file marks its run exported, and it, the
+  // MICR print data and the Positive Pay file log the account numbers they reveal.
+  /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
+  /^\/api\/payment-runs\/positive-pay(\?|$)/,
 ];
 
 interface ConformanceContext {
