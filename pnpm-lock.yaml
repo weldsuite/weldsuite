@@ -5767,12 +5767,21 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
         version: 4.20260113.0
+      '@electric-sql/pglite':
+        specifier: ^0.4.5
+        version: 0.4.5
       '@types/node':
         specifier: ^20
         version: 20.19.27
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
       typescript:
         specifier: ^5.7
         version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.27)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
       wrangler:
         specifier: ^4.0.0
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(@types/node@20.19.27)(bufferutil@4.1.0)(utf-8-validate@6.0.6)

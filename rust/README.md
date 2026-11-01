@@ -30,8 +30,11 @@ modules, each with conformance suites that reach every route:
   **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
   as the MX, the `mail.inbound` subscriber in place of mail-inbound-worker,
   ADR MAIL-010, see "Inbound mail" below), **chat**, **desk** (with the
-  helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
-  engine, `helpdesk-workflow-worker`) and **stash** (the WMS, with the
+  helpdesk widget API at `/public/helpdesk-widget`, and the helpdesk
+  workflow engine, `helpdesk-workflow-worker`, in process: its
+  `ConversationWorkflow` is the `desk.conversation-workflow` job and its
+  `AssignmentRouter` keeps each workspace's round robin on Valkey;
+  `crates/desk-domain/src/workflow`) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -103,6 +106,9 @@ rust/
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
+  crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
+                        the helpdesk workflow engine (`workflow/`: handlers, the desk.conversation-workflow job);
+                        tests/fixtures from `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite)
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
@@ -142,6 +148,7 @@ pnpm rust:test         # tests
 pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs cargo-deny)
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
+pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
@@ -252,6 +259,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
+| `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
+| `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |

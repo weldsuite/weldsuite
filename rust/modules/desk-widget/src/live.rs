@@ -163,11 +163,13 @@ pub(crate) async fn publish_visitor_event(
 /// `autoAssignConversation(env, db, orgId, conversation)`: hand an open,
 /// unowned conversation to a teammate (when the workspace has it on) and
 /// publish the `assigned` event. The conversation as it now stands; on any
-/// failure it stays unassigned.
+/// failure it stays unassigned. The pick goes through the workspace's
+/// router (`workspace_id`, `workspaces.id`) when the state has one.
 pub(crate) async fn auto_assign(
     state: &WidgetState,
     db: &PgPool,
     org_id: &str,
+    workspace_id: &str,
     conversation: Value,
 ) -> Value {
     let owned = conversation["assigneeId"]
@@ -177,7 +179,14 @@ pub(crate) async fn auto_assign(
         return conversation;
     }
     let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-    match assignment::auto_assign(db, &id).await {
+    let picker = match &state.assignment {
+        Some(router) => assignment::Picker::Router {
+            router,
+            workspace_id,
+        },
+        None => assignment::Picker::Local,
+    };
+    match assignment::auto_assign_with(db, &id, &picker).await {
         Ok(Some((assigned, message))) => {
             match resolve_authors(db, &[assigned["assigneeId"].as_str()]).await {
                 Ok(authors) => {

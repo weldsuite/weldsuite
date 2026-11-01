@@ -69,6 +69,8 @@ export const helpdeskWorkflowExecutions = pgTable('helpdesk_workflow_executions'
     waitingStepId?: string;
     /** Step ID of active AI handler */
     aiStepId?: string;
+    /** The ConversationWorkflow instance running this execution (helpdesk-workflow-worker). */
+    cfInstanceId?: string;
   }>(),
 
   // Retry tracking
