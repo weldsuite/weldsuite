@@ -382,7 +382,7 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
     }
     let headers: Option<Vec<String>> =
         header.map(|h| h.cells.iter().map(|c| js_trim(c).to_owned()).collect());
-    let data = records.get(skip + usize::from(has_header)..).unwrap_or_default();
+    let rows = records.get(skip + usize::from(has_header)..).unwrap_or_default();
 
     let cols = &format["columns"];
     let mut problems = Vec::new();
@@ -416,7 +416,7 @@ pub(crate) fn parse_with_format(content: &str, format: &Value) -> ParseResult {
             .unwrap_or_default()
     };
 
-    for record in data {
+    for record in rows {
         let cells = &record.cells;
         let line = record.line;
         let date_text = cell(cells, date);
@@ -701,7 +701,7 @@ pub(crate) fn detect_csv_format(sample: &str) -> Value {
     };
 
     let mut taken: Vec<usize> = Vec::new();
-    let mut pick = |field: &str, taken: &mut Vec<usize>| -> Option<usize> {
+    let pick = |field: &str, taken: &mut Vec<usize>| -> Option<usize> {
         let at = if has_header {
             match_header(&headers, field, taken)
         } else {

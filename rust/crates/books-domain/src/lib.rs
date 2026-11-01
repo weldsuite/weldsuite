@@ -15,7 +15,8 @@
 //!   invoices, bills, payments and write-offs post, and the ledger catch-up.
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`bank_accounts`]: account numbers (sealed, revealed), the ledger account
-//!   behind a bank account.
+//!   behind a bank account; [`bank_matching`]: bank lines matched to
+//!   invoices, bills, payments and deposits.
 //! - [`contacts`]: the contact person of a company contact, the name and email
 //!   a document keeps of its contact.
 //! - [`vendor_tax`]: W-9 facts, the sealed TIN and ACH details of a vendor, the
@@ -29,6 +30,7 @@ pub mod address;
 pub mod attachments;
 pub mod bad_debt;
 pub mod bank_accounts;
+pub mod bank_matching;
 pub mod catch_up;
 pub mod compliance;
 pub mod contacts;

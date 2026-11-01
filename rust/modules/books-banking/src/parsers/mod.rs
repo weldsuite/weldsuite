@@ -226,9 +226,10 @@ pub(crate) fn parse_bank_file(
     options: &ParseOptions,
 ) -> Result<ParseResult, CsvFormatRequired> {
     let text = strip_bom(content);
-    let mut detected = format
-        .map(str::to_owned)
-        .unwrap_or_else(|| detect_format(text, options.file_name.as_deref()).to_owned());
+    let mut detected = format.map_or_else(
+        || detect_format(text, options.file_name.as_deref()).to_owned(),
+        str::to_owned,
+    );
     if detected == "ofx" {
         let extension = extension_of(options.file_name.as_deref());
         if extension == "qfx" || extension == "qbo" {

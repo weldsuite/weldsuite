@@ -34,7 +34,7 @@ static STRUCTURED: LazyLock<Regex> =
 static ING_CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r">([0-9]{2})").expect("ing code"));
 
 struct Tag {
-    tag: String,
+    code: String,
     value: String,
     line: usize,
 }
@@ -64,7 +64,7 @@ fn collect_tags(lines: &[&str]) -> Vec<Tag> {
                 tags.push(tag);
             }
             current = Some(Tag {
-                tag: caps[1].to_owned(),
+                code: caps[1].to_owned(),
                 value: caps[2].to_owned(),
                 line: i + 1,
             });
@@ -164,7 +164,7 @@ fn parse_structured(text: &str) -> Info {
         }
     }
     if let Some(remi) = remittance(text) {
-        info.description = js_trim(&remi).to_owned();
+        js_trim(&remi).clone_into(&mut info.description);
     }
     if let Some(caps) = EREF.captures(text) {
         info.end_to_end_id = Some(js_trim(&caps[1]).to_owned());
@@ -224,7 +224,7 @@ fn parse_ing(text: &str) -> Info {
             parts.push(v);
         }
     }
-    info.description = js_trim(&parts.join(" ")).to_owned();
+    js_trim(&parts.join(" ")).clone_into(&mut info.description);
     if let Some(v) = get("31") {
         info.counterparty_iban = Some(v.chars().filter(|c| !super::is_space(*c)).collect());
     }
@@ -326,30 +326,30 @@ pub(crate) fn parse(content: &str) -> ParseResult {
         let tags = collect_tags(&lines);
         if let Some(iban) = tags
             .iter()
-            .find(|t| t.tag == "25")
+            .find(|t| t.code == "25")
             .and_then(|t| extract_iban(&t.value))
         {
             result.account_iban = Some(iban);
         }
         if let Some(opening) = tags
             .iter()
-            .find(|t| t.tag == "60F" || t.tag == "60M")
+            .find(|t| t.code == "60F" || t.code == "60M")
             .and_then(|t| parse_balance(&t.value))
         {
             result.opening_balance = Some(opening);
         }
         if let Some(closing) = tags
             .iter()
-            .find(|t| t.tag == "62F" || t.tag == "62M")
+            .find(|t| t.code == "62F" || t.code == "62M")
             .and_then(|t| parse_balance(&t.value))
         {
             result.closing_balance = Some(closing);
         }
         for (i, tag) in tags.iter().enumerate() {
-            if tag.tag != "61" {
+            if tag.code != "61" {
                 continue;
             }
-            let tag86 = tags.get(i + 1).filter(|next| next.tag == "86");
+            let tag86 = tags.get(i + 1).filter(|next| next.code == "86");
             if let Some(txn) = parse_transaction(tag, tag86, &mut result.errors) {
                 result.transactions.push(txn);
             }
