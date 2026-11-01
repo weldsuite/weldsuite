@@ -193,7 +193,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     .await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(integration_js_row).map(strip).collect(), limit);
+            let (data, has_more) = page(
+                rows.into_iter()
+                    .map(integration_js_row)
+                    .map(strip)
+                    .collect(),
+                limit,
+            );
             let cursor = next_cursor(&data, has_more, "id");
             List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
         }

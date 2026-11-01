@@ -56,6 +56,19 @@ import {
   workflowIntegrationTestSchema,
   workflowSlackChannelSchema,
 } from '@weldsuite/app-api-client/schemas/weldconnect-responses';
+import {
+  githubAvailableProjectSchema,
+  githubAvailableRepoSchema,
+  githubConnectionRowSchema,
+  githubConnectionSchema,
+  githubDiscoverableInstallationSchema,
+  githubInstallUrlSchema,
+  githubProjectLinkSchema,
+  githubRepoLinkRowSchema,
+  githubRepoLinkSchema,
+  githubStatusFieldsSchema,
+  githubSyncRunSchema,
+} from '@weldsuite/app-api-client/schemas/weldconnect-responses';
 import { pendingApprovalResponseSchema } from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { RouteSchema } from './conformance-schemas';
 
@@ -70,6 +83,10 @@ const TR = '/api/workflow-triggers';
 const DA = '/api/workflow-dashboard';
 const BU = '/api/workflow-builder';
 const WI = '/api/workflow-integrations';
+const GH = '/api/workflow-github';
+const GP = '/api/github-project-links';
+const GC = '/api/github-connections';
+const GR = '/api/github-repo-links';
 
 export const CONNECT_ROUTES: RouteSchema[] = [
   // workflows
@@ -182,4 +199,28 @@ export const CONNECT_ROUTES: RouteSchema[] = [
   { method: 'POST', route: `${WI}/:provider/callback`, envelope: 'single', data: workflowIntegrationConnectedSchema },
   { method: 'POST', route: `${WI}/:provider/apikey`, envelope: 'single', data: workflowIntegrationConnectedSchema },
   { method: 'POST', route: `${WI}/:provider/link`, envelope: 'single', data: workflowIntegrationConnectedSchema },
+  // WeldFlow's GitHub App
+  { method: 'GET', route: `${GH}/install-url`, envelope: 'single', data: githubInstallUrlSchema },
+  { method: 'GET', route: `${GH}/connection`, envelope: 'single', data: githubConnectionSchema.nullable() },
+  { method: 'GET', route: `${GH}/installations/discoverable`, envelope: 'list', data: githubDiscoverableInstallationSchema },
+  { method: 'POST', route: `${GH}/recover`, envelope: 'single', data: githubConnectionSchema },
+  { method: 'GET', route: `${GH}/repos/available`, envelope: 'list', data: githubAvailableRepoSchema },
+  { method: 'GET', route: `${GH}/repos/linked`, envelope: 'list', data: githubRepoLinkSchema },
+  { method: 'POST', route: `${GH}/repos/link`, envelope: 'single', data: githubRepoLinkSchema },
+  { method: 'PATCH', route: `${GH}/repos/:linkId`, envelope: 'single', data: githubRepoLinkSchema },
+  { method: 'GET', route: `${GH}/projects/available`, envelope: 'list', data: githubAvailableProjectSchema },
+  { method: 'GET', route: `${GH}/projects/status-fields`, envelope: 'single', data: githubStatusFieldsSchema },
+  { method: 'GET', route: GP, envelope: 'list', data: githubProjectLinkSchema },
+  { method: 'POST', route: GP, envelope: 'single', data: githubProjectLinkSchema },
+  { method: 'GET', route: `${GP}/:id`, envelope: 'single', data: githubProjectLinkSchema },
+  { method: 'PATCH', route: `${GP}/:id`, envelope: 'single', data: githubProjectLinkSchema },
+  { method: 'POST', route: `${GP}/:id/sync`, envelope: 'single', data: githubSyncRunSchema },
+  { method: 'GET', route: GC, envelope: 'list', data: githubConnectionRowSchema },
+  { method: 'POST', route: GC, envelope: 'single', data: weldconnectIdSchema },
+  { method: 'GET', route: `${GC}/:id`, envelope: 'single', data: githubConnectionRowSchema },
+  { method: 'PATCH', route: `${GC}/:id`, envelope: 'single', data: weldconnectIdSchema },
+  { method: 'GET', route: GR, envelope: 'list', data: githubRepoLinkRowSchema },
+  { method: 'POST', route: GR, envelope: 'single', data: weldconnectIdSchema },
+  { method: 'GET', route: `${GR}/:id`, envelope: 'single', data: githubRepoLinkRowSchema },
+  { method: 'PATCH', route: `${GR}/:id`, envelope: 'single', data: weldconnectIdSchema },
 ];

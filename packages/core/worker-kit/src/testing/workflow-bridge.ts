@@ -28,6 +28,7 @@ import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow bindings the bridge serves. */
 export const WORKFLOW_BINDINGS = [
+  'GITHUB_PROJECT_SYNC',
   'EXECUTE_SEQUENCE',
   'SEND_SCHEDULED_EMAIL',
   'WELDDATA_ENRICH',

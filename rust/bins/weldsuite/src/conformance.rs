@@ -351,6 +351,10 @@ impl Pools {
         extensions.insert(weldsuite_connect::RequestWorkflowRuns(
             self.workflows.execute_runs(&context.workflows),
         ));
+        // GitHub project syncs start on the test's `GITHUB_PROJECT_SYNC`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestProjectSyncRuns(
+            self.workflows.project_sync_runs(&context.workflows),
+        ));
         // The headers the test's request carried, as the Hono app saw them.
         if let Some(names) = &context.request_headers {
             extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));

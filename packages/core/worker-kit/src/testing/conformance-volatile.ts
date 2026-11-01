@@ -33,6 +33,19 @@ interface VolatileRoute {
 }
 
 const ROUTES: VolatileRoute[] = [
+  // WeldConnect: the GitHub App install link carries a state signed with the
+  // current second and a random nonce.
+  {
+    method: 'GET',
+    route: '/api/workflow-github/install-url',
+    fields: [{ path: 'data.url', pattern: /state=[^&]+/g, replacement: 'state=<volatile>' }],
+  },
+  // A project sync's run id ends with the current minute.
+  {
+    method: 'POST',
+    route: '/api/github-project-links/:id/sync',
+    fields: [{ path: 'data.runId', pattern: /-\d+$/g, replacement: '-<minute>' }],
+  },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
   // expiry in seconds, so it differs when the runs straddle a second.
   {

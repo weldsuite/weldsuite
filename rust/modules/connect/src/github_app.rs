@@ -74,6 +74,18 @@ pub(crate) async fn installation_token(
     installation_id: i64,
     cache: bool,
 ) -> Result<String, String> {
+    installation_token_as(http, creds, installation_id, cache, "WeldSuite-WeldConnect").await
+}
+
+/// [`installation_token`] sent as `agent` (connect-api's own
+/// `services/github/auth.ts` says `WeldSuite-Core-API`).
+pub(crate) async fn installation_token_as(
+    http: &OutboundHttp,
+    creds: &AppCredentials,
+    installation_id: i64,
+    cache: bool,
+    agent: &str,
+) -> Result<String, String> {
     let key = (creds.app_id.clone(), installation_id);
     if cache {
         let cached = token_cache()
@@ -100,7 +112,7 @@ pub(crate) async fn installation_token(
             .header("Authorization", format!("Bearer {jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "WeldSuite-WeldConnect"),
+            .header("User-Agent", agent),
         )
         .await
         .map_err(|error| error.to_string())?;

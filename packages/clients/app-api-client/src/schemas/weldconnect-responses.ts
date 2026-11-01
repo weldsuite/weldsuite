@@ -454,3 +454,117 @@ export const workflowIntegrationConnectedSchema = z.object({
   status: z.enum(['connected', 'needs_install']),
   provider: z.string(),
 });
+
+// ── WeldFlow's GitHub App (/api/workflow-github, /api/github-*) ─────────────
+
+const syncDirection = z.enum(['inbound', 'outbound', 'bidirectional']);
+
+export const githubInstallUrlSchema = z.object({ url: z.string() });
+
+/** `formatConnection(row)`: the row without its webhook secret. */
+export const githubConnectionSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    installationId: z.number(),
+    appSlug: z.string(),
+    ownerType: z.enum(['user', 'org']),
+    ownerLogin: z.string(),
+    status: z.enum(['active', 'suspended', 'revoked']),
+    scopes: z.array(z.string()).nullable(),
+    createdBy: z.string().nullable(),
+    installedAt: nullableTimestamp,
+    revokedAt: nullableTimestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict()
+  .extend({ deletedAt: nullableTimestamp })
+  .strict();
+
+export const githubDiscoverableInstallationSchema = z.object({
+  id: z.number(),
+  accountLogin: z.string(),
+  accountType: z.enum(['User', 'Organization']),
+  appSlug: z.string(),
+  repositorySelection: z.string(),
+});
+
+export const githubAvailableRepoSchema = z.object({
+  id: z.number(),
+  fullName: z.string(),
+  defaultBranch: z.string(),
+  private: z.boolean(),
+});
+
+/** `serializeRepoLink(row)`. */
+export const githubRepoLinkSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    connectionId: z.string(),
+    projectId: z.string().nullable(),
+    repoId: z.number(),
+    repoFullName: z.string(),
+    defaultBranch: z.string().nullable(),
+    syncIssues: z.boolean(),
+    syncDirection,
+    lastSyncedAt: nullableTimestamp,
+    syncCursor: z.string().nullable(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict();
+
+export const githubAvailableProjectSchema = z.object({
+  nodeId: z.string(),
+  number: z.number(),
+  title: z.string(),
+  ownerType: z.enum(['user', 'org']),
+  ownerLogin: z.string(),
+  url: z.string(),
+  shortDescription: z.string().nullable(),
+  closed: z.boolean(),
+});
+
+export const githubStatusFieldsSchema = z.object({
+  fieldId: z.string().nullable(),
+  fieldName: z.string().nullable(),
+  options: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+/** `serializeProjectLink(row)`. */
+export const githubProjectLinkSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    connectionId: z.string(),
+    projectId: z.string(),
+    projectV2NodeId: z.string(),
+    projectV2Number: z.number(),
+    projectTitle: z.string().nullable(),
+    ownerType: z.enum(['user', 'org']),
+    ownerLogin: z.string(),
+    repoId: z.number().nullable(),
+    repoFullName: z.string().nullable(),
+    statusFieldId: z.string().nullable(),
+    statusOptionMap: z.array(
+      z.object({ githubOptionId: z.string(), githubOptionName: z.string(), stageId: z.string().nullable() }),
+    ),
+    syncIssues: z.boolean(),
+    syncDirection,
+    lastSyncedAt: nullableTimestamp,
+    lastError: z.string().nullable(),
+    syncCursor: z.string().nullable(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict();
+
+export const githubSyncRunSchema = z.object({ runId: z.string() });
+
+/** The generic `/api/github-connections` rows: Drizzle's, without `webhookSecret`. */
+export const githubConnectionRowSchema = githubConnectionSchema;
+
+/** The generic `/api/github-repo-links` rows, as Drizzle reads them. */
+export const githubRepoLinkRowSchema = githubRepoLinkSchema.extend({ deletedAt: nullableTimestamp }).strict();

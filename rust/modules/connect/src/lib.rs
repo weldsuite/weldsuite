@@ -24,6 +24,7 @@ mod cron;
 mod crypto;
 mod dashboard;
 mod executions;
+mod github;
 mod github_app;
 mod js;
 mod mvp;
@@ -80,7 +81,8 @@ use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
-    EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, RESUME_SIGNAL, RequestWorkflowRuns, WorkflowRuns,
+    EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,
+    RequestWorkflowRuns, WorkflowRuns,
 };
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,
@@ -137,6 +139,8 @@ pub const ENV_NAMES: &[&str] = &[
     "GITHUB_APP_ID",
     "GITHUB_APP_SLUG",
     "GITHUB_APP_PRIVATE_KEY",
+    "CLERK_SECRET_KEY",
+    "INTERNAL_API_SECRET",
     "SLACK_CLIENT_ID",
     "SLACK_CLIENT_SECRET",
     "GOOGLE_CLIENT_ID",
@@ -159,9 +163,13 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
+        .nest("/github-connections", github::connections_routes(gate))
+        .nest("/github-repo-links", github::repo_links_routes(gate))
+        .nest("/github-project-links", github::project_links_routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
+        .nest("/workflow-github", github::workflow_github_routes(gate))
         .nest(
             "/workflow-integrations",
             workflow_integrations::routes(gate),
@@ -178,7 +186,9 @@ where
 
 /// The routes connect-api mounts ahead of `apiAuth()`, at their full paths:
 /// the workflow webhook receiver (`POST /api/workflows/webhook/:id`), which
-/// checks the webhook's own signature, IP and method rules.
+/// checks the webhook's own signature, IP and method rules, and the GitHub
+/// App's install callback (`GET /api/weldconnect/github/callback`), which
+/// checks the state signed at `/install-url`.
 pub fn public_router<S>(state: ConnectState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -187,6 +197,10 @@ where
         .route(
             "/api/workflows/webhook/{webhook_id}",
             axum::routing::post(public_webhook::receive),
+        )
+        .route(
+            "/api/weldconnect/github/callback",
+            axum::routing::get(github::install_callback),
         )
         .with_state(state)
 }

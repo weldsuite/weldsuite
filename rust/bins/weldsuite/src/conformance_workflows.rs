@@ -152,6 +152,13 @@ impl weldsuite_connect::WorkflowRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_connect::ProjectSyncRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 impl weldsuite_data::EnrichRuns for BridgedWorkflow {
     /// `binding.create(options)`, without an instance id.
     fn create<'a>(&'a self, options: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -229,6 +236,20 @@ impl WorkflowBridges {
                 binding: "EXECUTE_WORKFLOW",
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_connect::WorkflowRuns>
+        })
+    }
+
+    /// The test's `GITHUB_PROJECT_SYNC`, from `{ GITHUB_PROJECT_SYNC: url }`.
+    pub(crate) fn project_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::ProjectSyncRuns>> {
+        workflows.get("GITHUB_PROJECT_SYNC").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "GITHUB_PROJECT_SYNC",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
         })
     }
 

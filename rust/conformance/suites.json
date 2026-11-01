@@ -2131,6 +2131,30 @@
         "packages/core/db/src/lib/crypto.ts",
         "rust/modules/connect/"
       ]
+    },
+    {
+      "name": "connect: github",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-github/routes.test.ts",
+        "src/routes/github-project-links/routes.test.ts",
+        "src/routes/github-connections/routes.test.ts",
+        "src/routes/public-github-callback.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-github/",
+        "apps/workers/connect-api/src/routes/github-project-links/",
+        "apps/workers/connect-api/src/routes/github-connections/",
+        "apps/workers/connect-api/src/routes/github-repo-links/",
+        "apps/workers/connect-api/src/routes/public-github-callback.ts",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/clients/core-api-client/src/schemas/github.ts",
+        "packages/clients/core-api-client/src/schemas/github-connections.ts",
+        "packages/clients/core-api-client/src/schemas/github-repo-links.ts",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
     }
   ]
 }

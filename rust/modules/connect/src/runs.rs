@@ -98,3 +98,17 @@ impl WorkflowRuns for JobsWorkflowRuns {
         })
     }
 }
+
+/// The `GITHUB_PROJECT_SYNC` binding (`GithubProjectSyncWorkflow`, hosted by
+/// integration-webhook-worker on Global). The Kubernetes editions do not run
+/// that worker yet, so they have none and the sync route answers as Global
+/// does without the binding. `Err` carries what the binding threw.
+pub trait ProjectSyncRuns: Send + Sync {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>>;
+}
+
+/// A request's own `GITHUB_PROJECT_SYNC` (conformance): the test's binding,
+/// or none.
+#[derive(Clone)]
+pub struct RequestProjectSyncRuns(pub Option<Arc<dyn ProjectSyncRuns>>);
