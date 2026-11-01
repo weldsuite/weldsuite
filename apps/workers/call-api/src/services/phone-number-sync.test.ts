@@ -7,8 +7,9 @@ function select(
   providerNumbers: Array<{ id: string; phone_number: string; customer_reference?: string | null }>,
   registry: Array<{ phoneNumber: string; clerkOrgId: string }> = [],
   tenantNumberIds: string[] = [],
+  tenantProviderIds: string[] = [],
 ) {
-  return selectOwnedProviderNumbers({ providerNumbers, registry, tenantNumberIds, clerkOrgId: ORG });
+  return selectOwnedProviderNumbers({ providerNumbers, registry, tenantNumberIds, tenantProviderIds, clerkOrgId: ORG });
 }
 
 describe('selectOwnedProviderNumbers', () => {
@@ -51,6 +52,26 @@ describe('selectOwnedProviderNumbers', () => {
       ['vpn_local'],
     );
     expect(result.owned.map((n) => n.id)).toEqual(['tn_1']);
+  });
+
+  it('keeps an unregistered number a row of this workspace already holds (a port whose registration failed)', () => {
+    const result = select(
+      [{ id: 'tn_ported', phone_number: '+31201234567', customer_reference: 'vpo_draft' }],
+      [],
+      ['vpn_local'],
+      ['tn_ported'],
+    );
+    expect(result.owned.map((n) => n.id)).toEqual(['tn_ported']);
+  });
+
+  it("still skips another workspace's registered number, even when a row here holds its Telnyx id", () => {
+    const result = select(
+      [{ id: 'tn_ported', phone_number: '+31201234567' }],
+      [{ phoneNumber: '+31201234567', clerkOrgId: 'org_other' }],
+      [],
+      ['tn_ported'],
+    );
+    expect(result.owned).toEqual([]);
   });
 
   it('matches registry rows on the normalized number', () => {

@@ -453,7 +453,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 async function ownedProviderNumbers(
   env: TelnyxEnv,
   listed: ProviderPhoneNumber[],
-  tenantNumberIds: string[],
+  tenant: { ids: string[]; providerIds: string[] },
   clerkOrgId: string,
 ): Promise<ProviderPhoneNumber[]> {
   const registry = await getMasterDb(env)
@@ -469,7 +469,8 @@ async function ownedProviderNumbers(
   const { owned, skipped } = selectOwnedProviderNumbers({
     providerNumbers: listed,
     registry,
-    tenantNumberIds,
+    tenantNumberIds: tenant.ids,
+    tenantProviderIds: tenant.providerIds,
     clerkOrgId,
   });
   if (skipped > 0) {
@@ -517,7 +518,12 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
     const telnyxNumbers = await ownedProviderNumbers(
       c.env,
       listed,
-      existing.map((p: { id: string }) => p.id),
+      {
+        ids: existing.map((p: { id: string }) => p.id),
+        providerIds: existing.flatMap((p: { providerPhoneNumberId: string | null }) =>
+          p.providerPhoneNumberId ? [p.providerPhoneNumberId] : [],
+        ),
+      },
       clerkOrgId,
     );
 
