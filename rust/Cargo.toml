@@ -22,6 +22,7 @@ weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-ads = { path = "modules/ads" }
 weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
+weldsuite-call = { path = "modules/call" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-books = { path = "modules/books" }

@@ -75,16 +75,32 @@ modules, each with conformance suites that reach every route:
   document (503 until WeldBooks' invoice generator is ported) and
   WooCommerce's app-auth callback, which completes a WeldConnect
   authorisation)
+- **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
+  call intelligence (phone numbers, the WebRTC token, statistics, call
+  transcriptions), the WeldDesk phone channel's voice agents (Telnyx AI
+  assistants) and inbound routes, number porting with its documents in the
+  `STORAGE` bucket, telephony (searching and syncing the account's numbers,
+  addresses, ordering requirements, the price list), and the Telnyx webhook
+  at `/public/webhooks/telnyx`, its Ed25519 signatures checked as on Global:
+  porting events, inbound calls routed by the dialled number into a WeldDesk
+  phone conversation, call events, the live AI transcript, and the voice
+  agent's `lookup_crm` tool. Telnyx is called through the outbound HTTP port.
+  Buying a number and submitting a port are Stripe checkouts through Global's
+  billing-worker: they answer as when billing-worker cannot be reached, and
+  billing-worker's fulfilment callback (`/api/internal/telephony`) as without
+  Stripe. Not yet: marking the desk SLA due on an inbound call, which waits
+  for `crates/desk-domain` to gain the SLA engine)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
-sending the loonaangifte over Digipoort and WeldBooks document OCR.
+sending the loonaangifte over Digipoort, WeldBooks document OCR and buying
+or porting phone numbers.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
-host, meet, call, connect, agent, reach, sheets, docs and
+host, meet, connect, agent, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -142,7 +158,7 @@ rust/
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
                         modules/data (WeldData, and the welddata-enrich job),
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
-                        slugs and rate limits),
+                        slugs and rate limits), modules/call (WeldCall: Telnyx, the webhook),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
                         core is split over
@@ -277,6 +293,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials |
+| `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
+| `APP_API_PUBLIC_URL` | WeldDesk and WeldCall: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |

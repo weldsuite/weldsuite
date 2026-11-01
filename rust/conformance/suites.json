@@ -2216,6 +2216,78 @@
         "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "call: calls and call intelligence",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/calls/integration.test.ts",
+        "src/routes/calls/writes.integration.test.ts",
+        "src/routes/call-intelligence/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/calls/",
+        "apps/workers/call-api/src/routes/call-intelligence/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "call: telephony and porting",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/telephony/integration.test.ts",
+        "src/routes/porting/integration.test.ts",
+        "src/routes/internal-telephony/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/telephony/",
+        "apps/workers/call-api/src/routes/porting/",
+        "apps/workers/call-api/src/routes/internal-telephony/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "call: desk phone and the Telnyx webhook",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/desk-phone/integration.test.ts",
+        "src/routes/webhooks-telnyx/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/desk-phone/",
+        "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/domains/desk/src/",
+        "rust/crates/desk-domain/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
     }
   ]
 }

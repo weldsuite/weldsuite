@@ -35,6 +35,9 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/sso', { feature: 'sso-connections' }],
   ['/settings/plans', { feature: 'billing' }],
   ['/settings/billing', { feature: 'billing' }],
+  // Buying and porting a number are Stripe checkouts through billing-worker.
+  ['/settings/apps/phone-numbers/new-number', { modules: ['call'], feature: 'phone-number-purchase' }],
+  ['/settings/apps/phone-numbers/port', { modules: ['call'], feature: 'phone-number-purchase' }],
   ['/settings/apps/phone-numbers', { modules: ['call'] }],
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
