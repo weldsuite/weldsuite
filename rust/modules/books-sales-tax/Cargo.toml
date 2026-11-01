@@ -17,6 +17,7 @@ weldsuite-kit = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
+base64 = { workspace = true }
 http = { workspace = true }
 jiff = { workspace = true }
 serde = { workspace = true }

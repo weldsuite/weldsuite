@@ -14,7 +14,9 @@ mod calendar;
 mod certificates;
 mod common;
 mod jurisdictions;
-mod returns_common;
+mod nexus;
+mod reports;
+mod returns;
 mod rules;
 mod settings;
 mod zones;
@@ -36,7 +38,12 @@ where
     Q: PermissionQueries + 'static,
 {
     vec![
-        ("/sales-tax", settings::router(state.clone(), gate)),
+        (
+            "/sales-tax",
+            settings::router(state.clone(), gate)
+                .merge(reports::router(state.clone(), gate))
+                .merge(nexus::router(state.clone(), gate)),
+        ),
         ("/sales-tax-agencies", agencies::router(state.clone(), gate)),
         (
             "/sales-tax-jurisdictions",
@@ -45,6 +52,7 @@ where
         ("/sales-tax-rules", rules::router(state.clone(), gate)),
         ("/sales-tax-zones", zones::router(state.clone(), gate)),
         ("/tax-calendar", calendar::router(state.clone(), gate)),
+        ("/tax-returns", returns::router(state.clone(), gate)),
         (
             "/exemption-certificates",
             certificates::router(state.clone(), gate),

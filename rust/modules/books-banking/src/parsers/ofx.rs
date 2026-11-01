@@ -15,19 +15,43 @@ use super::{
 /// Elements that hold other elements; an empty-valued tag outside this list
 /// is a blank leaf.
 const AGGREGATES: &[&str] = &[
-    "OFX", "SIGNONMSGSRSV1", "SONRS", "STATUS", "FI", "BANKMSGSRSV1", "STMTTRNRS", "STMTRS",
-    "BANKACCTFROM", "BANKACCTTO", "BANKTRANLIST", "STMTTRN", "CREDITCARDMSGSRSV1", "CCSTMTTRNRS",
-    "CCSTMTRS", "CCACCTFROM", "CCACCTTO", "LEDGERBAL", "AVAILBAL", "PAYEE", "BALLIST", "BAL",
-    "INVSTMTMSGSRSV1", "INVSTMTTRNRS", "INVSTMTRS", "INVACCTFROM", "INVTRANLIST", "LOANMSGSRSV1",
-    "SECLISTMSGSRSV1", "BANKMSGSET", "CREDITCARDMSGSET",
+    "OFX",
+    "SIGNONMSGSRSV1",
+    "SONRS",
+    "STATUS",
+    "FI",
+    "BANKMSGSRSV1",
+    "STMTTRNRS",
+    "STMTRS",
+    "BANKACCTFROM",
+    "BANKACCTTO",
+    "BANKTRANLIST",
+    "STMTTRN",
+    "CREDITCARDMSGSRSV1",
+    "CCSTMTTRNRS",
+    "CCSTMTRS",
+    "CCACCTFROM",
+    "CCACCTTO",
+    "LEDGERBAL",
+    "AVAILBAL",
+    "PAYEE",
+    "BALLIST",
+    "BAL",
+    "INVSTMTMSGSRSV1",
+    "INVSTMTTRNRS",
+    "INVSTMTRS",
+    "INVACCTFROM",
+    "INVTRANLIST",
+    "LOANMSGSRSV1",
+    "SECLISTMSGSRSV1",
+    "BANKMSGSET",
+    "CREDITCARDMSGSET",
 ];
 
-static TAG: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<(/?)([A-Za-z][A-Za-z0-9_.]*)\s*>([^<]*)").expect("tag pattern")
-});
-static ENTITY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)&(#x[0-9a-f]+|#[0-9]+|[a-z]+);").expect("entity pattern")
-});
+static TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<(/?)([A-Za-z][A-Za-z0-9_.]*)\s*>([^<]*)").expect("tag pattern"));
+static ENTITY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)&(#x[0-9a-f]+|#[0-9]+|[a-z]+);").expect("entity pattern"));
 
 #[derive(Debug, Default)]
 struct Node {
@@ -128,7 +152,10 @@ fn parse_tree(markup: &str) -> Result<Tree, String> {
         if !caps[1].is_empty() {
             // A closing tag ends the nearest open aggregate of that name; a
             // leaf's closing tag (XML) has nothing open and is ignored.
-            if let Some(at) = (1..stack.len()).rev().find(|i| nodes[stack[*i]].name == name) {
+            if let Some(at) = (1..stack.len())
+                .rev()
+                .find(|i| nodes[stack[*i]].name == name)
+            {
                 stack.truncate(at);
             }
             continue;
@@ -171,7 +198,10 @@ pub(crate) fn parse_ofx_date(value: Option<&str>) -> Option<String> {
 /// separator.
 pub(crate) fn parse_ofx_amount(value: Option<&str>) -> Option<f64> {
     let value = value?;
-    let mut cleaned: String = js_trim(value).chars().filter(|c| !super::is_space(*c)).collect();
+    let mut cleaned: String = js_trim(value)
+        .chars()
+        .filter(|c| !super::is_space(*c))
+        .collect();
     if cleaned.contains(',') && !cleaned.contains('.') {
         cleaned = cleaned.replacen(',', ".", 1);
     }
@@ -207,7 +237,11 @@ struct Section {
 fn section_account(tree: &Tree, section: usize, is_card: bool) -> StatementAccount {
     let from = tree.child(
         Some(section),
-        if is_card { "CCACCTFROM" } else { "BANKACCTFROM" },
+        if is_card {
+            "CCACCTFROM"
+        } else {
+            "BANKACCTFROM"
+        },
     );
     let kind = tree.text(from, "ACCTTYPE").map(|t| t.to_uppercase());
     StatementAccount {
@@ -439,15 +473,26 @@ mod tests {
         let second = &result.transactions[1];
         assert_eq!(second.amount, 100.5);
         assert_eq!(second.description, "Client - Invoice 7");
-        assert!(second.external_id.as_deref().is_some_and(|id| id.starts_with("ofx:")));
+        assert!(
+            second
+                .external_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with("ofx:"))
+        );
         assert_eq!(result.closing_balance, Some(958.4));
         assert_eq!(result.currency.as_deref(), Some("USD"));
         assert_eq!(
-            result.account.as_ref().and_then(|a| a.account_type.as_deref()),
+            result
+                .account
+                .as_ref()
+                .and_then(|a| a.account_type.as_deref()),
             Some("checking")
         );
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].message, "Transaction 3: missing or unreadable DTPOSTED");
+        assert_eq!(
+            result.errors[0].message,
+            "Transaction 3: missing or unreadable DTPOSTED"
+        );
         assert_eq!(
             result.date_range,
             Some(("2026-02-01".to_owned(), "2026-02-15".to_owned()))
@@ -462,6 +507,9 @@ mod tests {
         assert_eq!(parse_ofx_amount(Some("5.")), Some(5.0));
         assert_eq!(parse_ofx_amount(Some(".")), None);
         assert_eq!(parse_ofx_date(Some("20261301")), None);
-        assert_eq!(parse_ofx_date(Some("20260131235959")).as_deref(), Some("2026-01-31"));
+        assert_eq!(
+            parse_ofx_date(Some("20260131235959")).as_deref(),
+            Some("2026-01-31")
+        );
     }
 }

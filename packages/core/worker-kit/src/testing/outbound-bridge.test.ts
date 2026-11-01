@@ -90,6 +90,21 @@ describe('outbound bridge', () => {
     expect(calls).toEqual([{ method: 'POST', url: 'https://api.example.test/v1/contacts', body: { name: 'Ann' } }]);
   });
 
+  it('records a form body as its fields, a repeated key with every value', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const { calls } = await recordOutbound(async () => {
+      await fetch('https://api.stripe.com/v1/tax/calculations', {
+        method: 'POST',
+        body: 'currency=usd&line_items%5B0%5D%5Breference%5D=ili_abc123def456&expand%5B%5D=a&expand%5B%5D=b',
+      });
+      await fetch('https://api.example.test/v1/notes', { method: 'POST', body: 'just text' });
+    });
+    expect(calls.map((c) => c.body)).toEqual([
+      { currency: 'usd', 'line_items[0][reference]': 'ili_abc123def456', 'expand[]': ['a', 'b'] },
+      'just text',
+    ]);
+  });
+
   it("records the route's own calls and leaves loopback out", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
     const { calls } = await recordOutbound(async () => {
@@ -101,5 +116,21 @@ describe('outbound bridge', () => {
       { method: 'GET', url: 'https://api.clerk.com/v1/organizations/org_1/memberships?limit=1', body: null },
       { method: 'PATCH', url: 'https://api.clerk.com/v1/organizations/org_1', body: { name: 'A' } },
     ]);
+  });
+
+  it('orders calls to one URL alike whatever order their bodies keys were written in', () => {
+    const url = 'https://sandbox.plaid.com/transactions/sync';
+    // TypeScript writes keys in insertion order, Rust's serde_json sorted.
+    const typeScript = [
+      { method: 'POST', url, body: { client_id: 'c', access_token: 'a', count: 500 } },
+      { method: 'POST', url, body: { client_id: 'c', access_token: 'a', cursor: 'cur-1', count: 500 } },
+    ];
+    const rust = [
+      { method: 'POST', url, body: { access_token: 'a', client_id: 'c', count: 500, cursor: 'cur-1' } },
+      { method: 'POST', url, body: { access_token: 'a', client_id: 'c', count: 500 } },
+    ];
+    const cursors = (calls: typeof typeScript) =>
+      sortOutbound(calls).map((call) => (call.body as { cursor?: string }).cursor ?? null);
+    expect(cursors(typeScript)).toEqual(cursors(rust));
   });
 });

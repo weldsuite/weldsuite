@@ -29,8 +29,29 @@ import { serveOnLoopback } from './bucket-bridge';
 export interface OutboundCall {
   method: string;
   url: string;
-  /** The body as JSON when it parses, else the text; null without one. */
+  /**
+   * The body as JSON when it parses, the fields of a form body
+   * (`a=1&b%5B0%5D=2`, Stripe's API), else the text; null without one.
+   */
   body: unknown;
+}
+
+/** `key=value` pairs joined by `&`, nothing else: an `application/x-www-form-urlencoded` body. */
+const FORM_BODY = /^[^=&\s]+=[^&\s]*(?:&[^=&\s]+=[^&\s]*)*$/;
+
+/**
+ * A form body's fields, so the values in it compare like JSON's (a generated
+ * id in `line_items[0][reference]` is masked as one); a repeated key keeps
+ * every value, in order.
+ */
+function formFields(text: string): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [key, value] of new URLSearchParams(text)) {
+    const seen = out[key];
+    if (seen === undefined) out[key] = value;
+    else out[key] = Array.isArray(seen) ? [...seen, value] : [seen, value];
+  }
+  return out;
 }
 
 function bodyOf(text: string | null | undefined): unknown {
@@ -38,7 +59,7 @@ function bodyOf(text: string | null | undefined): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return text;
+    return FORM_BODY.test(text) ? formFields(text) : text;
   }
 }
 
@@ -165,7 +186,31 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
   }
 }
 
-/** The calls in a stable order: concurrent calls (`Promise.all`) may go out in any order. */
+/** `value` with every object's keys sorted. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, sortedKeys(record[key])]),
+    );
+  }
+  return value;
+}
+
+/** A call's sort key: its JSON body with sorted keys, whatever order they were written in. */
+function sortKey(call: OutboundCall): string {
+  return JSON.stringify({ ...call, body: sortedKeys(call.body) });
+}
+
+/**
+ * The calls in a stable order: concurrent calls (`Promise.all`) may go out in
+ * any order. A JSON body is compared with its keys sorted, so two calls to
+ * one URL keep the same order whether their bodies were written in insertion
+ * order (TypeScript) or with sorted keys (Rust's `serde_json`).
+ */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
-  return [...calls].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return [...calls].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }

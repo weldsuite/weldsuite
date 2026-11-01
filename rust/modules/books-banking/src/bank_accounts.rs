@@ -14,9 +14,9 @@ use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bank_accounts::{
-    BANK_ACCOUNT_TYPES, BankLedgerPlan, assert_ledger_account_fits,
-    insert_ledger_account, is_valid_aba_routing, normalize_account_number,
-    plan_bank_ledger_account, public_bank_account, reveal_account_number, seal_account_number,
+    BANK_ACCOUNT_TYPES, BankLedgerPlan, assert_ledger_account_fits, insert_ledger_account,
+    is_valid_aba_routing, normalize_account_number, plan_bank_ledger_account, public_bank_account,
+    reveal_account_number, seal_account_number,
 };
 use weldsuite_books_domain::entity_context::{resolve_entity_base_currency, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
@@ -93,9 +93,20 @@ fn read_body(
         Field::Null => Some(Value::Null),
         Field::Absent => None,
     };
-    put("name", text_value(issues.text(body, "name", required, Some(1), Some(255))));
-    for (key, max) in [("iban", 34), ("bic", 11), ("bankName", 255), ("accountHolderName", 255)] {
-        put(key, text_value(issues.text(body, key, Presence::Optional, None, Some(max))));
+    put(
+        "name",
+        text_value(issues.text(body, "name", required, Some(1), Some(255))),
+    );
+    for (key, max) in [
+        ("iban", 34),
+        ("bic", 11),
+        ("bankName", 255),
+        ("accountHolderName", 255),
+    ] {
+        put(
+            key,
+            text_value(issues.text(body, key, Presence::Optional, None, Some(max))),
+        );
     }
     let currency = issues.text(body, "currency", Presence::Optional, None, None);
     if let Field::Set(currency) = &currency {
@@ -111,7 +122,13 @@ fn read_body(
         text_value(issues.text(body, "ledgerAccountId", Presence::Optional, None, Some(30))),
     );
     for key in ["isDefault", "autoReconcile"] {
-        put(key, issues.boolean(body, key, Presence::Optional).into_option().map(Value::Bool));
+        put(
+            key,
+            issues
+                .boolean(body, key, Presence::Optional)
+                .into_option()
+                .map(Value::Bool),
+        );
     }
     put(
         "accountType",
@@ -138,19 +155,24 @@ fn read_body(
             .and_then(|_| body.get("nextCheckNumber").cloned()),
     );
     // `z.object({ csv: csvFormatSchema.optional() }).passthrough().optional()`
-    let settings = issues.nested(body, "importSettings", Presence::Optional, |issues, settings| {
-        let csv = csv_format::read(issues, settings, "csv", Presence::Optional, deferred);
-        let mut out = settings.clone();
-        match csv {
-            Field::Set(csv) => {
-                out.insert("csv".to_owned(), csv);
+    let settings = issues.nested(
+        body,
+        "importSettings",
+        Presence::Optional,
+        |issues, settings| {
+            let csv = csv_format::read(issues, settings, "csv", Presence::Optional, deferred);
+            let mut out = settings.clone();
+            match csv {
+                Field::Set(csv) => {
+                    out.insert("csv".to_owned(), csv);
+                }
+                _ => {
+                    out.remove("csv");
+                }
             }
-            _ => {
-                out.remove("csv");
-            }
-        }
-        Value::Object(out)
-    });
+            Value::Object(out)
+        },
+    );
     let numbers = if partial {
         Presence::Nullish
     } else {
@@ -352,7 +374,11 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
         }
     }
 
-    let sealed = match data.account_number.as_set().and_then(|n| normalize_account_number(n)) {
+    let sealed = match data
+        .account_number
+        .as_set()
+        .and_then(|n| normalize_account_number(n))
+    {
         Some(number) => Some(
             seal_account_number(&caller.keyring(state), &number).map_err(bank_account_refusal)?,
         ),
@@ -507,7 +533,12 @@ async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Bod
         updated.insert(key.clone(), value.clone());
     }
     let updated = Value::Object(updated);
-    caller.publish(state, BANK_ACCOUNT_UPDATED, id, public_bank_account(&updated));
+    caller.publish(
+        state,
+        BANK_ACCOUNT_UPDATED,
+        id,
+        public_bank_account(&updated),
+    );
     if !data.account_number.is_absent() {
         write_accounting_audit(
             caller,

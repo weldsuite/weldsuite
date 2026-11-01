@@ -98,7 +98,12 @@ fn column_ref(
         let mut scratch = Issues::default();
         let read = match value {
             Some(Value::String(_)) => scratch
-                .text_with(body, key, Presence::Required, Text::length(Some(1), Some(100)))
+                .text_with(
+                    body,
+                    key,
+                    Presence::Required,
+                    Text::length(Some(1), Some(100)),
+                )
                 .into_option()
                 .map(Value::String),
             _ => scratch
@@ -178,7 +183,12 @@ pub(crate) fn read(
         put(
             "dateFormat",
             issues
-                .choice(fields, "dateFormat", Presence::Required, &["MDY", "DMY", "YMD"])
+                .choice(
+                    fields,
+                    "dateFormat",
+                    Presence::Required,
+                    &["MDY", "DMY", "YMD"],
+                )
                 .into_option()
                 .map(Value::String),
         );
@@ -208,7 +218,12 @@ pub(crate) fn read(
                     fields,
                     "negativeStyle",
                     Presence::Required,
-                    &["minus", "parentheses", "debit_credit_columns", "trailing_minus"],
+                    &[
+                        "minus",
+                        "parentheses",
+                        "debit_credit_columns",
+                        "trailing_minus",
+                    ],
                 )
                 .into_option()
                 .map(Value::String),
@@ -262,7 +277,12 @@ pub(crate) fn read(
         put(
             "delimiter",
             issues
-                .choice(fields, "delimiter", Presence::Optional, &[",", ";", "\t", "|"])
+                .choice(
+                    fields,
+                    "delimiter",
+                    Presence::Optional,
+                    &[",", ";", "\t", "|"],
+                )
                 .into_option()
                 .map(Value::String),
         );
@@ -271,7 +291,8 @@ pub(crate) fn read(
 
     // The two refinements run when nothing aborted the object.
     let raw = body.get(key).and_then(Value::as_object);
-    let aborted = deferred.unions() > unions_before || issues.issues_since(start).iter().any(aborts);
+    let aborted =
+        deferred.unions() > unions_before || issues.issues_since(start).iter().any(aborts);
     let mut refined = false;
     if let Some(raw) = raw
         && !aborted
@@ -293,12 +314,19 @@ pub(crate) fn read(
             );
         }
     }
-    if refined || aborted { Field::Absent } else { read }
+    if refined || aborted {
+        Field::Absent
+    } else {
+        read
+    }
 }
 
 fn path_with(base: &Value, rest: &[&str]) -> Value {
     let mut path = base.as_array().cloned().unwrap_or_default();
-    path.extend(rest.iter().map(|segment| Value::String((*segment).to_owned())));
+    path.extend(
+        rest.iter()
+            .map(|segment| Value::String((*segment).to_owned())),
+    );
     Value::Array(path)
 }
 
@@ -310,7 +338,13 @@ pub(crate) fn parse_stored(value: Option<&Value>) -> Option<Value> {
     let mut wrapper = Map::new();
     wrapper.insert("csv".to_owned(), value.clone());
     let mut deferred = Deferred::default();
-    let field = read(&mut issues, &wrapper, "csv", Presence::Required, &mut deferred);
+    let field = read(
+        &mut issues,
+        &wrapper,
+        "csv",
+        Presence::Required,
+        &mut deferred,
+    );
     if !deferred.is_empty() || issues.finish().is_err() {
         return None;
     }
@@ -359,8 +393,14 @@ mod tests {
         );
         assert!(field.is_absent());
         assert_eq!(deferred.refinements.len(), 2);
-        assert_eq!(deferred.refinements[0]["path"], json!(["csv", "columns", "amount"]));
-        assert_eq!(deferred.refinements[1]["path"], json!(["csv", "thousandsSeparator"]));
+        assert_eq!(
+            deferred.refinements[0]["path"],
+            json!(["csv", "columns", "amount"])
+        );
+        assert_eq!(
+            deferred.refinements[1]["path"],
+            json!(["csv", "thousandsSeparator"])
+        );
         assert!(parse_stored(Some(&bad)).is_none());
     }
 

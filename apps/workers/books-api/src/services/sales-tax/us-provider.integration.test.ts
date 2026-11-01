@@ -3,9 +3,14 @@
  * and Avalara answer calculations, commit finalized invoices and reverse
  * credit memos; an engine that can't answer never lets zero tax post.
  * docs/plans/weldbooks-us.md §3, phases 3.1 and 3.2.
+ *
+ * The fake providers stub the global `fetch` and answer by URL and method
+ * (every other call goes to the real `fetch`), so a conformance run sends the
+ * Rust backend's provider calls to the same fakes and compares them. The ids
+ * they mint are shaped like generated ids, so two runs' ids compare equal.
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -13,7 +18,6 @@ import { invoicesRoutes } from '../../routes/invoices';
 import { billsRoutes } from '../../routes/bills';
 import { recurringInvoicesRoutes } from '../../routes/recurring-invoices';
 import { salesTaxRoutes } from '../../routes/sales-tax';
-import { salesTaxTestHooks } from './runtime';
 import { seedUsBooks, TEST_ENV, type UsBooks } from './test-fixtures';
 
 let db: Database;
@@ -32,6 +36,19 @@ interface Call {
   method: string;
   form: Record<string, string>;
   json?: Record<string, unknown>;
+}
+
+const realFetch = globalThis.fetch;
+
+/** A fake id shaped like `generateId`'s (`<prefix>_<12+ base36>`). */
+const fakeId = (prefix: string, n: number) => `${prefix}_${String(n).padStart(12, '0')}`;
+
+/** The provider's calls go to `fake`; every other call (the harness's own) to the real `fetch`. */
+function provider(isHost: (hostname: string) => boolean, fake: typeof fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    return isHost(url.hostname) ? fake(input, init) : realFetch(input, init);
+  }) as typeof fetch;
 }
 
 function respond(body: unknown, status = 200): Response {
@@ -76,7 +93,7 @@ function stripe() {
           taxable_amount: amount,
         }));
         items.push({
-          id: `tax_li_${control.calcs}_${i}`,
+          id: fakeId(`taxli${i}`, control.calcs),
           amount,
           amount_tax: breakdown.reduce((s, b) => s + b.amount, 0),
           quantity: 1,
@@ -85,14 +102,16 @@ function stripe() {
           tax_breakdown: breakdown,
         });
       }
-      references.set(`taxcalc_${control.calcs}`, items.map((item) => (item as { reference: string }).reference));
-      return respond({ id: `taxcalc_${control.calcs}`, line_items: { data: items } });
+      const id = fakeId('taxcalc', control.calcs);
+      references.set(id, items.map((item) => (item as { reference: string }).reference));
+      return respond({ id, line_items: { data: items } });
     }
     if (url.pathname === '/v1/tax/transactions/create_from_calculation') {
       if (control.commitStatus !== 200) return respond({ error: { message: 'Calculation expired' } }, control.commitStatus);
       transactions += 1;
-      transactionLines.set(`tax_txn_${transactions}`, references.get(form.calculation) ?? []);
-      return respond({ id: `tax_txn_${transactions}`, calculation: form.calculation });
+      const id = fakeId('taxtxn', transactions);
+      transactionLines.set(id, references.get(form.calculation) ?? []);
+      return respond({ id, calculation: form.calculation });
     }
     if (url.pathname.endsWith('/line_items') && url.pathname.includes('/v1/tax/transactions/')) {
       const calc = transactionLines.get(url.pathname.split('/')[4]) ?? [];
@@ -100,7 +119,7 @@ function stripe() {
     }
     if (url.pathname === '/v1/tax/transactions/create_reversal') {
       transactions += 1;
-      return respond({ id: `tax_txn_${transactions}` });
+      return respond({ id: fakeId('taxtxn', transactions) });
     }
     if (url.pathname === '/v1/tax/registrations') {
       return respond({
@@ -113,7 +132,7 @@ function stripe() {
     }
     return respond({ error: { message: `unexpected ${method} ${url.pathname}` } }, 404);
   };
-  return { fetch: impl as typeof fetch, calls, control };
+  return { fetch: provider((host) => host === 'api.stripe.com', impl as typeof fetch), calls, control };
 }
 
 async function createInvoice(body: Record<string, unknown>) {
@@ -134,7 +153,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  salesTaxTestHooks.fetch = undefined;
+  vi.unstubAllGlobals();
 });
 
 describe('engine settings', () => {
@@ -160,7 +179,7 @@ describe('engine settings', () => {
 
   it('checks the provider registrations against the agencies, both ways', async () => {
     const server = stripe();
-    salesTaxTestHooks.fetch = server.fetch;
+    vi.stubGlobal('fetch', server.fetch);
     const res = await settings('/registration-check', { method: 'POST' });
     expect(res.status).toBe(200);
     expect(res.data.matched.map((m: { stateCode: string }) => m.stateCode)).toEqual(['TX']);
@@ -175,7 +194,7 @@ describe('Stripe Tax', () => {
   let invoiceId: string;
 
   beforeAll(() => {
-    salesTaxTestHooks.fetch = server.fetch;
+    vi.stubGlobal('fetch', server.fetch);
   });
 
   afterEach(() => {
@@ -237,7 +256,7 @@ describe('Stripe Tax', () => {
     const row = await invoiceRow(invoiceId);
     expect(row.taxTotal).toBe('82.50');
     expect(row.taxCommittedAt).not.toBeNull();
-    expect(row.taxEngineRef).toMatch(/^tax_txn_/);
+    expect(row.taxEngineRef).toMatch(/^taxtxn_/);
     expect(row.taxWarnings ?? []).toEqual([]);
 
     const commit = server.calls.find((c) => c.path === '/v1/tax/transactions/create_from_calculation');
@@ -281,7 +300,7 @@ describe('Stripe Tax', () => {
     const reversal = server.calls.find((c) => c.path === '/v1/tax/transactions/create_reversal');
     expect(reversal?.form).toMatchObject({
       mode: 'partial',
-      original_transaction: expect.stringMatching(/^tax_txn_/),
+      original_transaction: expect.stringMatching(/^taxtxn_/),
       'line_items[0][amount]': '-100000',
       'line_items[0][amount_tax]': '-8250',
     });
@@ -316,7 +335,7 @@ describe('Stripe Tax', () => {
     });
     expect(bill.status).toBe(201);
     expect(bill.data.taxBreakdown.filter((r: { kind?: string }) => r.kind === 'use').reduce((s: number, r: { taxAmount: number }) => s + r.taxAmount, 0)).toBe(82.5);
-    expect(server.calls.length).toBe(callsBefore);
+    expect(server.calls).toHaveLength(callsBefore);
   });
 
   it('a recurring invoice generated while the engine is down stays a draft with the reason', async () => {
@@ -383,14 +402,14 @@ function avalara() {
     }
     return respond({ error: { message: `unexpected ${method} ${url.pathname}` } }, 404);
   };
-  return { fetch: impl as typeof fetch, calls, control };
+  return { fetch: provider((host) => host.endsWith('avatax.com'), impl as typeof fetch), calls, control };
 }
 
 describe('Avalara AvaTax', () => {
   const server = avalara();
 
   beforeAll(() => {
-    salesTaxTestHooks.fetch = server.fetch;
+    vi.stubGlobal('fetch', server.fetch);
   });
 
   it('needs the account, license key and company code', async () => {

@@ -9,6 +9,7 @@
 //! banking` conformance suite (`rust/conformance/suites.json`).
 
 mod bank_accounts;
+mod bank_connections;
 mod bank_deposits;
 mod bank_reconciliations;
 mod bank_transactions;
@@ -38,6 +39,10 @@ where
 {
     vec![
         ("/bank-accounts", bank_accounts::router(state.clone(), gate)),
+        (
+            "/bank-connections",
+            bank_connections::router(state.clone(), gate),
+        ),
         (
             "/bank-transactions",
             bank_transactions::router(state.clone(), gate),

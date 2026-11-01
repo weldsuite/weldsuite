@@ -96,7 +96,8 @@ fn read_fields(
     {
         out.insert("priority".to_owned(), priority.clone());
     }
-    if let Field::Set(mode) = issues.choice(body, "matchMode", Presence::Optional, &["all", "any"]) {
+    if let Field::Set(mode) = issues.choice(body, "matchMode", Presence::Optional, &["all", "any"])
+    {
         out.insert("matchMode".to_owned(), Value::String(mode));
     }
     let conditions = issues.list(body, "conditions", required, None, None, |issues, item| {
@@ -249,7 +250,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_body(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_body(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to update rule"),
     };

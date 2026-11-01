@@ -18,8 +18,7 @@ use weldsuite_books_domain::document_posting::load_entity;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, PostingLockKind, write_accounting_audit};
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Refusal, all_rows, created, no_content, now, ok, paged, reply,
-    validate,
+    BooksState, Caller, Refusal, all_rows, created, no_content, now, ok, paged, reply, validate,
 };
 use weldsuite_books_domain::js::{js_number_value, number_value, parse_int, round_money, to_fixed};
 use weldsuite_books_domain::posting::{
@@ -150,7 +149,9 @@ fn decode_cursor(cursor: &str) -> Option<(String, String)> {
     let shaped = b.len() == 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && [0, 1, 2, 3, 5, 6, 8, 9].iter().all(|i| b[*i].is_ascii_digit());
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|i| b[*i].is_ascii_digit());
     shaped.then(|| (date.to_owned(), id.to_owned()))
 }
 
@@ -233,7 +234,11 @@ async fn list(caller: Caller) -> Response {
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn find_deposit(caller: &Caller, entity_id: &str, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find_deposit(
+    caller: &Caller,
+    entity_id: &str,
+    id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         weldsuite_books_domain::books_row!(bank_deposits),
@@ -282,13 +287,16 @@ async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Err
             .bind(text(deposit, "bankAccountId"))
             .fetch_optional(db)
             .await?;
-    let entry_number: Option<Option<String>> = match text(deposit, "journalEntryId").filter(|e| !e.is_empty()) {
-        Some(entry) => sqlx::query_scalar("select entry_number from journal_entries where id = $1 limit 1")
-            .bind(entry)
-            .fetch_optional(db)
-            .await?,
-        None => None,
-    };
+    let entry_number: Option<Option<String>> =
+        match text(deposit, "journalEntryId").filter(|e| !e.is_empty()) {
+            Some(entry) => {
+                sqlx::query_scalar("select entry_number from journal_entries where id = $1 limit 1")
+                    .bind(entry)
+                    .fetch_optional(db)
+                    .await?
+            }
+            None => None,
+        };
     let lines: Vec<Value> = deposit
         .get("otherLines")
         .and_then(Value::as_array)
@@ -296,7 +304,11 @@ async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Err
         .unwrap_or_default();
     let ids: Vec<String> = lines
         .iter()
-        .filter_map(|l| l.get("accountId").and_then(Value::as_str).map(str::to_owned))
+        .filter_map(|l| {
+            l.get("accountId")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .collect();
     let accounts: Vec<(String, String, String)> = if ids.is_empty() {
         Vec::new()
@@ -315,15 +327,24 @@ async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Err
                 .and_then(|id| accounts.iter().find(|(a, _, _)| a == id))
                 .cloned();
             if let Value::Object(map) = &mut line {
-                map.insert("accountCode".to_owned(), json!(account.as_ref().map(|a| &a.1)));
-                map.insert("accountName".to_owned(), json!(account.as_ref().map(|a| &a.2)));
+                map.insert(
+                    "accountCode".to_owned(),
+                    json!(account.as_ref().map(|a| &a.1)),
+                );
+                map.insert(
+                    "accountName".to_owned(),
+                    json!(account.as_ref().map(|a| &a.2)),
+                );
             }
             line
         })
         .collect();
     let mut out = deposit.as_object().cloned().unwrap_or_default();
     out.insert("bankAccountName".to_owned(), json!(bank_name.flatten()));
-    out.insert("journalEntryNumber".to_owned(), json!(entry_number.flatten()));
+    out.insert(
+        "journalEntryNumber".to_owned(),
+        json!(entry_number.flatten()),
+    );
     out.insert("payments".to_owned(), Value::Array(payments));
     out.insert("otherLines".to_owned(), Value::Array(other_lines));
     Ok(Value::Object(out))
@@ -367,37 +388,67 @@ fn day_prefix(value: &str) -> bool {
     b.len() >= 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && [0, 1, 2, 3, 5, 6, 8, 9].iter().all(|i| b[*i].is_ascii_digit())
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|i| b[*i].is_ascii_digit())
 }
 
 fn read_create(issues: &mut Issues, body: &Map<String, Value>) -> Option<CreateBody> {
     let account = issues.text(body, "bankAccountId", Presence::Required, Some(1), Some(30));
-    let date = issues.pattern(body, "date", Presence::Required, None, None, day_prefix, "Use a YYYY-MM-DD date");
-    let payment_ids = issues.list(body, "paymentIds", Presence::Optional, None, Some(500), |issues, item| {
-        issues.item_text(item, Text::length(Some(1), Some(30)))
-    });
-    let other_lines = issues.list(body, "otherLines", Presence::Optional, None, Some(50), |issues, item| {
-        let fields = issues.object(item)?;
-        let start = issues.count();
-        let account_id = issues.text(fields, "accountId", Presence::Required, Some(1), Some(30));
-        let amount = issues.number(fields, "amount", Presence::Required, Number::default());
-        let description = issues.text(fields, "description", Presence::Optional, None, Some(255));
-        if issues.count() > start {
-            return None;
-        }
-        let mut raw = Map::new();
-        raw.insert("accountId".to_owned(), fields.get("accountId").cloned().unwrap_or(Value::Null));
-        raw.insert("amount".to_owned(), fields.get("amount").cloned().unwrap_or(Value::Null));
-        if let Some(d) = fields.get("description") {
-            raw.insert("description".to_owned(), d.clone());
-        }
-        Some(OtherLine {
-            account_id: account_id.into_option()?,
-            amount: amount.into_option()?,
-            description: description.into_option(),
-            raw: Value::Object(raw),
-        })
-    });
+    let date = issues.pattern(
+        body,
+        "date",
+        Presence::Required,
+        None,
+        None,
+        day_prefix,
+        "Use a YYYY-MM-DD date",
+    );
+    let payment_ids = issues.list(
+        body,
+        "paymentIds",
+        Presence::Optional,
+        None,
+        Some(500),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+    );
+    let other_lines = issues.list(
+        body,
+        "otherLines",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| {
+            let fields = issues.object(item)?;
+            let start = issues.count();
+            let account_id =
+                issues.text(fields, "accountId", Presence::Required, Some(1), Some(30));
+            let amount = issues.number(fields, "amount", Presence::Required, Number::default());
+            let description =
+                issues.text(fields, "description", Presence::Optional, None, Some(255));
+            if issues.count() > start {
+                return None;
+            }
+            let mut raw = Map::new();
+            raw.insert(
+                "accountId".to_owned(),
+                fields.get("accountId").cloned().unwrap_or(Value::Null),
+            );
+            raw.insert(
+                "amount".to_owned(),
+                fields.get("amount").cloned().unwrap_or(Value::Null),
+            );
+            if let Some(d) = fields.get("description") {
+                raw.insert("description".to_owned(), d.clone());
+            }
+            Some(OtherLine {
+                account_id: account_id.into_option()?,
+                amount: amount.into_option()?,
+                description: description.into_option(),
+                raw: Value::Object(raw),
+            })
+        },
+    );
     let memo = issues.text(body, "memo", Presence::Optional, None, Some(500));
     Some(CreateBody {
         bank_account_id: account.into_option()?,
@@ -421,7 +472,9 @@ async fn create_deposit(
 ) -> Result<(String, Option<String>, f64), PostError> {
     let accounts = load_entity_accounts(db, entity_id).await?;
     let Some(undeposited) = account_for_role(&accounts, "undeposited_funds", &[]) else {
-        return Err(posting("This accounting entity has no Undeposited Funds account"));
+        return Err(posting(
+            "This accounting entity has no Undeposited Funds account",
+        ));
     };
     let undeposited_id = text(undeposited, "id").unwrap_or_default().to_owned();
     let bank: Option<Value> = sqlx::query_scalar(concat!(
@@ -442,7 +495,9 @@ async fn create_deposit(
         ));
     };
     if text(ledger, "type") != Some("asset") {
-        return Err(posting("Deposits go to a checking, savings or money market account"));
+        return Err(posting(
+            "Deposits go to a checking, savings or money market account",
+        ));
     }
     let ledger_id = text(ledger, "id").unwrap_or_default().to_owned();
     let entity = load_entity(db, entity_id).await?;
@@ -467,7 +522,10 @@ async fn create_deposit(
     let candidates = list_undeposited(db, entity_id).await?;
     let mut chosen: Vec<&Undeposited> = Vec::new();
     for id in &payment_ids {
-        let Some(found) = candidates.iter().find(|c| c.text("id") == Some(id.as_str())) else {
+        let Some(found) = candidates
+            .iter()
+            .find(|c| c.text("id") == Some(id.as_str()))
+        else {
             return Err(posting(format!(
                 "Payment {id} is not waiting in Undeposited Funds (already deposited, voided, or paid into a bank account)"
             )));
@@ -492,7 +550,11 @@ async fn create_deposit(
         }
     }
     let payments_total = round_money(chosen.iter().fold(0.0, |sum, p| sum + p.amount));
-    let total = round_money(other_lines.iter().fold(payments_total, |sum, l| sum + l.amount));
+    let total = round_money(
+        other_lines
+            .iter()
+            .fold(payments_total, |sum, l| sum + l.amount),
+    );
     if !(total > 0.0) {
         return Err(posting("The deposit total must be greater than zero"));
     }
@@ -504,7 +566,11 @@ async fn create_deposit(
         .map(weldsuite_books_domain::jurisdictions::js_trim)
         .filter(|m| !m.is_empty())
         .map(str::to_owned);
-    let line = |account_id: &str, debit: f64, credit: f64, description: String, contact: Option<String>| PostingLine {
+    let line = |account_id: &str,
+                debit: f64,
+                credit: f64,
+                description: String,
+                contact: Option<String>| PostingLine {
         account_id: account_id.to_owned(),
         debit,
         credit,
@@ -517,7 +583,8 @@ async fn create_deposit(
         &ledger_id,
         total,
         0.0,
-        memo.as_ref().map_or_else(|| "Deposit".to_owned(), |m| format!("Deposit: {m}")),
+        memo.as_ref()
+            .map_or_else(|| "Deposit".to_owned(), |m| format!("Deposit: {m}")),
         None,
     )];
     for p in &chosen {
@@ -541,7 +608,12 @@ async fn create_deposit(
     }
     for l in other_lines {
         let description = l.description.clone().unwrap_or_else(|| {
-            if l.amount > 0.0 { "Deposit: other income" } else { "Deposit: cash back" }.to_owned()
+            if l.amount > 0.0 {
+                "Deposit: other income"
+            } else {
+                "Deposit: cash back"
+            }
+            .to_owned()
         });
         lines.push(if l.amount > 0.0 {
             line(&l.account_id, 0.0, l.amount, description, None)
@@ -556,7 +628,10 @@ async fn create_deposit(
         ("id", json!(deposit_id)),
         ("entityId", json!(entity_id)),
         ("bankAccountId", field(&bank, "id")),
-        ("date", json!(data.date.chars().take(10).collect::<String>())),
+        (
+            "date",
+            json!(data.date.chars().take(10).collect::<String>()),
+        ),
         ("amount", json!(to_fixed(total, 2))),
         ("currency", json!(base)),
         ("memo", json!(memo)),
@@ -580,7 +655,10 @@ async fn create_deposit(
     let deposit_key = deposit_id.clone();
     let write: AlsoWrite = Box::new(move |conn, posted| {
         Box::pin(async move {
-            row.insert("journal_entry_id".to_owned(), json!(posted.journal_entry_id));
+            row.insert(
+                "journal_entry_id".to_owned(),
+                json!(posted.journal_entry_id),
+            );
             BANK_DEPOSITS.insert_raw(&mut *conn, row).await?;
             if has_payments {
                 sqlx::query(
@@ -596,15 +674,19 @@ async fn create_deposit(
             Ok(())
         })
     });
-    let entry_date = format!("{}T00:00:00.000Z", data.date.chars().take(10).collect::<String>());
+    let entry_date = format!(
+        "{}T00:00:00.000Z",
+        data.date.chars().take(10).collect::<String>()
+    );
     let posted = post_journal_entry(
         db,
         PostJournalEntryInput {
             entity_id: entity_id.to_owned(),
             date: entry_date,
-            description: memo
-                .as_ref()
-                .map_or_else(|| "Bank deposit".to_owned(), |m| format!("Bank deposit — {m}")),
+            description: memo.as_ref().map_or_else(
+                || "Bank deposit".to_owned(),
+                |m| format!("Bank deposit — {m}"),
+            ),
             source_type: "bank_deposit".to_owned(),
             source_id: Some(deposit_id.clone()),
             posting_key: Some(format!("bank_deposit:{deposit_id}:post")),
@@ -619,10 +701,18 @@ async fn create_deposit(
     Ok((deposit_id, posted.journal_entry_id, total))
 }
 
-async fn create(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let data = match validate(&headers, &body, read_create) {
         Ok(Some(data)) => data,
-        Ok(None) => return Refusal::Internal("unread body".to_owned()).respond("Failed to create bank deposit"),
+        Ok(None) => {
+            return Refusal::Internal("unread body".to_owned())
+                .respond("Failed to create bank deposit");
+        }
         Err(refusal) => return refusal.respond("Failed to create bank deposit"),
     };
     let result = async {
@@ -663,7 +753,9 @@ async fn create(caller: Caller, State(state): State<BooksState>, headers: Header
                 "paymentCount": data.payment_ids.len(),
             }),
         );
-        Ok(created(json!({ "id": deposit_id, "journalEntryId": journal_entry_id, "amount": amount })))
+        Ok(created(
+            json!({ "id": deposit_id, "journalEntryId": journal_entry_id, "amount": amount }),
+        ))
     }
     .await;
     reply(result, "Failed to create bank deposit")
@@ -710,7 +802,11 @@ async fn update(
                 entity_type: "bank_deposit",
                 entity_id: &id,
                 action: "updated",
-                changes: Some(changes(vec![("memo", field(&deposit, "memo"), json!(memo))])),
+                changes: Some(changes(vec![(
+                    "memo",
+                    field(&deposit, "memo"),
+                    json!(memo),
+                )])),
             },
         )
         .await;
@@ -738,16 +834,20 @@ async fn update(
 /// The void's statements: the deposit void, its payments back in
 /// Undeposited Funds, its bank line released.
 async fn release(conn: &mut sqlx::PgConnection, id: &str, stamp: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update bank_deposits set status = 'void', updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(stamp)
-        .execute(&mut *conn)
-        .await?;
-    sqlx::query("update payments set deposit_id = null, updated_at = $2::timestamp where deposit_id = $1")
-        .bind(id)
-        .bind(stamp)
-        .execute(&mut *conn)
-        .await?;
+    sqlx::query(
+        "update bank_deposits set status = 'void', updated_at = $2::timestamp where id = $1",
+    )
+    .bind(id)
+    .bind(stamp)
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query(
+        "update payments set deposit_id = null, updated_at = $2::timestamp where deposit_id = $1",
+    )
+    .bind(id)
+    .bind(stamp)
+    .execute(&mut *conn)
+    .await?;
     sqlx::query(
         "update bank_transactions set status = 'unreconciled', reconciliation_type = null, deposit_id = null, \n         journal_entry_id = null, updated_at = $2::timestamp where deposit_id = $1",
     )
@@ -761,7 +861,12 @@ async fn release(conn: &mut sqlx::PgConnection, id: &str, stamp: &str) -> Result
 /// `voidDeposit`: reverse the entry (dated today), put the payments back in
 /// Undeposited Funds and release the bank line, atomically.
 #[allow(clippy::single_match_else)]
-async fn void_deposit(db: &PgPool, entity_id: &str, id: &str, user_id: Option<&str>) -> Result<Value, PostError> {
+async fn void_deposit(
+    db: &PgPool,
+    entity_id: &str,
+    id: &str,
+    user_id: Option<&str>,
+) -> Result<Value, PostError> {
     let deposit: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         weldsuite_books_domain::books_row!(bank_deposits),
@@ -786,8 +891,9 @@ async fn void_deposit(db: &PgPool, entity_id: &str, id: &str, user_id: Option<&s
                 .unwrap_or_default();
             let deposit_id = id.to_owned();
             let at = stamp.clone();
-            let write: AlsoWrite =
-                Box::new(move |conn, _| Box::pin(async move { release(conn, &deposit_id, &at).await }));
+            let write: AlsoWrite = Box::new(move |conn, _| {
+                Box::pin(async move { release(conn, &deposit_id, &at).await })
+            });
             reverse_journal_entry(
                 db,
                 ReverseArgs {
@@ -830,7 +936,11 @@ async fn void(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
                 entity_type: "bank_deposit",
                 entity_id: &id,
                 action: "voided",
-                changes: Some(changes(vec![("status", field(&deposit, "status"), json!("void"))])),
+                changes: Some(changes(vec![(
+                    "status",
+                    field(&deposit, "status"),
+                    json!("void"),
+                )])),
             },
         )
         .await;
@@ -849,4 +959,3 @@ async fn void(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
     .await;
     reply(result, "Failed to void bank deposit")
 }
-
