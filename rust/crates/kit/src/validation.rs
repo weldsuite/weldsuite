@@ -36,7 +36,9 @@ fn parsed_type(value: Option<&Value>) -> &'static str {
 
 /// `z.union([z.string(), z.number()])` failing on `value` at `path`: Zod's
 /// `invalid_union`, with one `invalid_type` per option.
-fn string_or_number_issue(path: &Value, value: Option<&Value>) -> Value {
+/// Zod's `invalid_union` issue of `z.union([z.string(), z.number()])` for
+/// `value` at `path` (both options' `invalid_type`).
+pub fn string_or_number_issue(path: &Value, value: Option<&Value>) -> Value {
     let received = parsed_type(value);
     let option = |expected: &str| {
         json!({ "issues": [{
@@ -246,6 +248,13 @@ impl Issues {
     /// here have no rule for (a `z.union`, a `z.preprocess`).
     pub fn push_issue(&mut self, key: &str, mut issue: Value) {
         issue["path"] = self.path(key);
+        self.issues.push(issue);
+    }
+
+    /// An issue whose `path` is already set, pushed as is: one Zod settles
+    /// after the body's synchronous checks (an async union's result, a
+    /// nested refinement), collected while the body was read.
+    pub fn push_raw(&mut self, issue: Value) {
         self.issues.push(issue);
     }
 

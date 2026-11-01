@@ -43,8 +43,8 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     let mut routers = Vec::new();
     // The ledger (foundation).
     routers.extend(weldsuite_books::routers(&books, gate));
-    // The other areas: one line each, e.g.
-    // routers.extend(weldsuite_books_sales::routers(&books, gate));
+    // The other areas: one line each.
+    routers.extend(weldsuite_books_banking::routers(&books, gate));
     routers
         .into_iter()
         .fold(router, |router, (prefix, routes)| {

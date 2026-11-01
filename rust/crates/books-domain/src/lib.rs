@@ -14,12 +14,15 @@
 //! - [`document_posting`], [`payments`], [`bad_debt`], [`catch_up`]: what
 //!   invoices, bills, payments and write-offs post, and the ledger catch-up.
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
+//! - [`bank_accounts`]: account numbers (sealed, revealed), the ledger account
+//!   behind a bank account.
 //! - [`currency`], [`fx`]: exchange rates.
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
 pub mod address;
 pub mod bad_debt;
+pub mod bank_accounts;
 pub mod catch_up;
 pub mod compliance;
 pub mod currency;
