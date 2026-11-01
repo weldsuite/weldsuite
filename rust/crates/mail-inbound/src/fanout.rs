@@ -436,7 +436,13 @@ async fn publish_desk_inbound(
 /// `autoAssignDeskEmailConversation`: an open, unowned conversation gets an
 /// owner when the workspace has auto-assignment on; the change goes live
 /// and to the hub as `assigned`.
-async fn auto_assign(ctx: &InboundContext, db: &PgPool, org: &str, conversation: Value) -> Value {
+async fn auto_assign(
+    ctx: &InboundContext,
+    db: &PgPool,
+    workspace_id: &str,
+    org: &str,
+    conversation: Value,
+) -> Value {
     let owned = conversation["assigneeId"]
         .as_str()
         .is_some_and(|a| !a.is_empty());
@@ -444,7 +450,14 @@ async fn auto_assign(ctx: &InboundContext, db: &PgPool, org: &str, conversation:
         return conversation;
     }
     let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-    match weldsuite_desk_domain::assignment::auto_assign(db, &id).await {
+    let picker = match &ctx.assignment_router {
+        Some(router) => weldsuite_desk_domain::assignment::Picker::Router {
+            router,
+            workspace_id,
+        },
+        None => weldsuite_desk_domain::assignment::Picker::Local,
+    };
+    match weldsuite_desk_domain::assignment::auto_assign_with(db, &id, &picker).await {
         Ok(Some((assigned, message))) => {
             publish_all(
                 ctx,
@@ -558,7 +571,16 @@ async fn ingest_helpdesk(
         );
     }
     let conversation = match &inbox.clerk_org_id {
-        Some(org) => auto_assign(ctx, &db, org, ingested.conversation.clone()).await,
+        Some(org) => {
+            auto_assign(
+                ctx,
+                &db,
+                &inbox.workspace_id,
+                org,
+                ingested.conversation.clone(),
+            )
+            .await
+        }
         None => ingested.conversation.clone(),
     };
     let assignee = conversation["assigneeId"].as_str();

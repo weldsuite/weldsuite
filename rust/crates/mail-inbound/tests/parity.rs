@@ -643,6 +643,7 @@ async fn storage_writes_the_rows_the_worker_writes() {
             desk: false,
             books: false,
         },
+        assignment_router: None,
     };
     let a = &f["account"];
     let account = RecipientAccount {

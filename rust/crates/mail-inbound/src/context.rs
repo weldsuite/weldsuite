@@ -98,6 +98,10 @@ pub struct InboundContext {
     /// Expo push, and the notifications' push.
     pub http: Option<OutboundHttp>,
     pub fan_out: FanOut,
+    /// The helpdesk's per-workspace round robin (`/desk/assign` on
+    /// `HELPDESK_WORKFLOW`); `None` picks locally, as the worker does
+    /// without the binding.
+    pub assignment_router: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 impl std::fmt::Debug for InboundContext {
@@ -109,6 +113,7 @@ impl std::fmt::Debug for InboundContext {
             .field("realtime", &self.realtime.is_some())
             .field("http", &self.http.is_some())
             .field("fan_out", &self.fan_out)
+            .field("assignment_router", &self.assignment_router.is_some())
             .finish_non_exhaustive()
     }
 }

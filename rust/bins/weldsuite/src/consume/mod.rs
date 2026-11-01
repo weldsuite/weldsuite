@@ -195,6 +195,7 @@ fn mail_inbound_handler(
         .with_subject_prefix(subject_prefix),
         http,
         fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
+        assignment_router: Some(crate::routes::desk_assignment_router()),
     };
     if !ctx.fan_out.books {
         tracing::info!(
