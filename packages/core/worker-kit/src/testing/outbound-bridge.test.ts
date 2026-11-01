@@ -90,6 +90,21 @@ describe('outbound bridge', () => {
     expect(calls).toEqual([{ method: 'POST', url: 'https://api.example.test/v1/contacts', body: { name: 'Ann' } }]);
   });
 
+  it('records a form body as its fields, a repeated key with every value', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const { calls } = await recordOutbound(async () => {
+      await fetch('https://api.stripe.com/v1/tax/calculations', {
+        method: 'POST',
+        body: 'currency=usd&line_items%5B0%5D%5Breference%5D=ili_abc123def456&expand%5B%5D=a&expand%5B%5D=b',
+      });
+      await fetch('https://api.example.test/v1/notes', { method: 'POST', body: 'just text' });
+    });
+    expect(calls.map((c) => c.body)).toEqual([
+      { currency: 'usd', 'line_items[0][reference]': 'ili_abc123def456', 'expand[]': ['a', 'b'] },
+      'just text',
+    ]);
+  });
+
   it("records the route's own calls and leaves loopback out", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
     const { calls } = await recordOutbound(async () => {
