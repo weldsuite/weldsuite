@@ -2148,7 +2148,9 @@
       "tests": [
         "src/routes/weldreach-guards.test.ts",
         "src/routes/domains/integration.test.ts",
-        "src/routes/host-routes.integration.test.ts"
+        "src/routes/host-routes.integration.test.ts",
+        "src/routes/host-providers.integration.test.ts",
+        "src/routes/host-search.integration.test.ts"
       ],
       "paths": [
         "apps/workers/host-api/src/",
