@@ -4156,6 +4156,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-ads-domain",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",

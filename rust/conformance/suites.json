@@ -2161,18 +2161,44 @@
       "module": "connect",
       "workspace": "apps/workers/connect-api",
       "tests": [
-        "src/routes/external-webhooks/routes.test.ts"
+        "src/routes/external-webhooks/routes.test.ts",
+        "src/routes/integrations/routes.test.ts",
+        "src/routes/integrations/internal.routes.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
         "apps/workers/connect-api/src/services/external-webhooks.ts",
         "apps/workers/connect-api/src/lib/tenant-work-index.ts",
+        "apps/workers/connect-api/src/routes/integrations/",
+        "apps/workers/connect-api/src/services/integrations/",
+        "apps/workers/connect-api/src/lib/crm-sync-index.ts",
+        "packages/clients/core-api-client/src/schemas/integrations.ts",
+        "packages/domains/ads/src/",
         "packages/core/entity-events/src/webhook-delivery.ts",
         "packages/core/entity-events/src/webhook-events.ts",
         "packages/clients/app-api-client/src/schemas/connect-integrations-responses.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-connect-integrations.ts",
         "rust/crates/subscribers/src/webhooks.rs",
+        "rust/crates/ads-domain/",
         "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/integrations/connections/:id/connector-event",
+          "reason": "Not ported yet: the inbound WooCommerce/Shopify webhook ingest of @weldsuite/connect-domain (connectors/webhooks.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/connections/:id/catch-up",
+          "reason": "Not ported yet: the connector catch-up sync of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/moneybird-push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/woocommerce-auth",
+          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with the first sync, still to come in rust/crates/connect-domain."
+        }
       ]
     }
   ]

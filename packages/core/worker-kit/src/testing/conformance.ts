@@ -175,6 +175,12 @@ export const FORWARDED_ENV = [
   'GITHUB_APP_SLUG',
   'GITHUB_APP_PRIVATE_KEY',
   'CLERK_SECRET_KEY',
+  // WeldConnect's CRM integrations: the Attio and HubSpot OAuth apps (the
+  // Google Calendar one is forwarded for WeldCalendar above).
+  'ATTIO_CLIENT_ID',
+  'ATTIO_CLIENT_SECRET',
+  'HUBSPOT_CLIENT_ID',
+  'HUBSPOT_CLIENT_SECRET',
   // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
   // tokens are signed with, the realtime origin it advertises to the widget, and
   // the secret its realtime publishes carry.
@@ -704,6 +710,9 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   return undefined;
 }
 
+/** A provider webhook target of an integration connection. */
+const INTEGRATION_WEBHOOK_TARGET = /\/webhook\/(gcal\/)?intc_/;
+
 /** `generateWebhookSecret()`: 32 alphanumeric characters. */
 const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 
@@ -724,6 +733,9 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   // WeldConnect: the receiver URL of a webhook the request just created
   // (`…/api/workflows/webhook/wh_<id>`).
   if (value.includes('/api/workflows/webhook/')) return value.replace(LINKED_ID, '$1<id>');
+  // WeldConnect: the webhook target a provider is given for a connection the
+  // request just created (`…/webhook/intc_<id>`, `…/webhook/gcal/intc_<id>`).
+  if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
 }

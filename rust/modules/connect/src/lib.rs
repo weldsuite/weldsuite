@@ -29,6 +29,7 @@ mod executions;
 mod external_webhooks;
 mod github;
 mod github_app;
+mod integrations;
 mod js;
 mod mvp;
 mod public_webhook;
@@ -84,6 +85,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
 pub use entity_workflows::EntityWorkflowsSubscriber;
+pub use integrations::RequestCrmSyncRuns;
+pub use integrations::internal::is_internal_call as is_internal_integrations_call;
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,
@@ -155,6 +158,12 @@ pub const ENV_NAMES: &[&str] = &[
     "SLACK_CLIENT_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
+    "ATTIO_CLIENT_ID",
+    "ATTIO_CLIENT_SECRET",
+    "HUBSPOT_CLIENT_ID",
+    "HUBSPOT_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -177,6 +186,7 @@ where
         .nest("/github-repo-links", github::repo_links_routes(gate))
         .nest("/github-project-links", github::project_links_routes(gate))
         .nest("/external-webhooks", external_webhooks::routes(gate))
+        .nest("/integrations", integrations::routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
@@ -214,6 +224,17 @@ where
             axum::routing::get(github::install_callback),
         )
         .with_state(state)
+}
+
+/// connect-api's internal integration routes (`X-Internal-Secret`) at their
+/// full `/api/integrations/...` paths. They share their paths with the
+/// member routes, so the server sends a request here only when
+/// [`is_internal_integrations_call`] says it is one, ahead of the session.
+pub fn internal_integrations_router<S>(state: ConnectState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    integrations::internal::router(state)
 }
 
 /// What conformance builds hand a request in place of the state's.

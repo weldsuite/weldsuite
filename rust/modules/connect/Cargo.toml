@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-ads-domain = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }

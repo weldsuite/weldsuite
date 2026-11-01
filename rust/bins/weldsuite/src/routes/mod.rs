@@ -334,6 +334,29 @@ fn connect_public(state: &AppState) -> Router<AppState> {
     router
 }
 
+/// connect-api's internal integration routes (`X-Internal-Secret`), which
+/// share their paths with the member routes: the server sends a request
+/// there ahead of the session when `is_internal_integrations_call` says so.
+/// `None` while connect is not mounted. Conformance builds give them what
+/// the test shares, its tenant database included.
+pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
+    if !mounts("connect") {
+        return None;
+    }
+    let router = weldsuite_connect::internal_integrations_router(connect_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public,
+        ));
+    Some(router)
+}
+
 /// WeldConnect's handle on the app: events, the cache (the webhook
 /// registry's), the master database, third-party HTTP, the jobs runs start
 /// on and the workspaces' tenant databases. Conformance builds take the

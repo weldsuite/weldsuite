@@ -144,6 +144,8 @@ pub(crate) fn router(state: AppState) -> Router {
     // embedded on customers' sites), so it goes in outside `api_cors()`.
     let widget =
         crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    let connect_internal =
+        crate::routes::connect_internal(&state).map(|internal| internal.with_state(state.clone()));
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -153,6 +155,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            connect_internal,
+            connect_internal_calls,
+        ))
         .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
@@ -164,6 +170,37 @@ pub(crate) fn router(state: AppState) -> Router {
                 .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
         )
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// connect-api's internal integration calls (`X-Internal-Secret`) go to
+/// their own router ahead of the session, as the worker mounts it ahead of
+/// `clerkMiddleware`; every other request goes on.
+async fn connect_internal_calls(
+    State(internal): State<Option<Router>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    match internal {
+        Some(internal)
+            if weldsuite_connect::is_internal_integrations_call(
+                request.method(),
+                request.uri().path(),
+                request.headers(),
+            ) =>
+        {
+            use tower::ServiceExt;
+            // Routed once already, to the member route on the same path.
+            let mut request = request;
+            request
+                .extensions_mut()
+                .remove::<axum::extract::MatchedPath>();
+            match internal.oneshot(request).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            }
+        }
+        _ => next.run(request).await,
+    }
 }
 
 /// With a dedicated WeldApps bundle origin (`USER_APP_BUNDLE_ORIGIN`), that
