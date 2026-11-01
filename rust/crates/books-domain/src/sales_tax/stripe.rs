@@ -456,18 +456,21 @@ impl StripeEngine {
         let mut items = Vec::new();
         let mut starting_after: Option<String> = None;
         for _ in 0..20 {
-            let mut query = form_urlencoded::Serializer::new(String::new());
-            query.append_pair("limit", "100");
-            if let Some(after) = &starting_after {
-                query.append_pair("starting_after", after);
-            }
+            let query = {
+                let mut query = form_urlencoded::Serializer::new(String::new());
+                query.append_pair("limit", "100");
+                if let Some(after) = &starting_after {
+                    query.append_pair("starting_after", after);
+                }
+                query.finish()
+            };
             let list = self
                 .call(
                     "GET",
                     &format!(
                         "/v1/tax/transactions/{}/line_items?{}",
                         encode_uri_component(reference),
-                        query.finish()
+                        query
                     ),
                     None,
                     Vec::new(),
@@ -593,16 +596,19 @@ impl StripeEngine {
         let mut out = Vec::new();
         let mut starting_after: Option<String> = None;
         for _ in 0..20 {
-            let mut query = form_urlencoded::Serializer::new(String::new());
-            query.append_pair("status", "active");
-            query.append_pair("limit", "100");
-            if let Some(after) = &starting_after {
-                query.append_pair("starting_after", after);
-            }
+            let query = {
+                let mut query = form_urlencoded::Serializer::new(String::new());
+                query.append_pair("status", "active");
+                query.append_pair("limit", "100");
+                if let Some(after) = &starting_after {
+                    query.append_pair("starting_after", after);
+                }
+                query.finish()
+            };
             let list = self
                 .call(
                     "GET",
-                    &format!("/v1/tax/registrations?{}", query.finish()),
+                    &format!("/v1/tax/registrations?{query}"),
                     None,
                     Vec::new(),
                 )
