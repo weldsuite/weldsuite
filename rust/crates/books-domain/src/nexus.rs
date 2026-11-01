@@ -77,7 +77,12 @@ fn rule_of(raw: &Value) -> NexusRule {
         },
         unverified: raw["unverified"]
             .as_array()
-            .map(|u| u.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|u| {
+                u.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default(),
         source_url: text("sourceUrl"),
         notes: raw["notes"].as_str().map(str::to_owned),
@@ -87,7 +92,10 @@ fn rule_of(raw: &Value) -> NexusRule {
 /// `BY_STATE`: every version of every state's rule, by state, oldest first.
 static BY_STATE: LazyLock<Vec<(String, Vec<NexusRule>)>> = LazyLock::new(|| {
     let mut out: Vec<(String, Vec<NexusRule>)> = Vec::new();
-    for raw in DATA["us"]["nexusRules"].as_array().map_or(&[][..], Vec::as_slice) {
+    for raw in DATA["us"]["nexusRules"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+    {
         let rule = rule_of(raw);
         match out.iter_mut().find(|(code, _)| *code == rule.state_code) {
             Some((_, list)) => list.push(rule),
@@ -116,8 +124,8 @@ pub fn get_nexus_rule(state_code: &str, as_of: &str) -> Option<&'static NexusRul
     let (_, history) = BY_STATE.iter().find(|(c, _)| *c == code)?;
     history
         .iter()
-        .filter(|rule| rule.effective_from.as_str() <= as_of)
-        .last()
+        .rev()
+        .find(|rule| rule.effective_from.as_str() <= as_of)
 }
 
 /// `NexusSale`.
@@ -405,7 +413,7 @@ struct RawPeriod {
 fn make_period(
     rule: &NexusRule,
     series: &SaleSeries,
-    role: &'static str,
+    period_role: &'static str,
     label: String,
     from: &str,
     to: &str,
@@ -425,7 +433,7 @@ fn make_period(
     };
     RawPeriod {
         period: NexusPeriod {
-            role,
+            role: period_role,
             label,
             from: from.to_owned(),
             to: to.to_owned(),
@@ -507,7 +515,11 @@ fn build_calendar_years(rule: &NexusRule, series: &SaleSeries, as_of: &str) -> B
     let current = make_period(
         rule,
         series,
-        if previous_only { "look_ahead" } else { "binding" },
+        if previous_only {
+            "look_ahead"
+        } else {
+            "binding"
+        },
         format!("{year} to date"),
         &format!("{year}-01-01"),
         as_of,
@@ -558,8 +570,8 @@ fn build_rolling(rule: &NexusRule, series: &SaleSeries, as_of: &str) -> Build {
     );
     let mut build = Build::default();
     if period.period.exceeded {
-        build.exceeded_on = rolling_streak_start(rule, series, as_of)
-            .or_else(|| period.period.exceeded_on.clone());
+        build.exceeded_on =
+            rolling_streak_start(rule, series, as_of).or_else(|| period.period.exceeded_on.clone());
         if let Some(on) = &build.exceeded_on {
             build.collect_from = Some(apply_collection_start(&rule.collection_start, on));
         }
@@ -678,20 +690,20 @@ fn build_series(rule: &NexusRule, sales: &[NexusSale]) -> SaleSeries {
         let date = sale.date.get(..10).unwrap_or(&sale.date).to_owned();
         #[allow(clippy::cast_possible_truncation)]
         let cents = math_round(sale.amount * 100.0) as i64;
-        let entry = match by_day.iter_mut().find(|e| e.date == date) {
-            Some(entry) => entry,
-            None => {
+        let index = by_day
+            .iter()
+            .position(|e| e.date == date)
+            .unwrap_or_else(|| {
                 by_day.push(Entry {
                     date,
                     cents: 0,
                     count: 0,
                 });
-                by_day.last_mut().expect("just pushed")
-            }
-        };
-        entry.cents += cents;
+                by_day.len() - 1
+            });
+        by_day[index].cents += cents;
         if sale.amount > 0.0 {
-            entry.count += 1;
+            by_day[index].count += 1;
         }
     }
     by_day.sort_by(|a, b| a.date.cmp(&b.date));
@@ -732,7 +744,10 @@ impl NexusMeasurement {
         out.insert("ruleEffectiveFrom".into(), json!(self.rule_effective_from));
         out.insert("salesTotal".into(), number_value(self.sales_total));
         out.insert("transactionCount".into(), json!(self.transaction_count));
-        out.insert("thresholdSales".into(), optional_number(self.threshold_sales));
+        out.insert(
+            "thresholdSales".into(),
+            optional_number(self.threshold_sales),
+        );
         out.insert(
             "thresholdTransactions".into(),
             optional_number(self.threshold_transactions),
@@ -926,9 +941,7 @@ pub fn nexus_monitor(
         b.measurement
             .percent_of_threshold
             .total_cmp(&a.measurement.percent_of_threshold)
-            .then_with(|| {
-                locale_compare(&a.measurement.state_code, &b.measurement.state_code)
-            })
+            .then_with(|| locale_compare(&a.measurement.state_code, &b.measurement.state_code))
     });
     rows
 }

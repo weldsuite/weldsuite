@@ -1920,7 +1920,10 @@
       "tests": [
         "src/routes/sales-tax-setup.integration.test.ts",
         "src/routes/sales-tax-setup-crud.integration.test.ts",
-        "src/routes/tax-calendar/integration.test.ts"
+        "src/routes/tax-calendar/integration.test.ts",
+        "src/routes/sales-tax/reports.integration.test.ts",
+        "src/routes/tax-returns/integration.test.ts",
+        "src/routes/exemption-certificates/certificate-cure.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/sales-tax/",

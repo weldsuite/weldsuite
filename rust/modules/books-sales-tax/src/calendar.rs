@@ -27,7 +27,7 @@ use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{is_iso_date_text, text, today_in};
-use crate::returns_common::{FILED_STATUSES, agency_to_input, load_agencies};
+use crate::returns::common::{FILED_STATUSES, agency_to_input, load_agencies};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
