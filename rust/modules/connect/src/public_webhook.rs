@@ -108,6 +108,9 @@ pub(crate) async fn receive(
         .unwrap_or(0.0);
     #[allow(clippy::cast_precision_loss)]
     if declared > MAX_BODY_BYTES as f64 {
+        // Read what the sender is still sending (up to a bound) first:
+        // answering mid-upload resets the connection under the client.
+        let _ = axum::body::to_bytes(body, 4 * MAX_BODY_BYTES).await;
         return legacy(StatusCode::PAYLOAD_TOO_LARGE, "Payload too large");
     }
     let bytes: Bytes = match axum::body::to_bytes(body, 4 * MAX_BODY_BYTES).await {

@@ -71,7 +71,8 @@ Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls and help center custom domains.
+`weldmail.com` addresses, mail AI, chat calls, help center custom domains and
+WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
 host, meet, call, connect, agent, hr, reach, sheets, docs and
@@ -253,7 +254,9 @@ share one origin and the app finds the API through `/config.json`
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
-`workspace-deletion` daily and `workspace-teardown` hourly. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+`workspace-deletion` daily, `workspace-teardown` hourly and `workflow-schedules`
+every minute (WeldConnect's scheduled runs, started on Restate; skipped without
+`RESTATE_INGRESS_URL`). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -267,6 +270,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `CONNECT_API_URL` | WeldConnect: the GitHub App (WeldFlow's repositories and Projects, the workflow GitHub integration; unset: those routes answer 500 `GitHub App is not configured`) and the public origin of the workflow webhook URLs (default by `ENVIRONMENT`). The install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the install callback lands on `PUBLIC_APP_URL`. `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`: the workflow integrations' OAuth apps |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
@@ -310,7 +314,8 @@ stream. It reads the same database, NATS and Valkey variables, needs no sign-in
 settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_STREAM_MAX_BYTES`,
 `NATS_DEAD_LETTER_MAX_BYTES`,
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
-`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`,
+`RESTATE_INGRESS_URL` for the `weldconnect` subscriber's workflow runs):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.
 With `S3_BUCKET_MAIL` set it also runs `mail-inbound` (in the default list then;
 named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
