@@ -286,7 +286,10 @@ fn locations_of(map: Vec<(String, LocationAcc)>) -> Vec<WorksheetLocation> {
     clippy::too_many_lines,
     reason = "mirrors sales-tax-return.ts's buildUsSalesTaxWorksheet()"
 )]
-pub fn build_us_sales_tax_worksheet(lines: &[WorksheetLine], opts: &WorksheetOptions<'_>) -> Worksheet {
+pub fn build_us_sales_tax_worksheet(
+    lines: &[WorksheetLine],
+    opts: &WorksheetOptions<'_>,
+) -> Worksheet {
     let start = iso_day(opts.period_start);
     let end = iso_day(opts.period_end);
     let rows: Vec<&WorksheetLine> = lines
@@ -523,7 +526,10 @@ fn worksheet_csv(ws: &Worksheet, entity_name: &str) -> Vec<String> {
             out.push(csv_row(&[Text(&label), Number(*value)]));
         }
     }
-    out.push(csv_row(&[Text("Total deductions"), Number(ws.total_deductions)]));
+    out.push(csv_row(&[
+        Text("Total deductions"),
+        Number(ws.total_deductions),
+    ]));
     out.push(csv_row(&[Text("Taxable sales"), Number(ws.taxable_sales)]));
     out.push(csv_row(&[Text("Sales tax due"), Number(ws.sales_tax_due)]));
     out.push(csv_row(&[Text("Use tax due"), Number(ws.use_tax_due)]));
@@ -753,9 +759,14 @@ mod tests {
         assert!((ws.sales_tax_due - 82.5).abs() < 1e-9);
         assert_eq!(ws.by_location[0].jurisdiction_code, "TX-STATE");
         assert_eq!(ws.document_count, 1);
-        let artifact = build_us_sales_tax_return("A, Inc", "accrual", "2026-07-01", "2026-09-30", &lines);
+        let artifact =
+            build_us_sales_tax_return("A, Inc", "accrual", "2026-07-01", "2026-09-30", &lines);
         assert_eq!(artifact.filename, "sales-tax-tx-2026-07-01-2026-09-30.csv");
         assert!(artifact.content.contains("Entity,\"A, Inc\""));
-        assert!(artifact.content.contains("TX-STATE,TX-STATE,state,,6.25,1000.00,62.50"));
+        assert!(
+            artifact
+                .content
+                .contains("TX-STATE,TX-STATE,state,,6.25,1000.00,62.50")
+        );
     }
 }

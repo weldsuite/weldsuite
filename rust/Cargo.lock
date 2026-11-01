@@ -4019,6 +4019,7 @@ name = "weldsuite-books-sales-tax"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "http",
  "jiff",
  "serde",
