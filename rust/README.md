@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has fourteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has fifteen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -50,6 +50,19 @@ modules, each with conformance suites that reach every route:
   the `WELDDATA_ENRICH` Workflow: Findymail or Prospeo for emails through
   the outbound HTTP port, the company's own website for phone numbers, read
   on public addresses only, and the AI action stubbed as on Global)
+- **commerce** (WeldCommerce: products and their sales channels on
+  WooCommerce, Shopify and Picqer, categories, orders with WeldBooks' manual
+  sales tax engine, parcels, shipments, pickups, returns, shipping rules and
+  prices, carriers, parcel analytics, rates, settings, wallet and
+  notifications, Sendcloud and PrintNode, and the B2B order portal: its staff
+  routes and the public portal at `/public/commerce-portal`, with the
+  sign-in limits on the cache's atomic counters and the sign-in mail as
+  system mail; `crates/commerce-domain` holds the portal's tokens, slugs and
+  limits. Not yet: the Stripe Tax and Avalara engines (an order an entity on
+  one of them taxes answers 503, never zero tax), the portal's invoice
+  document (503 until WeldBooks' invoice generator is ported) and
+  WooCommerce's app-auth callback, which completes a WeldConnect
+  authorisation)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -57,7 +70,7 @@ the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls and help center custom domains.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
-reason. Not ported yet (P8): books, commerce,
+reason. Not ported yet (P8): books,
 host, meet, call, connect, agent, hr, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
@@ -111,7 +124,9 @@ rust/
                         modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
-                        modules/data (WeldData, and the welddata-enrich job);
+                        modules/data (WeldData, and the welddata-enrich job),
+                        modules/commerce (with crates/commerce-domain: the order portal's tokens,
+                        slugs and rate limits);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -241,7 +256,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`) |
+| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials |
+| `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
