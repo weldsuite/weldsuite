@@ -219,15 +219,17 @@ certificate, a reqwest identity on Kubernetes). Owns
 `books_domain::bank_accounts` (payment runs read it).
 
 **Status: ported.** All 52 routes of the six groups in `weldsuite-books-banking`;
-the `books: banking` suite (7 test files, 339 requests) at zero differences
+the `books: banking` suite (7 test files, 355 requests) at zero differences
 and zero schema failures, every route reached (the unreached ones above got
 tests: `bank-accounts`, `reconciliation-rules`, `bank-transactions/matching`,
 `bank-deposits`, `bank-reconciliations`, `bank-connections` integration
 tests). The bank-feed providers run against their real HTTP APIs answered
-by a `fetch` stub, compared through the outbound bridge (Plaid and Stripe
-Financial Connections end to end, Enable Banking's bank list; Ponto and
-Enable Banking link sessions carry a random `state`, so their outbound
-bodies cannot match and are left to the Rust unit tests). Ponto's mTLS
+by a `fetch` stub, compared through the outbound bridge: Plaid and Stripe
+Financial Connections end to end, Ponto and Enable Banking from completing
+a link to disconnecting or deleting it, Enable Banking's bank list. Ponto's
+and Enable Banking's link sessions carry a random `state` (and a time-based
+consent end), so their outbound calls cannot match; the test starts Plaid
+and Stripe links only. Ponto's mTLS
 client is `BooksState::ponto_http`, made from `PONTO_MTLS_CERT` and
 `PONTO_MTLS_KEY` (`ReqwestOutbound::with_client_certificate`). Bank-connection
 billing is Global's billing-worker: off on these editions (the `billing`

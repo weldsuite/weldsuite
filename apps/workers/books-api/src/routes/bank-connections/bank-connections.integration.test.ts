@@ -51,9 +51,14 @@ const ENV = {
   PLAID_CLIENT_ID: 'plaid-client',
   PLAID_SECRET: 'plaid-secret',
   STRIPE_FC_SECRET_KEY: 'sk_test_feeds',
+  PONTO_CLIENT_ID: 'ponto-client',
+  PONTO_CLIENT_SECRET: 'ponto-secret',
   ENABLE_BANKING_APP_ID: 'eb-app',
   ENABLE_BANKING_PRIVATE_KEY: EB_KEY,
 };
+
+/** The env without Ponto's keys: Ponto is not configured. */
+const NO_PONTO = { ...ENV, PONTO_CLIENT_ID: undefined, PONTO_CLIENT_SECRET: undefined };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
 let master: any;
@@ -66,12 +71,13 @@ interface CallOptions {
   perms?: string[];
   entity?: string | null;
   fva?: readonly [number, number] | null;
+  env?: Record<string, unknown>;
 }
 
 async function call(path: string, opts: CallOptions = {}) {
   const { request } = createTestApp('/api/bank-connections', bankConnectionsRoutes, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    env: ENV as any,
+    env: (opts.env ?? ENV) as any,
     context: {
       permissions: permissions(...(opts.perms ?? ['*'])),
       tenantDb: db,
@@ -224,6 +230,76 @@ function stripe(method: string, url: URL): Response {
   return json({ error: { type: 'invalid_request_error', message: `No such route ${path}` } }, 404);
 }
 
+const PONTO_ACCOUNT = {
+  id: 'pacc_bf',
+  type: 'account',
+  attributes: {
+    reference: 'BE68 5390 0754 7034',
+    referenceType: 'IBAN',
+    description: 'Ponto Business',
+    currency: 'EUR',
+    subtype: 'checking',
+    currentBalance: 1477.85,
+    synchronizedAt: '2026-10-30T08:00:00.000Z',
+    authorizationExpirationExpectedAt: `${day(120)}T00:00:00.000Z`,
+  },
+  relationships: { financialInstitution: { data: { id: 'fi_bf', type: 'financialInstitution' } } },
+};
+
+function ponto(method: string, url: URL, body: string): Response {
+  const json = (data: unknown, status = 200) => Response.json(data, { status });
+  const path = url.pathname.slice('/ponto-connect'.length);
+  if (method === 'POST' && path === '/oauth2/token') {
+    return new URLSearchParams(body).get('code') === 'ponto-code'
+      ? json({ access_token: 'ponto-access', refresh_token: 'ponto-refresh', expires_in: 1800, token_type: 'bearer' })
+      : json({ error: 'invalid_grant', error_description: 'the code is unknown' }, 400);
+  }
+  if (method === 'POST' && (path === '/oauth2/revoke' || path === '/synchronizations')) return json({});
+  if (method === 'GET' && path === '/accounts') return json({ data: [PONTO_ACCOUNT], links: {} });
+  if (method === 'GET' && path === '/accounts/pacc_bf') return json({ data: PONTO_ACCOUNT });
+  if (method === 'GET' && path === '/accounts/pacc_bf/transactions') {
+    return json({
+      data: [
+        { id: 'ptx_supplies', type: 'transaction', attributes: { amount: -42.5, currency: 'EUR', executionDate: `${day(-2)}T09:00:00.000Z`, remittanceInformation: 'Office supplies', counterpartName: 'Bureau BV' } },
+        { id: 'ptx_invoice', type: 'transaction', attributes: { amount: 1000, currency: 'EUR', valueDate: `${day(-1)}T00:00:00.000Z`, description: 'Invoice 12', counterpartName: 'Client NV' } },
+        { id: 'ptx_ancient', type: 'transaction', attributes: { amount: -1, currency: 'EUR', executionDate: '2020-01-01T00:00:00.000Z', remittanceInformation: 'Too old' } },
+      ],
+      links: {},
+    });
+  }
+  return json({ errors: [{ code: 'resourceNotFound', detail: path }] }, 404);
+}
+
+function enableBanking(method: string, url: URL, body: string): Response {
+  const json = (data: unknown, status = 200) => Response.json(data, { status });
+  if (method === 'GET' && url.pathname === '/aspsps') {
+    return json({ aspsps: [{ name: 'Nordea', country: url.searchParams.get('country'), logo: 'https://enablebanking.com/nordea.png' }, { name: 'OP' }] });
+  }
+  if (method === 'POST' && url.pathname === '/sessions') {
+    if ((JSON.parse(body) as { code?: string }).code !== 'eb-code') return json({ message: 'Wrong authorization code', error: 'WRONG_AUTHORIZATION_CODE' }, 400);
+    return json({
+      session_id: 'eb_sess_bf',
+      aspsp: { name: 'Nordea', country: 'FI' },
+      access: { valid_until: `${day(150)}T00:00:00Z` },
+      accounts: [{ uid: 'eb_acc_bf', account_id: { iban: 'FI2112345600000785' }, name: 'Nordea Business', cash_account_type: 'CACC', currency: 'EUR' }],
+    });
+  }
+  if (method === 'GET' && url.pathname === '/accounts/eb_acc_bf/transactions') {
+    return json({
+      transactions: [
+        { entry_reference: 'eb_tx_beans', transaction_amount: { amount: '12.30', currency: 'EUR' }, credit_debit_indicator: 'DBIT', booking_date: day(-3), remittance_information: ['Coffee', 'beans'], creditor: { name: 'Roastery' } },
+        { transaction_amount: { amount: '500.00', currency: 'EUR' }, credit_debit_indicator: 'CRDT', booking_date: day(-1), debtor: { name: 'Customer Oy' } },
+      ],
+      continuation_key: null,
+    });
+  }
+  if (method === 'GET' && url.pathname === '/accounts/eb_acc_bf/balances') {
+    return json({ balances: [{ balance_type: 'ITAV', balance_amount: { amount: '1.00', currency: 'EUR' } }, { balance_type: 'CLBD', balance_amount: { amount: '987.70', currency: 'EUR' }, credit_debit_indicator: 'CRDT', reference_date: day(-1) }] });
+  }
+  if (method === 'DELETE' && url.pathname === '/sessions/eb_sess_bf') return json({ message: 'Session deleted' });
+  return json({ message: 'Not found', error: 'NOT_FOUND' }, 404);
+}
+
 const realFetch = globalThis.fetch;
 
 /** The providers answer; every other call (the harness's own) goes to the real `fetch`. */
@@ -234,14 +310,15 @@ const providerFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit)
   const text = typeof init?.body === 'string' ? init.body : '';
   if (url.hostname === 'sandbox.plaid.com') return plaid(url.pathname, text ? (JSON.parse(text) as Record<string, unknown>) : {});
   if (url.hostname === 'api.stripe.com') return stripe(method, url);
-  if (url.hostname === 'api.enablebanking.com' && url.pathname === '/aspsps') {
-    return Response.json({ aspsps: [{ name: 'Nordea', country: url.searchParams.get('country'), logo: 'https://enablebanking.com/nordea.png' }, { name: 'OP' }] });
-  }
+  if (url.hostname === 'api.ibanity.com') return ponto(method, url, text);
+  if (url.hostname === 'api.enablebanking.com') return enableBanking(method, url, text);
   return realFetch(input, init);
 });
 
 let plaidId = '';
 let stripeId = '';
+let pontoId = '';
+let ebId = '';
 
 beforeAll(async () => {
   master = (await createMasterPgliteDb()).db;
@@ -295,7 +372,12 @@ describe('what can be linked', () => {
 
     const finland = await call('/providers', { entity: OTHER });
     expect(finland.data.country).toBe('FI');
-    expect(finland.data.providers).toEqual([expect.objectContaining({ id: 'enable_banking', kind: 'redirect', requiresInstitution: true })]);
+    expect(finland.data.providers).toEqual([
+      expect.objectContaining({ id: 'ponto', kind: 'redirect', requiresInstitution: false }),
+      expect.objectContaining({ id: 'enable_banking', kind: 'redirect', requiresInstitution: true }),
+    ]);
+    const withoutPonto = await call('/providers', { entity: OTHER, env: NO_PONTO });
+    expect(withoutPonto.data.providers.map((p: { id: string }) => p.id)).toEqual(['enable_banking']);
 
     expect((await call('/providers', { perms: ['banking:create'] })).status).toBe(403);
   });
@@ -314,7 +396,9 @@ describe('what can be linked', () => {
     expect(plaidList.status).toBe(400);
     expect(plaidList.error?.message).toBe("Provider 'plaid' has no institution list");
     const ponto = await call('/institutions?provider=ponto&country=BE');
-    expect(ponto.status).toBe(503);
+    expect(ponto.status).toBe(400);
+    const unconfigured = await call('/institutions?provider=ponto&country=BE', { env: NO_PONTO });
+    expect(unconfigured.status).toBe(503);
     expect((await call('/institutions?provider=nope&country=BE')).status).toBe(400);
   });
 
@@ -358,8 +442,11 @@ describe('starting a link', () => {
     const unknown = await call('/link-session', { method: 'POST', body: { ...link, provider: 'nope' } });
     expect(unknown.status).toBe(400);
     expect(unknown.error?.message).toBe("Unknown bank feed provider 'nope'");
-    const ponto = await call('/link-session', { method: 'POST', body: { ...link, provider: 'ponto' } });
+    const ponto = await call('/link-session', { method: 'POST', body: { ...link, provider: 'ponto' }, env: NO_PONTO });
     expect(ponto.status).toBe(503);
+    const noBank = await call('/link-session', { method: 'POST', body: { ...link, provider: 'enable_banking' } });
+    expect(noBank.status).toBe(400);
+    expect(noBank.error?.message).toBe('Enable Banking needs the bank chosen up front');
     const relink = await call('/link-session', { method: 'POST', body: { ...link, mode: 'reauth' } });
     expect(relink.status).toBe(400);
     const missing = await call('/link-session', { method: 'POST', body: { ...link, mode: 'reauth', connectionId: 'bkc_nope' } });
@@ -645,5 +732,122 @@ describe('Stripe Financial Connections', () => {
     const [account] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.name, 'Stripe Checking'));
     expect(account).toMatchObject({ feedConnectionId: null, feedAccountId: null, feedStatus: null });
     expect((await call('')).data.map((c: { id: string }) => c.id)).toEqual([plaidId]);
+  });
+});
+
+describe('Ponto', () => {
+  const redirectUrl = 'https://app.weldsuite.test/books/banking/ponto';
+
+  it('refuses an incomplete or unknown authorization', async () => {
+    const incomplete = await call('/complete', { method: 'POST', body: { provider: 'ponto', payload: { code: 'ponto-code' } }, entity: OTHER });
+    expect(incomplete.status).toBe(400);
+    expect(incomplete.error?.message).toBe('Ponto authorization response incomplete');
+    const unknown = await call('/complete', {
+      method: 'POST',
+      body: { provider: 'ponto', payload: { code: 'ponto-nope', state: 'state-bf', redirectUrl } },
+      entity: OTHER,
+    });
+    expect(unknown.status).toBe(400);
+    expect(unknown.error?.message).toBe('Ponto invalid_grant: the code is unknown');
+  });
+
+  it('completes a link: the account with its IBAN, the consent end', async () => {
+    const linked = await call('/complete', {
+      method: 'POST',
+      body: { provider: 'ponto', payload: { code: 'ponto-code', state: 'state-bf', redirectUrl } },
+      entity: OTHER,
+    });
+    expect(linked.status).toBe(201);
+    pontoId = linked.data.connection.id;
+    expect(linked.data.connection).toMatchObject({
+      entityId: OTHER,
+      provider: 'ponto',
+      institutionName: 'Ponto',
+      status: 'active',
+      historyDays: 540,
+      consentExpiresAt: `${day(120)}T00:00:00.000Z`,
+    });
+    expect(linked.data.accounts).toEqual([
+      expect.objectContaining({ feedAccountId: 'pacc_bf', name: 'Ponto Business', mask: '7034', currency: 'EUR', subtype: 'checking', suggestion: null }),
+    ]);
+  });
+
+  it('maps, refreshes and syncs inside the history window, then disconnects', async () => {
+    const mapped = await call(`/${pontoId}/map-accounts`, {
+      method: 'POST',
+      body: { mappings: [{ feedAccountId: 'pacc_bf', create: { name: 'Ponto Business' } }], sync: false },
+      entity: OTHER,
+    });
+    expect(mapped.status).toBe(200);
+    const [account] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.name, 'Ponto Business'));
+    expect(account).toMatchObject({ iban: 'BE68539007547034', accountNumberLast4: '7034', currency: 'EUR', bankName: 'Ponto' });
+
+    const synced = await call(`/${pontoId}/sync`, { method: 'POST', body: { refresh: true }, entity: OTHER });
+    expect(synced.status).toBe(200);
+    expect(synced.data.outcome).toMatchObject({ status: 'active', added: 2, pending: 0, possibleDuplicates: 0 });
+    const lines = await db
+      .select()
+      .from(schema.bankTransactions)
+      .where(eq(schema.bankTransactions.feedProvider, 'ponto'));
+    expect(lines.map((l) => [l.providerTransactionId, l.amount]).sort()).toEqual([
+      ['ptx_invoice', '1000.00'],
+      ['ptx_supplies', '-42.50'],
+    ]);
+    const [after] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.name, 'Ponto Business'));
+    expect(after?.currentBalance).toBe('1477.85');
+
+    const disconnected = await call(`/${pontoId}/disconnect`, { method: 'POST', entity: OTHER });
+    expect(disconnected.status).toBe(200);
+    expect(disconnected.data.status).toBe('disconnected');
+  });
+});
+
+describe('Enable Banking', () => {
+  it('refuses a missing or unknown authorization code', async () => {
+    const missing = await call('/complete', { method: 'POST', body: { provider: 'enable_banking', payload: {} }, entity: OTHER });
+    expect(missing.status).toBe(400);
+    expect(missing.error?.message).toBe('Enable Banking authorization code missing');
+    const unknown = await call('/complete', { method: 'POST', body: { provider: 'enable_banking', payload: { code: 'eb-nope' } }, entity: OTHER });
+    expect(unknown.status).toBe(400);
+  });
+
+  it('completes, maps to an existing bank account and syncs booked lines and the closing balance', async () => {
+    const linked = await call('/complete', { method: 'POST', body: { provider: 'enable_banking', payload: { code: 'eb-code' } }, entity: OTHER });
+    expect(linked.status).toBe(201);
+    ebId = linked.data.connection.id;
+    expect(linked.data.connection).toMatchObject({
+      provider: 'enable_banking',
+      institutionId: 'Nordea',
+      institutionName: 'Nordea',
+      consentExpiresAt: `${day(150)}T00:00:00.000Z`,
+      historyDays: 730,
+    });
+    expect(linked.data.accounts).toEqual([
+      expect.objectContaining({ feedAccountId: 'eb_acc_bf', name: 'Nordea Business', mask: '0785', subtype: 'checking', suggestion: null }),
+    ]);
+
+    const mapped = await call(`/${ebId}/map-accounts`, {
+      method: 'POST',
+      body: { mappings: [{ feedAccountId: 'eb_acc_bf', bankAccountId: 'ba_bf_other' }], sync: false },
+      entity: OTHER,
+    });
+    expect(mapped.status).toBe(200);
+    const synced = await call(`/${ebId}/sync`, { method: 'POST', entity: OTHER });
+    expect(synced.data.outcome).toMatchObject({ status: 'active', added: 2, pending: 0 });
+    const lines = await db
+      .select()
+      .from(schema.bankTransactions)
+      .where(eq(schema.bankTransactions.bankAccountId, 'ba_bf_other'));
+    expect(lines.map((l) => [l.description, l.amount]).sort()).toEqual([
+      ['Coffee beans', '-12.30'],
+      ['Customer Oy', '500.00'],
+    ]);
+    const [other] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, 'ba_bf_other'));
+    expect(other).toMatchObject({ currentBalance: '987.70', iban: 'FI2112345600000785', feedProvider: 'enable_banking' });
+  });
+
+  it('deletes the connection: the session ended at the bank', async () => {
+    expect((await call(`/${ebId}`, { method: 'DELETE', entity: OTHER })).status).toBe(204);
+    expect((await call('', { entity: OTHER })).data.map((c: { id: string }) => c.id)).toEqual([pontoId]);
   });
 });
