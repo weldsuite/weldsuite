@@ -4313,11 +4313,14 @@ dependencies = [
 name = "weldsuite-desk-domain"
 version = "0.0.0"
 dependencies = [
+ "regex",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
  "tracing",
+ "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",

@@ -3,19 +3,20 @@
 //!
 //! A customer message on an open, unowned conversation hands it to a teammate
 //! from the workspace's assignment settings
-//! (`helpdesk_settings.automation.deskAssignment`). On Global the pick is
-//! serialised per workspace in `helpdesk-workflow-worker`'s
-//! `AssignmentRouter` Durable Object (ADR DESK-005), reached over the
-//! `WORKFLOW_WORKER` binding. That engine is not ported, so the pick here is
-//! the one TypeScript falls back to without the binding
-//! (`deskAssignmentRouterPicker(undefined)`): a one-off balanced pick, with no
-//! rotation memory between picks.
+//! (`helpdesk_settings.automation.deskAssignment`). The pick is serialised
+//! per workspace in the [`AssignmentRouter`](crate::assignment_router)
+//! (`helpdesk-workflow-worker`'s Durable Object on Global, ADR DESK-005),
+//! which keeps the rotation pointer and the last picks: [`Picker::Router`].
+//! Without a router (or when it fails) the pick is the one TypeScript falls
+//! back to without the binding (`deskAssignmentRouterPicker(undefined)`): a
+//! one-off balanced pick, with no rotation memory ([`Picker::Local`]).
 
 use std::cmp::Ordering;
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 
+use crate::assignment_router::{AssignmentRouter, PickCandidate, PickMode, PickRequest};
 use crate::webchat::{Append, AppendError, append_desk_message, now};
 
 /// `DeskAssignmentSettings`, normalised.
@@ -132,14 +133,19 @@ pub async fn candidates(db: &PgPool, settings: &Settings) -> Result<Vec<Candidat
 /// `a.localeCompare(b)` for the ids it orders: ICU's root collation as it
 /// treats ASCII, i.e. punctuation, then digits, then letters with case
 /// ignored, and lowercase before uppercase only when nothing else differs.
-fn locale_compare(a: &str, b: &str) -> Ordering {
-    fn class(c: char) -> (u8, char) {
+pub(crate) fn locale_compare(a: &str, b: &str) -> Ordering {
+    /// ASCII punctuation and symbols in ICU's root order (what
+    /// `localeCompare` sorts them by), not by code point: `_` before `-`.
+    const PUNCTUATION: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
+    fn class(c: char) -> (u8, u32) {
         if c.is_ascii_digit() {
-            (1, c)
+            (2, u32::from(c))
         } else if c.is_alphabetic() {
-            (2, c.to_ascii_lowercase())
+            (3, u32::from(c.to_ascii_lowercase()))
+        } else if let Some(rank) = PUNCTUATION.find(c) {
+            (0, u32::try_from(rank).unwrap_or(u32::MAX))
         } else {
-            (0, c)
+            (1, u32::from(c))
         }
     }
     let primary = a.chars().map(class).cmp(b.chars().map(class));
@@ -176,15 +182,76 @@ pub fn pick_balanced(candidates: &[Candidate], max_open: Option<i64>) -> Option<
     Some(picked.user_id.clone())
 }
 
+/// `DeskAssigneePicker`: how a conversation's teammate is chosen.
+#[derive(Debug, Clone, Copy)]
+pub enum Picker<'a> {
+    /// No router: a one-off balanced pick
+    /// (`deskAssignmentRouterPicker(undefined)`).
+    Local,
+    /// The workspace's router (`deskAssignmentRouterPicker(binding, workspace)`);
+    /// when it fails, the local pick.
+    Router {
+        router: &'a AssignmentRouter,
+        /// `workspaces.id`.
+        workspace_id: &'a str,
+    },
+}
+
+impl Picker<'_> {
+    /// `pick({ mode, candidates, maxOpen })`.
+    pub async fn pick(
+        &self,
+        mode: PickMode,
+        candidates: &[Candidate],
+        max_open: Option<i64>,
+    ) -> Option<String> {
+        match self {
+            Self::Local => pick_balanced(candidates, max_open),
+            Self::Router {
+                router,
+                workspace_id,
+            } => {
+                let request = PickRequest {
+                    mode,
+                    candidates: candidates
+                        .iter()
+                        .map(|c| PickCandidate {
+                            user_id: c.user_id.clone(),
+                            open: c.open,
+                        })
+                        .collect(),
+                    max_open,
+                };
+                match router.pick_desk_assignee(workspace_id, &request).await {
+                    Ok(user_id) => user_id,
+                    Err(error) => {
+                        tracing::warn!(%error, "[desk-assignment] router unreachable, picking locally");
+                        pick_balanced(candidates, max_open)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// [`auto_assign_with`] the local pick (no router).
+pub async fn auto_assign(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Option<(Value, Value)>, AppendError> {
+    auto_assign_with(db, conversation_id, &Picker::Local).await
+}
+
 /// `autoAssignDeskConversation(db, { conversationId, pick })`: give an open,
 /// unowned conversation to a teammate, if the workspace has auto-assignment
 /// on and someone can take it. The conversation after it and the `assigned`
 /// event (author `system`, `metadata.auto`), or `None` when nothing changed.
 /// Safe under concurrent customer messages: the owner is claimed with a
 /// conditional update before the event is written.
-pub async fn auto_assign(
+pub async fn auto_assign_with(
     db: &PgPool,
     conversation_id: &str,
+    picker: &Picker<'_>,
 ) -> Result<Option<(Value, Value)>, AppendError> {
     let current: Option<(String, Option<String>)> =
         sqlx::query_as("select state, assignee_id from desk_conversations where id = $1 limit 1")
@@ -198,11 +265,18 @@ pub async fn auto_assign(
         return Ok(None);
     }
     let settings = settings(db).await?;
-    if settings.mode == "off" {
+    let Some(mode) = PickMode::parse(&settings.mode) else {
+        return Ok(None);
+    };
+    let candidates = candidates(db, &settings).await?;
+    if candidates.is_empty() {
         return Ok(None);
     }
-    let candidates = candidates(db, &settings).await?;
-    let Some(user_id) = pick_balanced(&candidates, settings.max_open_per_member) else {
+    let Some(user_id) = picker
+        .pick(mode, &candidates, settings.max_open_per_member)
+        .await
+        .filter(|id| candidates.iter().any(|c| &c.user_id == id))
+    else {
         return Ok(None);
     };
     let claimed: Option<String> = sqlx::query_scalar(
@@ -296,5 +370,8 @@ mod tests {
         assert_eq!(locale_compare("user_a", "user_A"), Ordering::Less);
         assert_eq!(locale_compare("user_", "user_a"), Ordering::Less);
         assert_eq!(locale_compare("a_b", "ab"), Ordering::Less);
+        // ICU orders `_` before `-` (code points say otherwise).
+        assert_eq!(locale_compare("user_2", "user-x"), Ordering::Less);
+        assert_eq!(locale_compare("a b", "a.b"), Ordering::Less);
     }
 }
