@@ -17,7 +17,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 
 use crate::assignment_router::{AssignmentRouter, PickCandidate, PickMode, PickRequest};
-use crate::webchat::{Append, AppendError, append_desk_message, now};
+use crate::webchat::{Append, AppendError, Appended, append, now};
 
 /// `DeskAssignmentSettings`, normalised.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,7 +238,7 @@ impl Picker<'_> {
 pub async fn auto_assign(
     db: &PgPool,
     conversation_id: &str,
-) -> Result<Option<(Value, Value)>, AppendError> {
+) -> Result<Option<Appended>, AppendError> {
     auto_assign_with(db, conversation_id, &Picker::Local).await
 }
 
@@ -252,7 +252,7 @@ pub async fn auto_assign_with(
     db: &PgPool,
     conversation_id: &str,
     picker: &Picker<'_>,
-) -> Result<Option<(Value, Value)>, AppendError> {
+) -> Result<Option<Appended>, AppendError> {
     let current: Option<(String, Option<String>)> =
         sqlx::query_as("select state, assignee_id from desk_conversations where id = $1 limit 1")
             .bind(conversation_id)
@@ -295,7 +295,7 @@ pub async fn auto_assign_with(
     metadata.insert("eventType".to_owned(), json!("assigned"));
     metadata.insert("assigneeId".to_owned(), json!(user_id));
     metadata.insert("auto".to_owned(), json!(true));
-    append_desk_message(
+    append(
         db,
         Append {
             conversation_id,
