@@ -329,6 +329,8 @@ impl Pools {
             self.mail
                 .bindings(context.send_email.as_deref(), &context.ledgers),
         ));
+        // WeldCommerce's portal rate limits: the test's namespace, or none.
+        extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
         // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
@@ -544,6 +546,22 @@ pub(crate) async fn public_tenant(
             }
             Err(error) => return error.into_response(),
         }
+    }
+    next.run(request).await
+}
+
+/// Middleware for public routes that publish entity events as the
+/// request's user (WeldCommerce's portal): the test's session context
+/// sets `userId`, so the user goes in as the request's `AuthContext`.
+/// Runs inside [`public`].
+pub(crate) async fn public_session(mut request: Request, next: Next) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        request.extensions_mut().insert(AuthContext {
+            user_id: context.user_id,
+            org_id: context.org_id,
+            session_id: context.session_id,
+            factor_verification_age: context.factor_verification_age,
+        });
     }
     next.run(request).await
 }

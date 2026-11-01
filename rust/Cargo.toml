@@ -29,6 +29,8 @@ weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
+weldsuite-commerce = { path = "modules/commerce" }
+weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
@@ -97,7 +99,7 @@ restate-sdk = { version = "0.13.0", default-features = false, features = ["http_
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 sha1 = "0.11.0"
 sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }

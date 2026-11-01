@@ -1,0 +1,45 @@
+[package]
+name = "weldsuite-commerce"
+description = "WeldCommerce: commerce-api's products, categories, orders (with sales tax), parcels, shipments, pickups, returns, shipping rules and prices, carriers, parcel settings, wallet and notifications, Sendcloud, PrintNode and the B2B commerce portal (staff and public)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-commerce-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-emails = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+base64 = { workspace = true }
+form_urlencoded = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+http = { workspace = true }
+icu_collator = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["parsing", "macros", "formatting"] }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

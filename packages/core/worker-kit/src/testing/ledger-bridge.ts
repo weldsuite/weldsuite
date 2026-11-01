@@ -19,7 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The namespaces the bridge serves. */
-export const LEDGER_BINDINGS = ['OUTBOUND_LEDGER', 'OUTBOUND_PLATFORM'] as const;
+export const LEDGER_BINDINGS = ['OUTBOUND_LEDGER', 'OUTBOUND_PLATFORM', 'PORTAL_RATE_LIMITER'] as const;
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
 
 interface NamespaceLike {
@@ -146,7 +146,11 @@ export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
   return { env: wrapped, finish: () => calls.splice(0) };
 }
 
-/** The calls in a stable order. */
+/**
+ * The calls in a stable order, by their fields rather than by the key order
+ * each side wrote them in (Rust's JSON objects come with sorted keys).
+ */
 export function sortLedgerCalls(calls: LedgerCall[]): LedgerCall[] {
-  return [...calls].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  const key = (call: LedgerCall) => JSON.stringify([call.binding, call.name, call.method, call.args]);
+  return [...calls].sort((a, b) => key(a).localeCompare(key(b)));
 }

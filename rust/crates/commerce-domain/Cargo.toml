@@ -1,0 +1,25 @@
+[package]
+name = "weldsuite-commerce-domain"
+description = "The B2B portal rules commerce-api and the helpdesk widget API share (@weldsuite/commerce-domain): sign-in challenges and buyer sessions in the workspace cache, the atomic portal rate limits, workspace slugs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

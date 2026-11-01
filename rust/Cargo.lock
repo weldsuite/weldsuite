@@ -3827,6 +3827,8 @@ dependencies = [
  "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-chat",
+ "weldsuite-commerce",
+ "weldsuite-commerce-domain",
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
@@ -4081,6 +4083,55 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-commerce"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "getrandom 0.4.3",
+ "hex",
+ "hmac",
+ "http",
+ "icu_collator",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-commerce-domain",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-commerce-domain"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tokio",
+ "tracing",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 

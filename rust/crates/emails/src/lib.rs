@@ -35,6 +35,7 @@ mod catalog;
 mod date;
 mod escape;
 pub mod ics;
+pub mod portal;
 mod send;
 pub mod sign;
 mod when;

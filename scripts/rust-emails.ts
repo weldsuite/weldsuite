@@ -155,6 +155,18 @@ const SPECS: Spec[] = [
     fields: ['title', 'unsigned', 'url'],
     props: (f) => ({ title: S('title'), unsigned: f.has('unsigned') ? [S('unsigned')] : [], url: S('url') }),
   },
+  // The order portal's sign-in mail (WeldCommerce): a link and a code, or a code only.
+  {
+    id: 'portal.sign-in',
+    flags: ['url'],
+    fields: ['portal_name', 'code', 'url', 'minutes'],
+    props: (f) => ({
+      portalName: S('portal_name'),
+      code: S('code'),
+      url: f.has('url') ? S('url') : null,
+      expiresInMinutes: S('minutes'),
+    }),
+  },
   ...calendarSpecs(),
 ];
 

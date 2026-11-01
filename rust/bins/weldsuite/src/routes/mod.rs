@@ -100,6 +100,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = crm(router, state);
+    let router = commerce(router, state);
     let router = ads(router, state);
     let router = social(router, state);
     let router = data(router, state);
@@ -194,6 +195,89 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         },
         &state.permissions,
     ))
+}
+
+/// WeldCommerce (`weldsuite-commerce`): commerce-api's routes at their own
+/// prefixes (`/carriers`, `/products`, `/orders`, …), once the module is
+/// marked ported.
+fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return router;
+    }
+    router.merge(weldsuite_commerce::router(
+        commerce_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldCommerce's public B2B portal at `/public/commerce-portal` (no
+/// session: the workspace comes from its slug, the buyer from a session
+/// token). Conformance builds open the test's tenant database and take its
+/// user id, as the worker's test harness sets both.
+fn commerce_public(state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    let portal = weldsuite_commerce::public_router(commerce_state(state));
+    #[cfg(feature = "conformance")]
+    let portal = portal
+        .layer(axum::middleware::from_fn(
+            crate::conformance::public_session,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ));
+    Router::new().nest("/public/commerce-portal", portal)
+}
+
+/// WeldCommerce's handle on the app: events, the workspace cache, system
+/// mail, third-party HTTP, the portal's rate-limit counters (on the shared
+/// cache's atomic counters), the master database and its env.
+pub(crate) fn commerce_state(state: &AppState) -> weldsuite_commerce::CommerceState {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_commerce::CommerceState {
+        events: state.infra.events.clone(),
+        // Conformance: the test's KV through the request only.
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        mail: state.infra.mail.clone(),
+        // Conformance builds take the test's bridge per request instead.
+        http: HTTP
+            .get_or_init(|| {
+                (!conformance)
+                    .then(|| {
+                        weldsuite_adapters_oss::ReqwestOutbound::new(
+                            std::time::Duration::from_secs(30),
+                        )
+                        .ok()
+                    })
+                    .flatten()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone(),
+        // Conformance: the test's PORTAL_RATE_LIMITER through the request.
+        limiter: if conformance {
+            None
+        } else {
+            state.infra.cache.clone().map(|cache| {
+                Arc::new(weldsuite_commerce_domain::rate_limit::CacheRateLimitCounters::new(cache))
+                    as Arc<dyn weldsuite_commerce_domain::rate_limit::RateLimitCounters>
+            })
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        workspaces: Some(Arc::clone(&state.workspaces)),
+        env: Arc::clone(ENV.get_or_init(|| {
+            let mut env = weldsuite_commerce::env_from_process();
+            env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
+            Arc::new(env)
+        })),
+    }
 }
 
 /// WeldAds (`weldsuite-ads`): ads-api's `/api/ad-accounts`,
@@ -795,7 +879,8 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
         .merge(social_public(state))
-        .merge(books::public(state));
+        .merge(books::public(state))
+        .merge(commerce_public(state));
     if mounts("mail") {
         router
             .nest(

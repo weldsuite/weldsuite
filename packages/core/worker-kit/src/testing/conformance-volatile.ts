@@ -133,6 +133,35 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldCommerce: a webhook's drawn signing secret (`whksec_` + 32 random
+  // characters), and how long its test delivery took.
+  {
+    method: 'POST',
+    route: '/api/parcel-notifications/webhooks',
+    fields: [{ path: 'data.secret', pattern: /^whksec_[A-Za-z0-9]{32}$/g, replacement: 'whksec_<volatile>' }],
+  },
+  { method: 'POST', route: '/api/parcel-notifications/webhooks/:id/test', fields: [{ path: 'data.responseTimeMs' }] },
+  // `Date.now()` in base 36 plus random characters (`ORD-…-XXXX`, `RMA-…-XXXX`).
+  { method: 'POST', route: '/api/orders', events: [{ path: 'data.orderNumber' }], fields: [] },
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/orders',
+    fields: [{ path: 'data.orderNumber' }],
+    events: [{ path: 'data.orderNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/returns',
+    fields: [{ path: 'data.returnNumber' }],
+    events: [{ path: 'data.returnNumber' }],
+  },
+  // The order portal's buyer session and company-picker tokens: 32 random bytes per run.
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/auth/verify',
+    fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
+  },
+  { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },

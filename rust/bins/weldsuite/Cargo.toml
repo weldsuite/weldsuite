@@ -20,6 +20,8 @@ weldsuite-auth = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-chat = { workspace = true }
+weldsuite-commerce = { workspace = true }
+weldsuite-commerce-domain = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-onboarding = { workspace = true }

@@ -294,7 +294,7 @@
       "/public/commerce-portal",
       "/webhooks/woocommerce"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "commerce-api"
   },
   {

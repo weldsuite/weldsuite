@@ -173,9 +173,12 @@ export const FORWARDED_ENV = [
   'REALTIME_INTERNAL_SECRET',
   // The workspace keyring: WeldStash opens the stored Sendcloud secret with it
   // (the pick-list ship action), WeldAds seals its connections' OAuth tokens
-  // with it (`encryptField`).
+  // with it (`encryptField`), WeldCommerce opens stored credentials with it
+  // (Sendcloud, the sales tax engines, store connections).
   'DATABASE_ENCRYPTION_KEY',
   'DATABASE_ENCRYPTION_KEY_V2',
+  // WeldCommerce: the B2B portal's origin.
+  'COMMERCE_PORTAL_URL',
   // WeldAds: the Meta app (OAuth and the Graph API).
   'FACEBOOK_APP_ID',
   'FACEBOOK_APP_SECRET',
