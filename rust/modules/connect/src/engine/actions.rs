@@ -14,6 +14,8 @@ use super::steps::RunInfo;
 use super::{EngineDeps, engine_id, now_ms, now_text};
 use crate::js::{as_text, js_number, js_string, truthy};
 
+mod records;
+
 /// A failed action: its message, its error class (`Error`,
 /// `NonRetryableStepError`, …), the details the step row keeps, and whether
 /// a retry could help.
@@ -94,15 +96,6 @@ const NOT_YET: &[&str] = &[
     "update_record",
     "delete_record",
     "query_data",
-    "create_customer",
-    "create_contact",
-    "update_contact",
-    "create_lead",
-    "create_deal",
-    "move_deal_stage",
-    "log_activity",
-    "post_chat_message",
-    "create_task",
     "slack.post_message",
     "google_sheets.append_row",
     "google_sheets.update_row",
@@ -149,6 +142,15 @@ pub(crate) async fn execute_action(
         "send_message" | "send_choices" | "collect_input" => interactive(kind, inputs, ctx).await,
         "http_request" => http_request(inputs, ctx, false).await,
         "webhook" => http_request(inputs, ctx, true).await,
+        "create_customer" => records::create_customer(inputs, ctx).await,
+        "create_contact" => records::create_contact(inputs, ctx).await,
+        "update_contact" => records::update_contact(inputs, ctx).await,
+        "create_lead" => records::create_lead(inputs, ctx).await,
+        "create_deal" => records::create_deal(inputs, ctx).await,
+        "move_deal_stage" => records::move_deal_stage(inputs, ctx).await,
+        "log_activity" => records::log_activity(inputs, ctx).await,
+        "post_chat_message" => records::post_chat_message(inputs, ctx).await,
+        "create_task" => records::create_task(inputs, ctx).await,
         _ if AI_STEPS.contains(&kind) => Err(ActionError::fatal(
             "AI steps are not available on this deployment",
         )),

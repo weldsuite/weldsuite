@@ -65,7 +65,10 @@ fn is_seeded(text: &str) -> bool {
 
 fn generated_ids(text: &str) -> String {
     let pattern = regex_lite(r"(?-u:\b)(wex|wes|wel|notif|msg)_[0-9A-Za-z]{24}(?-u:\b)");
-    pattern.replace_all(text, "<id:$1>").into_owned()
+    let text = pattern.replace_all(text, "<id:$1>");
+    // `generateId(prefix)`: the prefix, `_`, 16 base-36 characters.
+    let short = regex_lite(r"(?-u:\b)([a-z]+)_[0-9a-z]{16}(?-u:\b)");
+    short.replace_all(&text, "<id:$1>").into_owned()
 }
 
 fn regex_lite(pattern: &str) -> regex::Regex {
@@ -305,6 +308,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         calls: Mutex::default(),
     });
     let runs = Arc::new(RecordingRuns::default());
+    let bus = Arc::new(weldsuite_ports::RecordingEventBus::default());
     let pool = db.clone();
     let tenants: TenantDatabases = Arc::new(move |_| {
         let pool = pool.clone();
@@ -316,6 +320,11 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         http: Some(OutboundHttp(Arc::clone(&http) as Arc<dyn DynOutboundHttp>)),
         runs: Some(Arc::clone(&runs) as Arc<dyn WorkflowRuns>),
         env: Arc::new(HashMap::new()),
+        events: weldsuite_events::EntityEventPublisher::new(
+            Some(Arc::clone(&bus) as Arc<dyn weldsuite_ports::DynEventBus>),
+            weldsuite_events::TaskTracker::new(),
+        ),
+        master: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),
@@ -344,6 +353,10 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         .into_iter()
         .map(|m| json!({ "channel": m.channel, "payload": m.payload }))
         .collect();
+    let mut inspected = Vec::new();
+    for query in input["inspect"].as_array().into_iter().flatten() {
+        inspected.push(rows(db, query.as_str().unwrap()).await);
+    }
     normalise(
         &json!({
             "outcome": outcome,
@@ -366,6 +379,15 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
             "chained": runs.started.lock().unwrap().clone(),
             "calls": http.calls.lock().unwrap().clone(),
             "log": log,
+            "events": bus
+                .payloads()
+                .into_iter()
+                .map(|mut event| {
+                    event.as_object_mut().unwrap().remove("id");
+                    event
+                })
+                .collect::<Vec<_>>(),
+            "inspected": inspected,
         }),
         "",
     )

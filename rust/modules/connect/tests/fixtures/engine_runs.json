@@ -7,7 +7,23 @@
     "delete from workflow_variables",
     "delete from workflows",
     "delete from helpdesk_workflows",
-    "delete from workspace_members"
+    "delete from workspace_members",
+    "delete from crm_activities",
+    "delete from crm_opportunities",
+    "delete from crm_pipeline_stages",
+    "delete from crm_leads",
+    "delete from person_companies",
+    "delete from people",
+    "delete from parties",
+    "delete from companies",
+    "delete from chat_messages",
+    "delete from chat_channel_members",
+    "delete from chat_channels",
+    "delete from calendar_events",
+    "delete from tasks",
+    "delete from task_number_sequences",
+    "delete from project_members",
+    "delete from projects"
   ],
   "cases": [
     {
@@ -29,12 +45,14 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_basic",
@@ -89,6 +107,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -488,12 +507,14 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_branches",
@@ -530,6 +551,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -815,7 +837,8 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
@@ -833,6 +856,7 @@
             "workflow_id": "wf_loop"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_loop",
@@ -881,6 +905,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -1180,7 +1205,8 @@
               "error": "busy"
             }
           }
-        }
+        },
+        "inspect": []
       },
       "output": {
         "calls": [
@@ -1213,6 +1239,7 @@
             "workflow_id": "wf_retry"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_retry",
@@ -1238,6 +1265,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -1442,7 +1470,8 @@
               "x-trace": "t1"
             }
           }
-        }
+        },
+        "inspect": []
       },
       "output": {
         "calls": [
@@ -1484,6 +1513,7 @@
             "workflow_id": "wf_http"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_http",
@@ -1519,6 +1549,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -1716,7 +1747,8 @@
           "chainDepth": 1
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
@@ -1752,6 +1784,7 @@
           }
         ],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_chain",
@@ -1785,6 +1818,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -2043,12 +2077,14 @@
             }
           }
         },
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_approve",
@@ -2089,6 +2125,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -2386,7 +2423,8 @@
         "events": {
           "wait-input-0": "timeout"
         },
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
@@ -2404,6 +2442,7 @@
             "workflow_id": "wf_expire"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_expire",
@@ -2429,6 +2468,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -2676,12 +2716,14 @@
           "isTest": true
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_test",
@@ -2711,6 +2753,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -2841,12 +2884,14 @@
           "executionId": "wex_queued_1"
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": null,
@@ -2871,6 +2916,7 @@
             "workflow_version": 1
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -2919,12 +2965,14 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_schedule",
@@ -2956,6 +3004,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -3099,12 +3148,14 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
         "chained": [],
         "errorLogs": [],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_entity",
@@ -3151,6 +3202,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -3332,7 +3384,8 @@
           "triggerType": "manual"
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
@@ -3350,6 +3403,7 @@
             "workflow_id": "wf_unknown"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_unknown",
@@ -3375,6 +3429,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -3550,7 +3605,8 @@
           }
         },
         "events": {},
-        "http": {}
+        "http": {},
+        "inspect": []
       },
       "output": {
         "calls": [],
@@ -3568,6 +3624,7 @@
             "workflow_id": "wf_nested"
           }
         ],
+        "events": [],
         "executions": [
           {
             "cf_workflow_instance_id": "inst_nested",
@@ -3612,6 +3669,7 @@
             "workflow_version": 3
           }
         ],
+        "inspected": [],
         "log": [
           {
             "kind": "do",
@@ -3959,6 +4017,1797 @@
             "execution_count": 1,
             "failure_count": 1,
             "id": "wf_nested",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "WeldSuite records written as the workflow's owner (customer, contact, lead, deal, activity, chat, task)",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into crm_pipeline_stages (id, name, pipeline, position, is_won, is_lost, probability)\n        values ('stg_open', 'Open', 'default', 0, false, false, 20), ('stg_won', 'Won', 'default', 1, true, false, 100)",
+          "insert into chat_channels (id, name, slug, type) values ('chan_general', 'general', 'general', 'public')",
+          "insert into chat_channel_members (id, channel_id, user_id, role) values ('cmb_ann', 'chan_general', 'user_approver', 'member')",
+          "insert into projects (id, name, created_at, updated_at) values ('prj_launch', 'Launch', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_records', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_records', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"create_customer\",\"config\":{\"name\":\" Acme \",\"email\":\"billing@acme.test\",\"phone\":\"+31 20 1\"}},{\"id\":\"s2\",\"type\":\"create_contact\",\"config\":{\"firstName\":\"Ada\",\"lastName\":\"Lovelace\",\"email\":\"ada@example.test\",\"companyId\":\"{{steps.s1.customerId}}\",\"tags\":\"vip, beta\"}},{\"id\":\"s3\",\"type\":\"update_contact\",\"config\":{\"contactId\":\"{{steps.s2.contactId}}\",\"title\":\"CTO\"}},{\"id\":\"s4\",\"type\":\"create_lead\",\"config\":{\"email\":\"lead@example.test\",\"firstName\":\"Lee\",\"companyName\":\"Leads Ltd\"}},{\"id\":\"s5\",\"type\":\"create_deal\",\"config\":{\"name\":\"Acme renewal\",\"customerId\":\"{{steps.s1.customerId}}\",\"amount\":5000,\"currency\":\"EUR\",\"stageId\":\"stg_open\"}},{\"id\":\"s6\",\"type\":\"move_deal_stage\",\"config\":{\"dealId\":\"{{steps.s5.dealId}}\",\"stageId\":\"stg_won\"}},{\"id\":\"s7\",\"type\":\"log_activity\",\"config\":{\"type\":\"call\",\"subject\":\"Kickoff\",\"customerId\":\"{{steps.s1.customerId}}\"}},{\"id\":\"s8\",\"type\":\"post_chat_message\",\"config\":{\"channelId\":\"chan_general\",\"message\":\"Deal won, <@user_approver>!\"}},{\"id\":\"s9\",\"type\":\"create_task\",\"config\":{\"projectId\":\"prj_launch\",\"title\":\"Onboard Acme\",\"priority\":\"high\",\"assigneeIds\":\"user_approver\",\"dueDate\":\"2026-12-01T10:00:00.000Z\"}},{\"id\":\"s10\",\"type\":\"create_customer\",\"config\":{\"name\":\"Acme again\",\"email\":\"BILLING@acme.test\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_records",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_records",
+          "triggerType": "manual",
+          "triggerData": {
+            "workflowName": "Deal desk"
+          }
+        },
+        "events": {},
+        "http": {},
+        "inspect": [
+          "select name, email, phone, status, source, owner_id from companies order by name",
+          "select first_name, last_name, email, title, direct_phone, owner_id, source, tags from people order by email",
+          "select first_name, last_name, email, company_name, owner_id, status from crm_leads",
+          "select name, customer_id, stage_id, stage, status, probability, amount::text as amount, currency, owner_id,\n         (actual_close_date is not null) as closed from crm_opportunities",
+          "select type, subject, customer_id, assigned_to_id from crm_activities",
+          "select channel_id, author_id, author_name, author_type, content, mentions, mentions_everyone, metadata from chat_messages",
+          "select message_count, last_message_preview from chat_channels",
+          "select user_id, unread_mention_count from chat_channel_members",
+          "select title, priority, status, project_id, reporter_id, assignee_id, number from tasks"
+        ]
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "events": [
+          {
+            "action": "created",
+            "data": {
+              "email": "billing@acme.test",
+              "id": "<id:company>",
+              "industry": null,
+              "name": "Acme",
+              "phone": "+31 20 1",
+              "status": "active",
+              "website": null
+            },
+            "entityId": "<id:company>",
+            "entityType": "company",
+            "eventType": "company:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "displayName": "Ada Lovelace",
+              "email": "ada@example.test",
+              "firstName": "Ada",
+              "fullName": "Ada Lovelace",
+              "id": "<id:person>",
+              "lastName": "Lovelace",
+              "title": null
+            },
+            "entityId": "<id:person>",
+            "entityType": "person",
+            "eventType": "person:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "updated",
+            "changes": {
+              "title": {
+                "new": "CTO",
+                "old": null
+              }
+            },
+            "data": {
+              "displayName": "Ada Lovelace",
+              "email": "ada@example.test",
+              "firstName": "Ada",
+              "fullName": "Ada Lovelace",
+              "id": "<id:person>",
+              "lastName": "Lovelace",
+              "title": "CTO"
+            },
+            "entityId": "<id:person>",
+            "entityType": "person",
+            "eventType": "person:updated",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "address": null,
+              "companyName": "Leads Ltd",
+              "email": "lead@example.test",
+              "firstName": "Lee",
+              "fullName": "Lee",
+              "id": "<id:lead>",
+              "lastName": null,
+              "mobile": null,
+              "ownerId": "user_owner",
+              "phone": null,
+              "rating": null,
+              "score": 0,
+              "source": "other",
+              "status": "new",
+              "title": null,
+              "website": null
+            },
+            "entityId": "<id:lead>",
+            "entityType": "lead",
+            "eventType": "lead:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "amount": "5000",
+              "currency": "EUR",
+              "customerId": "<id:company>",
+              "id": "<id:opp>",
+              "name": "Acme renewal",
+              "ownerId": "user_owner",
+              "pipelineId": "default",
+              "stage": "prospecting",
+              "status": "open"
+            },
+            "entityId": "<id:opp>",
+            "entityType": "opportunity",
+            "eventType": "opportunity:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "updated",
+            "data": {
+              "amount": "5000.00",
+              "customerId": "<id:company>",
+              "id": "<id:opp>",
+              "name": "Acme renewal",
+              "ownerId": "user_owner",
+              "stage": "stg_won",
+              "stageId": "stg_won",
+              "status": "won"
+            },
+            "entityId": "<id:opp>",
+            "entityType": "opportunity",
+            "eventType": "opportunity:updated",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "stage_changed",
+            "data": {
+              "amount": "5000.00",
+              "customerId": "<id:company>",
+              "id": "<id:opp>",
+              "name": "Acme renewal",
+              "ownerId": "user_owner",
+              "stage": "stg_won",
+              "stageId": "stg_won",
+              "status": "won"
+            },
+            "entityId": "<id:opp>",
+            "entityType": "opportunity",
+            "eventType": "opportunity:stage_changed",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "won",
+            "data": {
+              "amount": "5000.00",
+              "customerId": "<id:company>",
+              "id": "<id:opp>",
+              "name": "Acme renewal",
+              "ownerId": "user_owner",
+              "stage": "stg_won",
+              "stageId": "stg_won",
+              "status": "won"
+            },
+            "entityId": "<id:opp>",
+            "entityType": "opportunity",
+            "eventType": "opportunity:won",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "assigneeId": "user_owner",
+              "customerId": "<id:company>",
+              "dueDate": null,
+              "id": "<id:act>",
+              "status": "planned",
+              "subject": "Kickoff",
+              "type": "call"
+            },
+            "entityId": "<id:act>",
+            "entityType": "activity",
+            "eventType": "activity:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "authorId": "workflow:wf_records",
+              "authorType": "system",
+              "channelId": "chan_general",
+              "id": "<id:msg>"
+            },
+            "entityId": "<id:msg>",
+            "entityType": "chat_message",
+            "eventType": "chat_message:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "action": "created",
+            "data": {
+              "assigneeId": "user_approver",
+              "id": "<id:task>",
+              "isOverdue": false,
+              "number": 1,
+              "priority": "high",
+              "progress": 0,
+              "projectId": "prj_launch",
+              "status": "todo",
+              "title": "Onboard Acme",
+              "type": "task"
+            },
+            "entityId": "<id:task>",
+            "entityType": "project_task",
+            "eventType": "project_task:created",
+            "metadata": {
+              "source": "system",
+              "timestamp": "<ts>",
+              "userId": "user_owner",
+              "workflowDepth": 0,
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_records",
+            "completed": true,
+            "current_step_index": 10,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "created": true,
+                "customerId": "<id:company>",
+                "email": "billing@acme.test",
+                "name": "Acme"
+              },
+              "s10": {
+                "created": false,
+                "customerId": "<id:company>",
+                "email": "billing@acme.test",
+                "name": "Acme"
+              },
+              "s2": {
+                "contactId": "<id:person>",
+                "created": true,
+                "email": "ada@example.test",
+                "name": "Ada Lovelace"
+              },
+              "s3": {
+                "contactId": "<id:person>",
+                "email": "ada@example.test",
+                "name": "Ada Lovelace"
+              },
+              "s4": {
+                "email": "lead@example.test",
+                "leadId": "<id:lead>",
+                "name": "Lee"
+              },
+              "s5": {
+                "dealId": "<id:opp>",
+                "name": "Acme renewal",
+                "stage": "prospecting",
+                "status": "open"
+              },
+              "s6": {
+                "dealId": "<id:opp>",
+                "stageId": "stg_won",
+                "status": "won"
+              },
+              "s7": {
+                "activityId": "<id:act>",
+                "subject": "Kickoff",
+                "type": "call"
+              },
+              "s8": {
+                "channelId": "chan_general",
+                "messageId": "<id:msg>"
+              },
+              "s9": {
+                "key": "1",
+                "number": 1,
+                "projectId": "prj_launch",
+                "taskId": "<id:task>",
+                "title": "Onboard Acme",
+                "url": "/weldflow/task/<id:task>"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 10,
+            "trigger_data": {
+              "workflowName": "Deal desk"
+            },
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_records",
+            "workflow_name": "Flow wf_records",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [
+          [
+            {
+              "email": "billing@acme.test",
+              "name": "Acme",
+              "owner_id": "user_owner",
+              "phone": "+31 20 1",
+              "source": "weldconnect",
+              "status": "active"
+            }
+          ],
+          [
+            {
+              "direct_phone": null,
+              "email": "ada@example.test",
+              "first_name": "Ada",
+              "last_name": "Lovelace",
+              "owner_id": "user_owner",
+              "source": "weldconnect",
+              "tags": [
+                "vip",
+                "beta"
+              ],
+              "title": "CTO"
+            }
+          ],
+          [
+            {
+              "company_name": "Leads Ltd",
+              "email": "lead@example.test",
+              "first_name": "Lee",
+              "last_name": null,
+              "owner_id": "user_owner",
+              "status": "new"
+            }
+          ],
+          [
+            {
+              "amount": "5000.00",
+              "closed": true,
+              "currency": "EUR",
+              "customer_id": "<id:company>",
+              "name": "Acme renewal",
+              "owner_id": "user_owner",
+              "probability": 100,
+              "stage": "stg_won",
+              "stage_id": "stg_won",
+              "status": "won"
+            }
+          ],
+          [
+            {
+              "assigned_to_id": "user_owner",
+              "customer_id": "<id:company>",
+              "subject": "Kickoff",
+              "type": "call"
+            }
+          ],
+          [
+            {
+              "author_id": "workflow:wf_records",
+              "author_name": "Flow wf_records",
+              "author_type": "system",
+              "channel_id": "chan_general",
+              "content": "Deal won, <@user_approver>!",
+              "mentions": [
+                "user_approver"
+              ],
+              "mentions_everyone": false,
+              "metadata": {
+                "postedByWorkflow": true
+              }
+            }
+          ],
+          [
+            {
+              "last_message_preview": "Deal won, <@user_approver>!",
+              "message_count": 1
+            }
+          ],
+          [
+            {
+              "unread_mention_count": 1,
+              "user_id": "user_approver"
+            }
+          ],
+          [
+            {
+              "assignee_id": "user_approver",
+              "number": 1,
+              "priority": "high",
+              "project_id": "prj_launch",
+              "reporter_id": "user_owner",
+              "status": "todo",
+              "title": "Onboard Acme"
+            }
+          ]
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-9-s10-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldchat/chan_general?messageId=<id:msg>",
+            "body": "Deal won, <@user_approver>!",
+            "category": "weldchat",
+            "data": null,
+            "entity_id": "<id:msg>",
+            "entity_type": "chat_message",
+            "icon": null,
+            "notification_type": "chat_mention",
+            "severity": "info",
+            "title": "Flow wf_records mentioned you",
+            "user_id": "user_approver"
+          },
+          {
+            "action_url": "/weldflow/task/<id:task>",
+            "body": "Owner assigned \"Onboard Acme\" to you",
+            "category": "projects",
+            "data": null,
+            "entity_id": "<id:task>",
+            "entity_type": "task",
+            "icon": null,
+            "notification_type": "task_assigned",
+            "severity": "info",
+            "title": "Task assigned to you",
+            "user_id": "user_approver"
+          }
+        ],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 10,
+                "workflowId": "wf_records",
+                "workflowName": "Flow wf_records"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "create_customer",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "create_contact",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "update_contact",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "create_lead",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "create_deal",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "move_deal_stage",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "log_activity",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "post_chat_message",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "chat:chan_general",
+            "payload": {
+              "authorType": "system",
+              "content": "Deal won, <@user_approver>!",
+              "id": "<id:msg>",
+              "senderId": "workflow:wf_records",
+              "senderName": "Flow wf_records",
+              "ts": "<n>",
+              "type": "message"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "channelId": "chan_general",
+                "unreadCount": 1
+              },
+              "event": "unread_update",
+              "topic": "chat.user.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "authorName": "Flow wf_records",
+                "channelId": "chan_general",
+                "messageId": "<id:msg>",
+                "preview": "Deal won, <@user_approver>!"
+              },
+              "event": "mention",
+              "topic": "chat.user.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/weldchat/chan_general?messageId=<id:msg>",
+                "actorId": "user_owner",
+                "actorType": "user",
+                "body": "Deal won, <@user_approver>!",
+                "category": "weldchat",
+                "createdAt": "<ts>",
+                "entityId": "<id:msg>",
+                "entityType": "chat_message",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "chat_mention",
+                "severity": "info",
+                "title": "Flow wf_records mentioned you"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 9,
+                "stepType": "create_task",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/weldflow/task/<id:task>",
+                "actorId": "user_owner",
+                "actorType": "user",
+                "body": "Owner assigned \"Onboard Acme\" to you",
+                "category": "projects",
+                "createdAt": "<ts>",
+                "entityId": "<id:task>",
+                "entityType": "task",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "task_assigned",
+                "severity": "info",
+                "title": "Task assigned to you"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s9",
+                "stepIndex": 9,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10",
+                "stepIndex": 10,
+                "stepType": "create_customer",
+                "totalSteps": 10
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10",
+                "stepIndex": 10,
+                "totalSteps": 10
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (create_customer)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "customerId": "<id:company>",
+              "email": "billing@acme.test",
+              "name": "Acme"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "create_customer"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (create_contact)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "contactId": "<id:person>",
+              "created": true,
+              "email": "ada@example.test",
+              "name": "Ada Lovelace"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "create_contact"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (update_contact)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "contactId": "<id:person>",
+              "email": "ada@example.test",
+              "name": "Ada Lovelace"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "update_contact"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (create_lead)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "email": "lead@example.test",
+              "leadId": "<id:lead>",
+              "name": "Lee"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "create_lead"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (create_deal)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "dealId": "<id:opp>",
+              "name": "Acme renewal",
+              "stage": "prospecting",
+              "status": "open"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "create_deal"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (move_deal_stage)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "dealId": "<id:opp>",
+              "stageId": "stg_won",
+              "status": "won"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "move_deal_stage"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7 (log_activity)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "activityId": "<id:act>",
+              "subject": "Kickoff",
+              "type": "call"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "log_activity"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (post_chat_message)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "channelId": "chan_general",
+              "messageId": "<id:msg>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "post_chat_message"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s9 (create_task)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "key": "1",
+              "number": 1,
+              "projectId": "prj_launch",
+              "taskId": "<id:task>",
+              "title": "Onboard Acme",
+              "url": "/weldflow/task/<id:task>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s9",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "create_task"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10 (create_customer)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": false,
+              "customerId": "<id:company>",
+              "email": "billing@acme.test",
+              "name": "Acme"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10",
+            "step_index": 10,
+            "step_name": null,
+            "step_type": "create_customer"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_records",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "WeldSuite steps the owner may not run, input the step refuses, a deal that isn't there",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workspace_members (id, user_id, email, name, role) values ('wm_3', 'user_viewer', 'vic@example.com', 'Vic', 'VIEWER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_records_refused', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_records_refused', 'active', 3,\n    'user_viewer', '[{\"id\":\"s1\",\"type\":\"create_lead\",\"continueOnError\":true,\"config\":{\"email\":\"nope@example.test\"}},{\"id\":\"s2\",\"type\":\"create_contact\",\"continueOnError\":true,\"config\":{\"email\":\"not an email\"}},{\"id\":\"s3\",\"type\":\"post_chat_message\",\"continueOnError\":true,\"config\":{\"channelId\":\"chan_none\",\"message\":\"hi\"}},{\"id\":\"s4\",\"type\":\"move_deal_stage\",\"config\":{\"dealId\":\"opp_missing\",\"stageId\":\"stg_none\"}}]'::jsonb, '[]'::jsonb, '{\"notifyOnError\":false}'::jsonb)"
+        ],
+        "instanceId": "inst_records_refused",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_records_refused",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {},
+        "inspect": []
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "Create lead failed: The workflow's owner doesn't have permission to create leads (leads:create)",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to create leads (leads:create)\"}",
+                "status": 403
+              }
+            },
+            "severity": "warning",
+            "step_id": "s1",
+            "step_name": null,
+            "step_type": "create_lead",
+            "workflow_id": "wf_records_refused"
+          },
+          {
+            "error_message": "Contact email \"not an email\" is not valid",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s2",
+            "step_name": null,
+            "step_type": "create_contact",
+            "workflow_id": "wf_records_refused"
+          },
+          {
+            "error_message": "Post chat message failed: The workflow's owner doesn't have permission to post chat messages (channels:create)",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to post chat messages (channels:create)\"}",
+                "status": 403
+              }
+            },
+            "severity": "warning",
+            "step_id": "s3",
+            "step_name": null,
+            "step_type": "post_chat_message",
+            "workflow_id": "wf_records_refused"
+          },
+          {
+            "error_message": "Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to move deals (opportunities:update)\"}",
+                "status": 403
+              }
+            },
+            "severity": "error",
+            "step_id": "s4",
+            "step_name": null,
+            "step_type": "move_deal_stage",
+            "workflow_id": "wf_records_refused"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_records_refused",
+            "completed": true,
+            "current_step_index": 3,
+            "error": {
+              "message": "Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)",
+              "stepId": "s4"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "error": "Create lead failed: The workflow's owner doesn't have permission to create leads (leads:create)"
+              },
+              "s2": {
+                "error": "Contact email \"not an email\" is not valid"
+              },
+              "s3": {
+                "error": "Post chat message failed: The workflow's owner doesn't have permission to post chat messages (channels:create)"
+              }
+            },
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 4,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_records_refused",
+            "workflow_name": "Flow wf_records_refused",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 4,
+                "workflowId": "wf_records_refused",
+                "workflowName": "Flow wf_records_refused"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "create_lead",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Create lead failed: The workflow's owner doesn't have permission to create leads (leads:create)",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 4
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "create_contact",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Contact email \"not an email\" is not valid",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 4
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "post_chat_message",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Post chat message failed: The workflow's owner doesn't have permission to post chat messages (channels:create)",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 4
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "move_deal_stage",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 4
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to create leads (leads:create)\"}",
+                "status": 403
+              },
+              "message": "Create lead failed: The workflow's owner doesn't have permission to create leads (leads:create)"
+            },
+            "logs": [
+              "Started s1 (create_lead)",
+              "Failed: Create lead failed: The workflow's owner doesn't have permission to create leads (leads:create) (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "create_lead"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Contact email \"not an email\" is not valid"
+            },
+            "logs": [
+              "Started s2 (create_contact)",
+              "Failed: Contact email \"not an email\" is not valid (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "create_contact"
+          },
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to post chat messages (channels:create)\"}",
+                "status": 403
+              },
+              "message": "Post chat message failed: The workflow's owner doesn't have permission to post chat messages (channels:create)"
+            },
+            "logs": [
+              "Started s3 (post_chat_message)",
+              "Failed: Post chat message failed: The workflow's owner doesn't have permission to post chat messages (channels:create) (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "post_chat_message"
+          },
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "body": "{\"success\":false,\"error\":\"The workflow's owner doesn't have permission to move deals (opportunities:update)\"}",
+                "status": 403
+              },
+              "message": "Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)"
+            },
+            "logs": [
+              "Started s4 (move_deal_stage)",
+              "Failed: Move deal stage failed: The workflow's owner doesn't have permission to move deals (opportunities:update)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "move_deal_stage"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_records_refused",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a WeldSuite step in a workflow without an owner",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_records_ownerless', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_records_ownerless', 'active', 3,\n    null, '[{\"id\":\"s1\",\"type\":\"create_task\",\"config\":{\"projectId\":\"prj_x\",\"title\":\"T\"}}]'::jsonb, '[]'::jsonb, '{\"notifyOnError\":false}'::jsonb)"
+        ],
+        "instanceId": "inst_records_ownerless",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "system",
+          "workflowId": "wf_records_ownerless",
+          "triggerType": "schedule"
+        },
+        "events": {},
+        "http": {},
+        "inspect": []
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "This workflow has no owner to act as. Save the workflow again and re-run it.",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s1",
+            "step_name": null,
+            "step_type": "create_task",
+            "workflow_id": "wf_records_ownerless"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_records_ownerless",
+            "completed": true,
+            "current_step_index": 0,
+            "error": {
+              "message": "This workflow has no owner to act as. Save the workflow again and re-run it.",
+              "stepId": "s1"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {},
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 1,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "schedule",
+            "triggered_by": "system",
+            "workflow_id": "wf_records_ownerless",
+            "workflow_name": "Flow wf_records_ownerless",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 1,
+                "workflowId": "wf_records_ownerless",
+                "workflowName": "Flow wf_records_ownerless"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "create_task",
+                "totalSteps": 1
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "This workflow has no owner to act as. Save the workflow again and re-run it.",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "This workflow has no owner to act as. Save the workflow again and re-run it.",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "message": "This workflow has no owner to act as. Save the workflow again and re-run it."
+            },
+            "logs": [
+              "Started s1 (create_task)",
+              "Failed: This workflow has no owner to act as. Save the workflow again and re-run it."
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "create_task"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_records_ownerless",
             "ran": true,
             "success_count": 0
           }

@@ -310,6 +310,8 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 http: shared_outbound(),
                 runs: Some(Arc::new(weldsuite_connect::JobsWorkflowRuns { jobs })),
                 env: Arc::new(weldsuite_connect::env_from_process()),
+                events: state.infra.events.clone(),
+                master: Some(state.workspaces.master().clone()),
             },
         });
     router.merge(weldsuite_connect::router(

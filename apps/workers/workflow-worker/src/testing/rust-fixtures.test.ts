@@ -30,6 +30,13 @@ vi.mock('../db', async (importOriginal) => ({
   getTenantDbForWorkspace: async () => holder.db,
 }));
 
+// connect-api's `/api/internal/workflow-actions/*` (the WeldSuite record
+// steps) open the workspace's database through worker-kit.
+vi.mock('../../../../../packages/core/worker-kit/src/db.ts', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getTenantDbForWorkspace: async () => holder.db,
+}));
+
 import { ExecuteWorkflowWorkflow, type ExecuteWorkflowParams } from '../index';
 import { createPgliteDb } from '../test/pglite';
 import type { Database } from '../db';
@@ -46,6 +53,8 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 const ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
 const SEEDED = /^2026-10-0[1-3][T ]09:00:00/;
 const GENERATED = /\b(wex|wes|wel|notif|msg)_[0-9A-Za-z]{24}\b/g;
+/** `generateId(prefix)`: the prefix, `_`, 16 base-36 characters. */
+const GENERATED_SHORT = /\b([a-z]+)_[0-9a-z]{16}\b/g;
 const VOLATILE_NUMBERS = new Set(['duration', 'ts', 'durationMs_measured']);
 
 export function normalise(value: unknown, key = ''): Json {
@@ -64,7 +73,10 @@ export function normalise(value: unknown, key = ''): Json {
   if (typeof value === 'number' && VOLATILE_NUMBERS.has(key)) return '<n>';
   if (typeof value === 'string') {
     if (ISO.test(value) && !SEEDED.test(value)) return '<ts>';
-    return value.replaceAll(GENERATED, '<id:$1>').replace(/^Completed in \d+ms/, 'Completed in <n>ms');
+    return value
+      .replaceAll(GENERATED, '<id:$1>')
+      .replaceAll(GENERATED_SHORT, '<id:$1>')
+      .replace(/^Completed in \d+ms/, 'Completed in <n>ms');
   }
   return value as Json;
 }
@@ -82,6 +94,22 @@ const CLEAR = [
   'delete from workflows',
   'delete from helpdesk_workflows',
   'delete from workspace_members',
+  'delete from crm_activities',
+  'delete from crm_opportunities',
+  'delete from crm_pipeline_stages',
+  'delete from crm_leads',
+  'delete from person_companies',
+  'delete from people',
+  'delete from parties',
+  'delete from companies',
+  'delete from chat_messages',
+  'delete from chat_channel_members',
+  'delete from chat_channels',
+  'delete from calendar_events',
+  'delete from tasks',
+  'delete from task_number_sequences',
+  'delete from project_members',
+  'delete from projects',
 ];
 
 const MEMBERS = `insert into workspace_members (id, user_id, email, name, role)
@@ -90,10 +118,15 @@ const MEMBERS = `insert into workspace_members (id, user_id, email, name, role)
 
 const sqlText = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 
-function workflowRow(id: string, steps: unknown[], over: { status?: string; settings?: unknown; triggers?: unknown } = {}) {
+function workflowRow(
+  id: string,
+  steps: unknown[],
+  over: { status?: string; settings?: unknown; triggers?: unknown; createdBy?: string | null } = {},
+) {
+  const createdBy = over.createdBy === undefined ? "'user_owner'" : over.createdBy === null ? 'null' : `'${over.createdBy}'`;
   return `insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)
     values ('${id}', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow ${id}', '${over.status ?? 'active'}', 3,
-    'user_owner', ${sqlText(steps)}, ${sqlText(over.triggers ?? [])}, ${sqlText(over.settings ?? {})})`;
+    ${createdBy}, ${sqlText(steps)}, ${sqlText(over.triggers ?? [])}, ${sqlText(over.settings ?? {})})`;
 }
 
 interface HttpStub {
@@ -111,6 +144,8 @@ interface Case {
   events?: Record<string, unknown>;
   /** Third-party answers by URL. */
   http?: Record<string, HttpStub>;
+  /** Queries whose rows go into the output (the records the steps wrote). */
+  inspect?: string[];
 }
 
 const RUN = { workspaceId: 'org_test', userId: 'user_owner' };
@@ -360,6 +395,86 @@ const CASES: Case[] = [
     ],
     params: { ...RUN, workflowId: 'wf_nested', triggerType: 'manual', triggerData: { name: 'Ann' } },
   },
+  {
+    name: "WeldSuite records written as the workflow's owner (customer, contact, lead, deal, activity, chat, task)",
+    instanceId: 'inst_records',
+    seed: [
+      MEMBERS,
+      `insert into crm_pipeline_stages (id, name, pipeline, position, is_won, is_lost, probability)
+        values ('stg_open', 'Open', 'default', 0, false, false, 20), ('stg_won', 'Won', 'default', 1, true, false, 100)`,
+      `insert into chat_channels (id, name, slug, type) values ('chan_general', 'general', 'general', 'public')`,
+      `insert into chat_channel_members (id, channel_id, user_id, role) values ('cmb_ann', 'chan_general', 'user_approver', 'member')`,
+      `insert into projects (id, name, created_at, updated_at) values ('prj_launch', 'Launch', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z')`,
+      workflowRow('wf_records', [
+        { id: 's1', type: 'create_customer', config: { name: ' Acme ', email: 'billing@acme.test', phone: '+31 20 1' } },
+        {
+          id: 's2',
+          type: 'create_contact',
+          config: { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.test', companyId: '{{steps.s1.customerId}}', tags: 'vip, beta' },
+        },
+        { id: 's3', type: 'update_contact', config: { contactId: '{{steps.s2.contactId}}', title: 'CTO' } },
+        { id: 's4', type: 'create_lead', config: { email: 'lead@example.test', firstName: 'Lee', companyName: 'Leads Ltd' } },
+        {
+          id: 's5',
+          type: 'create_deal',
+          config: { name: 'Acme renewal', customerId: '{{steps.s1.customerId}}', amount: 5000, currency: 'EUR', stageId: 'stg_open' },
+        },
+        { id: 's6', type: 'move_deal_stage', config: { dealId: '{{steps.s5.dealId}}', stageId: 'stg_won' } },
+        { id: 's7', type: 'log_activity', config: { type: 'call', subject: 'Kickoff', customerId: '{{steps.s1.customerId}}' } },
+        { id: 's8', type: 'post_chat_message', config: { channelId: 'chan_general', message: 'Deal won, <@user_approver>!' } },
+        {
+          id: 's9',
+          type: 'create_task',
+          config: { projectId: 'prj_launch', title: 'Onboard Acme', priority: 'high', assigneeIds: 'user_approver', dueDate: '2026-12-01T10:00:00.000Z' },
+        },
+        { id: 's10', type: 'create_customer', config: { name: 'Acme again', email: 'BILLING@acme.test' } },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_records', triggerType: 'manual', triggerData: { workflowName: 'Deal desk' } },
+    inspect: [
+      'select name, email, phone, status, source, owner_id from companies order by name',
+      'select first_name, last_name, email, title, direct_phone, owner_id, source, tags from people order by email',
+      'select first_name, last_name, email, company_name, owner_id, status from crm_leads',
+      `select name, customer_id, stage_id, stage, status, probability, amount::text as amount, currency, owner_id,
+         (actual_close_date is not null) as closed from crm_opportunities`,
+      'select type, subject, customer_id, assigned_to_id from crm_activities',
+      'select channel_id, author_id, author_name, author_type, content, mentions, mentions_everyone, metadata from chat_messages',
+      'select message_count, last_message_preview from chat_channels',
+      'select user_id, unread_mention_count from chat_channel_members',
+      'select title, priority, status, project_id, reporter_id, assignee_id, number from tasks',
+    ],
+  },
+  {
+    name: "WeldSuite steps the owner may not run, input the step refuses, a deal that isn't there",
+    instanceId: 'inst_records_refused',
+    seed: [
+      MEMBERS,
+      `insert into workspace_members (id, user_id, email, name, role) values ('wm_3', 'user_viewer', 'vic@example.com', 'Vic', 'VIEWER')`,
+      workflowRow(
+        'wf_records_refused',
+        [
+          { id: 's1', type: 'create_lead', continueOnError: true, config: { email: 'nope@example.test' } },
+          { id: 's2', type: 'create_contact', continueOnError: true, config: { email: 'not an email' } },
+          { id: 's3', type: 'post_chat_message', continueOnError: true, config: { channelId: 'chan_none', message: 'hi' } },
+          { id: 's4', type: 'move_deal_stage', config: { dealId: 'opp_missing', stageId: 'stg_none' } },
+        ],
+        { createdBy: 'user_viewer', settings: { notifyOnError: false } },
+      ),
+    ],
+    params: { ...RUN, workflowId: 'wf_records_refused', triggerType: 'manual' },
+  },
+  {
+    name: 'a WeldSuite step in a workflow without an owner',
+    instanceId: 'inst_records_ownerless',
+    seed: [
+      MEMBERS,
+      workflowRow('wf_records_ownerless', [{ id: 's1', type: 'create_task', config: { projectId: 'prj_x', title: 'T' } }], {
+        createdBy: null,
+        settings: { notifyOnError: false },
+      }),
+    ],
+    params: { workspaceId: 'org_test', userId: 'system', workflowId: 'wf_records_ownerless', triggerType: 'schedule' },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -400,7 +515,45 @@ async function runCase(db: Database, c: Case): Promise<Json> {
     }),
   );
 
+  // connect-api's internal action routes, as its `ConnectInternal`
+  // entrypoint serves them over the `CONNECT_INTERNAL` binding, with an
+  // `ENTITY_EVENTS` queue that keeps what they publish.
+  const events: unknown[] = [];
+  const connectEnv = {
+    INTERNAL_API_SECRET: 'fixture-secret',
+    ENTITY_EVENTS: {
+      send: async (message: unknown) => {
+        events.push(message);
+      },
+      sendBatch: async (messages: Array<{ body: unknown }>) => {
+        for (const message of messages) events.push(message.body);
+      },
+    },
+  };
+  // The entrypoint trusts the binding; here the routes see the bearer instead.
+  const connectApp = (await connectInternalRoutes()) as {
+    request(path: string, init: RequestInit, env: unknown, ctx: unknown): Promise<Response>;
+  };
+
   const env = {
+    CONNECT_INTERNAL: {
+      fetch: async (url: string, init: RequestInit) => {
+        const pending: Array<Promise<unknown>> = [];
+        const executionCtx = {
+          waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+          passThroughOnException: () => {},
+          props: {},
+        };
+        const response = await connectApp.request(
+          new URL(url).pathname.replace('/api/internal/workflow-actions', ''),
+          { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: 'Bearer fixture-secret' } },
+          { ...connectEnv, REALTIME: env.REALTIME },
+          executionCtx,
+        );
+        await Promise.allSettled(pending);
+        return response;
+      },
+    },
     REALTIME: {
       fetch: async (url: string, init: RequestInit) => {
         const pathname = new URL(url).pathname;
@@ -485,7 +638,23 @@ async function runCase(db: Database, c: Case): Promise<Json> {
     chained,
     calls,
     log: log.filter((entry) => !BACKEND_ONLY.has(entry.name)),
+    // The entity events the WeldSuite steps published, without their random id.
+    events: events.map((message) => {
+      const { id: _id, ...rest } = message as Record<string, unknown>;
+      return rest;
+    }),
+    inspected: await Promise.all((c.inspect ?? []).map((query) => rows(query))),
   });
+}
+
+/** connect-api's internal action routes (another worker's code: loaded by path, outside this package's types). */
+async function connectInternalRoutes(): Promise<unknown> {
+  const modulePath = path.resolve(
+    import.meta.dirname,
+    '../../../connect-api/src/routes/internal-workflow-actions/index.ts',
+  );
+  const loaded = (await import(/* @vite-ignore */ modulePath)) as { internalWorkflowActionsRoutes: unknown };
+  return loaded.internalWorkflowActionsRoutes;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +698,7 @@ describe('Rust parity fixtures', () => {
             params: c.params,
             events: c.events ?? {},
             http: c.http ?? {},
+            inspect: c.inspect ?? [],
           }),
         ) as Json,
         output: await runCase(db, c),

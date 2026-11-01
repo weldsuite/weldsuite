@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_db::PgPool;
-use weldsuite_events::iso_timestamp;
+use weldsuite_events::{EntityEventPublisher, iso_timestamp};
 use weldsuite_ports::{
     BoxFuture, DynRealtimePublisher, Job, JobContext, JobError, OutboundHttp, RealtimeMessage,
     StepRetry, step,
@@ -93,6 +93,11 @@ pub struct EngineDeps {
     pub runs: Option<Arc<dyn WorkflowRuns>>,
     /// The worker's env values the actions read.
     pub env: Arc<HashMap<String, String>>,
+    /// The entity events the WeldSuite record actions publish (connect-api's
+    /// `ENTITY_EVENTS`, which runs them on Global).
+    pub events: EntityEventPublisher,
+    /// The master database: the calendar re-plan's due index (`create_task`).
+    pub master: Option<PgPool>,
 }
 
 impl std::fmt::Debug for EngineDeps {
