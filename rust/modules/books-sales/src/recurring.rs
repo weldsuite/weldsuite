@@ -26,7 +26,9 @@ use weldsuite_books_domain::http::{
     validate_value,
 };
 use weldsuite_books_domain::js;
-use weldsuite_books_domain::sales_tax::document_tax::{DocumentContext, DocumentKind, IssueDate};
+use weldsuite_books_domain::sales_tax::document_tax::{
+    DocumentContext, DocumentKind, IssueDate, Runtime,
+};
 use weldsuite_books_domain::tables::{INVOICE_ITEMS, INVOICES, RECURRING_INVOICES};
 use weldsuite_books_domain::tax::{DocumentTaxItem, SupplyArgs, TaxArgs, resolve_gst_supply};
 use weldsuite_catalogs::entity_events::{
@@ -741,17 +743,27 @@ impl<E: Into<SalesError>> From<E> for GenerateError {
     }
 }
 
-/// `generateRecurringInvoice(db, rec, opts)`.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the service's steps in its order: claim, template, tax, rows, finalize"
-)]
+/// `generateRecurringInvoice(db, rec, opts)` for a request.
 pub(crate) async fn generate_recurring_invoice(
     caller: &Caller,
     state: &BooksState,
     rec: &Value,
 ) -> Result<Generated, GenerateError> {
-    let db = &caller.db;
+    generate_on(&caller.db, caller.user(), &runtime(caller, state), rec).await
+}
+
+/// One period of a recurring invoice on a tenant database, as `user` (the
+/// request's, or `None`: the system, as the daily books sweep runs it).
+#[allow(
+    clippy::too_many_lines,
+    reason = "the service's steps in its order: claim, template, tax, rows, finalize"
+)]
+async fn generate_on(
+    db: &weldsuite_db::PgPool,
+    user: Option<&str>,
+    rt: &Runtime,
+    rec: &Value,
+) -> Result<Generated, GenerateError> {
     if text(rec, "status") != Some("active") {
         return Err(SalesError::posting("Recurring invoice is not active").into());
     }
@@ -879,7 +891,6 @@ pub(crate) async fn generate_recurring_invoice(
         fiscal_data: template.get("fiscalData").filter(|f| !f.is_null()).cloned(),
         original_invoice_id: None,
     };
-    let rt = runtime(caller, state);
     let country = tax_address
         .as_ref()
         .and_then(|a| a["country"].as_str().map(str::to_owned));
@@ -895,7 +906,7 @@ pub(crate) async fn generate_recurring_invoice(
     args.billing_province = province.as_deref();
     let mut args = args.with_gst(gst.as_ref());
     args.document = Some(&doc);
-    args.runtime = Some(&rt);
+    args.runtime = Some(rt);
     let drafted: Drafted = calculate_draft_tax(db, &args)
         .await
         .map_err(SalesError::from)?;
@@ -951,7 +962,7 @@ pub(crate) async fn generate_recurring_invoice(
         or_null(&template["revenueAccountId"]),
     );
     invoice.insert("recurringInvoiceId".into(), rec["id"].clone());
-    invoice.insert("createdBy".into(), json!(caller.user()));
+    invoice.insert("createdBy".into(), json!(user));
     invoice.insert("createdAt".into(), json!(at));
     invoice.insert("updatedAt".into(), json!(at));
 
@@ -1043,9 +1054,9 @@ pub(crate) async fn generate_recurring_invoice(
             db,
             &invoice_id,
             FinalizeOptions {
-                user_id: caller.user().map(str::to_owned),
+                user_id: user.map(str::to_owned),
                 mark_sent: rec["autoSend"].as_bool().unwrap_or(false),
-                runtime: &rt,
+                runtime: rt,
                 http: rt.http.as_ref(),
             },
         )
@@ -1063,4 +1074,42 @@ pub(crate) async fn generate_recurring_invoice(
         journal_entry_id,
         finalize_error,
     })
+}
+
+/// What [`generate_recurring_invoice_as_system`] made: the invoice number,
+/// and why it stayed a draft when finalizing failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemGenerated {
+    pub invoice_id: String,
+    pub invoice_number: String,
+    pub finalize_error: Option<String>,
+}
+
+/// Why [`generate_recurring_invoice_as_system`] made nothing.
+#[derive(Debug)]
+pub enum SystemGenerateError {
+    /// `RecurringAlreadyGeneratedError`: another run claimed this period.
+    AlreadyGenerated,
+    /// Anything else, with its message.
+    Failed(String),
+}
+
+/// `generateRecurringInvoice(db, rec, { userId: null, now, tax })`: the
+/// daily books sweep's run of a due recurring invoice (a `recurring_invoices`
+/// row as Drizzle returns it) on a tenant database, as the system. The route
+/// (`POST /:id/generate`) runs the same steps as its caller.
+pub async fn generate_recurring_invoice_as_system(
+    db: &weldsuite_db::PgPool,
+    runtime: &Runtime,
+    rec: &Value,
+) -> Result<SystemGenerated, SystemGenerateError> {
+    match generate_on(db, None, runtime, rec).await {
+        Ok(generated) => Ok(SystemGenerated {
+            invoice_id: generated.invoice_id,
+            invoice_number: generated.invoice_number,
+            finalize_error: generated.finalize_error,
+        }),
+        Err(GenerateError::AlreadyGenerated) => Err(SystemGenerateError::AlreadyGenerated),
+        Err(GenerateError::Sales(error)) => Err(SystemGenerateError::Failed(error.message())),
+    }
 }

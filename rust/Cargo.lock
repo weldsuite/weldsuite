@@ -3826,6 +3826,7 @@ dependencies = [
  "weldsuite-books-banking",
  "weldsuite-books-domain",
  "weldsuite-books-purchases",
+ "weldsuite-books-reports",
  "weldsuite-books-sales",
  "weldsuite-books-sales-tax",
  "weldsuite-books-tax",
@@ -4007,6 +4008,7 @@ dependencies = [
  "hmac",
  "http",
  "icu_collator",
+ "jiff",
  "jsonwebtoken 11.1.0",
  "regex",
  "serde",
@@ -4043,6 +4045,30 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-reports"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",

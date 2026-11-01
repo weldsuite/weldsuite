@@ -28,6 +28,9 @@
 //!   payment runs: NACHA files, check printing and MICR, Positive Pay files,
 //!   24% backup withholding.
 //! - [`currency`], [`fx`]: exchange rates.
+//! - [`reports_basis`]: the ledger the reports read (accrual or cash) and their periods.
+//! - [`depreciation`]: fixed asset depreciation (book methods, MACRS, section 179,
+//!   bonus, the mid-quarter test, gain on disposal).
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
@@ -44,9 +47,11 @@ pub mod compliance;
 pub mod contacts;
 pub mod currency;
 pub mod dates;
+pub mod depreciation;
 pub mod document_posting;
 pub mod entity_context;
 pub mod fiscal_year;
+pub mod form_1099;
 pub mod fx;
 pub mod guards;
 pub mod http;
@@ -60,6 +65,7 @@ pub mod payments;
 pub mod payroll;
 pub mod positive_pay;
 pub mod posting;
+pub mod reports_basis;
 pub mod roles;
 pub mod sales_tax;
 pub mod table;

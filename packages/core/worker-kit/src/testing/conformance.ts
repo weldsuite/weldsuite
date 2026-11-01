@@ -95,6 +95,13 @@ export interface ConformanceTarget {
   reportDir: string | undefined;
 }
 
+/**
+ * The harness's own calls to the Rust server, taken before any test runs: a
+ * test that stubs the global `fetch` for a third-party API (`vi.stubGlobal`)
+ * must not answer them.
+ */
+export const harnessFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
 /** The Rust server to send requests to, or null outside conformance mode. */
 export function conformanceTarget(): ConformanceTarget | null {
   if (process.env.CONFORMANCE_TARGET !== 'rust') return null;
@@ -281,6 +288,11 @@ const WRITING_READS: RegExp[] = [
   // MICR print data and the Positive Pay file log the account numbers they reveal.
   /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
   /^\/api\/payment-runs\/positive-pay(\?|$)/,
+  // WeldBooks 1099: the IRIS file, the TIN Matching file and the form copies
+  // log the TINs they reveal (tax_id_reveals).
+  /^\/api\/form-1099\/filings\/[^/?]+\/iris-csv(\?|$)/,
+  /^\/api\/form-1099\/filings\/[^/?]+\/lines\/[^/?]+\/copies(\?|$)/,
+  /^\/api\/form-1099\/tin-matching\/file(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -444,7 +456,7 @@ interface RustSideEffects {
 }
 
 export async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
-  const response = await fetch(`${target.url}/__conformance/side-effects`);
+  const response = await harnessFetch(`${target.url}/__conformance/side-effects`);
   const body = (await response.json()) as Omit<SideEffects, 'mail'> & { mail?: RustMail[] };
   const mail = body.mail ?? [];
   return {
@@ -1256,7 +1268,7 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     isWrite,
     // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
     () =>
-      fetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
+      harnessFetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
         ...init,
         method,
         headers: rustHeaders,

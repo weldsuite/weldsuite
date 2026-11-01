@@ -9,6 +9,10 @@
 //! - `calendar-replan` (daily, 04:00 UTC): WeldCalendar re-plans
 //!   auto-scheduled task events whose start slipped into the past
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
+//! - `books-sweep` (daily, 03:00 UTC): WeldBooks' overdue invoices, due
+//!   recurring invoices, the day's ECB rates and the fixed assets'
+//!   depreciation due, in every workspace that used books
+//!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
 //! - `identity-sync` (every minute): the identity provider's changes into
@@ -53,7 +57,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -64,7 +68,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "workspace-teardown"
         | "mail-outbound-ledgers"
         | "calendar-replan"
-        | "flow-file-purge"),
+        | "flow-file-purge"
+        | "books-sweep"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -96,6 +101,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
+            "books-sweep" => books_sweep(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -284,6 +290,68 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
         })
     );
     tracker.close();
+    Ok(())
+}
+
+/// `books-sweep`: every workspace in the books due index (marked by its
+/// books requests), swept as `sweepTenant` does, then due again tomorrow.
+async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let books = crate::routes::books::sweep_state(&master, &config.keyring);
+    let now = time::OffsetDateTime::now_utc();
+    // Due again in a day; a little less, so tomorrow's run at the same hour finds it.
+    let next = now + time::Duration::hours(23);
+    let totals = std::sync::Mutex::new(crate::routes::books::TenantSweep::default());
+    let result = weldsuite_db::due_index::run_sweep(
+        &master,
+        crate::routes::books::SWEEP_KIND,
+        now,
+        500,
+        Some(time::Duration::hours(1)),
+        |workspace_id, now| {
+            let workspaces = Arc::clone(&workspaces);
+            let books = books.clone();
+            let totals = &totals;
+            async move {
+                let tenant = workspaces
+                    .tenant(&workspace_id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let swept = crate::routes::books::sweep_tenant(&tenant.db, &books, now)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if let Ok(mut totals) = totals.lock() {
+                    totals.overdue += swept.overdue;
+                    totals.recurring_generated += swept.recurring_generated;
+                    totals.recurring_failed += swept.recurring_failed;
+                    totals.fx_rates += swept.fx_rates;
+                    totals.depreciation_posted += swept.depreciation_posted;
+                    totals.depreciation_skipped += swept.depreciation_skipped;
+                }
+                Ok::<_, String>(Some(next))
+            }
+        },
+    )
+    .await;
+    let totals = totals.into_inner().unwrap_or_default();
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "books-sweep",
+            "result": {
+                "due": result.due,
+                "processed": result.processed,
+                "failed": result.failed,
+                "totals": totals.json(),
+            },
+        })
+    );
     Ok(())
 }
 

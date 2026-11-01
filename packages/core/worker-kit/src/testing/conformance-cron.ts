@@ -29,6 +29,7 @@ import {
   databaseUrlFor,
   firstDifference,
   forwardedEnv,
+  harnessFetch,
   normalizeForDiff,
   record,
   rustSideEffects,
@@ -144,7 +145,7 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   let tsMail: ReturnType<typeof mail.take>;
   let tsEvents: Array<Record<string, unknown>>;
   try {
-    const response = await fetch(`${target.url}/__conformance/cron/${opts.job}`, {
+    const response = await harnessFetch(`${target.url}/__conformance/cron/${opts.job}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

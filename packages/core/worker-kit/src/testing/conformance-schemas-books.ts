@@ -41,6 +41,7 @@ import { BOOKS_BANKING_ROUTES } from './conformance-schemas-books-banking';
 import { BOOKS_TAX_ROUTES } from './conformance-schemas-books-tax';
 import { BOOKS_PURCHASES_ROUTES } from './conformance-schemas-books-purchases';
 import { BOOKS_SALES_TAX_ROUTES } from './conformance-schemas-books-sales-tax';
+import { BOOKS_REPORTS_ROUTES } from './conformance-schemas-books-reports';
 
 /** The ledger: entities, settings, GL accounts, journal entries, fiscal periods, tax rates, FX rates, dimensions. */
 const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
@@ -114,5 +115,6 @@ export const BOOKS_ROUTES: RouteSchema[] = [
   ...BOOKS_TAX_ROUTES,
   ...BOOKS_PURCHASES_ROUTES,
   ...BOOKS_SALES_TAX_ROUTES,
+  ...BOOKS_REPORTS_ROUTES,
   // ...BOOKS_<AREA>_ROUTES, (one line per area)
 ];

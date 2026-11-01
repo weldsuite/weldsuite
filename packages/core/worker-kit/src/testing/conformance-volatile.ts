@@ -221,6 +221,20 @@ const ROUTES: VolatileRoute[] = [
       { path: 'body.authorization' },
     ],
   },
+  // WeldBooks reports: a print document (`?format=print`) is stamped with the moment it was built.
+  ...[
+    'profit-loss',
+    'balance-sheet',
+    'trial-balance',
+    'aged-receivables',
+    'aged-payables',
+    'vat-summary',
+    'general-ledger',
+    'cash-flow',
+    'revenue-by-customer',
+    'expense-by-category',
+    'tax-worksheet',
+  ].map((report) => ({ method: 'GET', route: `/api/accounting-reports/${report}`, fields: [{ path: 'data.generatedAt' }] })),
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

@@ -25,6 +25,7 @@ hex = { workspace = true }
 hmac = { workspace = true }
 http = { workspace = true }
 icu_collator = { workspace = true }
+jiff = { workspace = true }
 jsonwebtoken = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
