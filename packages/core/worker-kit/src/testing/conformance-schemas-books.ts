@@ -36,6 +36,7 @@ import {
   taxRateSchema,
 } from '@weldsuite/app-api-client/schemas/books-responses';
 import type { RouteSchema } from './conformance-schemas';
+import { BOOKS_BANKING_ROUTES } from './conformance-schemas-books-banking';
 
 /** The ledger: entities, settings, GL accounts, journal entries, fiscal periods, tax rates, FX rates, dimensions. */
 const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
@@ -104,5 +105,6 @@ const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
 
 export const BOOKS_ROUTES: RouteSchema[] = [
   ...BOOKS_LEDGER_ROUTES,
+  ...BOOKS_BANKING_ROUTES,
   // ...BOOKS_SALES_ROUTES, (one line per area)
 ];
