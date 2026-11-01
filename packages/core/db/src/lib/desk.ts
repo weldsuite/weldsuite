@@ -1024,17 +1024,32 @@ export async function getDeskConversation(
   return { conversation, messages: rows };
 }
 
-export function listDeskMessages(
+/**
+ * One page of a conversation's timeline, oldest first. The cursor is an
+ * offset, as for conversations: messages are only ever appended, so a page
+ * already read never shifts. An `externalId` alert stacks every repeat on one
+ * conversation, so the timeline can be long.
+ */
+export async function listDeskMessages(
   db: AnyDb,
   conversationId: string,
-): Promise<DeskMessage[]> {
-  return Promise.resolve(
-    db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(messages.createdAt)
-  );
+  query: { cursor?: string; limit?: number } = {},
+): Promise<{ data: DeskMessage[]; hasMore: boolean; cursor: string | null }> {
+  const limit = Math.min(Math.max(query.limit ?? 100, 1), 200);
+  const offset = query.cursor ? Math.max(Number.parseInt(query.cursor, 10) || 0, 0) : 0;
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(messages.createdAt, messages.id)
+    .limit(limit + 1)
+    .offset(offset);
+  const hasMore = rows.length > limit;
+  return {
+    data: hasMore ? rows.slice(0, limit) : rows,
+    hasMore,
+    cursor: hasMore ? String(offset + limit) : null,
+  };
 }
 
 /** Strip RFC 5322 angle brackets so In-Reply-To / References match stored ids. */

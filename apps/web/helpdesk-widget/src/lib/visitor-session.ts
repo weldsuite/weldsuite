@@ -185,8 +185,10 @@ export class VisitorSession implements VisitorAuth {
   private accept(session: DeskVisitorSession, legacyId: string | null): string {
     this.token = session.visitorToken;
     saveVisitorToken(this.widgetId, session.visitorToken);
-    // Swapped (or refused for good): the old id never goes out again.
-    if (legacyId) clearLegacyVisitorId();
+    // Swapped: the old id never goes out again. The key is shared by every
+    // widget on this storage, so one that refused it (another widget's visitor)
+    // leaves it for the widget it belongs to.
+    if (legacyId && session.visitor.id === legacyId) clearLegacyVisitorId();
     this.update({ status: 'ready', visitor: session.visitor });
     const typed = this.hostTyped;
     this.hostTyped = null;
@@ -233,8 +235,10 @@ export class VisitorSession implements VisitorAuth {
 
     const { identityToken, name, email } = event.auth;
     if (identityToken) {
-      const same =
-        identityToken === this.identityToken && this.snapshot.status === 'ready' && this.snapshot.visitor?.verified;
+      // The session already open (or opening) with this token. Not `verified`:
+      // a token without an email gives a visitor the API doesn't mark verified,
+      // and pages call identify() again on every route change.
+      const same = identityToken === this.identityToken && this.snapshot.status !== 'identity-required';
       if (same) return;
       this.identityToken = identityToken;
       this.restart();

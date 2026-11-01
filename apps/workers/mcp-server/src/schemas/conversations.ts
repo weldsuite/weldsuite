@@ -14,10 +14,21 @@ export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 export const DESK_MAX_TAGS = 20;
 export const DESK_MAX_TAG_LENGTH = 50;
 
+/**
+ * A boolean query flag. `z.coerce.boolean()` is `Boolean(value)`, so
+ * `?unassigned=false` would read as true; this takes `true` / `false`
+ * as strings, and real booleans from tool calls.
+ */
+const queryBoolean = z.preprocess((value) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}, z.boolean());
+
 export const listConversationsQuerySchema = z.object({
   state: z.enum(DESK_CONVERSATION_STATES).optional().describe('open or closed'),
   assigneeId: z.string().max(255).optional().describe("A teammate's user id: only their conversations"),
-  unassigned: z.coerce.boolean().optional().describe('Only conversations nobody owns yet'),
+  unassigned: queryBoolean.optional().describe('Only conversations nobody owns yet'),
   channel: z.enum(DESK_CHANNELS).optional().describe('Where the conversation came in'),
   email: z.string().trim().max(255).optional().describe("A customer's email: all their conversations"),
   externalId: z.string().trim().max(255).optional().describe('The key a conversation was opened with'),
