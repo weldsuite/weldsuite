@@ -117,10 +117,21 @@ impl BridgedWorkflow {
 impl weldsuite_connect::WorkflowRuns for BridgedWorkflow {
     /// `binding.create({ params })`: the instance id the fake answered.
     fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+        weldsuite_connect::WorkflowRuns::start(self, None, params)
+    }
+
+    /// `binding.create({ id, params })` (`{ params }` without an id).
+    fn start<'a>(
+        &'a self,
+        id: Option<&'a str>,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
-            let result = self
-                .call_for_result("create", Value::Null, json!({ "params": params }))
-                .await?;
+            let (recorded, args) = match id {
+                Some(id) => (Value::from(id), json!({ "id": id, "params": params })),
+                None => (Value::Null, json!({ "params": params })),
+            };
+            let result = self.call_for_result("create", recorded, args).await?;
             Ok(result["id"].as_str().unwrap_or_default().to_owned())
         })
     }

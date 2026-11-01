@@ -1,0 +1,3969 @@
+{
+  "clear": [
+    "delete from workflow_execution_steps",
+    "delete from workflow_error_logs",
+    "delete from workflow_executions",
+    "delete from notifications",
+    "delete from workflow_variables",
+    "delete from workflows",
+    "delete from helpdesk_workflows",
+    "delete from workspace_members"
+  ],
+  "cases": [
+    {
+      "name": "variables, a passing condition branch and a transform",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_basic', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_basic', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"set_variable\",\"name\":\"Count\",\"config\":{\"name\":\"count\",\"value\":3}},{\"id\":\"s2\",\"type\":\"log\",\"config\":{\"message\":\"{{variables.greeting}} {{trigger.userId}} {{trigger.source}}\"}},{\"id\":\"s3\",\"type\":\"condition\",\"name\":\"Big?\",\"config\":{\"field\":\"variables.count\",\"operator\":\"gt\",\"value\":2}},{\"id\":\"s4\",\"type\":\"log\",\"parentBranchId\":\"s3_if\",\"config\":{\"message\":\"big\"}},{\"id\":\"s5\",\"type\":\"log\",\"parentBranchId\":\"s3_if_not\",\"config\":{\"message\":\"small\"}},{\"id\":\"s6\",\"type\":\"transform\",\"config\":{\"transform\":\"pick\",\"fields\":[\"s1\",\"s2\"]}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)",
+          "insert into workflow_variables (id, name, value) values ('wvr_1', 'greeting', '\"Hello\"'::jsonb)"
+        ],
+        "instanceId": "inst_basic",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_basic",
+          "triggerType": "manual",
+          "triggerData": {
+            "source": "test"
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_basic",
+            "completed": true,
+            "current_step_index": 6,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "name": "count",
+                "set": true,
+                "value": 3
+              },
+              "s2": {
+                "logged": true,
+                "message": "Hello user_owner test"
+              },
+              "s3": {
+                "passed": true,
+                "result": 3,
+                "value": 3
+              },
+              "s4": {
+                "logged": true,
+                "message": "big"
+              },
+              "s6": {
+                "s1": {
+                  "name": "count",
+                  "set": true,
+                  "value": 3
+                },
+                "s2": {
+                  "logged": true,
+                  "message": "Hello user_owner test"
+                }
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 6,
+            "trigger_data": {
+              "source": "test"
+            },
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_basic",
+            "workflow_name": "Flow wf_basic",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 6,
+                "workflowId": "wf_basic",
+                "workflowName": "Flow wf_basic"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Count",
+                "stepType": "set_variable",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Count",
+                "totalSteps": 6
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "log",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 6
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepName": "Big?",
+                "stepType": "condition",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepName": "Big?",
+                "totalSteps": 6
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "log",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 6
+              },
+              "event": "step_skipped",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "log",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 6
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "transform",
+                "totalSteps": 6
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 6
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started Count (set_variable)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "name": "count",
+              "set": true,
+              "value": 3
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": "Count",
+            "step_type": "set_variable"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "Hello user_owner test"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started Big? (condition)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "passed": true,
+              "result": 3,
+              "value": 3
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": "Big?",
+            "step_type": "condition"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "big"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (log)",
+              "Skipped: condition not met"
+            ],
+            "output": {
+              "skipped": true
+            },
+            "retry_count": 0,
+            "status": "skipped",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (transform)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "s1": {
+                "name": "count",
+                "set": true,
+                "value": 3
+              },
+              "s2": {
+                "logged": true,
+                "message": "Hello user_owner test"
+              }
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "transform"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_basic",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a step's own condition, and a value-branching condition",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_branches', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_branches', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"log\",\"condition\":{\"field\":\"trigger.priority\",\"operator\":\"eq\",\"value\":\"high\"},\"config\":{\"message\":\"urgent\"}},{\"id\":\"s2\",\"type\":\"condition\",\"config\":{\"field\":\"trigger.priority\",\"branches\":[{\"value\":\"low\"},{\"value\":\"default\"}]}},{\"id\":\"s3\",\"type\":\"log\",\"parentBranchId\":\"s2_branch_low\",\"config\":{\"message\":\"low one\"}},{\"id\":\"s4\",\"type\":\"log\",\"parentBranchId\":\"s2_branch_default\",\"config\":{\"message\":\"other\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_branches",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_branches",
+          "triggerType": "api",
+          "triggerData": {
+            "priority": "low"
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_branches",
+            "completed": true,
+            "current_step_index": 4,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "skipped": true
+              },
+              "s2": {
+                "matchedBranch": "low",
+                "value": "low"
+              },
+              "s3": {
+                "logged": true,
+                "message": "low one"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 4,
+            "trigger_data": {
+              "priority": "low"
+            },
+            "trigger_id": null,
+            "trigger_type": "api",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_branches",
+            "workflow_name": "Flow wf_branches",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 4,
+                "workflowId": "wf_branches",
+                "workflowName": "Flow wf_branches"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "log",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 4
+              },
+              "event": "step_skipped",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "condition",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 4
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "log",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 4
+              },
+              "event": "step_skipped",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "log",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 4
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (log)",
+              "Skipped: condition not met"
+            ],
+            "output": {
+              "skipped": true
+            },
+            "retry_count": 0,
+            "status": "skipped",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (condition)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "matchedBranch": "low",
+              "value": "low"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "condition"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "low one"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (log)",
+              "Skipped: condition not met"
+            ],
+            "output": {
+              "skipped": true
+            },
+            "retry_count": 0,
+            "status": "skipped",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_branches",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a loop whose body step fails on one item and continues",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_loop', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_loop', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"loop\",\"config\":{\"items\":\"{{trigger.items}}\"}},{\"id\":\"s2\",\"type\":\"log\",\"parentBranchId\":\"s1_each\",\"config\":{\"message\":\"item {{loop.item.name}} #{{loop.index}}\"}},{\"id\":\"s3\",\"type\":\"set_variable\",\"parentBranchId\":\"s1_each\",\"continueOnError\":true,\"config\":{\"name\":\"{{loop.item.var}}\",\"value\":\"{{loop.item.name}}\"}},{\"id\":\"s4\",\"type\":\"log\",\"config\":{\"message\":\"last var {{variables.x}}\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_loop",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_loop",
+          "triggerType": "manual",
+          "triggerData": {
+            "items": [
+              {
+                "name": "a",
+                "var": "x"
+              },
+              {
+                "name": "b"
+              }
+            ]
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "1 of 2 runs failed; last error: Variable name is required",
+            "error_type": null,
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s3",
+            "step_name": null,
+            "step_type": "set_variable",
+            "workflow_id": "wf_loop"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_loop",
+            "completed": true,
+            "current_step_index": 4,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "count": 2,
+                "iterations": 2
+              },
+              "s2": {
+                "logged": true,
+                "message": "item b #1"
+              },
+              "s3": {
+                "error": "Variable name is required"
+              },
+              "s4": {
+                "logged": true,
+                "message": "last var a"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 4,
+            "trigger_data": {
+              "items": [
+                {
+                  "name": "a",
+                  "var": "x"
+                },
+                {
+                  "name": "b"
+                }
+              ]
+            },
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_loop",
+            "workflow_name": "Flow wf_loop",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-i0-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-i0-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-i1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-i1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 4,
+                "workflowId": "wf_loop",
+                "workflowName": "Flow wf_loop"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "loop",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "log",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 4
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "set_variable",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "1 of 2 runs failed; last error: Variable name is required",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 4
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 4
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "log",
+                "totalSteps": 4
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 4
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (loop)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 2,
+              "iterations": 2
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "loop"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "runs": 2,
+              "skipped": 0
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "log"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "1 of 2 runs failed; last error: Variable name is required"
+            },
+            "logs": [
+              "Started s3 (set_variable)",
+              "Failed: 1 of 2 runs failed; last error: Variable name is required (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "set_variable"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "last var a"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_loop",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "an HTTP request retried with back-off, then the run fails and the owner is told",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_retry', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_retry', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"http_request\",\"name\":\"Call API\",\"retryPolicy\":{\"maxAttempts\":2,\"delayMs\":1000,\"backoffMultiplier\":2},\"config\":{\"url\":\"https://api.example.com/flaky\",\"method\":\"POST\",\"body\":{\"a\":1}}},{\"id\":\"s2\",\"type\":\"log\",\"config\":{\"message\":\"never\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_retry",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_retry",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {
+          "https://api.example.com/flaky": {
+            "status": 503,
+            "body": {
+              "error": "busy"
+            }
+          }
+        }
+      },
+      "output": {
+        "calls": [
+          {
+            "body": {
+              "a": 1
+            },
+            "method": "POST",
+            "url": "https://api.example.com/flaky"
+          },
+          {
+            "body": {
+              "a": 1
+            },
+            "method": "POST",
+            "url": "https://api.example.com/flaky"
+          }
+        ],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "HTTP request failed: 503 Service Unavailable",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s1",
+            "step_name": "Call API",
+            "step_type": "http_request",
+            "workflow_id": "wf_retry"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_retry",
+            "completed": true,
+            "current_step_index": 0,
+            "error": {
+              "message": "HTTP request failed: 503 Service Unavailable",
+              "stepId": "s1"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {},
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 2,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_retry",
+            "workflow_name": "Flow wf_retry",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "sleep",
+            "ms": 1000,
+            "name": "retry-0-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-2"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "HTTP request failed: 503 Service Unavailable",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_failed",
+            "severity": "error",
+            "title": "Workflow failed: Flow wf_retry",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 2,
+                "workflowId": "wf_retry",
+                "workflowName": "Flow wf_retry"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Call API",
+                "stepType": "http_request",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "HTTP request failed: 503 Service Unavailable",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Call API",
+                "totalSteps": 2
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "HTTP request failed: 503 Service Unavailable",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_failed",
+                "severity": "error",
+                "title": "Workflow failed: Flow wf_retry"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "HTTP request failed: 503 Service Unavailable",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "message": "HTTP request failed: 503 Service Unavailable"
+            },
+            "logs": [
+              "Started Call API (http_request)",
+              "Failed: HTTP request failed: 503 Service Unavailable (attempt 2)"
+            ],
+            "output": null,
+            "retry_count": 1,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": "Call API",
+            "step_type": "http_request"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_retry",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a webhook answers JSON; an HTTP 404 is not retried",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_http', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_http', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"webhook\",\"config\":{\"url\":\"https://hooks.example.com/in\",\"payload\":{\"x\":\"{{trigger.x}}\"}}},{\"id\":\"s2\",\"type\":\"http_request\",\"retryPolicy\":{\"maxAttempts\":3},\"config\":{\"url\":\"https://api.example.com/missing\",\"headers\":{\"X-Key\":\"k\"}}}]'::jsonb, '[]'::jsonb, '{\"notifyOnError\":false}'::jsonb)"
+        ],
+        "instanceId": "inst_http",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_http",
+          "triggerType": "webhook",
+          "triggerData": {
+            "x": "hello"
+          }
+        },
+        "events": {},
+        "http": {
+          "https://hooks.example.com/in": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          },
+          "https://api.example.com/missing": {
+            "status": 404,
+            "body": {
+              "message": "nope"
+            },
+            "headers": {
+              "content-type": "application/json",
+              "set-cookie": "a=b",
+              "x-trace": "t1"
+            }
+          }
+        }
+      },
+      "output": {
+        "calls": [
+          {
+            "body": {
+              "x": "hello"
+            },
+            "method": "POST",
+            "url": "https://hooks.example.com/in"
+          },
+          {
+            "body": null,
+            "method": "GET",
+            "url": "https://api.example.com/missing"
+          }
+        ],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "HTTP request failed: 404 Not Found",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "body": {
+                  "message": "nope"
+                },
+                "headers": {
+                  "content-type": "application/json",
+                  "x-trace": "t1"
+                },
+                "status": 404
+              }
+            },
+            "severity": "error",
+            "step_id": "s2",
+            "step_name": null,
+            "step_type": "http_request",
+            "workflow_id": "wf_http"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_http",
+            "completed": true,
+            "current_step_index": 1,
+            "error": {
+              "message": "HTTP request failed: 404 Not Found",
+              "stepId": "s2"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "response": {
+                  "ok": true
+                },
+                "status": 200,
+                "success": true
+              }
+            },
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 2,
+            "trigger_data": {
+              "x": "hello"
+            },
+            "trigger_id": null,
+            "trigger_type": "webhook",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_http",
+            "workflow_name": "Flow wf_http",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 2,
+                "workflowId": "wf_http",
+                "workflowName": "Flow wf_http"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "webhook",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 2
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "http_request",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "HTTP request failed: 404 Not Found",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 2
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "HTTP request failed: 404 Not Found",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (webhook)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "response": {
+                "ok": true
+              },
+              "status": 200,
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "webhook"
+          },
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "body": {
+                  "message": "nope"
+                },
+                "headers": {
+                  "content-type": "application/json",
+                  "x-trace": "t1"
+                },
+                "status": 404
+              },
+              "message": "HTTP request failed: 404 Not Found"
+            },
+            "logs": [
+              "Started s2 (http_request)",
+              "Failed: HTTP request failed: 404 Not Found"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "http_request"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_http",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a delay, then a workflow_complete chain with the output and a completion notice",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_first', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_first', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"delay\",\"config\":{\"seconds\":30}},{\"id\":\"s2\",\"type\":\"log\",\"config\":{\"message\":\"after {{steps.s1.duration}}\"}}]'::jsonb, '[]'::jsonb, '{\"notifyOnComplete\":true}'::jsonb)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_next', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_next', 'active', 3,\n    'user_owner', '[{\"id\":\"n1\",\"type\":\"log\",\"config\":{\"message\":\"next\"}}]'::jsonb, '[{\"type\":\"workflow_complete\",\"config\":{\"sourceWorkflowId\":\"wf_first\",\"triggerOn\":\"success\",\"passOutput\":true}}]'::jsonb, '{}'::jsonb)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_on_failure', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_on_failure', 'active', 3,\n    'user_owner', '[{\"id\":\"f1\",\"type\":\"log\",\"config\":{\"message\":\"x\"}}]'::jsonb, '[{\"type\":\"workflow_complete\",\"sourceWorkflowId\":\"wf_first\",\"triggerOn\":\"failure\"}]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_chain",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_first",
+          "triggerType": "manual",
+          "chainDepth": 1
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [
+          {
+            "id": "<id:wex>-then-wf_next",
+            "params": {
+              "chainDepth": 2,
+              "source": "weldconnect",
+              "triggerData": {
+                "output": {
+                  "s1": {
+                    "__delayMs": 30000,
+                    "delayed": true,
+                    "duration": "30 second(s)",
+                    "durationMs": 30000
+                  },
+                  "s2": {
+                    "logged": true,
+                    "message": "after 30 second(s)"
+                  }
+                },
+                "sourceExecutionId": "<id:wex>",
+                "sourceWorkflowId": "wf_first",
+                "sourceWorkflowName": "Flow wf_first",
+                "status": "success"
+              },
+              "triggerType": "workflow_complete",
+              "userId": "user_owner",
+              "workflowId": "wf_next",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_chain",
+            "completed": true,
+            "current_step_index": 2,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "__delayMs": 30000,
+                "delayed": true,
+                "duration": "30 second(s)",
+                "durationMs": 30000
+              },
+              "s2": {
+                "logged": true,
+                "message": "after 30 second(s)"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 2,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_first",
+            "workflow_name": "Flow wf_first",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "sleep",
+            "ms": 30000,
+            "name": "delay-0"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "The run finished successfully.",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_completed",
+            "severity": "success",
+            "title": "Workflow completed: Flow wf_first",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 2,
+                "workflowId": "wf_first",
+                "workflowName": "Flow wf_first"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "delay",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 2
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "log",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 2
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "The run finished successfully.",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_completed",
+                "severity": "success",
+                "title": "Workflow completed: Flow wf_first"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (delay)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "__delayMs": 30000,
+              "delayed": true,
+              "duration": "30 second(s)",
+              "durationMs": 30000
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "delay"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "after 30 second(s)"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_first",
+            "ran": true,
+            "success_count": 1
+          },
+          {
+            "averaged": false,
+            "execution_count": 0,
+            "failure_count": 0,
+            "id": "wf_next",
+            "ran": false,
+            "success_count": 0
+          },
+          {
+            "averaged": false,
+            "execution_count": 0,
+            "failure_count": 0,
+            "id": "wf_on_failure",
+            "ran": false,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "an approval, approved, then the run continues",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_approve', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_approve', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"manual_step\",\"name\":\"Approve\",\"config\":{\"title\":\"Ship it?\",\"approverIds\":[\"user_approver\",\"user_gone\"]}},{\"id\":\"s2\",\"type\":\"condition\",\"config\":{\"field\":\"steps.s1.approved\",\"operator\":\"eq\",\"value\":true}},{\"id\":\"s3\",\"type\":\"log\",\"parentBranchId\":\"s2_if\",\"config\":{\"message\":\"approved by {{steps.s1.decidedByName}}\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_approve",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_approve",
+          "triggerType": "manual"
+        },
+        "events": {
+          "wait-input-0": {
+            "payload": {
+              "stepId": "s1",
+              "approved": true,
+              "decision": "approved",
+              "comment": " ok ",
+              "decidedBy": "user_approver",
+              "decidedByName": "Ann",
+              "decidedAt": "2026-10-02T09:00:00.000Z"
+            }
+          }
+        },
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_approve",
+            "completed": true,
+            "current_step_index": 3,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "approved": true,
+                "comment": "ok",
+                "decidedAt": "2026-10-02T09:00:00.000Z",
+                "decidedBy": "user_approver",
+                "decidedByName": "Ann",
+                "decision": "approved"
+              },
+              "s2": {
+                "passed": true,
+                "result": true,
+                "value": true
+              },
+              "s3": {
+                "logged": true,
+                "message": "approved by Ann"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 3,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_approve",
+            "workflow_name": "Flow wf_approve",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "await-input-0"
+          },
+          {
+            "kind": "wait",
+            "name": "wait-input-0",
+            "type": "resume-step"
+          },
+          {
+            "kind": "do",
+            "name": "resume-0"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "\"Flow wf_approve\" is waiting for your approval.",
+            "category": "task",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "manual_step",
+            "severity": "warning",
+            "title": "Ship it?",
+            "user_id": "user_approver"
+          }
+        ],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 3,
+                "workflowId": "wf_approve",
+                "workflowName": "Flow wf_approve"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Approve",
+                "stepType": "manual_step",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_approver"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "\"Flow wf_approve\" is waiting for your approval.",
+                "category": "task",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "manual_step",
+                "severity": "warning",
+                "title": "Ship it?"
+              },
+              "event": "created",
+              "topic": "notification.user_approver",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepName": "Approve",
+                "totalSteps": 3
+              },
+              "event": "waiting_for_input",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "condition",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 3
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "log",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 3
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started Approve (manual_step)",
+              "Waiting for input"
+            ],
+            "output": {
+              "approved": true,
+              "comment": "ok",
+              "decidedAt": "2026-10-02T09:00:00.000Z",
+              "decidedBy": "user_approver",
+              "decidedByName": "Ann",
+              "decision": "approved"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": "Approve",
+            "step_type": "manual_step"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (condition)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "passed": true,
+              "result": true,
+              "value": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "condition"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "approved by Ann"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_approve",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "an approval nobody decides expires",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_expire', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_expire', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"manual_step\",\"config\":{}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_expire",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_expire",
+          "triggerType": "manual"
+        },
+        "events": {
+          "wait-input-0": "timeout"
+        },
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "Approval expired: nobody approved or rejected this step within 7 days",
+            "error_type": "WaitExpiredError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s1",
+            "step_name": null,
+            "step_type": "manual_step",
+            "workflow_id": "wf_expire"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_expire",
+            "completed": true,
+            "current_step_index": 0,
+            "error": {
+              "message": "Approval expired: nobody approved or rejected this step within 7 days",
+              "stepId": "s1"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {},
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 1,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_expire",
+            "workflow_name": "Flow wf_expire",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "await-input-0"
+          },
+          {
+            "kind": "wait",
+            "name": "wait-input-0",
+            "type": "resume-step"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "\"Flow wf_expire\" is waiting for your approval.",
+            "category": "task",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "manual_step",
+            "severity": "warning",
+            "title": "Approval needed",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "Approval expired: nobody approved or rejected this step within 7 days",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_failed",
+            "severity": "error",
+            "title": "Workflow failed: Flow wf_expire",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 1,
+                "workflowId": "wf_expire",
+                "workflowName": "Flow wf_expire"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "manual_step",
+                "totalSteps": 1
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "\"Flow wf_expire\" is waiting for your approval.",
+                "category": "task",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "manual_step",
+                "severity": "warning",
+                "title": "Approval needed"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "waiting_for_input",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "Approval expired: nobody approved or rejected this step within 7 days",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Approval expired: nobody approved or rejected this step within 7 days",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_failed",
+                "severity": "error",
+                "title": "Workflow failed: Flow wf_expire"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "Approval expired: nobody approved or rejected this step within 7 days",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "message": "Approval expired: nobody approved or rejected this step within 7 days"
+            },
+            "logs": [
+              "Started s1 (manual_step)",
+              "Failed: Approval expired: nobody approved or rejected this step within 7 days"
+            ],
+            "output": {
+              "__waitingForInput": true,
+              "approverIds": [],
+              "description": null,
+              "notifiedUserIds": [
+                "user_owner"
+              ],
+              "stepType": "manual_step",
+              "title": "Approval needed"
+            },
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "manual_step"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_expire",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a test run of a draft keeps no stats",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_draft', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_draft', 'draft', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"log\",\"config\":{\"message\":\"try\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_test",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_draft",
+          "triggerType": "manual",
+          "isTest": true
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_test",
+            "completed": true,
+            "current_step_index": 1,
+            "error": null,
+            "execution_context": {
+              "isTest": true
+            },
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "logged": true,
+                "message": "try"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 1,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_draft",
+            "workflow_name": "Flow wf_draft",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 1,
+                "workflowId": "wf_draft",
+                "workflowName": "Flow wf_draft"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "log",
+                "totalSteps": 1
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "try"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": false,
+            "execution_count": 0,
+            "failure_count": 0,
+            "id": "wf_draft",
+            "ran": false,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "an inactive workflow cancels its queued run",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_paused', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_paused', 'paused', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"log\",\"config\":{}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)",
+          "insert into workflow_executions (id, created_at, updated_at, workflow_id, workflow_name, status, triggered_by, trigger_type)\n        values ('wex_queued_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'wf_paused', 'Flow wf_paused', 'queued', 'user_owner', 'manual')"
+        ],
+        "instanceId": "inst_paused",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_paused",
+          "triggerType": "manual",
+          "executionId": "wex_queued_1"
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": null,
+            "completed": true,
+            "current_step_index": 0,
+            "error": {
+              "message": "Not run: Workflow not active"
+            },
+            "execution_context": null,
+            "id": "wex_queued_1",
+            "output": null,
+            "started": false,
+            "status": "cancelled",
+            "timed": false,
+            "total_steps": 0,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_paused",
+            "workflow_name": "Flow wf_paused",
+            "workflow_version": 1
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "cancel-skipped-execution"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "skipped": "Workflow not active"
+        },
+        "publishes": [],
+        "steps": [],
+        "workflows": [
+          {
+            "averaged": false,
+            "execution_count": 0,
+            "failure_count": 0,
+            "id": "wf_paused",
+            "ran": false,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a scheduled run's slot and local time",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_schedule', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_schedule', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"log\",\"config\":{\"message\":\"{{trigger.scheduledTimeLocal}} / {{trigger.scheduledTime}} / {{trigger.runId}}\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_schedule",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "system",
+          "workflowId": "wf_schedule",
+          "triggerType": "schedule",
+          "triggerData": {
+            "scheduleId": "sch_1",
+            "scheduledTime": "2026-10-02T09:00:30.000Z",
+            "timezone": "Europe/Amsterdam"
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_schedule",
+            "completed": true,
+            "current_step_index": 1,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "logged": true,
+                "message": "2026-10-02 11:00 / 2026-10-02T09:00:30.000Z / <id:wex>"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 1,
+            "trigger_data": {
+              "scheduleId": "sch_1",
+              "scheduledTime": "<ts>",
+              "timezone": "Europe/Amsterdam"
+            },
+            "trigger_id": null,
+            "trigger_type": "schedule",
+            "triggered_by": "system",
+            "workflow_id": "wf_schedule",
+            "workflow_name": "Flow wf_schedule",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 1,
+                "workflowId": "wf_schedule",
+                "workflowName": "Flow wf_schedule"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "log",
+                "totalSteps": 1
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "2026-10-02 11:00 / 2026-10-02T09:00:30.000Z / <id:wex>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_schedule",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "an entity event's record and previous record",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_entity', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_entity', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"condition\",\"config\":{\"field\":\"trigger.previousRecord.status\",\"operator\":\"eq\",\"value\":\"open\"}},{\"id\":\"s2\",\"type\":\"log\",\"parentBranchId\":\"s1_if\",\"config\":{\"message\":\"{{trigger.record.name}} was {{trigger.previousRecord.status}}\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_entity",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_entity",
+          "triggerType": "entity_event",
+          "triggerData": {
+            "entityType": "company",
+            "action": "updated",
+            "entityId": "co_1",
+            "data": {
+              "name": "Acme",
+              "status": "won"
+            },
+            "changes": {
+              "status": {
+                "old": "open",
+                "new": "won"
+              }
+            }
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_entity",
+            "completed": true,
+            "current_step_index": 2,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "passed": true,
+                "result": "open",
+                "value": "open"
+              },
+              "s2": {
+                "logged": true,
+                "message": "Acme was open"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 2,
+            "trigger_data": {
+              "action": "updated",
+              "changes": {
+                "status": {
+                  "new": "won",
+                  "old": "open"
+                }
+              },
+              "data": {
+                "name": "Acme",
+                "status": "won"
+              },
+              "entityId": "co_1",
+              "entityType": "company"
+            },
+            "trigger_id": null,
+            "trigger_type": "entity_event",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_entity",
+            "workflow_name": "Flow wf_entity",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 2,
+                "workflowId": "wf_entity",
+                "workflowName": "Flow wf_entity"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "condition",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 2
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "log",
+                "totalSteps": 2
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 2
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (condition)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "passed": true,
+              "result": "open",
+              "value": "open"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "condition"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (log)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "logged": true,
+              "message": "Acme was open"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "log"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_entity",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unsupported step type fails the run",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_unknown', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_unknown', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"teleport\",\"config\":{}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_unknown",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_unknown",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "Step type \"teleport\" is not supported by the workflow engine",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s1",
+            "step_name": null,
+            "step_type": "teleport",
+            "workflow_id": "wf_unknown"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_unknown",
+            "completed": true,
+            "current_step_index": 0,
+            "error": {
+              "message": "Step type \"teleport\" is not supported by the workflow engine",
+              "stepId": "s1"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {},
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 1,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_unknown",
+            "workflow_name": "Flow wf_unknown",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "Step type \"teleport\" is not supported by the workflow engine",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_failed",
+            "severity": "error",
+            "title": "Workflow failed: Flow wf_unknown",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 1,
+                "workflowId": "wf_unknown",
+                "workflowName": "Flow wf_unknown"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "teleport",
+                "totalSteps": 1
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Step type \"teleport\" is not supported by the workflow engine",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 1
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "Step type \"teleport\" is not supported by the workflow engine",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_failed",
+                "severity": "error",
+                "title": "Workflow failed: Flow wf_unknown"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "Step type \"teleport\" is not supported by the workflow engine",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "message": "Step type \"teleport\" is not supported by the workflow engine"
+            },
+            "logs": [
+              "Started s1 (teleport)",
+              "Failed: Step type \"teleport\" is not supported by the workflow engine"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "teleport"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_unknown",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notification to members; a waiting step inside a branch fails",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_nested', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_nested', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"send_notification\",\"config\":{\"title\":\"Hi {{trigger.name}}\",\"body\":\"b\",\"userIds\":[\"user_owner\",\"user_x\"]}},{\"id\":\"s2\",\"type\":\"condition\",\"config\":{\"field\":\"trigger.name\",\"operator\":\"isNotEmpty\"}},{\"id\":\"s3\",\"type\":\"manual_step\",\"parentBranchId\":\"s2_if\",\"config\":{\"title\":\"Nested\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_nested",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_nested",
+          "triggerType": "manual",
+          "triggerData": {
+            "name": "Ann"
+          }
+        },
+        "events": {},
+        "http": {}
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "A step that waits for input cannot run inside a branch or a loop",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s3",
+            "step_name": null,
+            "step_type": "manual_step",
+            "workflow_id": "wf_nested"
+          }
+        ],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_nested",
+            "completed": true,
+            "current_step_index": 2,
+            "error": {
+              "message": "A step that waits for input cannot run inside a branch or a loop",
+              "stepId": "s3"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "count": 1,
+                "notificationIds": [
+                  "<id:notif>"
+                ],
+                "notifiedUserIds": [
+                  "user_owner"
+                ],
+                "sent": true,
+                "skipped": 1
+              },
+              "s2": {
+                "passed": true,
+                "result": "Ann",
+                "value": "Ann"
+              }
+            },
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 3,
+            "trigger_data": {
+              "name": "Ann"
+            },
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_nested",
+            "workflow_name": "Flow wf_nested",
+            "workflow_version": 3
+          }
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": null,
+            "body": "b",
+            "category": "task",
+            "data": null,
+            "entity_id": null,
+            "entity_type": null,
+            "icon": "workflow",
+            "notification_type": "custom",
+            "severity": "info",
+            "title": "Hi Ann",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "\"Flow wf_nested\" is waiting for your approval.",
+            "category": "task",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "manual_step",
+            "severity": "warning",
+            "title": "Nested",
+            "user_id": "user_owner"
+          },
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "A step that waits for input cannot run inside a branch or a loop",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_failed",
+            "severity": "error",
+            "title": "Workflow failed: Flow wf_nested",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 3,
+                "workflowId": "wf_nested",
+                "workflowName": "Flow wf_nested"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "send_notification",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": null,
+                "actorId": null,
+                "actorType": "system",
+                "body": "b",
+                "category": "task",
+                "createdAt": "<ts>",
+                "entityId": null,
+                "entityType": null,
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "custom",
+                "severity": "info",
+                "title": "Hi Ann"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 3
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "condition",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 3
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "manual_step",
+                "totalSteps": 3
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "\"Flow wf_nested\" is waiting for your approval.",
+                "category": "task",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "manual_step",
+                "severity": "warning",
+                "title": "Nested"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "A step that waits for input cannot run inside a branch or a loop",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 3
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "A step that waits for input cannot run inside a branch or a loop",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_failed",
+                "severity": "error",
+                "title": "Workflow failed: Flow wf_nested"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "A step that waits for input cannot run inside a branch or a loop",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (send_notification)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 1,
+              "notificationIds": [
+                "<id:notif>"
+              ],
+              "notifiedUserIds": [
+                "user_owner"
+              ],
+              "sent": true,
+              "skipped": 1
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "send_notification"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (condition)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "passed": true,
+              "result": "Ann",
+              "value": "Ann"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "condition"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "A step that waits for input cannot run inside a branch or a loop"
+            },
+            "logs": [
+              "Started s3 (manual_step)",
+              "Failed: A step that waits for input cannot run inside a branch or a loop"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "manual_step"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_nested",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    }
+  ]
+}

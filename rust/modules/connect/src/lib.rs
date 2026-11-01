@@ -23,6 +23,7 @@ mod catalog;
 mod cron;
 mod crypto;
 mod dashboard;
+pub mod engine;
 mod executions;
 mod github;
 mod github_app;

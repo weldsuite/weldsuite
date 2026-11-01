@@ -4,7 +4,9 @@
 use serde_json::{Map, Value};
 use weldsuite_kit::validation::query_values;
 
-pub(crate) use weldsuite_desk_domain::workflow::shared::{as_text, js_number, js_string};
+pub(crate) use weldsuite_desk_domain::workflow::shared::{
+    as_text, js_number, js_string, json_text,
+};
 
 /// `c.req.query(name)` / `c.req.query()[name]`: the first value.
 pub(crate) fn query_param(query: Option<&str>, name: &str) -> Option<String> {

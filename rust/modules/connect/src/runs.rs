@@ -6,8 +6,9 @@
 //!   under a fresh instance id (Cloudflare picks one; here a UUID-shaped key).
 //! - `(await binding.get(id)).terminate()` → [`WorkflowRuns::terminate`]:
 //!   jobs cannot be killed from outside, so the run is woken with
-//!   [`CANCEL_SIGNAL`]; it reads its row (already `cancelled`) and stops
-//!   before its next step.
+//!   [`RESUME_SIGNAL`] (a parked wait is the one place a run idles); it
+//!   reads its row (already `cancelled`) and stops. A run between steps
+//!   checks its row before the next one.
 //! - `(await binding.get(id)).sendEvent({ type, payload })` →
 //!   [`WorkflowRuns::send_event`]: a signal. A signal carries no payload, so
 //!   the run reads the decision the route wrote on the step row.
@@ -23,14 +24,26 @@ pub const EXECUTE_WORKFLOW_JOB: &str = "connect.execute-workflow";
 /// The event an approval resumes a waiting run with (`resume-step`).
 pub const RESUME_SIGNAL: &str = "resume-step";
 
-/// What a cancelled run is woken with, so a parked wait sees its row.
-pub const CANCEL_SIGNAL: &str = "cancel";
-
 /// The `EXECUTE_WORKFLOW` binding as the routes use it. `Err` carries the
 /// message of what the binding threw.
 pub trait WorkflowRuns: Send + Sync {
     /// `binding.create({ params })`: the new instance's id.
     fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<String, String>>;
+
+    /// `binding.create({ id, params })`: a run under `id` when given (one
+    /// run per id), else a fresh one; the instance's id.
+    fn start<'a>(
+        &'a self,
+        id: Option<&'a str>,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
+        match id {
+            None => self.create(params),
+            Some(_) => Box::pin(std::future::ready(Err(
+                "this binding starts runs under fresh ids only".to_owned(),
+            ))),
+        }
+    }
 
     /// `(await binding.get(id)).terminate()`.
     fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), String>>;
@@ -61,8 +74,16 @@ fn instance_id() -> String {
 
 impl WorkflowRuns for JobsWorkflowRuns {
     fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+        self.start(None, params)
+    }
+
+    fn start<'a>(
+        &'a self,
+        id: Option<&'a str>,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
-            let id = instance_id();
+            let id = id.map_or_else(instance_id, str::to_owned);
             let request = JobRequest::new(EXECUTE_WORKFLOW_JOB, id.clone(), params)
                 .map_err(|error| error.to_string())?;
             self.jobs
@@ -76,7 +97,7 @@ impl WorkflowRuns for JobsWorkflowRuns {
     fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             self.jobs
-                .signal_boxed(EXECUTE_WORKFLOW_JOB, id, CANCEL_SIGNAL)
+                .signal_boxed(EXECUTE_WORKFLOW_JOB, id, RESUME_SIGNAL)
                 .await
                 .map(|_| ())
                 .map_err(|error| error.to_string())

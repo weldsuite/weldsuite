@@ -297,6 +297,21 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("connect") {
         return router;
     }
+    // Workflow runs (`EXECUTE_WORKFLOW`), where the jobs adapter calls them;
+    // a `workflow_complete` chain starts the next run on the same jobs.
+    let jobs = Arc::clone(&state.infra.jobs);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_connect::engine::ExecuteWorkflowJob {
+            deps: weldsuite_connect::engine::EngineDeps {
+                tenants: tenant_databases(state),
+                realtime: state.infra.realtime.clone(),
+                http: shared_outbound(),
+                runs: Some(Arc::new(weldsuite_connect::JobsWorkflowRuns { jobs })),
+                env: Arc::new(weldsuite_connect::env_from_process()),
+            },
+        });
     router.merge(weldsuite_connect::router(
         connect_state(state),
         &state.permissions,

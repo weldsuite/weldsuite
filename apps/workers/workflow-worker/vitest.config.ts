@@ -20,6 +20,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // The Workflow runtime, for the Rust parity fixtures (src/testing/rust-fixtures.test.ts).
+      'cloudflare:workers': path.resolve(__dirname, './src/testing/cloudflare-workers-stub.ts'),
+      'cloudflare:workflows': path.resolve(__dirname, './src/testing/cloudflare-workers-stub.ts'),
       // Workers-only module; the WeldDesk inbox actions notify the team through
       // @weldsuite/notifications, whose email channel imports @weldsuite/emails.
       'cloudflare:email': path.resolve(
