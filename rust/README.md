@@ -280,7 +280,8 @@ share one origin and the app finds the API through `/config.json`
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
-every 15 minutes, `identity-sync` every minute (the identity provider's
+every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
+and breaches), `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
 `workspace-deletion` daily and `workspace-teardown` hourly. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 

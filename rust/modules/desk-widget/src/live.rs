@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
-use weldsuite_desk_domain::assignment;
+use weldsuite_desk_domain::{assignment, sla};
 use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_desk_domain::webchat::{
     Author, collapse_whitespace, public_conversation, public_message, resolve_authors,
@@ -58,6 +58,26 @@ async fn publish_all(state: &WidgetState, messages: Vec<RealtimeMessage>) {
             tracing::error!(%error, channel = %message.channel, "[widget-api] realtime publish failed");
         }
     }
+}
+
+/// `markDeskSlaDue(env, waitUntil, orgId, slaCheckAt)` (`lib/sla-due.ts`):
+/// tell desk-api's SLA sweep when a conversation's SLA clock next comes due,
+/// in the due index (kind `desk_sla`, keyed by `workspaces.id`). Best
+/// effort, after the response; it can only pull the workspace's due time
+/// earlier.
+pub(crate) fn mark_sla_due(
+    state: &WidgetState,
+    master: Option<PgPool>,
+    workspace_id: &str,
+    sla_check_at: Option<i64>,
+) {
+    let (Some(master), Some(at)) = (master, sla_check_at.and_then(sla::instant)) else {
+        return;
+    };
+    let workspace_id = workspace_id.to_owned();
+    state.events.tracker().spawn(async move {
+        weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, &workspace_id, at).await;
+    });
 }
 
 /// `rt.publish(orgId, topic, event, data, 'system')`.
@@ -170,6 +190,7 @@ pub(crate) async fn auto_assign(
     db: &PgPool,
     org_id: &str,
     workspace_id: &str,
+    master: Option<PgPool>,
     conversation: Value,
 ) -> Value {
     let owned = conversation["assigneeId"]
@@ -187,7 +208,14 @@ pub(crate) async fn auto_assign(
         None => assignment::Picker::Local,
     };
     match assignment::auto_assign_with(db, &id, &picker).await {
-        Ok(Some((assigned, message))) => {
+        Ok(Some(appended)) => {
+            // The owner can change which SLA policy applies.
+            if let (Some(master), Some(at)) =
+                (master, appended.sla_check_at.and_then(sla::instant))
+            {
+                weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
+            }
+            let (assigned, message) = appended.pair();
             match resolve_authors(db, &[assigned["assigneeId"].as_str()]).await {
                 Ok(authors) => {
                     publish_visitor_event(state, org_id, &assigned, &message, &authors, "assigned")

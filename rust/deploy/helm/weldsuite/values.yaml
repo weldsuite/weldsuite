@@ -532,6 +532,12 @@ cron:
       schedule: "*/15 * * * *"
       # Kill a run that hangs before the next one is due.
       activeDeadlineSeconds: 840
+    # WeldDesk: SLA warnings and breaches on inbox conversations, for the
+    # workspaces the due index lists.
+    desk-sla-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.

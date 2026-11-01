@@ -355,6 +355,7 @@ async fn update_attributes(
                 .into_response();
         }
     };
+    crate::mark_sla_due(&state, caller, updated.sla_check_at);
     // Other agents' open threads take the field values from the hub event.
     let mut conversation = updated.conversation;
     if let Some(object) = conversation.as_object_mut() {
@@ -847,7 +848,7 @@ async fn reply(
         }
     }
     let caller = &ctx.caller;
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         &caller.db,
         Append {
             conversation_id: &id,
@@ -862,7 +863,10 @@ async fn reply(
     )
     .await;
     let (conversation, message) = match appended {
-        Ok(done) => done,
+        Ok(done) => {
+            crate::mark_sla_due(&state, caller, done.sla_check_at);
+            done.pair()
+        }
         Err(AppendError::NotFound) => {
             return ApiError::not_found("Conversation", Some(&id)).into_response();
         }
@@ -1207,7 +1211,7 @@ async fn manage(
             .flatten()
             .map_or(Value::Null, Value::String),
     );
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         &caller.db,
         Append {
             conversation_id: &id,
@@ -1222,7 +1226,10 @@ async fn manage(
     )
     .await;
     let (conversation, message) = match appended {
-        Ok(done) => done,
+        Ok(done) => {
+            crate::mark_sla_due(&state, caller, done.sla_check_at);
+            done.pair()
+        }
         Err(AppendError::NotFound) => {
             return ApiError::not_found("Conversation", Some(&id)).into_response();
         }

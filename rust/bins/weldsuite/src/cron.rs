@@ -11,6 +11,9 @@
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `desk-sla-sweep` (every minute): WeldDesk's SLA warnings and breaches
+//!   on inbox conversations, for the workspaces the due index lists
+//!   (`apps/workers/desk-api/src/cron/sla-sweep.ts`).
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
 //!   `weldsuite_core_onboarding::IdentitySync`).
@@ -53,7 +56,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, desk-sla-sweep";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -64,7 +67,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "workspace-teardown"
         | "mail-outbound-ledgers"
         | "calendar-replan"
-        | "flow-file-purge"),
+        | "flow-file-purge"
+        | "desk-sla-sweep"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -96,6 +100,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
+            "desk-sla-sweep" => desk_sla_sweep(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -284,6 +289,56 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
         })
     );
     tracker.close();
+    Ok(())
+}
+
+/// `desk-sla-sweep`: the due workspaces' SLA warnings and breaches.
+async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_desk::sla_sweep::SlaTenant {
+                db: tenant.db,
+                clerk_org_id: tenant.clerk_org_id.unwrap_or(tenant.workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::sla_sweep::SweepServices {
+        events: infra.events.clone(),
+        realtime: infra.realtime.clone(),
+        mail: infra.mail.clone(),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "desk-sla-sweep", "result": result.to_json() })
+    );
+    // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
     Ok(())
 }
 

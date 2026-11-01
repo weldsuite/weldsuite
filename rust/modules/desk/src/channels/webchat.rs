@@ -10,7 +10,8 @@ use weldsuite_db::PgPool;
 
 use crate::tables::DESK_CONVERSATIONS;
 pub(crate) use weldsuite_desk_domain::webchat::{
-    Append, AppendError, Author, append_desk_message, author_from_member, collapse_whitespace, get,
+    Append, AppendError, Author, append, author_from_member,
+    collapse_whitespace, get,
     is_public, public_conversation, public_message,
 };
 

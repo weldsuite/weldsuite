@@ -910,8 +910,27 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         }
     }
-    // The worker marks the desk SLA due here when the append moved a clock;
-    // desk-domain's append has no SLA engine yet, so there is nothing to mark.
+    // The caller's message may start an SLA clock: tell desk-api's SLA sweep
+    // (best effort). The registry has the Clerk org id; the due index is
+    // keyed by `workspaces.id`.
+    if let Some(at) = desk
+        .sla_check_at
+        .and_then(weldsuite_desk_domain::sla::instant)
+    {
+        match crate::credits::resolve_workspace(&master, &workspace).await {
+            Ok(Some(workspace_id)) => {
+                weldsuite_db::due_index::mark_due(
+                    &master,
+                    weldsuite_desk_domain::sla::DUE_KIND,
+                    &workspace_id,
+                    at,
+                )
+                .await;
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "[Telnyx Webhook] desk SLA due mark failed"),
+        }
+    }
     let record = recording != Some(false);
     sqlx::query(
         "insert into voip_calls (id, created_at, updated_at, user_id, provider, provider_call_id,

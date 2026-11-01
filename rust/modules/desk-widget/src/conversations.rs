@@ -25,7 +25,7 @@ use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_bod
 use crate::attachments::{MAX_MESSAGE_ATTACHMENTS, resolve_visitor_attachments};
 use crate::auth::Widget;
 use crate::live::{
-    auto_assign, notify_team, publish_conversation_updated, publish_visitor_event,
+    auto_assign, mark_sla_due, notify_team, publish_conversation_updated, publish_visitor_event,
     publish_visitor_message, visitor_display_name,
 };
 use crate::visitor_auth::Visitor;
@@ -304,7 +304,7 @@ async fn start(
             .await
             .map_err(|error| error.to_string())?;
         let visitor_id = visitor["id"].as_str().unwrap_or_default().to_owned();
-        let (conversation, message) = webchat::create_conversation(
+        let created = webchat::create_conversation(
             db,
             NewConversation {
                 visitor_id: &visitor_id,
@@ -318,8 +318,9 @@ async fn start(
         )
         .await
         .map_err(|error| error.to_string())?;
+        mark_sla_due(&state, ctx.master(&state), &widget.workspace_id, created.sla_check_at);
         let name = visitor_display_name(db, &visitor_id, &visitor).await;
-        Ok::<_, String>((conversation, message, name))
+        Ok::<_, String>((created.conversation, created.message, name))
     };
     let (conversation, message, visitor_name) = match started.await {
         Ok(started) => started,
@@ -331,6 +332,7 @@ async fn start(
     spawn_visitor_message(
         &state,
         &widget,
+        ctx.master(&state),
         &conversation,
         &message,
         &visitor_name,
@@ -363,6 +365,7 @@ enum Fanout {
 fn spawn_visitor_message(
     state: &WidgetState,
     widget: &Widget,
+    master: Option<PgPool>,
     conversation: &Value,
     message: &Value,
     visitor_name: &str,
@@ -381,7 +384,7 @@ fn spawn_visitor_message(
             Fanout::Updated { .. } => "updated",
         };
         publish_visitor_message(&state_, &org, &conversation, &message, &visitor_name, event).await;
-        let current = auto_assign(&state_, &db, &org, &workspace_id, conversation).await;
+        let current = auto_assign(&state_, &db, &org, &workspace_id, master, conversation).await;
         let notify = match fanout {
             Fanout::Created => Some(true),
             Fanout::Updated {
@@ -620,7 +623,7 @@ async fn send(
             }
         }
     }
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         db,
         Append {
             conversation_id: &id,
@@ -635,7 +638,10 @@ async fn send(
     )
     .await;
     let (conversation, message) = match appended {
-        Ok(appended) => appended,
+        Ok(appended) => {
+            mark_sla_due(&state, ctx.master(&state), &widget.workspace_id, appended.sla_check_at);
+            appended.pair()
+        }
         Err(AppendError::NotFound) => return not_found_error("Conversation", &id),
         Err(AppendError::Write(error)) => {
             tracing::error!(%error, "[widget-api] send message failed");
@@ -648,6 +654,7 @@ async fn send(
     spawn_visitor_message(
         &state,
         &widget,
+        ctx.master(&state),
         &conversation,
         &message,
         &visitor_name,

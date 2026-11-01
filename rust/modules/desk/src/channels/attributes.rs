@@ -161,6 +161,8 @@ pub(crate) struct Updated {
     /// The `attributes_changed` event, or `None` when nothing changed.
     pub(crate) message: Option<Value>,
     pub(crate) custom_fields: Map<String, Value>,
+    /// `slaCheckAt`; `None` when nothing changed.
+    pub(crate) sla_check_at: Option<i64>,
 }
 
 /// `normalizeDeskTags(tags)`: spaces collapsed and trimmed, empties and
@@ -501,6 +503,7 @@ pub(crate) async fn update(
             conversation: current,
             message: None,
             custom_fields,
+            sla_check_at: None,
         });
     }
 
@@ -510,7 +513,7 @@ pub(crate) async fn update(
     let mut metadata = Map::new();
     metadata.insert("eventType".to_owned(), json!("attributes_changed"));
     metadata.insert("changes".to_owned(), Value::Array(changes));
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         db,
         Append {
             conversation_id,
@@ -524,16 +527,17 @@ pub(crate) async fn update(
         },
     )
     .await;
-    let (conversation, message) = match appended {
+    let appended = match appended {
         Ok(done) => done,
         Err(AppendError::NotFound) => return Err(UpdateError::NotFound),
         Err(AppendError::Write(error)) => return Err(UpdateError::Failed(error.to_string())),
     };
     let custom_fields = read_values(db, conversation_id, &definitions).await?;
     Ok(Updated {
-        conversation,
-        message: Some(message),
+        conversation: appended.conversation,
+        message: Some(appended.message),
         custom_fields,
+        sla_check_at: appended.sla_check_at,
     })
 }
 

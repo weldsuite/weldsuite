@@ -69,6 +69,17 @@ async fn deliver(
         http: None,
         apns: None,
     };
+    deliver_with(db, &notifier, workspace, notification).await;
+}
+
+/// [`deliver`] through the given channels (the SLA sweep's, outside a
+/// request).
+pub(crate) async fn deliver_with(
+    db: &weldsuite_db::PgPool,
+    notifier: &Notifier,
+    workspace: &str,
+    notification: &HelpdeskNotification,
+) {
     let data = notification
         .data
         .as_object()
@@ -95,7 +106,7 @@ async fn deliver(
         data,
         ..NewNotification::default()
     };
-    if let Err(error) = create_and_deliver(db, &notifier, &params).await {
-        tracing::error!(%error, "[desk-api/notify] assignment notification failed");
+    if let Err(error) = create_and_deliver(db, notifier, &params).await {
+        tracing::error!(%error, kind = notification.notification_type, "[desk-api/notify] notification failed");
     }
 }

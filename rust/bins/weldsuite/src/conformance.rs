@@ -718,6 +718,48 @@ pub(crate) async fn calendar_replan_sweep(
     axum::Json(json!(result)).into_response()
 }
 
+/// `POST /__conformance/cron/desk-sla-sweep`: one tick of the WeldDesk SLA
+/// sweep against the test's databases, as `runSlaSweep(env, now)` runs it
+/// there. Every workspace opens the test's tenant database, with the Clerk
+/// org id the test maps it to. The test's env has no mail or realtime
+/// binding, so neither has the sweep here.
+pub(crate) async fn desk_sla_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_desk::sla_sweep::SlaTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::sla_sweep::SweepServices {
+        events: state.infra.events.clone(),
+        realtime: None,
+        mail: None,
+    };
+    let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::hono_pattern;
