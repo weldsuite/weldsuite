@@ -453,7 +453,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 async function ownedProviderNumbers(
   env: TelnyxEnv,
   listed: ProviderPhoneNumber[],
-  tenant: { ids: string[]; providerIds: string[] },
+  tenant: { numberIds: string[]; portingOrderIds: string[] },
   clerkOrgId: string,
 ): Promise<ProviderPhoneNumber[]> {
   const registry = await getMasterDb(env)
@@ -469,8 +469,8 @@ async function ownedProviderNumbers(
   const { owned, skipped } = selectOwnedProviderNumbers({
     providerNumbers: listed,
     registry,
-    tenantNumberIds: tenant.ids,
-    tenantProviderIds: tenant.providerIds,
+    tenantNumberIds: tenant.numberIds,
+    portingOrderIds: tenant.portingOrderIds,
     clerkOrgId,
   });
   if (skipped > 0) {
@@ -519,10 +519,13 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       c.env,
       listed,
       {
-        ids: existing.map((p: { id: string }) => p.id),
-        providerIds: existing.flatMap((p: { providerPhoneNumberId: string | null }) =>
-          p.providerPhoneNumberId ? [p.providerPhoneNumberId] : [],
-        ),
+        numberIds: existing.map((p: { id: string }) => p.id),
+        portingOrderIds: (
+          await db
+            .select({ id: schema.voipPortingOrders.id })
+            .from(schema.voipPortingOrders)
+            .where(isNull(schema.voipPortingOrders.deletedAt))
+        ).map((order: { id: string }) => order.id),
       },
       clerkOrgId,
     );

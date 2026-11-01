@@ -7,9 +7,9 @@ function select(
   providerNumbers: Array<{ id: string; phone_number: string; customer_reference?: string | null }>,
   registry: Array<{ phoneNumber: string; clerkOrgId: string }> = [],
   tenantNumberIds: string[] = [],
-  tenantProviderIds: string[] = [],
+  portingOrderIds: string[] = [],
 ) {
-  return selectOwnedProviderNumbers({ providerNumbers, registry, tenantNumberIds, tenantProviderIds, clerkOrgId: ORG });
+  return selectOwnedProviderNumbers({ providerNumbers, registry, tenantNumberIds, portingOrderIds, clerkOrgId: ORG });
 }
 
 describe('selectOwnedProviderNumbers', () => {
@@ -54,22 +54,22 @@ describe('selectOwnedProviderNumbers', () => {
     expect(result.owned.map((n) => n.id)).toEqual(['tn_1']);
   });
 
-  it('keeps an unregistered number a row of this workspace already holds (a port whose registration failed)', () => {
+  it("keeps an unregistered number ported by this workspace (a port whose registration failed)", () => {
     const result = select(
-      [{ id: 'tn_ported', phone_number: '+31201234567', customer_reference: 'vpo_draft' }],
+      [{ id: 'tn_ported', phone_number: '+31201234567', customer_reference: 'vpo_mine' }],
       [],
       ['vpn_local'],
-      ['tn_ported'],
+      ['vpo_mine'],
     );
     expect(result.owned.map((n) => n.id)).toEqual(['tn_ported']);
   });
 
-  it("still skips another workspace's registered number, even when a row here holds its Telnyx id", () => {
+  it("skips an unregistered number another workspace ported, whatever this workspace's rows say", () => {
     const result = select(
-      [{ id: 'tn_ported', phone_number: '+31201234567' }],
-      [{ phoneNumber: '+31201234567', clerkOrgId: 'org_other' }],
+      [{ id: 'tn_ported', phone_number: '+31201234567', customer_reference: 'vpo_theirs' }],
       [],
-      ['tn_ported'],
+      ['vpn_local'],
+      ['vpo_mine'],
     );
     expect(result.owned).toEqual([]);
   });
