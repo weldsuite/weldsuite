@@ -3859,6 +3859,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-reach",
  "weldsuite-realtime",
  "weldsuite-sign",
  "weldsuite-social",
@@ -4890,6 +4891,56 @@ dependencies = [
  "tokio-util",
  "tracing",
  "weldsuite-catalogs",
+]
+
+[[package]]
+name = "weldsuite-reach"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "hex",
+ "hmac",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-pipeline",
+ "weldsuite-ports",
+ "weldsuite-reach-domain",
+]
+
+[[package]]
+name = "weldsuite-reach-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "futures-util",
+ "jiff",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-inbound",
+ "weldsuite-ports",
 ]
 
 [[package]]

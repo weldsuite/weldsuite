@@ -103,6 +103,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = commerce(router, state);
     let router = ads(router, state);
     let router = social(router, state);
+    let router = reach(router, state);
     let router = data(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
@@ -323,6 +324,61 @@ fn social(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         social_state(state),
         &state.permissions,
     ))
+}
+
+/// WeldReach (`weldsuite-reach`): reach-api's `/api/reach/*`, behind the
+/// `weldreach` app-access gate.
+fn reach(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("reach") {
+        return router;
+    }
+    router.nest(
+        "/reach",
+        weldsuite_reach::router(reach_state(state), &state.permissions),
+    )
+}
+
+/// Mailpool's webhook (`/public/reach/webhooks/mailpool`), ahead of the
+/// session; served with the reach module. Conformance builds open the
+/// test's tenant database for every workspace.
+fn reach_public(state: &AppState) -> Router<AppState> {
+    if !mounts("reach") {
+        return Router::new();
+    }
+    let router = weldsuite_reach::public_router(reach_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldReach's handle on the app: events, the master database (app access,
+/// routes, the warmup pool, the due index), Mailpool and DNS-over-HTTPS,
+/// the files (raw replies), the field keys and the workspaces' tenant
+/// databases. Conformance builds take the test's per request.
+fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
+    let conformance = cfg!(feature = "conformance");
+    let master = state.workspaces.master().clone();
+    weldsuite_reach::ReachState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| master.clone()),
+        http: if conformance { None } else { shared_outbound() },
+        files: if conformance { None } else { file_stores(state) },
+        keyring: weldsuite_db::Keyring {
+            v1: std::env::var("DATABASE_ENCRYPTION_KEY").ok().filter(|k| !k.is_empty()),
+            v2: std::env::var("DATABASE_ENCRYPTION_KEY_V2").ok().filter(|k| !k.is_empty()),
+        },
+        smtp: None,
+        access_gate: (!conformance).then(|| {
+            Arc::new(weldsuite_pipeline::AppAccessGate::new(
+                master,
+                weldsuite_reach::weldsuite_reach_domain::schemas::WELDREACH_APP_CODE,
+            ))
+        }),
+        tenants: Some(tenant_databases(state)),
+    }
 }
 
 /// WeldData (`weldsuite-data`): data-api's `/api/welddata`,
@@ -929,6 +985,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
         .merge(social_public(state))
+        .merge(reach_public(state))
         .merge(books::public(state))
         .merge(commerce_public(state));
     if mounts("mail") {
