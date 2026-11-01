@@ -8,14 +8,14 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resetReachTenant } from '../../lib/mailpool/testing-db';
-import { approvedAccess, withAppAccess } from '../../lib/mailpool/testing-routes';
+import { approvedAccess } from '../../lib/mailpool/testing-routes';
 import { default as settingsRoutes } from './index';
 
 let db: Database;
 
 function api(keys: string[]) {
-  return createTestApp('/api/reach/settings', withAppAccess(settingsRoutes, approvedAccess()), {
-    context: { permissions: permissions(...keys), tenantDb: db },
+  return createTestApp('/api/reach/settings', settingsRoutes, {
+    context: { permissions: permissions(...keys), tenantDb: db, appAccess: approvedAccess() },
   }).request;
 }
 const patch = (body: unknown): RequestInit => ({ method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

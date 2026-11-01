@@ -2216,6 +2216,33 @@
         "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "reach",
+      "module": "reach",
+      "workspace": "apps/workers/reach-api",
+      "tests": [
+        "src/routes/access/integration.test.ts",
+        "src/routes/settings/integration.test.ts",
+        "src/routes/billing/integration.test.ts",
+        "src/routes/overview/index.test.ts",
+        "src/routes/prospects/index.test.ts",
+        "src/routes/lists/index.test.ts",
+        "src/routes/campaigns/index.test.ts",
+        "src/routes/suppressions/index.test.ts",
+        "src/routes/inbox/inbox.test.ts",
+        "src/routes/domains/conformance.test.ts",
+        "src/routes/mailboxes/conformance.test.ts",
+        "src/routes/public-webhooks/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/reach-api/src/",
+        "packages/domains/reach/src/",
+        "packages/clients/app-api-client/src/schemas/reach.ts",
+        "packages/clients/app-api-client/src/schemas/reach-responses.ts",
+        "rust/modules/reach/",
+        "rust/crates/reach-domain/"
+      ]
     }
   ]
 }

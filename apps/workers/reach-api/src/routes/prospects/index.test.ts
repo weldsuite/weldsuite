@@ -19,15 +19,33 @@ import {
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 const dns = vi.hoisted(() => ({ lookupRecord: vi.fn() }));
-vi.mock('@weldsuite/worker-kit/dns-lookup', () => ({ lookupRecord: (...args: unknown[]) => dns.lookupRecord(...args) }));
+// The MX lookups answer over a fetch stub of the DoH resolver, so Rust's
+// lookups (through the conformance harness's outbound bridge) get the same
+// answers. `dns.lookupRecord` decides them; every other URL goes to the real fetch.
+const realFetch = globalThis.fetch;
+const dohStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (!url.startsWith('https://cloudflare-dns.com/dns-query')) return realFetch(input, init);
+  const query = new URL(url).searchParams;
+  const name = query.get('name') ?? '';
+  const type = query.get('type') ?? '';
+  try {
+    const records = (await dns.lookupRecord(name, type)) as Array<{ value: string }>;
+    return dohResponse(name, type, records.map((r) => r.value));
+  } catch {
+    return new Response('resolver down', { status: 503 });
+  }
+});
 
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { MAX_IMPORT_EVENTS } from '@weldsuite/reach-domain/prospects';
 import prospectRoutes from './index';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { dohResponse } from '../../lib/mailpool/testing-routes';
 import { reachApp, asJson, readJson } from '../../test-support/routes';
 import { resetReach, seedCampaign, seedEnrollment, seedMailbox, seedProspect } from '../../test-support/reach';
 import type { ReachImportReport, ReachProspect } from '@weldsuite/app-api-client/schemas/reach';
@@ -56,6 +74,7 @@ beforeEach(async () => {
   await db.delete(welddataLists);
   publish.mockClear();
   dns.lookupRecord.mockReset();
+  vi.stubGlobal('fetch', dohStub);
   dns.lookupRecord.mockImplementation(async (domain: string) => (MX_LESS.has(domain) ? [] : [{ name: domain, type: 'MX', value: 'mx.' + domain, ttl: 60, priority: 10 }]));
 });
 
@@ -163,7 +182,8 @@ describe('POST /import', () => {
       ...Array.from({ length: 30 }, (_, i) => ({ email: `person@company${i}.io` })),
     ];
     await importRows(rows);
-    expect(dns.lookupRecord).toHaveBeenCalledTimes(31);
+    // Conformance mode runs the import on both backends.
+    expect(dns.lookupRecord).toHaveBeenCalledTimes(conformanceTarget() ? 62 : 31);
     expect(peak).toBeLessThanOrEqual(8);
     expect(peak).toBeGreaterThan(1);
   });

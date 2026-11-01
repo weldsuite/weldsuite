@@ -6,7 +6,6 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -28,10 +27,11 @@ import type { Env, Variables } from '../../types';
 import { FakeR2Bucket, resetTables, seedCampaign, seedEnrollment, seedInbound, seedMailbox, seedOutbound, seedProspect } from '../../email/test-support';
 import { loadFixture } from '../../email/__fixtures__/load';
 import inboxRoutes from './index';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 
 vi.mock('@weldsuite/entity-events', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/entity-events')>();
-  return { ...actual, publishEntityEvent: vi.fn(), publishEntityEventRaw: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent), publishEntityEventRaw: vi.fn() };
 });
 import { publishEntityEvent } from '@weldsuite/entity-events';
 const publish = vi.mocked(publishEntityEvent);
@@ -50,15 +50,10 @@ let access: AppAccess;
 let sendingFlag: boolean;
 
 function app(perms: string[] = ALL) {
-  // The access gate runs in front of /api/reach/*; the harness has no gate, so stand in for it.
-  const router = new Hono<{ Bindings: Env; Variables: Variables }>();
-  router.use('*', async (c, next) => {
-    c.set('appAccess', access);
-    await next();
-  });
-  router.route('/', inboxRoutes);
-  return createTestApp<Env, Variables>(BASE, router, {
+  // The access gate runs in front of /api/reach/*; the harness has no gate, so the test hands in what it sets.
+  return createTestApp<Env, Variables>(BASE, inboxRoutes, {
     context: {
+      appAccess: access,
       permissions: permissions(...perms),
       tenantDb: db,
       flags: { isOn: async () => sendingFlag } as never,
@@ -316,7 +311,8 @@ describe('POST /threads/:threadKey/reply', () => {
     }));
   });
 
-  it('sends from the mailbox that got the reply, threaded under it', async () => {
+  // A stand-in for `sendFromMailbox` (a module mock): TypeScript only.
+  it.skipIf(conformanceTarget())('sends from the mailbox that got the reply, threaded under it', async () => {
     const res = await post('out-d@getacme.com');
     expect(res.status).toBe(201);
     const { data } = await json<{ data: ReachMessageDto }>(res);
@@ -347,7 +343,8 @@ describe('POST /threads/:threadKey/reply', () => {
     for (const row of rows.filter((r) => r.direction === 'in')) expect(row.readAt).not.toBeNull();
   });
 
-  it('answers the sender of the latest reply, which may not be the prospect', async () => {
+  // A stand-in for `sendFromMailbox` (a module mock): TypeScript only.
+  it.skipIf(conformanceTarget())('answers the sender of the latest reply, which may not be the prospect', async () => {
     await seedInbound(db, {
       messageIdHeader: 'in-d3@colleague.example', threadKey: 'out-d@getacme.com', mailboxId: fx.mbx2.id, prospectId: fx.tom.id,
       fromEmail: 'eva@redwood.eu', receivedAt: at('16:00'),
@@ -358,7 +355,8 @@ describe('POST /threads/:threadKey/reply', () => {
     expect(input.inReplyTo).toBe('in-d3@colleague.example');
   });
 
-  it('answers 502 with the reason when the email could not be sent', async () => {
+  // A stand-in for `sendFromMailbox` (a module mock): TypeScript only.
+  it.skipIf(conformanceTarget())('answers 502 with the reason when the email could not be sent', async () => {
     send.sendFromMailbox.mockResolvedValue({ ok: false, message: null, permanent: true, recipientRejected: false, authFailed: true, error: 'auth: 535 authentication failed' });
     const res = await post('out-d@getacme.com');
     expect(res.status).toBe(502);
@@ -368,7 +366,8 @@ describe('POST /threads/:threadKey/reply', () => {
     expect(row!.readAt).toBeNull();
   });
 
-  it('answers 502 when sending throws', async () => {
+  // A stand-in for `sendFromMailbox` (a module mock): TypeScript only.
+  it.skipIf(conformanceTarget())('answers 502 when sending throws', async () => {
     send.sendFromMailbox.mockRejectedValue(new Error('sockets unavailable'));
     expect((await post('out-d@getacme.com')).status).toBe(502);
   });

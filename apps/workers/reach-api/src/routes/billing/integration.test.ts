@@ -6,9 +6,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { BILLING_WORKER_PRODUCTION_URL } from '@weldsuite/worker-kit/billing-worker';
 import { createReachBilling, PaymentMethodRequiredError, ReachBillingError } from '../../lib/billing';
-import { approvedAccess, withAppAccess } from '../../lib/mailpool/testing-routes';
+import { approvedAccess } from '../../lib/mailpool/testing-routes';
 import { default as billingRoutes } from './index';
 
 const summary = {
@@ -21,17 +22,27 @@ const summary = {
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
+const realFetch = globalThis.fetch;
+
+/** The calls that reached billing-worker (TypeScript's come first in conformance mode). */
+const billingCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url instanceof URL ? url.href : typeof url === 'string' ? url : (url as Request).url).startsWith(BILLING_WORKER_PRODUCTION_URL));
 
 function api(keys: string[]) {
-  return createTestApp('/api/reach/billing', withAppAccess(billingRoutes, approvedAccess()), {
-    context: { permissions: permissions(...keys) },
+  return createTestApp('/api/reach/billing', billingRoutes, {
+    context: { permissions: permissions(...keys), appAccess: approvedAccess() },
     // Production resolves the HTTPS billing-worker URL, the only one the caller's token is forwarded to.
     env: { ENVIRONMENT: 'production' } as never,
   }).request;
 }
 
 beforeEach(() => {
-  fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: summary }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  // billing-worker's answers; every other URL (the conformance harness's own calls) goes to the real fetch.
+  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith(BILLING_WORKER_PRODUCTION_URL)) return realFetch(input, init);
+    return new Response(JSON.stringify({ data: summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  });
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
@@ -46,7 +57,7 @@ describe('GET /api/reach/billing', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: summary });
-    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = billingCalls()[0]! as [string, RequestInit];
     expect(url).toBe(`${BILLING_WORKER_PRODUCTION_URL}/api/billing/reach/status`);
     expect(init.method).toBe('GET');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer clerk_jwt');
@@ -54,10 +65,11 @@ describe('GET /api/reach/billing', () => {
 
   it('needs reach_settings:read', async () => {
     expect((await api(['reach_mailboxes:read'])('/api/reach/billing', authed)).status).toBe(403);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(billingCalls()).toHaveLength(0);
   });
 
-  it('answers 502 without leaking billing-worker\'s details when it fails', async () => {
+  // Answers by call order (mockResolvedValueOnce): TypeScript only.
+  it.skipIf(conformanceTarget())('answers 502 without leaking billing-worker\'s details when it fails', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'STRIPE_DOWN', message: 'stripe key sk_live_abc invalid' } }), { status: 500 }));
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -67,7 +79,8 @@ describe('GET /api/reach/billing', () => {
     error.mockRestore();
   });
 
-  it('answers 502 when billing-worker cannot be reached', async () => {
+  // Answers by call order (mockResolvedValueOnce): TypeScript only.
+  it.skipIf(conformanceTarget())('answers 502 when billing-worker cannot be reached', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect((await api(['reach_settings:read'])('/api/reach/billing', authed)).status).toBe(502);
@@ -78,7 +91,8 @@ describe('GET /api/reach/billing', () => {
 describe('POST /api/reach/billing/setup', () => {
   const body = { successUrl: 'https://app.weldsuite.org/weldreach/setup?ok=1', cancelUrl: 'https://app.weldsuite.org/weldreach/setup' };
 
-  it('starts a setup-mode Checkout through billing-worker', async () => {
+  // Answers by call order (mockResolvedValueOnce): TypeScript only.
+  it.skipIf(conformanceTarget())('starts a setup-mode Checkout through billing-worker', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { url: 'https://checkout.stripe.com/c/pay/cs_test' } }), { status: 200 }));
 
     const res = await api(['reach_mailboxes:create'])('/api/reach/billing/setup', { method: 'POST', body: JSON.stringify(body), ...authed });
@@ -97,14 +111,15 @@ describe('POST /api/reach/billing/setup', () => {
 
     expect((await post(['reach_mailboxes:create'], { successUrl: 'nope', cancelUrl: 'x' })).status).toBe(400);
     expect((await post(['reach_settings:read'], body)).status).toBe(403);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(billingCalls()).toHaveLength(0);
   });
 });
 
 describe('createReachBilling', () => {
   const ctx = { env: { ENVIRONMENT: 'production' }, req: { header: () => 'Bearer clerk_jwt' } };
 
-  it('adjusts the inbox quantity by mailbox', async () => {
+  // Answers by call order (mockResolvedValueOnce): TypeScript only.
+  it.skipIf(conformanceTarget())('adjusts the inbox quantity by mailbox', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { quantity: 4 } }), { status: 200 }));
     const result = await createReachBilling(ctx).adjustInboxes(1, 'rmbx_1');
 
@@ -114,7 +129,8 @@ describe('createReachBilling', () => {
     expect(JSON.parse(init.body as string)).toEqual({ delta: 1, mailboxId: 'rmbx_1' });
   });
 
-  it('turns a 402 PAYMENT_METHOD_REQUIRED into its own error, and other failures into ReachBillingError', async () => {
+  // Answers by call order (mockResolvedValueOnce): TypeScript only.
+  it.skipIf(conformanceTarget())('turns a 402 PAYMENT_METHOD_REQUIRED into its own error, and other failures into ReachBillingError', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'PAYMENT_METHOD_REQUIRED' } }), { status: 402 }));
     await expect(createReachBilling(ctx).adjustInboxes(1, 'rmbx_1')).rejects.toBeInstanceOf(PaymentMethodRequiredError);
 

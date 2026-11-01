@@ -5,7 +5,7 @@
 
 import { createHmac } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Hono } from 'hono';
+import { createTestApp } from '@weldsuite/worker-kit/testing';
 import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
@@ -14,17 +14,25 @@ import type { Env, Variables } from '../../types';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEventRaw: vi.fn(async () => {}) };
+  return { ...actual, publishEntityEventRaw: vi.fn(actual.publishEntityEventRaw) };
 });
 
 let masterDb: MasterDatabase;
 vi.mock('@weldsuite/worker-kit/db', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/worker-kit/db')>('@weldsuite/worker-kit/db');
-  return { ...actual, getMasterDb: () => masterDb };
+  const { conformanceMasterDb } = await vi.importActual<typeof import('@weldsuite/worker-kit/testing/conformance')>(
+    '@weldsuite/worker-kit/testing/conformance',
+  );
+  return { ...actual, getMasterDb: () => conformanceMasterDb(masterDb as never) };
 });
 
 let tenantDb: Database;
-const openTenantDb = vi.fn(async () => tenantDb);
+const openTenantDb = vi.fn(async () => {
+  const { conformanceTenantDb } = await vi.importActual<typeof import('@weldsuite/worker-kit/testing/conformance')>(
+    '@weldsuite/worker-kit/testing/conformance',
+  );
+  return conformanceTenantDb(tenantDb);
+});
 vi.mock('../../lib/tenant', () => ({ openTenantDb: (...args: unknown[]) => (openTenantDb as (...a: unknown[]) => unknown)(...args) }));
 
 // Imported AFTER the mocks above are registered.
@@ -33,15 +41,13 @@ const { default: webhookRoutes } = await import('./index');
 const SECRET = 'whsec_route_test';
 const sign = (secret: string, payload: unknown) => createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-app.route('/public/reach/webhooks', webhookRoutes);
 
 function post(body: string, headers: Record<string, string> = {}, env: Partial<Env> = { MAILPOOL_WEBHOOK_SECRET: SECRET }) {
-  return app.request(
-    '/public/reach/webhooks/mailpool',
-    { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body },
-    { ENVIRONMENT: 'test', ...env } as never,
-  );
+  // The harness's app, so conformance mode runs the delivery on both backends.
+  return createTestApp<Env, Variables>('/public/reach/webhooks', webhookRoutes, {
+    context: { tenantDb, masterDb: masterDb as unknown as Database, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
+    env: { ENVIRONMENT: 'test', ...env } as never,
+  }).request('/public/reach/webhooks/mailpool', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
 }
 
 const payload = { event: 'mailboxes.updated', data: { id: 341, status: 'inactive', error: { code: 401, message: 'Account disabled for spam.' } } };

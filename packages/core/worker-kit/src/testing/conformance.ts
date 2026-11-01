@@ -227,6 +227,13 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
+  // WeldReach: Mailpool (the API key and base URL, the webhook secret), the
+  // warmup network's key and the domain forwarded replies arrive on.
+  'MAILPOOL_API_KEY',
+  'MAILPOOL_API_URL',
+  'MAILPOOL_WEBHOOK_SECRET',
+  'WELDREACH_WARMUP_KEY',
+  'REACH_INBOUND_DOMAIN',
 ] as const;
 
 /**
@@ -289,6 +296,8 @@ interface ConformanceContext {
   permissions?: unknown;
   /** The test's flag evaluator (`context.flags`), if any. */
   flags?: unknown;
+  /** `c.get('appAccess')` of an on-request app (`context.appAccess`), if any. */
+  appAccess?: unknown;
 }
 
 // ── side effects ────────────────────────────────────────────────────────────
@@ -967,6 +976,7 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     tenantDatabaseUrls: await tenantDatabaseUrls(ctx.tenantDbs),
     permissions: ctx.permissions,
     flags: await flagValues(ctx.flags),
+    appAccess: ctx.appAccess ?? null,
     env: forwardedEnv(env),
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),

@@ -207,6 +207,9 @@ struct TestContext {
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
+    /// `c.get('appAccess')` of an on-request app (`context.appAccess`).
+    #[serde(default)]
+    app_access: Option<Value>,
     #[serde(default)]
     env: HashMap<String, String>,
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
@@ -476,6 +479,9 @@ pub(crate) async fn auth(
             },
         ));
     }
+    if let Some(access) = context.app_access.as_ref().filter(|a| a.is_object()) {
+        extensions.insert(app_access_of(access));
+    }
     extensions.insert(Tenant {
         workspace_id: context.workspace_id,
         clerk_org_id: context.clerk_org_id,
@@ -504,6 +510,18 @@ async fn run_reporting_route(request: Request, next: Next) -> Response {
         response.headers_mut().insert(ROUTE_HEADER, value);
     }
     response
+}
+
+/// The test's `appAccess` as the app-access gate would set it.
+fn app_access_of(access: &Value) -> weldsuite_pipeline::AppAccess {
+    let text = |key: &str| access.get(key).and_then(Value::as_str).map(str::to_owned);
+    weldsuite_pipeline::AppAccess {
+        workspace_id: text("workspaceId"),
+        status: text("status").unwrap_or_else(|| "none".to_owned()),
+        limits: access.get("limits").filter(|l| !l.is_null()).cloned().unwrap_or_else(|| serde_json::json!({})),
+        billing_status: text("billingStatus").unwrap_or_else(|| "none".to_owned()),
+        billing_status_at: text("billingStatusAt"),
+    }
 }
 
 /// Middleware for the routes that run before authentication (the upload

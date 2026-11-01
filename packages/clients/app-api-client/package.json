@@ -26,6 +26,7 @@
     "./schemas/welddata": "./src/schemas/welddata.ts",
     "./schemas/weldads": "./src/schemas/weldads.ts",
     "./schemas/social-responses": "./src/schemas/social-responses.ts",
+    "./schemas/reach-responses": "./src/schemas/reach-responses.ts",
     "./schemas/welddata-responses": "./src/schemas/welddata-responses.ts",
     "./schemas/warehouse-zones": "./src/schemas/warehouse-zones.ts",
     "./schemas/warehouse-locations": "./src/schemas/warehouse-locations.ts",

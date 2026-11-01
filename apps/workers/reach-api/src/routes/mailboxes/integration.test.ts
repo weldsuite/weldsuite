@@ -22,11 +22,11 @@ import {
   seedPoolMailbox,
   seedReachDomain,
 } from '../../lib/mailpool/testing-db';
-import { approvedAccess, withAppAccess } from '../../lib/mailpool/testing-routes';
+import { approvedAccess } from '../../lib/mailpool/testing-routes';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 import { publishEntityEvent } from '@weldsuite/entity-events';
 const published = publishEntityEvent as unknown as ReturnType<typeof vi.fn>;
@@ -57,8 +57,8 @@ let db: Database;
 const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete'];
 
 function api(keys: string[] = ALL, access = approvedAccess(), env: Record<string, string> = {}) {
-  return createTestApp('/api/reach/mailboxes', withAppAccess(mailboxRoutes, access), {
-    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
+  return createTestApp('/api/reach/mailboxes', mailboxRoutes, {
+    context: { appAccess: access, permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
     env: {
       REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com',
       DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32),
