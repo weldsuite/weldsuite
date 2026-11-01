@@ -307,7 +307,7 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | |
 | `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | |
 | `vendor_tax` | `vendor-tax-data`, `w9-requests` (tokens) | purchases, reports (1099), tax (fiscal webhooks) | purchases | |
-| `bank_accounts` | `accounting-bank-accounts` | banking, purchases (payment runs) | banking | |
+| `bank_accounts` | `accounting-bank-accounts` (+ `bank-feeds/ledger`) | banking, purchases (payment runs) | banking | done: `is_valid_aba_routing`, `normalize_account_number`, `public_bank_account`, `seal_account_number`, `reveal_account_number` (`BankAccountError::Posting` is the routes' 400, `NoKey` their 500 with `NO_KEY_MESSAGE`), `assert_ledger_account_fits`, `plan_bank_ledger_account`, `create_ledger_account_for_bank`; real-schema test `tests/bank_accounts.rs` |
 | `reports_basis` | `accounting-reports-basis`, `accounting-report-periods` | reports | reports | |
 | `invoice_html` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | |
 
