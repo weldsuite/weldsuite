@@ -154,7 +154,17 @@ describe('submitting the form', () => {
 
     const big = await publicCall(token, 'POST', { ...goodForm, businessName: 'x'.repeat(W9_MAX_BODY_BYTES) });
     expect(big.status).toBe(413);
-    const declared = await publicCall(token, 'POST', goodForm, { 'Content-Length': String(W9_MAX_BODY_BYTES + 1) });
+    // A declared length the body doesn't have can't cross a real HTTP hop (the
+    // conformance harness's), so this one asks the TypeScript routes directly.
+    const declared = await publicRoutes.request(
+      `/${token}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': String(W9_MAX_BODY_BYTES + 1) },
+        body: JSON.stringify(goodForm),
+      },
+      env as unknown as Record<string, unknown>,
+    );
     expect(declared.status).toBe(413);
 
     expect((await publicCall(token, 'POST', '{not json')).status).toBe(400);

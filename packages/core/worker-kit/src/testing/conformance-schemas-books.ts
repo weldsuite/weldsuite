@@ -38,6 +38,7 @@ import {
 import type { RouteSchema } from './conformance-schemas';
 import { BOOKS_BANKING_ROUTES } from './conformance-schemas-books-banking';
 import { BOOKS_SALES_ROUTES } from './conformance-schemas-books-sales';
+import { BOOKS_PURCHASES_ROUTES } from './conformance-schemas-books-purchases';
 
 /** The ledger: entities, settings, GL accounts, journal entries, fiscal periods, tax rates, FX rates, dimensions. */
 const BOOKS_LEDGER_ROUTES: RouteSchema[] = [

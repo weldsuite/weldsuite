@@ -76,6 +76,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
+    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`)
+    // reads the file with a model on Workers AI; the route keeps its refusals
+    // and answers 503 where it would call the model.
+    "books-ocr",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
