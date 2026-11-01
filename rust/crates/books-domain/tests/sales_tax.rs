@@ -130,6 +130,8 @@ async fn us_documents_are_taxed_by_the_manual_engine() {
             json!({ "line1": "1 Congress Ave", "city": "Austin", "state": "TX", "postalCode": "78701" }),
         ),
     };
+    // Unique line ids: the database outlives a run.
+    let line1 = generate_id("ii");
     let austin =
         json!({ "line1": "2 Main St", "city": "Austin", "state": "TX", "postalCode": "78701" });
 
@@ -138,7 +140,7 @@ async fn us_documents_are_taxed_by_the_manual_engine() {
         &db,
         &entity,
         &doc(DocumentKind::Invoice, None, austin.clone()),
-        &[item("ii_1", "100"), item("ii_2", "33.33")],
+        &[item(&line1, "100"), item(&generate_id("ii"), "33.33")],
         None,
     )
     .await
@@ -241,10 +243,11 @@ async fn us_documents_are_taxed_by_the_manual_engine() {
     .expect("invoice");
     sqlx::query(
         "insert into invoice_items (id, entity_id, invoice_id, description, quantity, unit_price, sort_order) \
-         values ('ii_1', $1, $2, 'Widget', 1, 100, 0)",
+         values ($3, $1, $2, 'Widget', 1, 100, 0)",
     )
     .bind(&entity_id)
     .bind(&invoice_id)
+    .bind(&line1)
     .execute(&db)
     .await
     .expect("invoice item");
