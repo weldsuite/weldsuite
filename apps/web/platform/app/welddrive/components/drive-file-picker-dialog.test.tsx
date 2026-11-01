@@ -23,7 +23,7 @@ vi.mock('@/hooks/queries/use-drive-queries', () => ({
     // As app-api answers: a folder's files, only the top level for `folderId: ''`, else everything.
     let files = state.files;
     if (params.folderId) files = state.folderFiles;
-    else if (params.folderId === '') files = state.files.filter((f) => !f.folderId);
+    else if (params.folderId === '') files = state.files.filter((f) => !(f as UnifiedFile).folderId);
     return {
       data: state.isLoading || state.isError ? undefined : { success: true, data: files, pagination: { hasMore: state.hasMore } },
       isLoading: state.isLoading,
