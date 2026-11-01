@@ -2059,6 +2059,81 @@
       ]
     },
     {
+      "name": "books: banking",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/bank-accounts/bank-accounts.integration.test.ts",
+        "src/routes/reconciliation-rules/reconciliation-rules.integration.test.ts",
+        "src/routes/bank-transactions/integration.test.ts",
+        "src/routes/bank-transactions/matching.integration.test.ts",
+        "src/routes/bank-deposits/bank-deposits.integration.test.ts",
+        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/bank-accounts/",
+        "apps/workers/books-api/src/routes/bank-transactions/",
+        "apps/workers/books-api/src/routes/bank-connections/",
+        "apps/workers/books-api/src/routes/bank-deposits/",
+        "apps/workers/books-api/src/routes/bank-reconciliations/",
+        "apps/workers/books-api/src/routes/reconciliation-rules/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/core/bank-feeds/src/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-banking-responses.ts",
+        "packages/clients/core-api-client/src/schemas/bank-transactions.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-banking.ts",
+        "rust/modules/books-banking/",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
+      "name": "books: purchases",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/accounting-contacts/integration.test.ts",
+        "src/routes/accounting-contacts/company-or-person.integration.test.ts",
+        "src/routes/accounting-contacts/delete-archive.integration.test.ts",
+        "src/routes/accounting-contacts/identifier-formats.integration.test.ts",
+        "src/routes/accounting-contacts/identity.integration.test.ts",
+        "src/routes/accounting-contacts/person-email.integration.test.ts",
+        "src/routes/accounting-contacts/vendor-tax.integration.test.ts",
+        "src/routes/accounting-contacts/documents-balance.integration.test.ts",
+        "src/routes/w9-requests/w9-requests.integration.test.ts",
+        "src/routes/public-w9/public-w9.integration.test.ts",
+        "src/routes/accounting-documents/file-key-scope.integration.test.ts",
+        "src/routes/accounting-documents/tax-form-ocr.integration.test.ts",
+        "src/routes/accounting-documents/inbox.integration.test.ts",
+        "src/routes/bills/integration.test.ts",
+        "src/routes/bills/lifecycle.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/bills/",
+        "apps/workers/books-api/src/routes/accounting-contacts/",
+        "apps/workers/books-api/src/routes/accounting-documents/",
+        "apps/workers/books-api/src/routes/w9-requests/",
+        "apps/workers/books-api/src/routes/public-w9/",
+        "apps/workers/books-api/src/routes/payment-runs/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/domains/crm/src/",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-purchases.ts",
+        "packages/clients/app-api-client/src/schemas/books-purchases-responses.ts",
+        "rust/modules/books-purchases/",
+        "rust/crates/books-domain/",
+        "rust/crates/crm-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/accounting-documents/:id/process",
+          "reason": "Reads the document with a model on Workers AI (@weldsuite/ai); the Kubernetes editions have no AI port. Rust answers the refusals (401, 404, a tax form) as TypeScript does and 503 where it would call the model; /config.json lists books-ocr as unavailable and the platform leaves uploads pending for manual booking."
+        }
+      ]
+    },
+    {
       "name": "books: sales",
       "module": "books",
       "workspace": "apps/workers/books-api",

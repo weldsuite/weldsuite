@@ -97,13 +97,15 @@ fn gst_split_missing(invoice: &Value) -> bool {
 /// refusal.
 async fn enforce_compliance(
     db: &PgPool,
+    http: Option<&OutboundHttp>,
     invoice: &Value,
     gst: Option<&GstSupply>,
 ) -> Result<Vec<String>, SalesError> {
     let entity = load_entity(db, text(invoice, "entityId").unwrap_or_default()).await?;
     let id = text(invoice, "id").unwrap_or_default();
     let categories = collect_invoice_tax_categories(db, id).await?;
-    let mut compliance = validate_invoice_for_finalize(db, &entity, invoice, &categories).await?;
+    let mut compliance =
+        validate_invoice_for_finalize(db, http, &entity, invoice, &categories).await?;
     if gst.is_some() && text(invoice, "type") != Some("credit_note") && gst_split_missing(invoice) {
         compliance.errors.push("GST is charged but the place of supply is unknown, so it can't be split into CGST + SGST or IGST. Choose the place of supply on the invoice (or add the customer's GSTIN or address state) before finalizing.".to_owned());
     }
@@ -225,7 +227,7 @@ pub(crate) async fn finalize_invoice(
         items = refreshed.items;
     }
 
-    warnings.extend(enforce_compliance(db, &invoice, gst.as_ref()).await?);
+    warnings.extend(enforce_compliance(db, opts.http, &invoice, gst.as_ref()).await?);
 
     let snapshot = booking_snapshot(db, &invoice, gst.as_ref()).await?;
     let posted = post_invoice(
