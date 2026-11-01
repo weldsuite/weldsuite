@@ -217,6 +217,7 @@ fn period_ledger_rows(
 /// depreciation by month (or 4-4-5 period): what `fixed_asset_depreciation`
 /// holds and the monthly run posts. `disposal` overrides the asset's own
 /// disposal date (`Some(None)` clears it).
+#[allow(clippy::option_option)] // keep the asset's disposal date, clear it, or set one
 pub(crate) fn ledger_rows(
     asset: &Value,
     book: &Value,

@@ -17,6 +17,7 @@ use crate::js::number_value;
 use crate::vendor_tax::is_corporation_classification;
 
 /// `Compute1099Vendor`.
+#[allow(clippy::struct_excessive_bools)] // the vendor facts, as TypeScript
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Vendor {
     pub party_id: String,
@@ -380,6 +381,27 @@ fn exclusion_for(
     None
 }
 
+/// The accumulator of a vendor, added on first use.
+fn acc_index(accumulators: &mut Vec<Accumulator>, vendor: &Vendor) -> usize {
+    if let Some(index) = accumulators
+        .iter()
+        .position(|a| a.vendor.party_id == vendor.party_id)
+    {
+        return index;
+    }
+    accumulators.push(Accumulator {
+        vendor: vendor.clone(),
+        totals: Vec::new(),
+        contributions: Vec::new(),
+        exclusions: Vec::new(),
+        unmapped: Vec::new(),
+        adjustments: Vec::new(),
+        payment_ids: Vec::new(),
+        bank_transaction_ids: Vec::new(),
+    });
+    accumulators.len() - 1
+}
+
 /// `compute1099Totals(input)`; `None` for a tax year before 2020.
 #[allow(clippy::too_many_lines)] // payments, bank lines, adjustments, as TypeScript
 pub fn compute_1099_totals(input: &Input) -> Option<ComputeResult> {
@@ -403,25 +425,6 @@ pub fn compute_1099_totals(input: &Input) -> Option<ComputeResult> {
             vendor.default_form.as_deref(),
         )
     };
-    fn acc_index(accumulators: &mut Vec<Accumulator>, vendor: &Vendor) -> usize {
-        if let Some(index) = accumulators
-            .iter()
-            .position(|a| a.vendor.party_id == vendor.party_id)
-        {
-            return index;
-        }
-        accumulators.push(Accumulator {
-            vendor: vendor.clone(),
-            totals: Vec::new(),
-            contributions: Vec::new(),
-            exclusions: Vec::new(),
-            unmapped: Vec::new(),
-            adjustments: Vec::new(),
-            payment_ids: Vec::new(),
-            bank_transaction_ids: Vec::new(),
-        });
-        accumulators.len() - 1
-    }
 
     for payment in &input.payments {
         if !in_year(&payment.date) || payment.voided {

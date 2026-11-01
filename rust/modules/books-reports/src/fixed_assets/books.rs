@@ -136,6 +136,7 @@ fn default_bonus_percent(facts: &BookAssetFacts, recovery_years: f64) -> f64 {
 
 /// `normalizeBooks(inputs, facts)`: the books to store and the changes made
 /// on the way; a request that can't be stored is a 400.
+#[allow(clippy::too_many_lines)] // the rules, in the order TypeScript applies them
 pub(crate) fn normalize_books(
     inputs: &[BookInput],
     facts: &BookAssetFacts,
@@ -238,7 +239,10 @@ pub(crate) fn normalize_books(
         }
 
         let recovery_years = input.recovery_years;
-        if method != "expensed" && method != "none" && !(recovery_years > 0.0) {
+        if method != "expensed"
+            && method != "none"
+            && recovery_years.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        {
             return Err(bad("recoveryYears must be greater than zero"));
         }
         if macrs && input.book == "federal" && bonus_percent.is_none() {

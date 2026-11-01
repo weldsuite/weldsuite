@@ -721,8 +721,9 @@ async fn list_assets(caller: &Caller) -> Result<Response, Fail> {
 // Reports (before /:id)
 
 /// `q.taxYear ? parseInt : the fiscal year of today`, checked.
-async fn tax_year_of(caller: &Caller, entity: &Value) -> Result<i64, Fail> {
+fn tax_year_of(caller: &Caller, entity: &Value) -> Result<i64, Fail> {
     let q = caller.query();
+    #[allow(clippy::single_match_else)] // the asked year, or this fiscal year
     let year = match q.present("taxYear") {
         Some(raw) => parse_int(raw),
         None => {
@@ -778,7 +779,7 @@ async fn tax_depreciation(caller: Caller) -> Response {
             return Err(shared::bad("No accounting entity resolved"));
         };
         let entity = assets::load_entity(&caller.db, &entity_id).await?;
-        let tax_year = tax_year_of(&caller, &entity).await?;
+        let tax_year = tax_year_of(&caller, &entity)?;
         let q = caller.query();
         let book = q.present("book").unwrap_or("federal");
         if !matches!(book, "federal" | "state") {
@@ -804,7 +805,7 @@ async fn mid_quarter(caller: Caller) -> Response {
             return Err(shared::bad("No accounting entity resolved"));
         };
         let entity = assets::load_entity(&caller.db, &entity_id).await?;
-        let tax_year = tax_year_of(&caller, &entity).await?;
+        let tax_year = tax_year_of(&caller, &entity)?;
         Ok(ok(reports::mid_quarter_test_for(
             &caller.db, &entity_id, tax_year,
         )

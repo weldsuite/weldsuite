@@ -231,6 +231,7 @@ pub(crate) fn is_real_property_book(book: &Value) -> bool {
 
 /// `toDepreciationAsset(asset, { disposalDate }, book)`: the ledger book
 /// carries the whole cost; the tax books only the business share.
+#[allow(clippy::option_option)] // keep the asset's date, clear it, or set one
 pub(crate) fn to_depreciation_asset(
     asset: &Value,
     disposal_override: Option<Option<&str>>,

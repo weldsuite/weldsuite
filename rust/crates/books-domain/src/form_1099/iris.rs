@@ -346,7 +346,7 @@ pub fn split_person_name(full: &str) -> (String, String, String, String) {
         && let Some(last) = tokens.last()
         && SUFFIXES.contains(&last.to_uppercase().as_str())
     {
-        suffix = (*last).to_owned();
+        (*last).clone_into(&mut suffix);
         tokens.pop();
     }
     match tokens.len() {
@@ -643,7 +643,16 @@ pub fn validate_recipient(recipient: &Recipient, form: &str) -> Vec<String> {
     issues
 }
 
+/// The columns of a file (`(header, field)`), the template headers not
+/// recognised, and the fields the template has no column for.
+type Resolved = (
+    Vec<(String, Option<&'static str>)>,
+    Vec<String>,
+    Vec<&'static str>,
+);
+
 /// `generateIrisCsv({ taxYear, form, payer, recipients, templateHeaders })`.
+#[allow(clippy::too_many_lines)] // columns, payer, then each file, as TypeScript
 pub fn generate_iris_csv(
     tax_year: i64,
     form: &str,
@@ -655,51 +664,50 @@ pub fn generate_iris_csv(
         return Vec::new();
     }
     let built_in = columns_for(form);
-    let (columns, unmatched, missing): (Vec<(String, Option<&str>)>, Vec<String>, Vec<&str>) =
-        match template_headers.filter(|h| !h.is_empty()) {
-            None => (
-                built_in
-                    .iter()
-                    .map(|c| (c.header.to_owned(), Some(c.key)))
-                    .collect(),
-                Vec::new(),
-                Vec::new(),
-            ),
-            Some(headers) => {
-                let mut lookup: Vec<(String, &'static str)> = Vec::new();
-                for column in &built_in {
-                    lookup.push((normalize_header(column.header), column.key));
-                    for alias in column.aliases {
-                        lookup.push((normalize_header(alias), column.key));
-                    }
+    let (columns, unmatched, missing): Resolved = match template_headers.filter(|h| !h.is_empty()) {
+        None => (
+            built_in
+                .iter()
+                .map(|c| (c.header.to_owned(), Some(c.key)))
+                .collect(),
+            Vec::new(),
+            Vec::new(),
+        ),
+        Some(headers) => {
+            let mut lookup: Vec<(String, &'static str)> = Vec::new();
+            for column in &built_in {
+                lookup.push((normalize_header(column.header), column.key));
+                for alias in column.aliases {
+                    lookup.push((normalize_header(alias), column.key));
                 }
-                let mut used: Vec<&str> = Vec::new();
-                let mut unmatched = Vec::new();
-                let columns = headers
-                    .iter()
-                    .map(|header| {
-                        let normalized = normalize_header(header);
-                        // `Map.set` keeps the last value of a repeated key.
-                        let key = lookup
-                            .iter()
-                            .rev()
-                            .find(|(h, _)| *h == normalized)
-                            .map(|(_, k)| *k);
-                        match key {
-                            Some(key) => used.push(key),
-                            None => unmatched.push(header.clone()),
-                        }
-                        (header.clone(), key)
-                    })
-                    .collect();
-                let missing = built_in
-                    .iter()
-                    .map(|c| c.key)
-                    .filter(|k| !used.contains(k))
-                    .collect();
-                (columns, unmatched, missing)
             }
-        };
+            let mut used: Vec<&str> = Vec::new();
+            let mut unmatched = Vec::new();
+            let columns = headers
+                .iter()
+                .map(|header| {
+                    let normalized = normalize_header(header);
+                    // `Map.set` keeps the last value of a repeated key.
+                    let key = lookup
+                        .iter()
+                        .rev()
+                        .find(|(h, _)| *h == normalized)
+                        .map(|(_, k)| *k);
+                    match key {
+                        Some(key) => used.push(key),
+                        None => unmatched.push(header.clone()),
+                    }
+                    (header.clone(), key)
+                })
+                .collect();
+            let missing = built_in
+                .iter()
+                .map(|c| c.key)
+                .filter(|k| !used.contains(k))
+                .collect();
+            (columns, unmatched, missing)
+        }
+    };
     let mut base_warnings: Vec<String> = unmatched
         .iter()
         .map(|h| format!("Template column \"{h}\" is not recognised and stays empty."))

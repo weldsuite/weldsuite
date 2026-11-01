@@ -363,7 +363,7 @@ fn validate_amounts(cost: f64, salvage: f64, business_use: f64) -> Result<(), Fa
 // ---------------------------------------------------------------------------
 // Building rows
 
-fn book_row_from(asset: &Value, input: &NormalizedBook, id: String, at: &str) -> Value {
+fn book_row_from(asset: &Value, input: &NormalizedBook, id: &str, at: &str) -> Value {
     json!({
         "id": id,
         "createdAt": at,
@@ -705,7 +705,7 @@ pub(crate) async fn create_fixed_asset(
 
     let draft_books: Vec<Value> = normalized
         .iter()
-        .map(|book| book_row_from(&asset, book, generate_id("fab"), &at))
+        .map(|book| book_row_from(&asset, book, &generate_id("fab"), &at))
         .collect();
     let mut all = load_entity_book_rows(db, entity_id).await?;
     all.extend(draft_books.iter().map(|book| (asset.clone(), book.clone())));
@@ -1081,7 +1081,7 @@ pub(crate) async fn update_fixed_asset(
         issues = normalize_issues;
         let drafts: Vec<Value> = normalized
             .iter()
-            .map(|book| book_row_from(&updated, book, generate_id("fab"), &at))
+            .map(|book| book_row_from(&updated, book, &generate_id("fab"), &at))
             .collect();
         changes.insert(
             "books".to_owned(),

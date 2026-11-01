@@ -392,7 +392,11 @@ pub(crate) async fn dispose_fixed_asset(
         "accumulatedDepreciation": number_value(from_cents(accumulated_cents)),
         "netBookValue": number_value(from_cents(net_book_cents)),
         "gainOrLoss": number_value(gain_or_loss),
-        "result": if diff_cents > 0 { "gain" } else if diff_cents < 0 { "loss" } else { "none" },
+        "result": match diff_cents.cmp(&0) {
+            std::cmp::Ordering::Greater => "gain",
+            std::cmp::Ordering::Less => "loss",
+            std::cmp::Ordering::Equal => "none",
+        },
         "catchUp": catch_up.iter().map(PostedPeriod::json).collect::<Vec<_>>(),
         "disposalMonthDepreciation": number_value(from_cents(stub_cents)),
         "taxBooks": tax_books,

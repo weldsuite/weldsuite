@@ -80,15 +80,16 @@ const Q4_20: [f64; 21] = [
 /// `MACRS_HALF_YEAR[class]`: Table A-1; index 0 is the first recovery year.
 #[allow(clippy::float_cmp)] // the classes are exact
 pub fn macrs_half_year(class: f64) -> Option<&'static [f64]> {
-    Some(match class {
-        c if c == 3.0 => &HALF_YEAR_3,
-        c if c == 5.0 => &HALF_YEAR_5,
-        c if c == 7.0 => &HALF_YEAR_7,
-        c if c == 10.0 => &HALF_YEAR_10,
-        c if c == 15.0 => &HALF_YEAR_15,
-        c if c == 20.0 => &HALF_YEAR_20,
-        _ => return None,
-    })
+    let tables: [&'static [f64]; 6] = [
+        &HALF_YEAR_3,
+        &HALF_YEAR_5,
+        &HALF_YEAR_7,
+        &HALF_YEAR_10,
+        &HALF_YEAR_15,
+        &HALF_YEAR_20,
+    ];
+    let index = MACRS_TABLE_CLASSES.iter().position(|c| *c == class)?;
+    Some(tables[index])
 }
 
 /// `MACRS_MID_QUARTER[quarter][class]`: Tables A-2 to A-5.
@@ -322,8 +323,8 @@ const DE_MINIMIS_SAFE_HARBOR: [(&str, f64, f64); 1] = [("2016-01-01", 2_500.0, 5
 pub fn de_minimis_threshold(date: &str, has_afs: bool) -> Option<f64> {
     let current = DE_MINIMIS_SAFE_HARBOR
         .iter()
-        .filter(|(from, _, _)| *from <= date)
-        .next_back()?;
+        .rev()
+        .find(|(from, _, _)| *from <= date)?;
     Some(if has_afs { current.2 } else { current.1 })
 }
 

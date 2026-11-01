@@ -179,7 +179,7 @@ where
 }
 
 /// `parseYear(c)`: last year until March, then this year; else the asked one.
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // years
 fn parse_year(caller: &Caller) -> Result<i64, Fail> {
     let now = weldsuite_books_domain::js::iso_from_millis(caller.now_ms()).unwrap_or_default();
     let current: i64 = now.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(1970);
@@ -618,9 +618,8 @@ async fn refresh(
 }
 
 fn is_box_code(code: &str) -> bool {
-    let (form, number) = match code.split_once('_') {
-        Some(parts) => parts,
-        None => return false,
+    let Some((form, number)) = code.split_once('_') else {
+        return false;
     };
     matches!(form, "nec" | "misc")
         && (1..=2).contains(&number.len())

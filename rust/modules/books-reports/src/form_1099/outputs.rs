@@ -264,6 +264,7 @@ pub(crate) fn parse_template_headers(raw: Option<&Value>) -> Option<Vec<String>>
 }
 
 /// `buildIrisFiles(db, env, { entityId, filingId, userId, templateHeaders })`.
+#[allow(clippy::too_many_lines)] // the checks, the recipients, the reveal rows, the files
 pub(crate) async fn build_iris_files(
     db: &PgPool,
     keyring: &Keyring,
@@ -428,6 +429,7 @@ pub(crate) async fn build_copies(
     let entity = load_entity(db, entity_id).await?;
     let payer = load_payer(db, &entity, keyring, may_reveal, user_id, "form_1099_copy").await?;
     let mut warnings = payer.issues.clone();
+    #[allow(clippy::single_match_else)] // the masked TIN, with a warning for an SSN
     let payer_tin = match &payer.tin {
         Some(tin) => tin.clone(),
         None => {
@@ -563,13 +565,17 @@ pub(crate) async fn build_tin_matching(
     }))
 }
 
+/// A party as TIN matching reads it: id, name, TIN last four, backup withholding.
+type PartyMatch = (String, Option<String>, Option<String>, Option<bool>);
+
 /// `applyTinMatchingResults(db, text)`: the parties updated, and the
 /// problems. The parties whose status changed, in answer order.
+#[allow(clippy::too_many_lines)] // the answer, the updates, the report
 pub(crate) async fn apply_tin_matching_results(
     db: &PgPool,
     body: &str,
 ) -> Result<(Vec<String>, Value), Fail> {
-    let parties: Vec<(String, Option<String>, Option<String>, Option<bool>)> = sqlx::query_as(
+    let parties: Vec<PartyMatch> = sqlx::query_as(
         "select id, display_name, tin_last4, backup_withholding from parties where deleted_at is null",
     )
     .fetch_all(db)
@@ -579,8 +585,7 @@ pub(crate) async fn apply_tin_matching_results(
         .filter(|(_, _, last4, _)| last4.as_deref().is_some_and(|l| !l.is_empty()))
         .map(|(id, ..)| (tin_matching::account_number(id), id.clone()))
         .collect();
-    let by_id: HashMap<&str, &(String, Option<String>, Option<String>, Option<bool>)> =
-        parties.iter().map(|p| (p.0.as_str(), p)).collect();
+    let by_id: HashMap<&str, &PartyMatch> = parties.iter().map(|p| (p.0.as_str(), p)).collect();
     let (results, unreadable) = tin_matching::parse_results(body, |a| accounts.get(a).cloned());
 
     let mut latest: Vec<(String, &'static str)> = Vec::new();

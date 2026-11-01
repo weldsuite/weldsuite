@@ -192,6 +192,7 @@ pub(crate) async fn mid_quarter_test_for(
 // Register
 
 /// `fixedAssetRegister(db, args)`.
+#[allow(clippy::too_many_lines)] // the lines, the totals, as TypeScript
 pub(crate) async fn fixed_asset_register(
     db: &PgPool,
     entity_id: &str,

@@ -300,6 +300,7 @@ fn state_fields(input: &Input, codes: [&str; 3], y: f64, index: usize) -> Vec<Va
     ]
 }
 
+#[allow(clippy::too_many_lines)] // one field per box of the left column
 fn left_column(input: &Input) -> Vec<Value> {
     let mut payer_lines = vec![
         input.payer_name.clone(),
@@ -512,6 +513,7 @@ fn misc_fields(input: &Input) -> (Vec<Value>, f64) {
 }
 
 /// `form1099PdfCopies(input)`.
+#[allow(clippy::too_many_lines)] // the copies and their blocks, as TypeScript
 pub fn form_1099_pdf_copies(input: &Input) -> Vec<Value> {
     let copies: Vec<String> = input
         .copies

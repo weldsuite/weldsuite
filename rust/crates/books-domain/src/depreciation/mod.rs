@@ -342,6 +342,7 @@ struct Effective {
     straight_line: bool,
 }
 
+#[allow(clippy::too_many_lines)] // the rules, in the order TypeScript applies them
 fn resolve_book(
     asset: &DepreciationAsset,
     book: &DepreciationBook,
@@ -357,7 +358,7 @@ fn resolve_book(
     let macrs = is_macrs(&method);
     if macrs && requires_ads(asset.listed_property, asset.business_use_percent) {
         if method == "macrs_gds" {
-            method = "macrs_ads".to_owned();
+            "macrs_ads".clone_into(&mut method);
             if let Some(ads) = book.ads_recovery_years {
                 recovery_years = ads;
             } else {
@@ -543,6 +544,7 @@ fn gds_supported(years: f64) -> bool {
     [3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 27.5, 39.0].contains(&years)
 }
 
+#[allow(clippy::too_many_lines)] // the checks, in the order TypeScript makes them
 fn make_plan<'a>(
     asset: &DepreciationAsset,
     book: &DepreciationBook,

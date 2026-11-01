@@ -509,6 +509,7 @@ async fn recompute_lines(
         };
         let manual = is_manual_exclusion(line);
         let vendor = by_party(text(line, "partyId"));
+        #[allow(clippy::single_match_else)] // reportable, or excluded with the reason
         let fields = match vendor.filter(|v| is_reportable(v, form)) {
             Some(vendor) => {
                 let mut fields = line_fields(vendor, form, party);
@@ -621,6 +622,7 @@ pub(crate) async fn refresh_filing(
 }
 
 /// `LinePatch`: each field left out, `null`, or a value.
+#[allow(clippy::option_option)] // left out, `null`, or a value, as the body says
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LinePatch {
     /// `(box, amount, reason)`.
@@ -1049,6 +1051,7 @@ pub(crate) async fn mark_filed(
 
 /// `correctLine(db, env, entityId, filingId, lineId, input, userId)`: the new line's id.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // the checks, the deltas, the new line
 pub(crate) async fn correct_line(
     db: &PgPool,
     keyring: &Keyring,

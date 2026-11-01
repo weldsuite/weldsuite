@@ -553,6 +553,7 @@ pub(crate) fn build_summary(loaded: &Loaded, result: &ComputeResult) -> Value {
     for (name, row, vendor) in &rows {
         let status = vendor.status;
         if status == "not_1099_vendor" {
+            #[allow(clippy::cast_precision_loss)] // cents of real payments
             let total = sum2(vendor.totals.iter().map(|(_, c)| *c as f64 / 100.0));
             warnings.push(format!(
                 "{name} was paid {} in reportable boxes but is not marked as a 1099 vendor.",
@@ -772,6 +773,9 @@ pub(crate) async fn vendor_drill_down(
     })))
 }
 
+/// A payment with backup withholding: id, party, day, amount, check status.
+type Withheld = (String, String, String, Option<String>, Option<String>);
+
 /// `backupWithholdingFor945(db, entityId, taxYear)`.
 pub(crate) async fn backup_withholding_for_945(
     db: &PgPool,
@@ -779,7 +783,7 @@ pub(crate) async fn backup_withholding_for_945(
     tax_year: i64,
 ) -> Result<Value, Fail> {
     let (start, end) = year_bounds(tax_year);
-    let rows: Vec<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<Withheld> = sqlx::query_as(
         "select id, contact_id, to_char(date, 'YYYY-MM-DD'), backup_withholding_amount::text, check_status \
          from payments where entity_id = $1 and deleted_at is null and date >= $2::timestamp \
          and date < $3::timestamp and coalesce(backup_withholding_amount, 0) > 0",

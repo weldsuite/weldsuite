@@ -100,7 +100,11 @@ fn hash_ids(ids: &[String]) -> String {
     let mut sorted: Vec<&str> = ids.iter().map(String::as_str).collect();
     sorted.sort_unstable();
     let digest = Sha256::digest(sorted.join(",").as_bytes());
-    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+    digest.iter().take(8).fold(String::new(), |mut out, b| {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 /// `loadPendingRows(db, { entityId, through, assetId })`: unposted rows of
