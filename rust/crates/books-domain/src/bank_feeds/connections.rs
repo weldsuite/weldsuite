@@ -121,6 +121,7 @@ fn iso_of(row: &Value, key: &str) -> Value {
 }
 
 /// `connectionViews(ctx, rows, { suggestions })`.
+#[allow(clippy::too_many_lines)] // the worker's view, field by field
 pub async fn connection_views(
     ctx: &FeedContext,
     rows: &[Value],

@@ -1327,6 +1327,7 @@ impl Provider<'_> {
         Ok(Value::Object(out))
     }
 
+    #[allow(clippy::too_many_lines)] // the worker's steps, in its order
     async fn stripe_complete(
         &self,
         payload: &Value,

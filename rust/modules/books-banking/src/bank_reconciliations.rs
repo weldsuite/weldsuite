@@ -465,6 +465,7 @@ fn cleared_ids(rec: &Value) -> Vec<String> {
 
 /// `getReconciliationView(db, rec)`: the open lines up to the statement
 /// date (or the cleared ones), what is ticked, cleared balance, difference.
+#[allow(clippy::too_many_lines)] // the worker's view, step by step
 async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure> {
     let ledger = load_ledger(db, rec).await?;
     let liability = text(&ledger, "type") == Some("liability");

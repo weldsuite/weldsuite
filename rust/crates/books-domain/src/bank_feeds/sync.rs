@@ -898,7 +898,7 @@ async fn run_sync(
             {
                 Ok((count, _)) => outcome.auto_reconciled += count,
                 Err(error) => {
-                    tracing::warn!(account = %account_id, %error, "[bank-feeds] auto-reconcile skipped")
+                    tracing::warn!(account = %account_id, %error, "[bank-feeds] auto-reconcile skipped");
                 }
             }
         }

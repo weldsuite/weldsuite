@@ -102,4 +102,20 @@ describe('outbound bridge', () => {
       { method: 'PATCH', url: 'https://api.clerk.com/v1/organizations/org_1', body: { name: 'A' } },
     ]);
   });
+
+  it('orders calls to one URL alike whatever order their bodies keys were written in', () => {
+    const url = 'https://sandbox.plaid.com/transactions/sync';
+    // TypeScript writes keys in insertion order, Rust's serde_json sorted.
+    const typeScript = [
+      { method: 'POST', url, body: { client_id: 'c', access_token: 'a', count: 500 } },
+      { method: 'POST', url, body: { client_id: 'c', access_token: 'a', cursor: 'cur-1', count: 500 } },
+    ];
+    const rust = [
+      { method: 'POST', url, body: { access_token: 'a', client_id: 'c', count: 500, cursor: 'cur-1' } },
+      { method: 'POST', url, body: { access_token: 'a', client_id: 'c', count: 500 } },
+    ];
+    const cursors = (calls: typeof typeScript) =>
+      sortOutbound(calls).map((call) => (call.body as { cursor?: string }).cursor ?? null);
+    expect(cursors(typeScript)).toEqual(cursors(rust));
+  });
 });

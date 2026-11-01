@@ -165,21 +165,31 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
   }
 }
 
-/** JSON with every object's keys sorted: the same call, whatever order its body's keys were written in. */
-function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, inner: unknown) =>
-    inner && typeof inner === 'object' && !Array.isArray(inner)
-      ? Object.fromEntries(Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : inner,
-  );
+/** `value` with every object's keys sorted. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, sortedKeys(record[key])]),
+    );
+  }
+  return value;
+}
+
+/** A call's sort key: its JSON body with sorted keys, whatever order they were written in. */
+function sortKey(call: OutboundCall): string {
+  return JSON.stringify({ ...call, body: sortedKeys(call.body) });
 }
 
 /**
  * The calls in a stable order: concurrent calls (`Promise.all`) may go out in
- * any order. Sorted on their canonical JSON, so two calls to one URL keep the
- * same order whether their JSON bodies were written in insertion order
- * (TypeScript) or with sorted keys (Rust's `serde_json`).
+ * any order. A JSON body is compared with its keys sorted, so two calls to
+ * one URL keep the same order whether their bodies were written in insertion
+ * order (TypeScript) or with sorted keys (Rust's `serde_json`).
  */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
-  return [...calls].sort((a, b) => canonical(a).localeCompare(canonical(b)));
+  return [...calls].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }

@@ -87,7 +87,7 @@ async function call(path: string, opts: CallOptions = {}) {
   });
   const text = res.status === 204 ? '' : await res.text();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let json: { data?: any; error?: { code: string; message: string } } = {};
+  let json: { data?: any; error?: { code: string; message: string }; pagination?: { totalCount: number; hasMore: boolean } } = {};
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
