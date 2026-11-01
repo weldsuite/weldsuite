@@ -3,15 +3,16 @@
 //! categories, orders with their sales tax, parcels, shipments, pickups,
 //! returns, return reasons and rules, shipping rules and prices, carriers,
 //! parcel analytics, notifications, rates, settings and wallet, Sendcloud,
-//! PrintNode, the commerce portal's staff side), and its public routes: the
-//! B2B commerce portal (`/public/commerce-portal`) and the WooCommerce auth
-//! callback (`/webhooks/woocommerce`).
+//! PrintNode, the commerce portal's staff side), and the public B2B commerce
+//! portal (`/public/commerce-portal`, [`public_router`]). WooCommerce's
+//! app-auth callback (`/webhooks/woocommerce/auth`) completes a WeldConnect
+//! authorisation and is not served until WeldConnect is.
 //!
-//! What the helpdesk widget API also needs (portal tokens, the atomic rate
-//! limits) lives in `weldsuite-commerce-domain`. Pieces of WeldBooks (the
-//! sales tax engines, the invoice HTML) and of WeldConnect (the connector
-//! product clients, credentials) that commerce-api imports are ported here as
-//! private modules, until those modules have their own crates.
+//! The portal's tokens, slugs and rate limits live in
+//! `weldsuite-commerce-domain`. Pieces of WeldBooks (the manual sales tax
+//! engine; not yet Stripe Tax, Avalara or the invoice HTML) and of WeldConnect
+//! (the connector product clients, credentials) that commerce-api imports are
+//! ported here as private modules, until those modules have their own crates.
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `commerce`
@@ -127,7 +128,7 @@ pub struct CommerceState {
     pub workspaces: Option<Arc<weldsuite_db::Workspaces>>,
     /// The worker's env values this crate reads (`ENVIRONMENT`,
     /// `COMMERCE_PORTAL_URL`, `DATABASE_ENCRYPTION_KEY(_V2)`,
-    /// `INTERNAL_API_SECRET`, …). A request's `RequestEnv` (conformance) wins.
+    /// …). A request's `RequestEnv` (conformance) wins.
     pub env: Arc<HashMap<String, String>>,
 }
 
@@ -149,8 +150,6 @@ pub const ENV_NAMES: &[&str] = &[
     "COMMERCE_PORTAL_URL",
     "DATABASE_ENCRYPTION_KEY",
     "DATABASE_ENCRYPTION_KEY_V2",
-    "INTERNAL_API_SECRET",
-    "CONNECTOR_WEBHOOK_BASE_URL",
 ];
 
 /// [`ENV_NAMES`] from the process environment.

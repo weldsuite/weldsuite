@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-commerce"
-description = "WeldCommerce: commerce-api's products, categories, orders (with sales tax), parcels, shipments, pickups, returns, shipping rules and prices, carriers, parcel settings, wallet and notifications, Sendcloud, PrintNode, the B2B commerce portal (staff and public) and the WooCommerce auth callback"
+description = "WeldCommerce: commerce-api's products, categories, orders (with sales tax), parcels, shipments, pickups, returns, shipping rules and prices, carriers, parcel settings, wallet and notifications, Sendcloud, PrintNode and the B2B commerce portal (staff and public)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
