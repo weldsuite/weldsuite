@@ -1,0 +1,194 @@
+[
+  {
+    "email": {
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {}
+    },
+    "options": {},
+    "result": {
+      "isPromotion": false,
+      "score": 0,
+      "reasons": []
+    }
+  },
+  {
+    "email": {
+      "subject": "Summer SALE: 30% off everything",
+      "textBody": "Shop now. Unsubscribe here.",
+      "htmlBody": null,
+      "headers": {
+        "List-Unsubscribe": "<https://shop.example.com/unsub?u=1>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": true,
+      "score": 6,
+      "reasons": [
+        "list_unsubscribe",
+        "list_unsubscribe_post",
+        "subject_marketing",
+        "body_unsubscribe"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Onze nieuwsbrief van september",
+      "textBody": "Klik hier om je af te melden: afmelden",
+      "htmlBody": null,
+      "headers": {
+        "X-Mailin-Campaign": "42"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": true,
+      "score": 5,
+      "reasons": [
+        "campaign_header",
+        "subject_marketing",
+        "body_unsubscribe"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Deal update for Acme",
+      "textBody": "Can we discuss the discount?",
+      "htmlBody": null,
+      "headers": {}
+    },
+    "options": {},
+    "result": {
+      "isPromotion": false,
+      "score": 2,
+      "reasons": [
+        "subject_marketing"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Your order confirmation #1234",
+      "textBody": "Thanks for your purchase. Unsubscribe from marketing.",
+      "htmlBody": null,
+      "headers": {
+        "List-Unsubscribe": "<https://shop.example.com/unsub?u=1>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "Precedence": "bulk"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": false,
+      "score": 1,
+      "reasons": [
+        "list_unsubscribe",
+        "list_unsubscribe_post",
+        "precedence_bulk",
+        "body_unsubscribe",
+        "subject_transactional"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Re: 50% off",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {
+        "List-Unsubscribe": "<https://shop.example.com/unsub?u=1>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+      }
+    },
+    "options": {
+      "isReply": true
+    },
+    "result": {
+      "isPromotion": false,
+      "score": 0,
+      "reasons": [
+        "reply"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Wholesale pricing from Salesforce",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {
+        "List-Unsubscribe": "<mailto:x@y.z>"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": false,
+      "score": 2,
+      "reasons": [
+        "list_unsubscribe"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Black Friday deals",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {
+        "list-unsubscribe": "<mailto:u@x.com>",
+        "precedence": "Bulk"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": true,
+      "score": 5,
+      "reasons": [
+        "list_unsubscribe",
+        "precedence_bulk",
+        "subject_marketing"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "Laatste kans: korting!",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": "<p>Opt-out</p>",
+      "headers": {
+        "x-list-id": "x"
+      }
+    },
+    "options": {},
+    "result": {
+      "isPromotion": true,
+      "score": 5,
+      "reasons": [
+        "campaign_header",
+        "subject_marketing",
+        "body_unsubscribe"
+      ]
+    }
+  },
+  {
+    "email": {
+      "subject": "éSALE",
+      "textBody": "unsubscribe",
+      "htmlBody": null,
+      "headers": {}
+    },
+    "options": {},
+    "result": {
+      "isPromotion": false,
+      "score": 1,
+      "reasons": [
+        "body_unsubscribe"
+      ]
+    }
+  }
+]

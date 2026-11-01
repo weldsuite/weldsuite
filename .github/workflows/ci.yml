@@ -62,6 +62,10 @@ jobs:
       # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
       - name: Rust subscriber fixtures are current
         run: pnpm rust:subscriber-fixtures --check
+      # rust/crates/mail-inbound/tests/fixtures: what mail-inbound-worker does
+      # with the parity messages. Rerun `pnpm rust:mail-inbound-fixtures`.
+      - name: Rust mail-inbound fixtures are current
+        run: pnpm rust:mail-inbound-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -171,6 +175,15 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # Haraka, WeldMail's MX on Kubernetes (MAIL-010).
+      - name: Build the MX image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust/deploy/haraka
+          load: true
+          tags: weldsuite-haraka:dev
+          cache-from: type=gha,scope=rust-haraka
+          cache-to: type=gha,mode=max,scope=rust-haraka
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail

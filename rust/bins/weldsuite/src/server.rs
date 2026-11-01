@@ -54,6 +54,8 @@ pub(crate) struct AppState {
     pub(crate) sign_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
     pub(crate) sign_portal_secret: Option<Arc<str>>,
+    /// `MAIL_INBOUND_SECRET`, Haraka's key for the `RCPT TO` check.
+    pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
@@ -441,6 +443,7 @@ mod tests {
             sign_session_secret: None,
             sign_portal_url: None,
             sign_portal_secret: None,
+            mail_inbound_secret: None,
             files_public_url: None,
             widget_token_secret: None,
             trusted_proxies: 1,

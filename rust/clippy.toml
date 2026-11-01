@@ -5,6 +5,7 @@ doc-valid-idents = [
   "WeldAgent", "WeldApps", "WeldSign", "WeldSheets", "WeldHR", "WeldReach",
   "WeldObjects", "WeldCalendar", "WeldDrive", "WeldData", "WeldKnow",
   "WeldCommerce", "PrintNode", "WooCommerce", "WhatsApp",
+  "WeldAds", "WeldSocial", "PostPeer",
   "CloudNativePG", "WebCrypto", "PostgreSQL", "MinIO", "RustFS", "SigV4",
   "RustSec", "WinAnsi", "XObject", "..",
 ]

@@ -68,6 +68,15 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // WeldAds' Facebook OAuth start: a fresh state (`crypto.randomUUID()`) per run.
+  {
+    method: 'POST',
+    route: '/api/ad-connections/facebook/authorize',
+    fields: [
+      { path: 'data.state' },
+      { path: 'data.authorizeUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' },
+    ],
+  },
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
@@ -153,6 +162,9 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
   },
   { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // WeldBooks: the exchange rates are stamped with the moment they were answered.
+  { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

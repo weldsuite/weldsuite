@@ -517,12 +517,16 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
 import { DESK_KB_ROUTES } from './conformance-schemas-desk-kb';
 import { DESK_TEAM_ROUTES } from './conformance-schemas-desk-team';
+import { ADS_ROUTES } from './conformance-schemas-ads';
+import { SOCIAL_ROUTES } from './conformance-schemas-social';
+import { DATA_ROUTES } from './conformance-schemas-data';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
 import { COMMERCE_ROUTES } from './conformance-schemas-commerce';
 import { COMMERCE_SHIPPING_ROUTES } from './conformance-schemas-commerce-shipping';
 import { STASH_ROUTES } from './conformance-schemas-stash';
+import { BOOKS_ROUTES } from './conformance-schemas-books';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -1367,12 +1371,16 @@ const ROUTES: RouteSchema[] = [
   ...FLOW_ROUTES,
   ...DESK_KB_ROUTES,
   ...DESK_TEAM_ROUTES,
+  ...ADS_ROUTES,
+  ...SOCIAL_ROUTES,
+  ...DATA_ROUTES,
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,
   ...COMMERCE_ROUTES,
   ...COMMERCE_SHIPPING_ROUTES,
   ...STASH_ROUTES,
+  ...BOOKS_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

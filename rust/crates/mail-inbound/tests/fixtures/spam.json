@@ -1,0 +1,620 @@
+[
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "fail",
+      "dkimStatus": "fail",
+      "dmarcStatus": "fail"
+    },
+    "options": {},
+    "result": {
+      "score": 9,
+      "reasons": [
+        "dmarc_fail",
+        "spf_fail",
+        "dkim_fail",
+        "auth_all_fail"
+      ],
+      "isSpam": true
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {}
+    },
+    "options": {},
+    "result": {
+      "score": 1,
+      "reasons": [
+        "auth_all_missing"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "attachmentNames": [
+        "invoice.pdf",
+        "payload.exe"
+      ]
+    },
+    "result": {
+      "score": 4,
+      "reasons": [
+        "executable_attachment"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "You won the lottery jackpot!!!",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 3,
+      "reasons": [
+        "subject_spam_lexicon",
+        "subject_shouting"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "evil@phish.example",
+        "name": "support@weldmail.com"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "recipientEmails": [
+        "me@weldmail.com"
+      ]
+    },
+    "result": {
+      "score": 3,
+      "reasons": [
+        "from_display_spoof"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {
+        "Reply-To": "collector@evil.example"
+      },
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 1,
+      "reasons": [
+        "reply_to_domain_mismatch"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "CLAIM YOUR PRIZE NOW!!!",
+      "textBody": "http://a.com http://b.com http://c.com http://d.com http://e.com click",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "fail",
+      "dkimStatus": "none",
+      "dmarcStatus": "none"
+    },
+    "options": {
+      "attachmentNames": [
+        "update.js"
+      ]
+    },
+    "result": {
+      "score": 11,
+      "reasons": [
+        "spf_fail",
+        "executable_attachment",
+        "subject_spam_lexicon",
+        "subject_shouting",
+        "body_many_links"
+      ],
+      "isSpam": true
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "URGENT WIRE TRANSFER!!!",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "fail",
+      "dkimStatus": "fail",
+      "dmarcStatus": "fail"
+    },
+    "options": {
+      "isExistingHamThread": true
+    },
+    "result": {
+      "score": 4,
+      "reasons": [
+        "dmarc_fail",
+        "spf_fail",
+        "dkim_fail",
+        "auth_all_fail",
+        "subject_spam_lexicon",
+        "subject_shouting",
+        "capped_existing_ham_thread"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "softfail",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "isExistingHamThread": true
+    },
+    "result": {
+      "score": 2,
+      "reasons": [
+        "spf_softfail"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "donotreplyus@inbox.lv",
+        "name": "American Express | Non-Compliance Issues"
+      },
+      "to": [
+        {
+          "email": "sales@weldsuite.org"
+        }
+      ],
+      "subject": "Account Limited: Update Information to Continue Access",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 5,
+      "reasons": [
+        "from_brand_free_mail"
+      ],
+      "isSpam": true
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "x@gmail.com",
+        "name": "PAYPAL-Security"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 5,
+      "reasons": [
+        "from_brand_free_mail"
+      ],
+      "isSpam": true
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "x@gmail.com",
+        "name": "Amazonia Tours"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "service@paypal.com",
+        "name": "PayPal"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "jan.devries@gmail.com",
+        "name": "Jan de Vries"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "x@gmail.com",
+        "name": "Jan (Amazon seller)"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "isExistingHamThread": true
+    },
+    "result": {
+      "score": 4,
+      "reasons": [
+        "from_brand_free_mail",
+        "capped_existing_ham_thread"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "see https://www.Bit.ly/x",
+      "htmlBody": "<a href=\"https://t.co/y\">y</a>",
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 2,
+      "reasons": [
+        "body_url_shortener"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "real@corp.test",
+        "name": "Helpdesk billing@bank.test"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 3,
+      "reasons": [
+        "from_display_spoof"
+      ],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "real@corp.test",
+        "name": "noreply team"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "recipientEmails": []
+    },
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@example.com",
+        "name": "Alice"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "GRATIS GELD",
+      "textBody": null,
+      "htmlBody": null,
+      "headers": {},
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {
+      "attachmentNames": [
+        "dir\\Run.BAT"
+      ]
+    },
+    "result": {
+      "score": 7,
+      "reasons": [
+        "executable_attachment",
+        "subject_spam_lexicon",
+        "subject_shouting"
+      ],
+      "isSpam": true
+    }
+  },
+  {
+    "email": {
+      "from": {
+        "email": "alice@EXAMPLE.com"
+      },
+      "to": [
+        {
+          "email": "me@weldmail.com"
+        }
+      ],
+      "subject": "Project update",
+      "textBody": "Here is the weekly status. Nothing urgent.",
+      "htmlBody": null,
+      "headers": {
+        "reply-to": "\"X\" <x@Example.com>"
+      },
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "options": {},
+    "result": {
+      "score": 0,
+      "reasons": [],
+      "isSpam": false
+    }
+  }
+]

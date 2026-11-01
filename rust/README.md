@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has eleven
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has fourteen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -27,10 +27,29 @@ modules, each with conformance suites that reach every route:
   CloudNativePG (`/api/onboarding`, `workspace.provision`)
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
-  **calendar**, **crm**, **flow**, **mail**, **chat**, **desk** (with the
+  **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
+  as the MX, the `mail.inbound` subscriber in place of mail-inbound-worker,
+  ADR MAIL-010, see "Inbound mail" below), **chat**, **desk** (with the
   helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
   engine, `helpdesk-workflow-worker`) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
+- **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
+  with Meta's Marketing API through the outbound HTTP port; the shared sync
+  code is `crates/ads-domain`, for connect-api's integration endpoints
+  when they are ported)
+- **social** (WeldSocial: accounts, posts, campaigns, media, approvals, team,
+  settings and analytics, publishing through PostPeer's API with the
+  prepaid-credit metering, and PostPeer's delivery webhook at
+  `/public/social/postpeer/webhook`; the publishing service is
+  `crates/social-domain`, for external-api and mcp-server when they are
+  ported)
+- **data** (WeldData: the Lemlist lead database search with its cache,
+  lists and saved leads, converting leads into CRM people and companies and
+  onto CRM lists, enrichment columns and cells, the enrich field definitions
+  and enrichment views; a column run is the `data.welddata-enrich` job,
+  the `WELDDATA_ENRICH` Workflow: Findymail or Prospeo for emails through
+  the outbound HTTP port, the company's own website for phone numbers, read
+  on public addresses only, and the AI action stubbed as on Global)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -39,7 +58,7 @@ desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls and help center custom domains.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books, commerce,
-host, meet, call, connect, agent, data, hr, social, ads, reach, sheets, docs and
+host, meet, call, connect, agent, hr, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -72,6 +91,11 @@ rust/
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
                         tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
+  crates/mail-inbound/  mail-inbound-worker's port (MAIL-010): postal-mime's parser, the Authentication-Results read,
+                        spam and promotion scoring, thread matching, the registry lookup, the Postgres mailbox store's
+                        ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
+                        `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
+                        `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
                         files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
@@ -83,7 +107,11 @@ rust/
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
-                        helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS);
+                        helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS),
+                        modules/ads (with
+                        crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
+                        modules/social (with crates/social-domain: PostPeer publishing, credits),
+                        modules/data (WeldData, and the welddata-enrich job);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -93,7 +121,9 @@ rust/
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
   deploy/helm/weldsuite the Helm chart
-  deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
+  deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
+                        and the hand-off to the mail bucket and NATS
+  deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
   deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
@@ -112,6 +142,7 @@ pnpm rust:test         # tests
 pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs cargo-deny)
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
+pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -182,7 +213,8 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
-rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal
+docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
+rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
@@ -209,7 +241,11 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`, and the Sendcloud secret a workspace stored for WeldStash's ship action |
+| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`) |
+| `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
+| `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
+| `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
+| `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
@@ -223,6 +259,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
+| `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
@@ -250,6 +287,50 @@ settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
 `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.
+With `S3_BUCKET_MAIL` set it also runs `mail-inbound` (in the default list then;
+named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
+`S3_BUCKET_MAIL` on `S3_ENDPOINT` (the keys and `S3_FORCE_PATH_STYLE` as for
+files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
+attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
+(`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+
+## Inbound mail
+
+On Global, Cloudflare Email Routing hands each message to
+`apps/workers/mail-inbound-worker`. On Kubernetes (ADR MAIL-010):
+
+1. **Haraka** (`deploy/haraka`, the chart's `mailInbound`, off by default) is
+   the MX behind a load balancer on port 25, with the PROXY protocol and
+   STARTTLS (a cert-manager certificate). At `RCPT TO` it asks `serve`
+   (`/internal/mail-inbound/recipients`, `MAIL_INBOUND_SECRET`): the master
+   registry (MAIL-002), the exact address then the custom domain's
+   catch-all sentinel, read live. 200 is 250, 404 is `550 5.1.1`, anything
+   else 451.
+2. It checks SPF and DKIM, evaluates DMARC and writes `Authentication-Results`
+   in Cloudflare's form (`spf=` for MAIL FROM, `dkim=`, `dmarc=`, each
+   present); incoming ones become `Original-Authentication-Results`.
+   Nothing is rejected on those results: the spam scorer weighs them.
+3. It puts the message in the mail bucket (`inbound/<date>/<uuid>.eml`) and
+   publishes its key with the envelope on `mail.inbound` (`Nats-Msg-Id` =
+   the key), and answers 250 only after both; else 451, so the sender retries.
+4. `consume`'s `mail-inbound` subscriber (`crates/mail-inbound`) runs the
+   worker's pipeline: parse (postal-mime's port), recipients, per mailbox
+   the store (`resolveInbound`, spam and promotions, attachments, the
+   Postgres store's ingest, the raw MIME to `mail/<ws>/<mailbox>/<msg>/raw.eml`),
+   rules, contacts, `email:created`, each member's realtime `mail:new`,
+   bell and Expo push; it removes the spooled object, then runs the WeldDesk
+   inbox fan-out (and WeldBooks', once books is in `RUST_PORTED_MODULES`;
+   until then that one is a no-op). A storage failure is retried with
+   backoff, then dead-lettered; a redelivery after success finds no spooled
+   object and does nothing, and every mailbox ignores a Message-ID it holds.
+
+Differences from Global, on purpose: one delivery per message with every
+accepted recipient as the envelope (Cloudflare calls the worker once per
+recipient, so its helpdesk and accounting fan-out ran once per recipient);
+no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), no
+Jev auto-labels (Workers AI; mail AI is an unavailable feature). Parity:
+`crates/mail-inbound/tests/parity.rs` against fixtures the worker's own code
+wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.

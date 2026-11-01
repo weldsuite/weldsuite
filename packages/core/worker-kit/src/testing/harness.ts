@@ -165,11 +165,12 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
     (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
   }
-  // So is a test's own ENTITY_EVENTS queue: its messages are side effects too.
+  // So is a test's own ENTITY_EVENTS queue: what the app sends is compared
+  // with Rust's events, and still reaches the test's binding.
   const ownEvents = (options.env as Record<string, unknown> | undefined)?.ENTITY_EVENTS as
-    | { send(message: unknown): Promise<unknown> }
+    | Parameters<NonNullable<typeof sideEffects>['wrapEvents']>[0]
     | undefined;
-  if (sideEffects && ownEvents && typeof ownEvents.send === 'function') {
+  if (sideEffects && ownEvents && (typeof ownEvents.send === 'function' || typeof ownEvents.sendBatch === 'function')) {
     (env as unknown as Record<string, unknown>).ENTITY_EVENTS = sideEffects.wrapEvents(ownEvents);
   }
 

@@ -1,0 +1,250 @@
+{
+  "seed": [
+    "delete from desk_messages where conversation_id in (select id from desk_conversations where email like '%@cust.test')",
+    "delete from desk_conversations where email like '%@cust.test'",
+    "delete from desk_visitors where email like '%@cust.test'"
+  ],
+  "inputs": [
+    {
+      "fromName": "Cara Customer",
+      "fromEmail": "Cara@Cust.test",
+      "toAddress": "support@acme.test",
+      "subject": "Help needed",
+      "body": "My   order\nis late",
+      "rfcMessageId": "<c1@cust.test>",
+      "toEmails": [
+        "support@acme.test"
+      ],
+      "ccEmails": [],
+      "attachments": [
+        {
+          "name": "a.pdf",
+          "url": "https://f/a.pdf",
+          "contentType": "application/pdf",
+          "filesize": 3
+        }
+      ]
+    },
+    {
+      "fromName": null,
+      "fromEmail": "cara@cust.test",
+      "toAddress": "support@acme.test",
+      "subject": "Re: Help needed",
+      "body": "Any news?",
+      "rfcMessageId": "<c2@cust.test>",
+      "inReplyTo": "c1@cust.test",
+      "references": [
+        "<c1@cust.test>"
+      ]
+    },
+    {
+      "fromName": "Dan",
+      "fromEmail": "dan@cust.test",
+      "toAddress": "support@acme.test",
+      "subject": "",
+      "body": "",
+      "rfcMessageId": "d1@cust.test"
+    },
+    {
+      "fromName": "Dan D",
+      "fromEmail": "dan@cust.test",
+      "toAddress": "help@acme.test",
+      "subject": "Fwd: Other topic",
+      "body": "still open",
+      "rfcMessageId": "<d2@cust.test>",
+      "toEmails": [
+        "help@acme.test",
+        "x@acme.test"
+      ],
+      "ccEmails": [
+        "cc@acme.test"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "conversationNumber": 1,
+      "created": true
+    },
+    {
+      "conversationNumber": 1,
+      "created": false
+    },
+    {
+      "conversationNumber": 2,
+      "created": true
+    },
+    {
+      "conversationNumber": 2,
+      "created": false
+    }
+  ],
+  "conversations": [
+    {
+      "assignee_id": null,
+      "channel": "email",
+      "contact_id": null,
+      "conversation_number": 1,
+      "created_at": "<ts>",
+      "department_id": null,
+      "email": "cara@cust.test",
+      "external_id": null,
+      "last_message_at": "<ts>",
+      "last_message_preview": "Any news?",
+      "name": "Cara Customer",
+      "priority": null,
+      "rated_at": null,
+      "rating": null,
+      "rating_comment": null,
+      "sla_due_at": null,
+      "sla_metric": null,
+      "sla_policy_id": null,
+      "sla_status": null,
+      "state": "open",
+      "tags": [],
+      "ticket_type_id": null,
+      "title": "Help needed",
+      "updated_at": "<ts>",
+      "waiting_since": "<ts>"
+    },
+    {
+      "assignee_id": null,
+      "channel": "email",
+      "contact_id": null,
+      "conversation_number": 2,
+      "created_at": "<ts>",
+      "department_id": null,
+      "email": "dan@cust.test",
+      "external_id": null,
+      "last_message_at": "<ts>",
+      "last_message_preview": "still open",
+      "name": "Dan",
+      "priority": null,
+      "rated_at": null,
+      "rating": null,
+      "rating_comment": null,
+      "sla_due_at": null,
+      "sla_metric": null,
+      "sla_policy_id": null,
+      "sla_status": null,
+      "state": "open",
+      "tags": [],
+      "ticket_type_id": null,
+      "title": "dan@cust.test",
+      "updated_at": "<ts>",
+      "waiting_since": "<ts>"
+    }
+  ],
+  "messages": [
+    {
+      "attachments": [
+        {
+          "contentType": "application/pdf",
+          "filesize": 3,
+          "name": "a.pdf",
+          "url": "https://f/a.pdf"
+        }
+      ],
+      "author_type": "visitor",
+      "body": "My   order\nis late",
+      "conversation": 1,
+      "created_at": "<ts>",
+      "kind": "message",
+      "metadata": {
+        "emailCc": [],
+        "emailFrom": "cara@cust.test",
+        "emailMessageId": "c1@cust.test",
+        "emailSubject": "Help needed",
+        "emailThreadMessageId": "c1@cust.test",
+        "emailTo": [
+          "support@acme.test"
+        ],
+        "helpdeskAddress": "support@acme.test"
+      }
+    },
+    {
+      "attachments": null,
+      "author_type": "visitor",
+      "body": "Any news?",
+      "conversation": 1,
+      "created_at": "<ts>",
+      "kind": "message",
+      "metadata": {
+        "emailCc": [],
+        "emailFrom": "cara@cust.test",
+        "emailMessageId": "c2@cust.test",
+        "emailSubject": "Re: Help needed",
+        "emailTo": [
+          "support@acme.test"
+        ],
+        "helpdeskAddress": "support@acme.test"
+      }
+    },
+    {
+      "attachments": null,
+      "author_type": "visitor",
+      "body": "",
+      "conversation": 2,
+      "created_at": "<ts>",
+      "kind": "message",
+      "metadata": {
+        "emailCc": [],
+        "emailFrom": "dan@cust.test",
+        "emailMessageId": "d1@cust.test",
+        "emailSubject": "",
+        "emailThreadMessageId": "d1@cust.test",
+        "emailTo": [
+          "support@acme.test"
+        ],
+        "helpdeskAddress": "support@acme.test"
+      }
+    },
+    {
+      "attachments": null,
+      "author_type": "visitor",
+      "body": "still open",
+      "conversation": 2,
+      "created_at": "<ts>",
+      "kind": "message",
+      "metadata": {
+        "emailCc": [
+          "cc@acme.test"
+        ],
+        "emailFrom": "dan@cust.test",
+        "emailMessageId": "d2@cust.test",
+        "emailSubject": "Fwd: Other topic",
+        "emailTo": [
+          "help@acme.test",
+          "x@acme.test"
+        ],
+        "helpdeskAddress": "help@acme.test"
+      }
+    }
+  ],
+  "visitors": [
+    {
+      "created_at": "<ts>",
+      "email": "cara@cust.test",
+      "external_id": null,
+      "last_seen_at": "<ts>",
+      "name": "Cara Customer",
+      "phone": null,
+      "updated_at": "<ts>",
+      "verified_at": null,
+      "verified_email": null,
+      "widget_id": null
+    },
+    {
+      "created_at": "<ts>",
+      "email": "dan@cust.test",
+      "external_id": null,
+      "last_seen_at": "<ts>",
+      "name": "Dan D",
+      "phone": null,
+      "updated_at": "<ts>",
+      "verified_at": null,
+      "verified_email": null,
+      "widget_id": null
+    }
+  ]
+}

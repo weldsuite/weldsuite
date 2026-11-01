@@ -5,14 +5,16 @@
 # token: auth → workspace → tenant DB → licence → flags → permission →
 # envelope, a job run through Restate, the platform SPA from the image on the
 # same origin, the sign portal's container calling the server, then the same
-# with OIDC sign-in against a stand-in issuer, and (with a reachable Zitadel,
+# with OIDC sign-in against a stand-in issuer, inbound mail over SMTP through
+# Haraka into the tenant database (MAIL-010), and (with a reachable Zitadel,
 # SMOKE_ZITADEL_*) sign-up and the first workspace's provisioning.
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -t weldsuite-haraka:dev rust/deploy/haraka
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
-# Needs docker, kind, kubectl, helm and node. CI runs the same script.
+# Needs docker, kind, kubectl, helm, node and curl (with SMTP). CI runs the same script.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +22,7 @@ chart="$here/../helm/weldsuite"
 cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
 portal_image="${PORTAL_IMAGE:-weldsuite-sign-portal:dev}"
+haraka_image="${HARAKA_IMAGE:-weldsuite-haraka:dev}"
 work="$(mktemp -d)"
 forwards=()
 
@@ -34,7 +37,7 @@ if ! kind get clusters | grep -qx "$cluster"; then
   kind create cluster --name "$cluster" --wait 120s
 fi
 kubectl config use-context "kind-$cluster" >/dev/null
-kind load docker-image "$image" "$portal_image" --name "$cluster"
+kind load docker-image "$image" "$portal_image" "$haraka_image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
@@ -46,6 +49,16 @@ psql() {
   kubectl exec -i deployment/postgres -- psql -v ON_ERROR_STOP=1 -U weldsuite "$@"
 }
 psql -d master -c "create database tenant" >/dev/null
+# The mail bucket Haraka spools to and stored messages keep their raw MIME in.
+kubectl port-forward service/s3 18900:9000 >/dev/null 2>&1 &
+s3_forward=$!
+forwards+=("$s3_forward")
+for _ in $(seq 1 30); do
+  node "$here/s3-bucket.mjs" http://127.0.0.1:18900 weldsuite-mail weldsuite weldsuite-kind >/dev/null 2>&1 && break
+  sleep 1
+done
+node "$here/s3-bucket.mjs" http://127.0.0.1:18900 weldsuite-mail weldsuite weldsuite-kind
+kill "$s3_forward" 2>/dev/null || true
 # How many migrations a database's bookkeeping table records.
 recorded() {
   psql -d "$1" -Atc "select count(*) from $2.__drizzle_migrations"
@@ -60,6 +73,8 @@ helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
   --set signPortal.image.repository="${portal_image%:*}" \
   --set-string signPortal.image.tag="${portal_image##*:}" \
+  --set mailInbound.haraka.image.repository="${haraka_image%:*}" \
+  --set-string mailInbound.haraka.image.tag="${haraka_image##*:}" \
   --wait --timeout 300s
 master_migrations="$(recorded master drizzle)"
 echo "ok   install: the migration Job applied $master_migrations master migrations"
@@ -207,6 +222,52 @@ header x-frame-options DENY
 check POST /api/session 404 "" '{"token":"smoke-unknown-link-token-0001"}'
 contains '"NOT_FOUND"'
 base=http://127.0.0.1:18080
+
+# ── Inbound mail (ADR MAIL-010) ─────────────────────────────────────────────
+# Over SMTP to Haraka: RCPT TO asks the server (the registry knows
+# inbox@kind.test, not nobody@kind.test), the message goes to the mail bucket
+# and its key to NATS, and `weldsuite consume` stores it in the tenant
+# database.
+kubectl rollout status deployment/weldsuite-mx --timeout=120s
+kubectl rollout status deployment/weldsuite-consume --timeout=120s
+kubectl port-forward service/weldsuite-mx 12525:25 >/dev/null 2>&1 &
+forwards+=($!)
+for _ in $(seq 1 30); do
+  (exec 3<>/dev/tcp/127.0.0.1/12525) 2>/dev/null && break
+  sleep 1
+done
+printf 'From: Partner <partner@example.org>\r\nTo: inbox@kind.test\r\nSubject: Smoke over SMTP\r\nMessage-ID: <smoke-1@kind.test>\r\nDate: Mon, 26 Oct 2026 09:00:00 +0000\r\n\r\nHello from the smoke test.\r\n' >"$work/message.eml"
+if curl -sS smtp://127.0.0.1:12525 --mail-from partner@example.org --mail-rcpt nobody@kind.test \
+  --upload-file "$work/message.eml" >"$work/smtp" 2>&1; then
+  echo "FAIL an unknown recipient was accepted" >&2
+  failed=1
+elif grep -q '550' "$work/smtp"; then
+  echo "ok   SMTP RCPT TO nobody@kind.test: 550"
+else
+  echo "FAIL an unknown recipient: $(cat "$work/smtp")" >&2
+  failed=1
+fi
+if curl -sS smtp://127.0.0.1:12525 --mail-from partner@example.org --mail-rcpt inbox@kind.test \
+  --upload-file "$work/message.eml" >"$work/smtp" 2>&1; then
+  echo "ok   SMTP to inbox@kind.test accepted"
+else
+  echo "FAIL SMTP to inbox@kind.test: $(cat "$work/smtp")" >&2
+  failed=1
+fi
+stored=""
+for _ in $(seq 1 60); do
+  stored="$(psql -d tenant -Atc "select subject || '|' || (labels->>0) from mail_messages where account_id = 'mbx_smoke' and message_id = '<smoke-1@kind.test>'")"
+  [ -n "$stored" ] && break
+  sleep 1
+done
+if [ "$stored" = "Smoke over SMTP|INBOX" ]; then
+  echo "ok   inbound mail stored in the tenant database ($stored)"
+else
+  echo "FAIL the message was not stored: '$stored'" >&2
+  kubectl logs deployment/weldsuite-mx --tail=40 >&2 || true
+  kubectl logs deployment/weldsuite-consume --tail=40 >&2 || true
+  failed=1
+fi
 
 # ── OIDC sign-in (ADR SEC-012) ──────────────────────────────────────────────
 # The same server switched to AUTH_PROVIDER=oidc against a stand-in issuer

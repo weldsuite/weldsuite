@@ -339,6 +339,10 @@ impl Pools {
         extensions.insert(weldsuite_mail::scheduled::RequestScheduledRuns(
             self.workflows.scheduled_runs(&context.workflows),
         ));
+        // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
+        extensions.insert(weldsuite_data::RequestEnrichRuns(
+            self.workflows.enrich_runs(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {

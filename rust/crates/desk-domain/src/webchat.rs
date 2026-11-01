@@ -375,6 +375,41 @@ pub async fn create_conversation(
     db: &PgPool,
     input: NewConversation<'_>,
 ) -> Result<(Value, Value), AppendError> {
+    let title = preview_of(Some(&input.body)).map_or(Value::Null, Value::String);
+    create_on_channel(
+        db,
+        ChannelConversation {
+            channel: "messenger",
+            title,
+            attachments: None,
+            conversation: input,
+        },
+    )
+    .await
+}
+
+/// `createDeskConversation(db, input)` with the channel, title and first
+/// message's files the caller chooses (the email channel's
+/// `ingestDeskEmail`).
+pub struct ChannelConversation<'a> {
+    pub channel: &'a str,
+    /// `input.title ?? previewOf(input.body)`, already resolved.
+    pub title: Value,
+    pub attachments: Option<Vec<Value>>,
+    pub conversation: NewConversation<'a>,
+}
+
+/// [`create_conversation`] on any channel.
+pub async fn create_on_channel(
+    db: &PgPool,
+    spec: ChannelConversation<'_>,
+) -> Result<(Value, Value), AppendError> {
+    let ChannelConversation {
+        channel,
+        title,
+        attachments,
+        conversation: input,
+    } = spec;
     let id = generate_id("dconv");
     let now = now();
     let preview = preview_of(Some(&input.body)).map_or(Value::Null, Value::String);
@@ -389,9 +424,9 @@ pub async fn create_conversation(
         values.insert("created_at".to_owned(), json!(now));
         values.insert("updated_at".to_owned(), json!(now));
         values.insert("conversation_number".to_owned(), json!(number));
-        values.insert("title".to_owned(), preview.clone());
+        values.insert("title".to_owned(), title.clone());
         values.insert("state".to_owned(), json!("open"));
-        values.insert("channel".to_owned(), json!("messenger"));
+        values.insert("channel".to_owned(), json!(channel));
         values.insert("visitor_id".to_owned(), json!(input.visitor_id));
         values.insert("name".to_owned(), input.name.clone());
         values.insert("email".to_owned(), input.email.clone());
@@ -422,7 +457,7 @@ pub async fn create_conversation(
             author_type: input.author_type,
             author_id: Some(input.author_id.unwrap_or(input.visitor_id)),
             body: Some(input.body),
-            attachments: None,
+            attachments,
             metadata: input.metadata,
             assignee_id: None,
         },

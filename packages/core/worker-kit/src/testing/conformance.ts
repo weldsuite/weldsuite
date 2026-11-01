@@ -151,6 +151,9 @@ export const FORWARDED_ENV = [
   // WeldPass: the root keys that wrap every vault's key.
   'WELDPASS_ROOT_KEY',
   'WELDPASS_ROOT_KEY_V2',
+  // WeldBooks: the field encryption keys of sealed SSNs, TINs and bank numbers.
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
   // WeldMail: the outbound guard's staff API secret, and whether the worker
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
@@ -168,12 +171,28 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
-  // WeldStash and WeldCommerce: the workspace keyring that opens stored
-  // credentials (Sendcloud, sales tax engines, store connections).
+  // The workspace keyring: WeldStash opens the stored Sendcloud secret with it
+  // (the pick-list ship action), WeldAds seals its connections' OAuth tokens
+  // with it (`encryptField`), WeldCommerce opens stored credentials with it
+  // (Sendcloud, the sales tax engines, store connections).
   'DATABASE_ENCRYPTION_KEY',
   'DATABASE_ENCRYPTION_KEY_V2',
   // WeldCommerce: the B2B portal's origin.
   'COMMERCE_PORTAL_URL',
+  // WeldAds: the Meta app (OAuth and the Graph API).
+  'FACEBOOK_APP_ID',
+  'FACEBOOK_APP_SECRET',
+  // WeldSocial: PostPeer (the API key, base URL and BYOK app ids) and the
+  // secret its delivery webhooks are signed with.
+  'POSTPEER_API_KEY',
+  'POSTPEER_BASE_URL',
+  'POSTPEER_APP_IDS',
+  'POSTPEER_WEBHOOK_SECRET',
+  // WeldData: the Lemlist lead database, and the email finders an enrichment
+  // run calls.
+  'LEMLIST_API_KEY',
+  'FINDYMAIL_API_KEY',
+  'PROSPEO_API_KEY',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -193,6 +212,12 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldData: the Lemlist filter catalog, cached in KV on a miss.
+  /^\/api\/welddata\/filters(\?|$)/,
+  // WeldData: a list's cells, its stuck running ones timed out first.
+  /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
+  // WeldBooks: the workspace's accounting settings row, created on first read.
+  /^\/api\/accounting-settings(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -275,6 +300,27 @@ export function createSideEffectRecorder() {
       },
     },
     /**
+     * A test's own `ENTITY_EVENTS` binding (one that keeps what was sent, to
+     * assert on), recorded the same way: what the Hono app sends is a side
+     * effect Rust's events are compared with, and it still reaches the test's
+     * binding.
+     */
+    wrapEvents(binding: {
+      send?(message: unknown): Promise<unknown> | unknown;
+      sendBatch?(messages: Array<{ body: unknown }>): Promise<unknown> | unknown;
+    }) {
+      return {
+        send: async (message: unknown) => {
+          effects.events.push(copy(message));
+          return binding.send?.(message);
+        },
+        sendBatch: async (messages: Array<{ body: unknown }>) => {
+          for (const message of messages) effects.events.push(copy(message.body));
+          return binding.sendBatch?.(messages);
+        },
+      };
+    },
+    /**
      * A test's own `REALTIME` binding (one that answers presence reads or keeps
      * what was published), recorded the same way: its publishes are side
      * effects too. Reads (presence) go to the test's stub; the publishes the
@@ -299,26 +345,6 @@ export function createSideEffectRecorder() {
               body: JSON.stringify(body),
             });
           }
-        },
-      };
-    },
-    /**
-     * A test's own `ENTITY_EVENTS` binding (one that keeps what was sent, for
-     * the test's assertions), recorded like the recorder's own: what the app
-     * sends is a side effect, and the events the stub keeps are Rust's,
-     * handed over after each request (`deliver`).
-     */
-    wrapEvents(binding: { send(message: unknown): Promise<unknown> }) {
-      return {
-        testOwned: true,
-        send: async (message: unknown) => {
-          effects.events.push(copy(message));
-        },
-        sendBatch: async (messages: Array<{ body: unknown }>) => {
-          for (const message of messages) effects.events.push(copy(message.body));
-        },
-        async deliver(events: unknown[]) {
-          for (const event of events) await binding.send(event);
         },
       };
     },
@@ -1151,11 +1177,6 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     | { testOwned?: boolean; deliver?: (published: SideEffects['realtime']) => Promise<void> }
     | undefined;
   if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
-  // An ENTITY_EVENTS stub of its own keeps Rust's events.
-  const ownEvents = request.env.ENTITY_EVENTS as
-    | { testOwned?: boolean; deliver?: (events: unknown[]) => Promise<void> }
-    | undefined;
-  if (ownEvents?.testOwned && ownEvents.deliver) await ownEvents.deliver(runs.rustEffects.events);
   const route = ts.headers.get(ROUTE_HEADER);
   // A router Rust serves under a prefix registers its schemas and volatile
   // fields at the prefixed route, so they never meet a module's own route
