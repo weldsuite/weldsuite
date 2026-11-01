@@ -7,14 +7,11 @@
 //!   linked to a workspace member), with a link to My HR → Payroll.
 //! - `hr.bank-changed`: the salary account changed, whoever changed it.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use serde_json::Value;
 use weldsuite_db::{PgPool, js_row};
-use weldsuite_emails::{
-    EmailBrand, EmailLocale, SystemEmail, format_date, format_time, render, send_system_email,
-};
+use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, hr, send_system_email};
 
 use crate::{Caller, HrState};
 
@@ -73,14 +70,6 @@ fn locale_of(lang: &str) -> EmailLocale {
     EmailLocale::resolve([Some(lang)])
 }
 
-fn name_vars(name: &str) -> (bool, Option<String>) {
-    let trimmed = name.trim();
-    (
-        !trimmed.is_empty(),
-        (!trimmed.is_empty()).then(|| trimmed.to_owned()),
-    )
-}
-
 /// What `payslipReady` needs.
 pub(crate) struct PayslipReady {
     pub(crate) email: String,
@@ -90,43 +79,20 @@ pub(crate) struct PayslipReady {
     pub(crate) lang: &'static str,
 }
 
-/// `notifier.payslipReady(args)`.
-pub(crate) async fn payslip_ready(state: &HrState, url: &str, args: PayslipReady) {
+/// Hand a rendered email to the transport; a failure is logged.
+async fn deliver(
+    state: &HrState,
+    to: &str,
+    rendered: Result<weldsuite_emails::RenderedEmail, weldsuite_emails::EmailError>,
+    what: &str,
+) {
     let Some(transport) = state.mail.as_deref() else {
         return;
     };
-    let locale = locale_of(args.lang);
-    let (has_name, name) = name_vars(&args.name);
-    let url = url.trim();
-    let mut flags = vec![];
-    if has_name {
-        flags.push("name");
-    }
-    if !url.is_empty() {
-        flags.push("url");
-    }
-    let rendered =
-        format_date(&format!("{}T12:00:00Z", args.pay_date), locale, "UTC").and_then(|date| {
-            let mut vars = BTreeMap::new();
-            vars.insert("recipient_name".to_owned(), name.unwrap_or_default().into());
-            vars.insert(
-                "employer_name".to_owned(),
-                args.employer_name.clone().into(),
-            );
-            vars.insert("pay_date".to_owned(), date.into());
-            vars.insert("url".to_owned(), url.to_owned().into());
-            render(
-                "hr.payslip-ready",
-                locale,
-                &EmailBrand::weldsuite("WeldHR"),
-                &flags,
-                vars,
-            )
-        });
     let sent = match rendered {
         Ok(rendered) => send_system_email(
             transport,
-            SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), &args.email),
+            SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), to),
         )
         .await
         .map(|_| ())
@@ -134,11 +100,28 @@ pub(crate) async fn payslip_ready(state: &HrState, url: &str, args: PayslipReady
         Err(error) => Err(error.to_string()),
     };
     if let Err(error) = sent {
-        tracing::warn!(%error, "[payroll] payslip email skipped");
+        tracing::warn!(%error, "[payroll] {what} email skipped");
     }
 }
 
-/// `notifier.bankChanged(args)`.
+/// `notifier.payslipReady(args)`.
+pub(crate) async fn payslip_ready(state: &HrState, url: &str, args: PayslipReady) {
+    let props = hr::PayslipReady {
+        recipient_name: Some(args.name),
+        employer_name: args.employer_name,
+        pay_date: args.pay_date,
+        url: Some(url.to_owned()),
+    };
+    let rendered = hr::payslip_ready(
+        locale_of(args.lang),
+        &EmailBrand::weldsuite("WeldHR"),
+        &props,
+    );
+    deliver(state, &args.email, rendered, "payslip").await;
+}
+
+/// `notifier.bankChanged(args)`: the change is now, shown in UTC (the
+/// worker passes no time zone).
 async fn bank_changed(
     state: &HrState,
     email: &str,
@@ -147,50 +130,15 @@ async fn bank_changed(
     by_employee: bool,
     lang: &str,
 ) {
-    let Some(transport) = state.mail.as_deref() else {
-        return;
+    let props = hr::BankChanged {
+        recipient_name: Some(name.to_owned()),
+        employer_name: employer_name.to_owned(),
+        by_employee,
+        changed_at: crate::now(),
+        time_zone: None,
     };
-    let locale = locale_of(lang);
-    let (has_name, name) = name_vars(name);
-    let mut flags = vec![];
-    if has_name {
-        flags.push("name");
-    }
-    if by_employee {
-        flags.push("by_employee");
-    }
-    let now = time::OffsetDateTime::now_utc();
-    let millis = i64::try_from(now.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
-    let iso = weldsuite_events::iso_timestamp(now);
-    let when = format_date(&iso, locale, "UTC").and_then(|date| {
-        format_time(millis, locale, "UTC", true).map(|time| format!("{date}, {time}"))
-    });
-    let rendered = when.and_then(|when| {
-        let mut vars = BTreeMap::new();
-        vars.insert("recipient_name".to_owned(), name.unwrap_or_default().into());
-        vars.insert("employer_name".to_owned(), employer_name.to_owned().into());
-        vars.insert("when".to_owned(), when.into());
-        render(
-            "hr.bank-changed",
-            locale,
-            &EmailBrand::weldsuite("WeldHR"),
-            &flags,
-            vars,
-        )
-    });
-    let sent = match rendered {
-        Ok(rendered) => send_system_email(
-            transport,
-            SystemEmail::to(rendered, EmailBrand::weldsuite("WeldHR"), email),
-        )
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string()),
-        Err(error) => Err(error.to_string()),
-    };
-    if let Err(error) = sent {
-        tracing::warn!(%error, "[payroll] bank change email skipped");
-    }
+    let rendered = hr::bank_changed(locale_of(lang), &EmailBrand::weldsuite("WeldHR"), &props);
+    deliver(state, email, rendered, "bank change").await;
 }
 
 async fn bank_change_task(

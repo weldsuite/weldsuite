@@ -466,6 +466,9 @@ async function renderCases(): Promise<string> {
     for (const [name, preview] of Object.entries(template.previews)) {
       for (const locale of LOCALES) {
         const brand = preview.brand ?? template.defaultBrand;
+        // A brand without the "Sent via WeldSuite" line has no exported layout
+        // (weldsuite-emails' "Not supported yet"): no case for it.
+        if ((brand as { poweredBy?: boolean }).poweredBy === false) continue;
         const expected = await renderEmail(spec.id, preview.props as never, { locale, brand });
         cases.push({ template: spec.id, preview: name, locale, brand, props: preview.props, expected });
       }
