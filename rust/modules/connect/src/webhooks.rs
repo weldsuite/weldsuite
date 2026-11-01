@@ -95,7 +95,7 @@ fn view(
 
 const JOINED: &str = "jsonb_build_object('webhook', to_jsonb(t), 'name', w.name, 'status', w.status, 'triggers', w.triggers)";
 
-fn split(row: Value) -> (Value, Value, Value, Value) {
+fn split(row: &Value) -> (Value, Value, Value, Value) {
     (
         js_row(row["webhook"].clone()),
         row["name"].clone(),
@@ -140,7 +140,7 @@ async fn list(
             let data: Vec<Value> = rows
                 .into_iter()
                 .map(|row| {
-                    let (webhook, name, status, triggers) = split(row);
+                    let (webhook, name, status, triggers) = split(&row);
                     view(webhook, &name, &status, Some(&triggers), &base)
                 })
                 .collect();
@@ -215,7 +215,7 @@ async fn get_one(
     .await;
     match row {
         Ok(Some(row)) => {
-            let (webhook, name, status, triggers) = split(row);
+            let (webhook, name, status, triggers) = split(&row);
             let base = caller.overrides.public_api_base(&state);
             Data(view(webhook, &name, &status, Some(&triggers), &base)).into_response()
         }
@@ -460,7 +460,7 @@ async fn create_trigger(
             &webhook_id,
             &json!({ "id": webhook_id, "workflowId": workflow_id, "triggerId": trigger_id }),
         );
-        let mut body = trigger.map(js_row).unwrap_or_else(|| json!({}));
+        let mut body = trigger.map_or_else(|| json!({}), js_row);
         if let Value::Object(map) = &mut body {
             map.insert("webhookId".into(), json!(webhook_id));
             map.insert("webhookUrl".into(), json!(url));

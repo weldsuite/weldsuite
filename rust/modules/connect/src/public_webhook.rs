@@ -153,18 +153,17 @@ pub(crate) async fn receive(
             return ApiError::internal().into_response();
         }
     };
-    let db = match parts.extensions.get::<Tenant>() {
-        Some(tenant) => tenant.db.clone(),
-        None => {
-            let Some(tenants) = &state.tenants else {
+    let db = if let Some(tenant) = parts.extensions.get::<Tenant>() {
+        tenant.db.clone()
+    } else {
+        let Some(tenants) = &state.tenants else {
+            return ApiError::internal().into_response();
+        };
+        match tenants(workspace.clone()).await {
+            Ok(db) => db,
+            Err(error) => {
+                tracing::error!(%error, "[WebhookReceiver] tenant database unavailable");
                 return ApiError::internal().into_response();
-            };
-            match tenants(workspace.clone()).await {
-                Ok(db) => db,
-                Err(error) => {
-                    tracing::error!(%error, "[WebhookReceiver] tenant database unavailable");
-                    return ApiError::internal().into_response();
-                }
             }
         }
     };

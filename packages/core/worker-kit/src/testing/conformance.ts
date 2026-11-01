@@ -165,8 +165,16 @@ export const FORWARDED_ENV = [
   'DISCORD_CLIENT_SECRET',
   'SLACK_CLIENT_ID',
   'SLACK_CLIENT_SECRET',
-  // WeldConnect: this API's public origin (the workflow webhook URLs).
+  // WeldConnect: this API's public origin (the workflow webhook URLs), the
+  // workflow integrations' Google OAuth app, and the GitHub App (its id,
+  // slug and key; the install state is signed with CLERK_SECRET_KEY).
   'CONNECT_API_URL',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GITHUB_APP_ID',
+  'GITHUB_APP_SLUG',
+  'GITHUB_APP_PRIVATE_KEY',
+  'CLERK_SECRET_KEY',
   // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
   // tokens are signed with, the realtime origin it advertises to the widget, and
   // the secret its realtime publishes carry.
@@ -593,6 +601,8 @@ const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
  * value), on its own or inside a string. New on every run of a write.
  */
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
+/** `crypto.randomUUID()` (an OAuth `state`), alone or inside a URL. New on every run of a write. */
+const RANDOM_UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -731,7 +741,8 @@ function normalizeRandomParts(value: string): string {
     .replace(DESK_ATTACHMENT_ID, '_att_<id>_')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
-    .replace(EPOCH_MS, '<epoch-ms>');
+    .replace(EPOCH_MS, '<epoch-ms>')
+    .replace(RANDOM_UUID, '<uuid>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */

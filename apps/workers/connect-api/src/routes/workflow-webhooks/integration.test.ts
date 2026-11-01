@@ -36,7 +36,7 @@ function app() {
     context: {
       permissions: permissions('workflow-webhooks:read', 'workflow-webhooks:update', 'workflow-webhooks:delete'),
       tenantDb: db,
-      masterDb,
+      masterDb: masterDb as never,
     },
     env: { CONNECT_API_URL: BASE } as never,
   }).request;

@@ -438,15 +438,12 @@ pub(crate) async fn resolve_owner(
     .bind(webhook_id)
     .fetch_optional(master)
     .await?;
-    match row {
-        Some((workspace, false)) => {
-            cache_put(cache, &key, &workspace).await;
-            Ok(Some(workspace))
-        }
-        _ => {
-            cache_put(cache, &key, NOT_FOUND_SENTINEL).await;
-            Ok(None)
-        }
+    if let Some((workspace, false)) = row {
+        cache_put(cache, &key, &workspace).await;
+        Ok(Some(workspace))
+    } else {
+        cache_put(cache, &key, NOT_FOUND_SENTINEL).await;
+        Ok(None)
     }
 }
 

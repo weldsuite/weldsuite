@@ -2112,6 +2112,25 @@
           "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
         }
       ]
+    },
+    {
+      "name": "connect: workflow integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-integrations/integration.test.ts",
+        "src/routes/workflow-integrations/github.test.ts",
+        "src/routes/workflow-integrations/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-integrations/",
+        "apps/workers/connect-api/src/services/workflow-integrations/",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/core/workflow-integrations/src/",
+        "packages/domains/connect/src/github/",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
     }
   ]
 }

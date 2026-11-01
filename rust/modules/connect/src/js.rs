@@ -58,16 +58,6 @@ pub(crate) fn coalesce<'a>(values: &[Option<&'a Value>]) -> Option<&'a Value> {
         .copied()
 }
 
-/// A string field, when it is one.
-pub(crate) fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
-    row.get(key).and_then(Value::as_str)
-}
-
-/// `value === false`.
-pub(crate) fn is_false(value: Option<&Value>) -> bool {
-    matches!(value, Some(Value::Bool(false)))
-}
-
 /// A JSON array as a slice, else empty (`Array.isArray(x) ? x : []`).
 pub(crate) fn array(value: Option<&Value>) -> &[Value] {
     match value {

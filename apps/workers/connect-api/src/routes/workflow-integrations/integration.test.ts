@@ -33,9 +33,14 @@ function fakeKv(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
+/** The fetch the stub hands loopback calls to: the conformance harness's own (to the Rust server and its bridges). */
+const realFetch = globalThis.fetch;
+const isLoopback = (url: string) => url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
+
 function stubFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (isLoopback(String(url))) return realFetch(url, init);
     calls.push({ url, init });
     return impl(url, init);
   });
@@ -198,10 +203,9 @@ describe('connected Slack integration · test + channel picker', () => {
 
   it('GET /:id/slack/channels lists public + private channels, paginating cursors', async () => {
     const id = await seedConnectedSlack();
-    let page = 0;
-    const { calls } = stubFetch(() => {
-      page += 1;
-      if (page === 1) {
+    // Answers by the cursor in the URL, not by call order (conformance runs each request twice).
+    const { calls } = stubFetch((url) => {
+      if (!url.includes('cursor=cursor-2')) {
         return new Response(
           JSON.stringify({
             ok: true,
@@ -228,8 +232,8 @@ describe('connected Slack integration · test + channel picker', () => {
       { id: 'C1', name: 'general', isPrivate: false, isMember: true },
       { id: 'C2', name: 'secret-team', isPrivate: true, isMember: false },
     ]);
-    expect(calls).toHaveLength(2);
-    expect(calls[1].url).toContain('cursor=cursor-2');
+    expect(new Set(calls.map((call) => call.url)).size).toBe(2);
+    expect(calls.some((call) => call.url.includes('cursor=cursor-2'))).toBe(true);
   });
 
   it('GET /:id/slack/channels surfaces a Slack API error', async () => {
@@ -392,10 +396,9 @@ describe('connected Google integrations · test + pickers', () => {
 
   it('GET /:id/google_calendar/calendars lists writable calendars, paginating tokens', async () => {
     const id = await seedConnected('google_calendar', 'My Calendar');
-    let call = 0;
-    const { calls } = stubFetch(() => {
-      call += 1;
-      if (call === 1) {
+    // Answers by the page token in the URL, not by call order (conformance runs each request twice).
+    const { calls } = stubFetch((url) => {
+      if (!url.includes('pageToken=page-2')) {
         return new Response(
           JSON.stringify({
             items: [{ id: 'primary', summary: 'Jane', primary: true, accessRole: 'owner' }],
@@ -416,8 +419,8 @@ describe('connected Google integrations · test + pickers', () => {
       { id: 'primary', summary: 'Jane', primary: true, accessRole: 'owner' },
       { id: 'team@acme.com', summary: 'Team', primary: false, accessRole: 'writer' },
     ]);
-    expect(calls).toHaveLength(2);
-    expect(calls[1].url).toContain('pageToken=page-2');
+    expect(new Set(calls.map((call) => call.url)).size).toBe(2);
+    expect(calls.some((call) => call.url.includes('pageToken=page-2'))).toBe(true);
   });
 
   it('GET /:id/google_calendar/calendars surfaces a Calendar API error as 500', async () => {

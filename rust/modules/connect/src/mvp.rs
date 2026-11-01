@@ -191,7 +191,7 @@ fn required_fields(kind: &str, c: &Map<String, Value>) -> Vec<&'static str> {
         "log_activity" => missing(c, &["subject"]),
         "create_task" => missing(c, &["projectId", "title"]),
         "create_conversation" => missing(c, &["message"]),
-        "send_notification" => missing(c, &["title"]),
+        "send_notification" | "manual_step" => missing(c, &["title"]),
         "post_chat_message" => {
             let mut out = missing(c, &["channelId"]);
             if blank(c, "message") && blank(c, "content") {
@@ -209,9 +209,9 @@ fn required_fields(kind: &str, c: &Map<String, Value>) -> Vec<&'static str> {
                 Some(v) if !v.is_null() => Some(v),
                 _ => c.get("labels"),
             };
-            if !categories
+            if categories
                 .and_then(Value::as_array)
-                .is_some_and(|items| !items.is_empty())
+                .is_none_or(Vec::is_empty)
             {
                 out.push("categories");
             }
@@ -257,7 +257,6 @@ fn required_fields(kind: &str, c: &Map<String, Value>) -> Vec<&'static str> {
             out
         }
         "google_calendar.create_event" => missing(c, &["summary", "startDateTime", "endDateTime"]),
-        "manual_step" => missing(c, &["title"]),
         _ => vec![],
     }
 }

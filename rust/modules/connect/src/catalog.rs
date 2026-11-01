@@ -55,6 +55,18 @@ pub(crate) fn trigger_types() -> &'static [Value] {
     list("triggerTypes")
 }
 
+/// `listIntegrations()` of `@weldsuite/workflow-integrations`.
+pub(crate) fn integrations() -> &'static [Value] {
+    list("integrations")
+}
+
+/// `getIntegrationDef(id)`.
+pub(crate) fn integration(id: &str) -> Option<&'static Value> {
+    integrations()
+        .iter()
+        .find(|def| def["id"].as_str() == Some(id))
+}
+
 /// `/api/workflow-dashboard/entity-events`' list.
 pub(crate) fn entity_events() -> &'static [Value] {
     list("entityEvents")

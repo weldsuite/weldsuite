@@ -1051,6 +1051,914 @@
       "label": "Invoice"
     }
   ],
+  "integrations": [
+    {
+      "actions": [
+        {
+          "description": "Post a message to a Slack channel.",
+          "id": "slack.post_message",
+          "inputs": [
+            {
+              "description": "Which connected Slack workspace to post as, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "channel",
+              "label": "Channel",
+              "placeholder": "#general or C0123ABC",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "text",
+              "label": "Message",
+              "placeholder": "Hello from WeldConnect",
+              "required": true,
+              "type": "text"
+            },
+            {
+              "description": "A previous message's ts to reply in its thread.",
+              "key": "threadTs",
+              "label": "Reply to thread (optional)",
+              "type": "string"
+            }
+          ],
+          "name": "Post Message"
+        }
+      ],
+      "auth": {
+        "authUrl": "https://slack.com/oauth/v2/authorize",
+        "clientIdEnv": "SLACK_CLIENT_ID",
+        "clientSecretEnv": "SLACK_CLIENT_SECRET",
+        "kind": "oauth2",
+        "scopes": [
+          "chat:write",
+          "channels:read",
+          "commands"
+        ],
+        "storeOnSettings": [
+          "team",
+          "bot_user_id"
+        ],
+        "tokenUrl": "https://slack.com/api/oauth.v2.access"
+      },
+      "category": "communication",
+      "description": "Post messages to channels and start workflows from Slack messages and slash commands.",
+      "icon": "slack",
+      "id": "slack",
+      "label": "Slack",
+      "triggers": [
+        {
+          "description": "Triggers when a message is posted in a channel the app belongs to.",
+          "id": "slack.message",
+          "kind": "webhook",
+          "name": "New Message",
+          "outputFields": [
+            "channel",
+            "user",
+            "text",
+            "ts",
+            "team_id"
+          ]
+        },
+        {
+          "description": "Triggers when your custom slash command is invoked.",
+          "id": "slack.slash_command",
+          "kind": "webhook",
+          "name": "Slash Command",
+          "outputFields": [
+            "command",
+            "text",
+            "user_id",
+            "channel_id",
+            "team_id"
+          ]
+        }
+      ],
+      "type": "slack"
+    },
+    {
+      "actions": [
+        {
+          "description": "Append a row of values to a sheet.",
+          "id": "google_sheets.append_row",
+          "inputs": [
+            {
+              "description": "Which connected Google account to use, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "spreadsheetId",
+              "label": "Spreadsheet",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "sheetName",
+              "label": "Sheet",
+              "placeholder": "Sheet1",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "JSON object of column letter to value, e.g. {\"A\": \"Jane\", \"B\": \"jane@acme.com\"}. Values support {{variables}}.",
+              "key": "columnMapping",
+              "label": "Column values",
+              "required": true,
+              "type": "json"
+            }
+          ],
+          "name": "Append Row"
+        },
+        {
+          "description": "Overwrite one row, found by row number or by looking up a column value.",
+          "id": "google_sheets.update_row",
+          "inputs": [
+            {
+              "description": "Which connected Google account to use, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "spreadsheetId",
+              "label": "Spreadsheet",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "sheetName",
+              "label": "Sheet",
+              "placeholder": "Sheet1",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "The exact row to update (including the header row in the count). Leave blank to look up the row by a column value instead.",
+              "key": "rowNumber",
+              "label": "Row number",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "description": "Column letter to search for lookupValue, when rowNumber is blank.",
+              "key": "lookupColumn",
+              "label": "Lookup column",
+              "placeholder": "A",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "The value to find in lookupColumn. The first matching row is updated.",
+              "key": "lookupValue",
+              "label": "Lookup value",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "JSON object of column letter to value, e.g. {\"C\": \"Updated\"}. Values support {{variables}}.",
+              "key": "columnMapping",
+              "label": "Column values",
+              "required": true,
+              "type": "json"
+            }
+          ],
+          "name": "Update Row"
+        }
+      ],
+      "auth": {
+        "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "authorizeParams": {
+          "access_type": "offline",
+          "include_granted_scopes": "true",
+          "prompt": "consent"
+        },
+        "clientIdEnv": "GOOGLE_CLIENT_ID",
+        "clientSecretEnv": "GOOGLE_CLIENT_SECRET",
+        "kind": "oauth2",
+        "scopes": [
+          "openid",
+          "email",
+          "profile",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "tokenUrl": "https://oauth2.googleapis.com/token"
+      },
+      "category": "productivity",
+      "description": "Append and update rows, and start workflows when a new row is added.",
+      "icon": "sheet",
+      "id": "google_sheets",
+      "label": "Google Sheets",
+      "triggers": [
+        {
+          "description": "Triggers when a new row is added to a watched sheet.",
+          "id": "google_sheets.new_row",
+          "kind": "poll",
+          "name": "New Row",
+          "outputFields": [
+            "rowNumber",
+            "values"
+          ]
+        }
+      ],
+      "type": "google_sheets"
+    },
+    {
+      "actions": [
+        {
+          "description": "Send an email from the connected Gmail account.",
+          "id": "gmail.send_email",
+          "inputs": [
+            {
+              "description": "Which connected Gmail account to send from, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "description": "Comma-separated recipient addresses. Every resolved address is validated before sending.",
+              "key": "to",
+              "label": "To",
+              "placeholder": "jane@acme.com",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "subject",
+              "label": "Subject",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "body",
+              "label": "Body",
+              "required": true,
+              "type": "text"
+            },
+            {
+              "description": "Off treats the body as plain text (escaped and line-broken into HTML).",
+              "key": "isHtml",
+              "label": "Body is HTML",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "key": "cc",
+              "label": "Cc",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "bcc",
+              "label": "Bcc",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "name": "Send Email"
+        }
+      ],
+      "auth": {
+        "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "authorizeParams": {
+          "access_type": "offline",
+          "include_granted_scopes": "true",
+          "prompt": "consent"
+        },
+        "clientIdEnv": "GOOGLE_CLIENT_ID",
+        "clientSecretEnv": "GOOGLE_CLIENT_SECRET",
+        "kind": "oauth2",
+        "scopes": [
+          "openid",
+          "email",
+          "profile",
+          "https://www.googleapis.com/auth/gmail.send"
+        ],
+        "tokenUrl": "https://oauth2.googleapis.com/token"
+      },
+      "category": "communication",
+      "description": "Send email from your Gmail account and trigger workflows on new mail.",
+      "icon": "mail",
+      "id": "gmail",
+      "label": "Gmail",
+      "triggers": [
+        {
+          "description": "Triggers when a new message arrives in the inbox (optionally matching a Gmail search query).",
+          "id": "gmail.new_email",
+          "kind": "poll",
+          "name": "New Email",
+          "outputFields": [
+            "id",
+            "threadId",
+            "from",
+            "subject",
+            "snippet"
+          ]
+        }
+      ],
+      "type": "gmail"
+    },
+    {
+      "actions": [
+        {
+          "description": "Create an event on a calendar.",
+          "id": "google_calendar.create_event",
+          "inputs": [
+            {
+              "description": "Which connected Google account to use, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "calendarId",
+              "label": "Calendar",
+              "placeholder": "primary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "summary",
+              "label": "Title",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "startDateTime",
+              "label": "Start (ISO 8601)",
+              "placeholder": "2026-07-01T09:00:00",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "endDateTime",
+              "label": "End (ISO 8601)",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "IANA time zone for start/end when they are not UTC (no trailing Z). Defaults to the calendar’s own time zone.",
+              "key": "timeZone",
+              "label": "Time zone",
+              "placeholder": "Europe/Amsterdam",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "description",
+              "label": "Description",
+              "required": false,
+              "type": "text"
+            },
+            {
+              "key": "attendees",
+              "label": "Attendees (comma emails)",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "name": "Create Event"
+        }
+      ],
+      "auth": {
+        "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "authorizeParams": {
+          "access_type": "offline",
+          "include_granted_scopes": "true",
+          "prompt": "consent"
+        },
+        "clientIdEnv": "GOOGLE_CLIENT_ID",
+        "clientSecretEnv": "GOOGLE_CLIENT_SECRET",
+        "kind": "oauth2",
+        "scopes": [
+          "openid",
+          "email",
+          "profile",
+          "https://www.googleapis.com/auth/calendar.events",
+          "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+        ],
+        "tokenUrl": "https://oauth2.googleapis.com/token"
+      },
+      "category": "productivity",
+      "description": "Create calendar events and trigger workflows when new events are added.",
+      "icon": "calendar",
+      "id": "google_calendar",
+      "label": "Google Calendar",
+      "triggers": [
+        {
+          "description": "Triggers when a new upcoming event is created on the calendar.",
+          "id": "google_calendar.new_event",
+          "kind": "poll",
+          "name": "New Event",
+          "outputFields": [
+            "id",
+            "summary",
+            "start",
+            "end",
+            "htmlLink"
+          ]
+        }
+      ],
+      "type": "google_calendar"
+    },
+    {
+      "actions": [
+        {
+          "description": "Post a message card to the configured Teams channel.",
+          "id": "teams.post_message",
+          "inputs": [
+            {
+              "key": "title",
+              "label": "Title",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "text",
+              "label": "Message",
+              "required": true,
+              "type": "text"
+            }
+          ],
+          "name": "Post Message"
+        }
+      ],
+      "auth": {
+        "fields": [
+          {
+            "key": "webhookUrl",
+            "label": "Incoming Webhook URL",
+            "placeholder": "https://outlook.office.com/webhook/...",
+            "secret": true
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "communication",
+      "description": "Post messages to a Teams channel via an incoming webhook.",
+      "icon": "message-square",
+      "id": "teams",
+      "label": "Microsoft Teams",
+      "triggers": [],
+      "type": "teams"
+    },
+    {
+      "actions": [
+        {
+          "description": "Send an SMS (or WhatsApp) message.",
+          "id": "twilio.send_sms",
+          "inputs": [
+            {
+              "key": "to",
+              "label": "To",
+              "placeholder": "+15557654321",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "body",
+              "label": "Message",
+              "required": true,
+              "type": "text"
+            },
+            {
+              "key": "from",
+              "label": "From (overrides default)",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "name": "Send SMS"
+        }
+      ],
+      "auth": {
+        "fields": [
+          {
+            "key": "accountSid",
+            "label": "Account SID",
+            "placeholder": "ACxxxxxxxx"
+          },
+          {
+            "key": "authToken",
+            "label": "Auth Token",
+            "secret": true
+          },
+          {
+            "key": "fromNumber",
+            "label": "Default From number",
+            "placeholder": "+15551234567"
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "communication",
+      "description": "Send SMS/WhatsApp messages and start workflows from inbound messages.",
+      "icon": "message-circle",
+      "id": "twilio",
+      "label": "Twilio",
+      "triggers": [
+        {
+          "description": "Triggers when an SMS is received on your Twilio number.",
+          "id": "twilio.inbound_sms",
+          "kind": "webhook",
+          "name": "Inbound SMS",
+          "outputFields": [
+            "from",
+            "to",
+            "body",
+            "messageSid"
+          ]
+        }
+      ],
+      "type": "twilio"
+    },
+    {
+      "actions": [
+        {
+          "description": "Create a page in a database.",
+          "id": "notion.create_page",
+          "inputs": [
+            {
+              "key": "databaseId",
+              "label": "Database ID",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "Sets the database's Name/title property.",
+              "key": "title",
+              "label": "Title",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "Notion property objects, merged with Title.",
+              "key": "properties",
+              "label": "Extra properties (JSON)",
+              "required": false,
+              "type": "json"
+            }
+          ],
+          "name": "Create Page"
+        },
+        {
+          "description": "Update properties of an existing page.",
+          "id": "notion.update_page",
+          "inputs": [
+            {
+              "key": "pageId",
+              "label": "Page ID",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "properties",
+              "label": "Properties (JSON)",
+              "required": true,
+              "type": "json"
+            }
+          ],
+          "name": "Update Page"
+        }
+      ],
+      "auth": {
+        "fields": [
+          {
+            "key": "token",
+            "label": "Internal Integration Token",
+            "placeholder": "secret_...",
+            "secret": true
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "productivity",
+      "description": "Create and update pages in a Notion database.",
+      "icon": "file-text",
+      "id": "notion",
+      "label": "Notion",
+      "triggers": [],
+      "type": "notion"
+    },
+    {
+      "actions": [
+        {
+          "description": "Create a record in a table.",
+          "id": "airtable.create_record",
+          "inputs": [
+            {
+              "key": "baseId",
+              "label": "Base ID",
+              "placeholder": "app...",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "tableId",
+              "label": "Table ID or name",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "fields",
+              "label": "Fields (JSON object)",
+              "required": true,
+              "type": "json"
+            }
+          ],
+          "name": "Create Record"
+        },
+        {
+          "description": "Update fields on an existing record.",
+          "id": "airtable.update_record",
+          "inputs": [
+            {
+              "key": "baseId",
+              "label": "Base ID",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "tableId",
+              "label": "Table ID or name",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "recordId",
+              "label": "Record ID",
+              "placeholder": "rec...",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "fields",
+              "label": "Fields (JSON object)",
+              "required": true,
+              "type": "json"
+            }
+          ],
+          "name": "Update Record"
+        }
+      ],
+      "auth": {
+        "fields": [
+          {
+            "key": "token",
+            "label": "Personal Access Token",
+            "placeholder": "pat...",
+            "secret": true
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "productivity",
+      "description": "Create and update records, and trigger workflows on new records.",
+      "icon": "table",
+      "id": "airtable",
+      "label": "Airtable",
+      "triggers": [
+        {
+          "description": "Triggers when a new record is added to a watched table.",
+          "id": "airtable.new_record",
+          "kind": "poll",
+          "name": "New Record",
+          "outputFields": [
+            "id",
+            "fields",
+            "createdTime"
+          ]
+        }
+      ],
+      "type": "airtable"
+    },
+    {
+      "actions": [
+        {
+          "description": "Open a new issue in a repository.",
+          "id": "github.create_issue",
+          "inputs": [
+            {
+              "description": "Which connected GitHub installation to use, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "repo",
+              "label": "Repository",
+              "placeholder": "owner/repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "title",
+              "label": "Title",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "body",
+              "label": "Body",
+              "required": false,
+              "type": "text"
+            },
+            {
+              "description": "Comma-separated label names.",
+              "key": "labels",
+              "label": "Labels",
+              "type": "string"
+            },
+            {
+              "description": "Comma-separated GitHub usernames.",
+              "key": "assignees",
+              "label": "Assignees",
+              "type": "string"
+            }
+          ],
+          "name": "Create Issue"
+        },
+        {
+          "description": "Comment on an issue or pull request.",
+          "id": "github.create_comment",
+          "inputs": [
+            {
+              "description": "Which connected GitHub installation to use, when more than one is connected.",
+              "key": "integrationId",
+              "label": "Connection",
+              "type": "string"
+            },
+            {
+              "key": "repo",
+              "label": "Repository",
+              "placeholder": "owner/repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "issueNumber",
+              "label": "Issue / PR number",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "body",
+              "label": "Comment",
+              "required": true,
+              "type": "text"
+            }
+          ],
+          "name": "Create Comment"
+        }
+      ],
+      "auth": {
+        "appIdEnv": "GITHUB_APP_ID",
+        "appSlugEnv": "GITHUB_APP_SLUG",
+        "kind": "app_installation",
+        "privateKeyEnv": "GITHUB_APP_PRIVATE_KEY"
+      },
+      "category": "developer",
+      "description": "Create issues and comments, and trigger workflows on issue/PR events.",
+      "icon": "github",
+      "id": "github",
+      "label": "GitHub",
+      "triggers": [
+        {
+          "description": "Triggers on issue activity (opened, closed, …).",
+          "id": "github.issue",
+          "kind": "webhook",
+          "name": "Issue Event",
+          "outputFields": [
+            "action",
+            "number",
+            "title",
+            "state",
+            "repository"
+          ]
+        },
+        {
+          "description": "Triggers on pull request activity (opened, merged, …).",
+          "id": "github.pull_request",
+          "kind": "webhook",
+          "name": "Pull Request Event",
+          "outputFields": [
+            "action",
+            "number",
+            "title",
+            "state",
+            "repository"
+          ]
+        }
+      ],
+      "type": "github"
+    },
+    {
+      "actions": [
+        {
+          "description": "Create a task in a project or workspace.",
+          "id": "asana.create_task",
+          "inputs": [
+            {
+              "key": "name",
+              "label": "Task name",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "required": false,
+              "type": "text"
+            },
+            {
+              "key": "projectId",
+              "label": "Project ID",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "workspaceId",
+              "label": "Workspace ID (if no project)",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "assignee",
+              "label": "Assignee (user gid or email)",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "dueOn",
+              "label": "Due date (YYYY-MM-DD)",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "name": "Create Task"
+        },
+        {
+          "description": "Update fields on an existing task.",
+          "id": "asana.update_task",
+          "inputs": [
+            {
+              "key": "taskId",
+              "label": "Task ID",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "key": "name",
+              "label": "Task name",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "required": false,
+              "type": "text"
+            },
+            {
+              "key": "completed",
+              "label": "Completed",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "key": "dueOn",
+              "label": "Due date (YYYY-MM-DD)",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "name": "Update Task"
+        }
+      ],
+      "auth": {
+        "fields": [
+          {
+            "key": "token",
+            "label": "Personal Access Token",
+            "placeholder": "1/...",
+            "secret": true
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "productivity",
+      "description": "Create and update Asana tasks from your workflows.",
+      "icon": "check-circle",
+      "id": "asana",
+      "label": "Asana",
+      "triggers": [],
+      "type": "asana"
+    }
+  ],
   "templates": {
     "en": [
       {

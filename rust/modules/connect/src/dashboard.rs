@@ -109,7 +109,7 @@ async fn stats(caller: Caller) -> Response {
         .unwrap_or_else(|error| internal(&error, "Failed to fetch dashboard stats"))
 }
 
-fn search_hit(id: &Value, title: &Value, description: Value, href: String, kind: &str) -> Value {
+fn search_hit(id: &Value, title: &Value, description: &Value, href: &str, kind: &str) -> Value {
     json!({ "id": id, "title": title, "description": description, "href": href, "type": kind })
 }
 
@@ -161,8 +161,8 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
                     search_hit(
                         &w["id"],
                         &w["name"],
-                        or_text(&w["status"], "Workflow"),
-                        format!("/weldconnect/workflows/{id}"),
+                        &or_text(&w["status"], "Workflow"),
+                        &format!("/weldconnect/workflows/{id}"),
                         "workflow",
                     )
                 })
@@ -198,8 +198,8 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
             hits.push(search_hit(
                 &w["id"],
                 &w["name"],
-                or_text(&w["status"], "Workflow"),
-                format!("/weldconnect/workflows/{id}"),
+                &or_text(&w["status"], "Workflow"),
+                &format!("/weldconnect/workflows/{id}"),
                 "workflow",
             ));
         }
@@ -208,8 +208,8 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
             hits.push(search_hit(
                 &t["id"],
                 &t["name"],
-                or_text(&t["category"], "Template"),
-                format!("/weldconnect/templates/{id}"),
+                &or_text(&t["category"], "Template"),
+                &format!("/weldconnect/templates/{id}"),
                 "template",
             ));
         }
@@ -218,8 +218,8 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
             hits.push(search_hit(
                 &r["id"],
                 &or_text(&r["workflowName"], "Execution"),
-                or_text(&r["status"], "Execution"),
-                format!("/weldconnect/executions/{id}"),
+                &or_text(&r["status"], "Execution"),
+                &format!("/weldconnect/executions/{id}"),
                 "execution",
             ));
         }

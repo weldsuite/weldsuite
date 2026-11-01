@@ -30,7 +30,7 @@ const ALL = ['workflow-webhooks:read', 'workflow-webhooks:create', 'workflow-web
 
 function app(granted: string[] = ALL) {
   return createTestApp('/api/workflow-webhooks', workflowWebhooksRoutes, {
-    context: { permissions: permissions(...granted), tenantDb: db, masterDb },
+    context: { permissions: permissions(...granted), tenantDb: db, masterDb: masterDb as never },
     env: { CONNECT_API_URL: 'https://hooks.example.test' } as never,
   }).request;
 }

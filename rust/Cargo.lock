@@ -4146,6 +4146,7 @@ dependencies = [
  "hmac",
  "http",
  "jiff",
+ "jsonwebtoken 11.1.0",
  "regex",
  "serde",
  "serde_json",

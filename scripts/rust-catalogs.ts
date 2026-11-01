@@ -40,6 +40,7 @@ import {
   ENTITY_EVENTS as WELDCONNECT_ENTITY_EVENTS,
   TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
 } from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
+import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -79,6 +80,8 @@ function weldconnectCatalog(): unknown {
     actionTypes: WELDCONNECT_ACTION_TYPES,
     triggerTypes: WELDCONNECT_TRIGGER_TYPES,
     entityEvents: WELDCONNECT_ENTITY_EVENTS,
+    // `@weldsuite/workflow-integrations`: the third-party providers WeldConnect connects to.
+    integrations: listWorkflowIntegrations(),
   };
 }
 

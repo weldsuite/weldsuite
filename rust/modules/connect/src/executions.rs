@@ -80,13 +80,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .map(str::to_owned)
         .collect();
     let trigger_type = query_truthy(query, "triggerType");
-    let date = |name: &str| -> Result<Option<String>, ()> {
+    let date_param = |name: &str| -> Result<Option<String>, ()> {
         match query_truthy(query, name) {
             None => Ok(None),
             Some(text) => js_date_iso(&text).map(Some).ok_or(()),
         }
     };
-    let (Ok(start), Ok(end)) = (date("startDate"), date("endDate")) else {
+    let (Ok(start), Ok(end)) = (date_param("startDate"), date_param("endDate")) else {
         return internal(&"Invalid time value", "Failed to list workflow executions");
     };
     let cursor = query_truthy(query, "cursor");
@@ -178,12 +178,11 @@ async fn trends(caller: Caller, RawQuery(query): RawQuery) -> Response {
         } else {
             day
         };
-        let index = match buckets.iter().position(|(d, ..)| *d == date) {
-            Some(index) => index,
-            None => {
-                buckets.push((date, 0, 0, 0));
-                buckets.len() - 1
-            }
+        let index = if let Some(index) = buckets.iter().position(|(d, ..)| *d == date) {
+            index
+        } else {
+            buckets.push((date, 0, 0, 0));
+            buckets.len() - 1
         };
         let bucket = &mut buckets[index];
         bucket.1 += 1;
@@ -270,7 +269,11 @@ async fn logs(caller: Caller, Path(id): Path<String>) -> Response {
                 .and_then(Value::as_str)
                 .and_then(js_date_iso)
                 .and_then(|iso| crate::cron::parse_ms(&iso))
-                .map_or(f64::NAN, |ms| ms as f64);
+                .map_or(f64::NAN, |ms| {
+                    #[allow(clippy::cast_precision_loss)]
+                    let ms = ms as f64;
+                    ms
+                });
             logs.push((at, Value::Object(log)));
         }
     }

@@ -43,7 +43,7 @@ function app() {
     context: {
       permissions: permissions('workflows:create', 'workflows:update', 'workflows:delete'),
       tenantDb: db,
-      masterDb,
+      masterDb: masterDb as never,
       // Distinct ids: the registry stores the Clerk org id (phase 3 of the
       // workspace-id plan moves it to workspaces.id), never `workspaceId`.
       workspaceId: 'ws_registry_test',

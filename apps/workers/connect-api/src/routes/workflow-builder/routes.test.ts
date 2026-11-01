@@ -37,13 +37,13 @@ beforeAll(async () => {
     id: 'wf_b_built',
     name: 'Built',
     status: 'draft',
-    triggers: [{ id: 't1', type: 'entity_event', name: 'Lead created', config: { entityType: 'lead' } }],
+    triggers: [{ id: 't1', type: 'entity_event', name: 'Lead created', config: { entityType: 'lead' } }] as never,
     steps: [
       { id: 's1', type: 'condition', name: 'Big deal?', config: { expression: 'amount > 1000' } },
       { id: 's2', type: 'send_email', name: 'Tell sales', description: 'Ping the team', config: { to: 'sales@x.test' } },
       { id: 's3', type: 'delay', name: 'Wait' },
-    ],
-    settings: { builderState: { isBuilderDraft: true, chatHistory: [{ role: 'user', content: 'hi' }], finalized: false } },
+    ] as never,
+    settings: { builderState: { isBuilderDraft: true, chatHistory: [{ role: 'user', content: 'hi' }], finalized: false } } as never,
     tags: ['ai-builder'],
   });
 }, 60_000);

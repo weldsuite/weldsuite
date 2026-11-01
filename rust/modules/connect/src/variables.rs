@@ -299,7 +299,7 @@ async fn create(
         .bind(&name)
         .bind(&description)
         .bind(kind.unwrap_or_else(|| "string".into()))
-        .bind(value.map(Value::String).unwrap_or(Value::Null))
+        .bind(value.map_or(Value::Null, Value::String))
         .bind(secret == Some(true))
         .bind(if target.is_some() {
             "workflow"

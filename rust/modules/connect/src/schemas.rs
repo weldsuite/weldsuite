@@ -84,6 +84,7 @@ fn record(map: &Object, key: &str, default: bool) -> Read {
 }
 
 /// `z.unknown()`.
+#[allow(clippy::unnecessary_wraps)] // a `Read` like the other field readers
 fn unknown(map: &Object, key: &str) -> Read {
     Ok(map.get(key).cloned())
 }

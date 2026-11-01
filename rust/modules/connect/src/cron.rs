@@ -2,6 +2,10 @@
 //! time zone, the next fire time, and a naive local date-time read in a time
 //! zone (`zonedTimeToUtc`). Times are epoch milliseconds.
 
+// The matcher and the next-run computation serve the schedule sweep
+// (`weldsuite cron workflow-schedules`, with the execution engine).
+#![allow(dead_code)]
+
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
@@ -216,6 +220,7 @@ pub(crate) fn parse_ms(text: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -11,11 +11,20 @@
 //! TypeScript worker's; its tests run against this crate in the `connect`
 //! conformance suites (`rust/conformance/suites.json`).
 
+// Handlers mirror the TypeScript routes one for one; the long ones stay whole.
+#![allow(
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::items_after_statements
+)]
+
 mod builder;
 mod catalog;
 mod cron;
+mod crypto;
 mod dashboard;
 mod executions;
+mod github_app;
 mod js;
 mod mvp;
 mod public_webhook;
@@ -28,7 +37,26 @@ mod triggers;
 mod variables;
 mod versions;
 mod webhooks;
+mod workflow_integrations;
 mod workflows;
+
+/// A deployment without an HTTP client: every call fails like a `fetch`
+/// that can't connect.
+pub(crate) struct Unreachable;
+
+impl weldsuite_ports::DynOutboundHttp for Unreachable {
+    fn send(
+        &self,
+        _request: weldsuite_ports::HttpRequest,
+    ) -> weldsuite_ports::BoxFuture<
+        '_,
+        Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>,
+    > {
+        Box::pin(std::future::ready(Err(
+            weldsuite_ports::PortError::backend("no outbound HTTP client"),
+        )))
+    }
+}
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -100,7 +128,20 @@ impl std::fmt::Debug for ConnectState {
 }
 
 /// The env names [`ConnectState::env`] holds, read from the process.
-pub const ENV_NAMES: &[&str] = &["ENVIRONMENT", "CONNECT_API_URL", "PUBLIC_APP_URL"];
+pub const ENV_NAMES: &[&str] = &[
+    "ENVIRONMENT",
+    "CONNECT_API_URL",
+    "PUBLIC_APP_URL",
+    "DATABASE_ENCRYPTION_KEY",
+    "DATABASE_ENCRYPTION_KEY_V2",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_PRIVATE_KEY",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+];
 
 /// [`ENV_NAMES`] from the process environment.
 pub fn env_from_process() -> HashMap<String, String> {
@@ -121,6 +162,10 @@ where
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
+        .nest(
+            "/workflow-integrations",
+            workflow_integrations::routes(gate),
+        )
         .nest("/workflow-schedules", schedules::routes(gate))
         .nest("/workflow-templates", templates::routes(gate))
         .nest("/workflow-triggers", triggers::routes(gate))

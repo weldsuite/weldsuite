@@ -49,7 +49,7 @@ const ALL = [
 
 function app(granted: string[] = ALL) {
   return createTestApp('/api/workflow-templates', workflowTemplatesRoutes, {
-    context: { permissions: permissions(...granted), tenantDb: db, masterDb },
+    context: { permissions: permissions(...granted), tenantDb: db, masterDb: masterDb as never },
     env: { SCHEDULE_INDEX: undefined } as never,
   }).request;
 }

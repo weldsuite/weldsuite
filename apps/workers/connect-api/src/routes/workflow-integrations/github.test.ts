@@ -21,9 +21,14 @@ const { privateKey: GITHUB_APP_PRIVATE_KEY } = generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
 
+/** The fetch the stub hands loopback calls to: the conformance harness's own (to the Rust server and its bridges). */
+const realFetch = globalThis.fetch;
+const isLoopback = (url: string) => url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
+
 function stubFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const mock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (isLoopback(String(url))) return realFetch(url, init);
     calls.push({ url, init });
     return impl(url, init);
   });
