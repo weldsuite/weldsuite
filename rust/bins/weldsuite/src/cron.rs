@@ -345,7 +345,7 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 "due": result.due,
                 "processed": result.processed,
                 "failed": result.failed,
-                "totals": totals,
+                "totals": totals.json(),
             },
         })
     );

@@ -80,8 +80,7 @@ async fn mark_books_workspace(master: Option<PgPool>, request: Request, next: Ne
         let fresh = SEEN
             .get_or_init(Mutex::default)
             .lock()
-            .map(|mut seen| seen.insert(workspace_id.clone()))
-            .unwrap_or(false);
+            .is_ok_and(|mut seen| seen.insert(workspace_id.clone()));
         if fresh {
             weldsuite_db::due_index::mark_due(
                 &master,
@@ -96,13 +95,23 @@ async fn mark_books_workspace(master: Option<PgPool>, request: Request, next: Ne
 }
 
 /// What the daily sweep did in one workspace (`TenantSweepResult`).
-#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct TenantSweep {
     pub(crate) overdue: usize,
     pub(crate) recurring_generated: usize,
     pub(crate) recurring_failed: usize,
     pub(crate) fx_rates: usize,
+}
+
+impl TenantSweep {
+    pub(crate) fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "overdue": self.overdue,
+            "recurringGenerated": self.recurring_generated,
+            "recurringFailed": self.recurring_failed,
+            "fxRates": self.fx_rates,
+        })
+    }
 }
 
 /// `sweepTenant(db, now, tax)` (books-api `cron/books-sweep.ts`): finalized
