@@ -222,6 +222,15 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
+  // WeldMeet: RealtimeKit's app (the video provider conformance compares),
+  // its webhook's operator token, the meeting portal invitation links point
+  // at, and the system mail sender override.
+  'CF_ACCOUNT_ID',
+  'CF_REALTIME_APP_ID',
+  'CF_REALTIME_APP_SECRET',
+  'CF_REALTIME_WEBHOOK_TOKEN',
+  'MEETING_PORTAL_URL',
+  'SYSTEM_EMAIL_FROM',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -247,6 +256,13 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
+  // WeldMeet: the live session, an abandoned one ended once RealtimeKit
+  // confirms its room is empty.
+  /^\/api\/meeting-sessions\/active(\?|$)/,
+  // WeldMeet: a recording's state, settled from RealtimeKit's recordings, and
+  // the per-meeting alias that also mints stream tokens into KV.
+  /^\/api\/meeting-sessions\/[^/?]+\/recording(\?|$)/,
+  /^\/api\/meetings\/[^/?]+\/recording(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -622,6 +638,21 @@ const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
  * value), on its own or inside a string. New on every run of a write.
  */
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
+/**
+ * A WeldMeet join code (`wm-abc-def-ghi`, drawn from the random source),
+ * alone or in a join link.
+ */
+const MEETING_JOIN_CODE = /\bwm-[a-z]{3}-[a-z]{3}-[a-z]{3}\b/g;
+/** A WeldMeet recording token (24 random bytes, base64url) in its stream URL. */
+const RECORDING_TOKEN = /\/public\/meeting-recordings\/[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g;
+/**
+ * A WeldMeet Workflow instance that carries `Date.now().toString(36)`: a
+ * summary run (`summarize-<session>-<stamp>`) or a backfill
+ * (`bf-<workspace>-<stamp>`).
+ */
+const MEETING_RUN_STAMP = /^((?:summarize|bf)-.+)-[0-9a-z]{8}$/;
+/** A WeldMeet Whisper Workflow instance (`whisper-<transcription id>`). */
+const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -701,6 +732,12 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
+  // A WeldMeet summary run's id (`Date.now().toString(36)`), and the
+  // Workflow instances that carry one.
+  if (key === 'runId' && /^[0-9a-z]{8}$/.test(value)) return '<run-id>';
+  if (MEETING_RUN_STAMP.test(value)) return value.replace(MEETING_RUN_STAMP, '$1-<stamp>');
+  // A WeldMeet Whisper run, named after the transcript the request just created.
+  if (WHISPER_RUN.test(value)) return 'whisper-<id>';
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
@@ -746,6 +783,8 @@ function normalizeRandomParts(value: string): string {
   // any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
+    .replace(MEETING_JOIN_CODE, 'wm-<join-code>')
+    .replace(RECORDING_TOKEN, '/public/meeting-recordings/<token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
     .replace(CHAT_FILE_SEGMENT, '/files/<random>/')

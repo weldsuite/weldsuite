@@ -162,6 +162,15 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
   },
   { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // WeldMeet's instant meeting reports how long each step took.
+  { method: 'POST', route: '/api/meetings/start-instant', fields: [{ path: 'data.timings' }] },
+  // The legacy recording backfill reports why a workspace failed in each
+  // backend's own words (a workspace whose database can't be opened).
+  {
+    method: 'POST',
+    route: '/api/webhooks/cloudflare-realtime/backfill-recordings',
+    fields: [{ path: 'results.0.error' }],
+  },
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },

@@ -2140,6 +2140,55 @@
         "rust/modules/books-banking/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "meet: meetings",
+      "module": "meet",
+      "workspace": "apps/workers/meet-api",
+      "tests": [
+        "src/routes/meetings/integration.test.ts",
+        "src/routes/meetings/start-instant.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/meet-api/src/",
+        "packages/domains/meet/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "packages/clients/core-api-client/src/schemas/meetings.ts",
+        "packages/clients/core-api-client/src/schemas/weldmeet.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-messages.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-waitlist.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-recordings.ts",
+        "packages/clients/app-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/app-api-client/src/schemas/transcriptions.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-responses.ts",
+        "rust/modules/meet/",
+        "rust/crates/video-rooms/"
+      ]
+    },
+    {
+      "name": "meet: sessions",
+      "module": "meet",
+      "workspace": "apps/workers/meet-api",
+      "tests": [
+        "src/routes/meeting-sessions/lifecycle.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/meet-api/src/",
+        "packages/domains/meet/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "packages/clients/core-api-client/src/schemas/meetings.ts",
+        "packages/clients/core-api-client/src/schemas/weldmeet.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-messages.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-waitlist.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-recordings.ts",
+        "packages/clients/app-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/app-api-client/src/schemas/transcriptions.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-responses.ts",
+        "rust/modules/meet/",
+        "rust/crates/video-rooms/"
+      ]
     }
   ]
 }

@@ -165,6 +165,14 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
   }
 }
 
+/**
+ * Reads each backend caches for its whole process, so when each one makes
+ * them depends on what ran before, not on the request: RealtimeKit's
+ * published webhook key (both verify each delivery against it and keep it an
+ * hour). Left out of the compared calls.
+ */
+const PROCESS_CACHED_READS = new Set(['GET https://api.realtime.cloudflare.com/.well-known/webhooks.json']);
+
 /** `value` with every object's keys sorted. */
 function sortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedKeys);
@@ -191,5 +199,7 @@ function sortKey(call: OutboundCall): string {
  * order (TypeScript) or with sorted keys (Rust's `serde_json`).
  */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
-  return [...calls].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  return calls
+    .filter((call) => !PROCESS_CACHED_READS.has(`${call.method} ${call.url}`))
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }
