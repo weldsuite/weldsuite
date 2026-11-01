@@ -45,8 +45,8 @@ use weldsuite_books_domain::tax::{
 use weldsuite_catalogs::entity_events::{
     BILL_CREATED, BILL_DELETED, BILL_UPDATED, JOURNAL_ENTRY_CREATED,
 };
-use weldsuite_kit::validation::{Field, Issues};
 use weldsuite_kit::generate_id;
+use weldsuite_kit::validation::{Field, Issues};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use body::{BillBody, BillLine, read_bill};

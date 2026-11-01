@@ -109,5 +109,6 @@ export const BOOKS_ROUTES: RouteSchema[] = [
   ...BOOKS_LEDGER_ROUTES,
   ...BOOKS_BANKING_ROUTES,
   ...BOOKS_SALES_ROUTES,
+  ...BOOKS_PURCHASES_ROUTES,
   // ...BOOKS_<AREA>_ROUTES, (one line per area)
 ];
