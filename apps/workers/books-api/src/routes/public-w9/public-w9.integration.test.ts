@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { createModuleApi } from '@weldsuite/worker-kit';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { accountingContactsRoutes } from '../accounting-contacts';
@@ -26,19 +27,28 @@ const env = {
   ENTITY_EVENTS: { send: async (message: (typeof events)[number]) => void events.push(message) },
 };
 
-const publicApp = new Hono<{ Bindings: Env; Variables: Variables }>();
-publicApp.route(
-  '/public/w9',
-  createPublicW9Routes({ openTenant: async () => ({ db, workspaceId: 'ws_test', suspended: false }) }),
-);
+/**
+ * The public routes as the worker mounts them, through the test harness (so
+ * conformance runs compare both backends). The tenant behind a token is the
+ * test's database: `conformanceTenantDb` hands the TypeScript side of a write
+ * its copy.
+ */
+const publicRoutes = createPublicW9Routes({
+  openTenant: async () => ({ db: conformanceTenantDb(db), workspaceId: 'ws_test', suspended: false }),
+});
 
 async function publicCall(token: string, method: 'GET' | 'POST', body?: unknown, headers: Record<string, string> = {}) {
   const raw = body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body);
-  const res = await publicApp.request(
-    `/public/w9/${token}`,
-    { method, headers: { 'Content-Type': 'application/json', ...headers }, body: raw },
-    env as unknown as Record<string, unknown>,
-  );
+  const { request } = createTestApp('/public/w9', publicRoutes, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    env: env as any,
+    context: { tenantDb: db, workspaceId: 'ws_test' },
+  });
+  const res = await request(`/public/w9/${token}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: raw,
+  });
   const text = await res.text();
   return { status: res.status, text, json: text ? (JSON.parse(text) as Record<string, any>) : {}, headers: res.headers }; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

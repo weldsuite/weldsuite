@@ -1912,6 +1912,38 @@
         "rust/modules/books-banking/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "books: purchases",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/accounting-contacts/integration.test.ts",
+        "src/routes/accounting-contacts/company-or-person.integration.test.ts",
+        "src/routes/accounting-contacts/delete-archive.integration.test.ts",
+        "src/routes/accounting-contacts/identifier-formats.integration.test.ts",
+        "src/routes/accounting-contacts/identity.integration.test.ts",
+        "src/routes/accounting-contacts/person-email.integration.test.ts",
+        "src/routes/accounting-contacts/vendor-tax.integration.test.ts",
+        "src/routes/accounting-contacts/documents-balance.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/bills/",
+        "apps/workers/books-api/src/routes/accounting-contacts/",
+        "apps/workers/books-api/src/routes/accounting-documents/",
+        "apps/workers/books-api/src/routes/w9-requests/",
+        "apps/workers/books-api/src/routes/public-w9/",
+        "apps/workers/books-api/src/routes/payment-runs/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/domains/crm/src/",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-purchases.ts",
+        "packages/clients/app-api-client/src/schemas/books-purchases-responses.ts",
+        "rust/modules/books-purchases/",
+        "rust/crates/books-domain/",
+        "rust/crates/crm-domain/"
+      ]
     }
   ]
 }

@@ -26,6 +26,7 @@ weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-books = { path = "modules/books" }
 weldsuite-books-banking = { path = "modules/books-banking" }
+weldsuite-books-purchases = { path = "modules/books-purchases" }
 weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
