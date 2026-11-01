@@ -1798,6 +1798,38 @@
       ]
     },
     {
+      "name": "hr: payroll setup",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/payroll/payroll-setup.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "packages/core/worker-kit/src/testing/",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: payroll runs",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/payroll/payroll-runs.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "packages/core/worker-kit/src/testing/",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
       "name": "stash: warehouses, locations and records",
       "module": "stash",
       "workspace": "apps/workers/stash-api",

@@ -93,6 +93,16 @@ export interface HrCallerOptions {
   grants?: string[];
   /** Extra env bindings (STORAGE, REALTIME, …); the encryption key is always set. */
   env?: Partial<Env>;
+  /** Feature flags that are on (`weldhr-payroll`); every other flag is off. */
+  flags?: string[];
+  /** The master database (the payroll billing ledger). */
+  masterDb?: Database;
+}
+
+/** A flag evaluator with `on` on and everything else off. */
+function flagsOf(on: string[]) {
+  const set = new Set(on);
+  return { isOn: async (key: string) => set.has(key), getValue: async (key: string) => set.has(key) } as never;
 }
 
 /** A caller of the WeldHR API. Paths are relative to `/api/weldhr`. */
@@ -105,6 +115,8 @@ export function hrCaller(db: Database, opts: HrCallerOptions = {}) {
       orgId: HR_ORG,
       clerkOrgId: HR_ORG,
       workspaceId: HR_WORKSPACE,
+      ...(opts.flags ? { flags: flagsOf(opts.flags) } : {}),
+      ...(opts.masterDb ? { masterDb: opts.masterDb } : {}),
     },
     env: { DATABASE_ENCRYPTION_KEY_V2: HR_ENCRYPTION_KEY, ...opts.env },
   });
@@ -212,6 +224,16 @@ export async function seedCompany(db: Database, id: string, name: string, delete
 
 /** Tables the tests fill; emptied before each test. */
 const DATA_TABLES = [
+  // Payroll first: its rows point at employees.
+  'hr_payroll_filings',
+  'hr_payslips',
+  'hr_pay_run_inputs',
+  'hr_pay_runs',
+  'hr_tax_elections',
+  'hr_pay_components',
+  'hr_payroll_profiles',
+  'hr_pay_schedules',
+  'hr_payroll_employers',
   'hr_audit_events',
   'hr_announcement_reads',
   'hr_announcements',

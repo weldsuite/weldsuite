@@ -686,7 +686,11 @@ fn hr_state(state: &AppState) -> weldsuite_hr::HrState {
         realtime: state.infra.realtime.clone(),
         // Conformance builds use only the bucket a test shares (`STORAGE`).
         files: file_stores(state).filter(|_| !cfg!(feature = "conformance")),
-        mail: state.infra.mail.clone(),
+        // Payroll mail (payslip ready, bank details changed). Conformance builds
+        // send none: the worker sends it as raw MIME over the test's `SEND_EMAIL`,
+        // which the payroll suites leave unbound (weldsuite-emails' render cases
+        // check the templates).
+        mail: state.infra.mail.clone().filter(|_| !cfg!(feature = "conformance")),
         // Expo push. Conformance builds take the test's bridge per request.
         http: (!cfg!(feature = "conformance"))
             .then(|| {
