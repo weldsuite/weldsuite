@@ -718,7 +718,8 @@ fn pass_state() -> weldsuite_pass::PassState {
 /// `VALKEY_DESK_ASSIGNMENT_PREFIX`, default `weldsuite:desk-assignment:`),
 /// so round robin and recent picks hold across pods; in this process without
 /// it (one replica's worth).
-fn desk_assignment_router() -> Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter> {
+pub(crate) fn desk_assignment_router()
+-> Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter> {
     static ROUTER: OnceLock<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>> =
         OnceLock::new();
     Arc::clone(ROUTER.get_or_init(|| {
