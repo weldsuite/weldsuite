@@ -22,6 +22,7 @@ mod templates;
 use std::sync::Arc;
 
 use axum::Router;
+pub use recurring::{SystemGenerateError, SystemGenerated, generate_recurring_invoice_as_system};
 pub use weldsuite_books_domain::http::BooksState;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 

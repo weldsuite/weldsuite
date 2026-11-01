@@ -539,6 +539,12 @@ cron:
       enabled: false
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
+    # rates, in every workspace that used books (the books due index).
+    books-sweep:
+      enabled: true
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:

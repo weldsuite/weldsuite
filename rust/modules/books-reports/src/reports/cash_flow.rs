@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::js::{parse_float, round_money};
-use weldsuite_books_domain::reports_basis::{DateRange, Edge, iso, money, numeric_compare, parse_report_date};
+use weldsuite_books_domain::reports_basis::{
+    DateRange, Edge, iso, money, numeric_compare, parse_report_date,
+};
 
 use super::build::Built;
 
@@ -125,9 +127,15 @@ fn classify(account: &Counterpart) -> &'static str {
     // TAX_ROLE /(?:^tax_|tax_payable|sales_tax|use_tax|vat|backup_withholding)/i
     if matches_ci(subtype, &["tax", "tax_payable", "tax_expense"])
         || role_lower.starts_with("tax_")
-        || ["tax_payable", "sales_tax", "use_tax", "vat", "backup_withholding"]
-            .iter()
-            .any(|p| role_lower.contains(p))
+        || [
+            "tax_payable",
+            "sales_tax",
+            "use_tax",
+            "vat",
+            "backup_withholding",
+        ]
+        .iter()
+        .any(|p| role_lower.contains(p))
     {
         return "taxes";
     }
@@ -151,7 +159,13 @@ fn classify(account: &Counterpart) -> &'static str {
     if account.account_type == "liability"
         && (matches_ci(
             subtype,
-            &["long_term_liability", "loan", "loans", "notes_payable", "mortgage"],
+            &[
+                "long_term_liability",
+                "loan",
+                "loans",
+                "notes_payable",
+                "mortgage",
+            ],
         ) || ["lening", "loan", "mortgage", "hypotheek", "borrowing"]
             .iter()
             .any(|p| name_lower.contains(p)))
@@ -243,7 +257,11 @@ async fn cash_accounts_of(
     .bind(entity_id)
     .fetch_all(db)
     .await?;
-    let linked: Vec<String> = linked.into_iter().flatten().filter(|id| !id.is_empty()).collect();
+    let linked: Vec<String> = linked
+        .into_iter()
+        .flatten()
+        .filter(|id| !id.is_empty())
+        .collect();
     let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
         "select id, code, name, type, subtype from accounts where entity_id = $1 and deleted_at is null",
     )
@@ -262,9 +280,19 @@ async fn cash_accounts_of(
 
 type LineRow = (String, i64, String, String, String);
 
+/// id, type, subtype, name, metadata of a counterpart account.
+type CounterpartRow = (String, String, Option<String>, String, Option<Value>);
+
+/// An entry's non-cash lines: entry id, date, (account, amount) pairs.
+type EntryLines = (String, i64, Vec<(String, f64)>);
+
 /// `buildCashFlow(db, entityId, range)`.
 #[allow(clippy::too_many_lines)] // one TypeScript builder with its helpers
-pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRange) -> Built<CashFlow> {
+pub(crate) async fn build_cash_flow(
+    db: &PgPool,
+    entity_id: &str,
+    range: &DateRange,
+) -> Built<CashFlow> {
     let from = parse_report_date(&range.from, Edge::Start)?;
     let to = parse_report_date(&range.to, Edge::End)?;
 
@@ -321,7 +349,7 @@ pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRa
     }
     let mut info: HashMap<String, Counterpart> = HashMap::new();
     for chunk in counterpart_ids.chunks(400) {
-        let rows: Vec<(String, String, Option<String>, String, Option<Value>)> = sqlx::query_as(
+        let rows: Vec<CounterpartRow> = sqlx::query_as(
             "select id, type, subtype, name, metadata from accounts where id = any($1::text[])",
         )
         .bind(chunk)
@@ -346,7 +374,7 @@ pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRa
     }
 
     // The non-cash lines of each entry, by entry, in first-seen order.
-    let mut entries: Vec<(String, i64, Vec<(String, f64)>)> = Vec::new();
+    let mut entries: Vec<EntryLines> = Vec::new();
     let mut entry_at: HashMap<String, usize> = HashMap::new();
     for (entry_id, date, account_id, debit, credit) in &line_rows {
         if cash_ids.contains(account_id) {
@@ -359,7 +387,8 @@ pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRa
         // Positive pays cash in (credit), negative takes it out (debit).
         entries[at].2.push((
             account_id.clone(),
-            weldsuite_kit::validation::js_number(credit) - weldsuite_kit::validation::js_number(debit),
+            weldsuite_kit::validation::js_number(credit)
+                - weldsuite_kit::validation::js_number(debit),
         ));
     }
 
@@ -405,7 +434,16 @@ pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRa
                 .collect();
             let categories = members
                 .iter()
-                .map(|c| (*c, category_totals.get(c).copied().unwrap_or_default().figures()))
+                .map(|c| {
+                    (
+                        *c,
+                        category_totals
+                            .get(c)
+                            .copied()
+                            .unwrap_or_default()
+                            .figures(),
+                    )
+                })
                 .collect();
             let mut block = Bucket::default();
             for c in &members {
@@ -423,12 +461,12 @@ pub(crate) async fn build_cash_flow(db: &PgPool, entity_id: &str, range: &DateRa
         .collect();
 
     // `[...balances.values()]` follows the query's row order.
-    let opening = balance_rows
-        .iter()
-        .fold(0.0, |sum, (id, _, _)| sum + balances.get(id).map_or(0.0, |b| b.0));
-    let closing = balance_rows
-        .iter()
-        .fold(0.0, |sum, (id, _, _)| sum + balances.get(id).map_or(0.0, |b| b.1));
+    let opening = balance_rows.iter().fold(0.0, |sum, (id, _, _)| {
+        sum + balances.get(id).map_or(0.0, |b| b.0)
+    });
+    let closing = balance_rows.iter().fold(0.0, |sum, (id, _, _)| {
+        sum + balances.get(id).map_or(0.0, |b| b.1)
+    });
 
     month_totals.sort_by(|a, b| weldsuite_books_domain::js::locale_compare(&a.0, &b.0));
     let mut cash_rows: Vec<(String, String, String, f64, f64)> = cash_accounts

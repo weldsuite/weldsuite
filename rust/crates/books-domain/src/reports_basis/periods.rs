@@ -85,12 +85,7 @@ pub fn today_for(timezone: Option<&str>, now_ms: i64) -> String {
         .map_or(Ok(jiff::tz::TimeZone::UTC), jiff::tz::TimeZone::get)
         .unwrap_or(jiff::tz::TimeZone::UTC);
     let date = instant.to_zoned(zone).date();
-    format!(
-        "{:04}-{:02}-{:02}",
-        date.year(),
-        date.month(),
-        date.day()
-    )
+    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
 }
 
 /// `requireIsoDate(value, name)`: a full ISO timestamp from older clients
@@ -120,8 +115,8 @@ pub fn fiscal_year_containing(entity: &Value, date: &str) -> Result<DateRange, R
 
 /// `fiscalYearNamed(entity, year)`: named for the calendar year it ends in.
 pub fn fiscal_year_named(entity: &Value, year: i64) -> Result<DateRange, ReportInputError> {
-    let range =
-        fiscal_year_for(&fiscal_config_of(entity), year).ok_or_else(|| broken(&year.to_string()))?;
+    let range = fiscal_year_for(&fiscal_config_of(entity), year)
+        .ok_or_else(|| broken(&year.to_string()))?;
     Ok(DateRange {
         from: range.start,
         to: range.end,
@@ -412,10 +407,7 @@ mod tests {
         };
         let columns = split_columns(&entity(7), &range, PeriodsMode::Quarters).expect("columns");
         let keys: Vec<&str> = columns.iter().map(|c| c.key.as_str()).collect();
-        assert_eq!(
-            keys,
-            ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4", "total"]
-        );
+        assert_eq!(keys, ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4", "total"]);
         assert_eq!(columns[0].to, "2025-09-30");
     }
 

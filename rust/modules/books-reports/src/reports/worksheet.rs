@@ -307,7 +307,10 @@ pub(crate) async fn build_tax_worksheet(
     let activity = balances_of(
         ledger
             .aggregate(
-                LedgerRange { from: Some(from), to },
+                LedgerRange {
+                    from: Some(from),
+                    to,
+                },
                 AggregateOptions::types(&["revenue", "expense"]),
             )
             .await?,
@@ -396,9 +399,7 @@ pub(crate) async fn build_tax_worksheet(
             tax_line: p.account.tax_line.clone(),
             reason,
             amount: money(if credit { -p.net } else { p.net }),
-            beginning_amount: p
-                .beginning_net
-                .map(|b| money(if credit { -b } else { b })),
+            beginning_amount: p.beginning_net.map(|b| money(if credit { -b } else { b })),
         });
     }
 
@@ -495,7 +496,13 @@ pub(crate) async fn build_tax_worksheet(
         );
         if to_end.abs() >= 0.005 || to_start.abs() >= 0.005 {
             let line = &mut lines[at];
-            let orient = |credit: f64| if line.side == "credit" { credit } else { -credit };
+            let orient = |credit: f64| {
+                if line.side == "credit" {
+                    credit
+                } else {
+                    -credit
+                }
+            };
             let (end_amount, start_amount) = (orient(to_end), orient(to_start));
             line.amount = money(weldsuite_books_domain::js::parse_float(&line.amount) + end_amount);
             let beginning = line
@@ -605,11 +612,13 @@ pub(crate) async fn build_tax_worksheet(
 }
 
 /// `taxWorksheetTable(worksheet)`.
+#[allow(clippy::too_many_lines)] // the export layout, row by row as TypeScript builds it
 pub(crate) fn tax_worksheet_table(worksheet: &Worksheet) -> Table {
-    let has_beginning = worksheet
-        .sections
-        .iter()
-        .any(|s| s.lines.iter().any(|&i| worksheet.lines[i].beginning_amount.is_some()));
+    let has_beginning = worksheet.sections.iter().any(|s| {
+        s.lines
+            .iter()
+            .any(|&i| worksheet.lines[i].beginning_amount.is_some())
+    });
     let mut columns = vec![
         TableColumn::new("line", "Line", false),
         TableColumn::new("amount", "Amount", true),
@@ -647,7 +656,9 @@ pub(crate) fn tax_worksheet_table(worksheet: &Worksheet) -> Table {
                     TableRow::new(
                         "note",
                         1,
-                        format!("{} {}", account.code, account.name).trim().to_owned(),
+                        format!("{} {}", account.code, account.name)
+                            .trim()
+                            .to_owned(),
                     )
                     .value("amount", account.amount.clone())
                     .value("beginning", opt(&account.beginning_amount)),
@@ -669,17 +680,30 @@ pub(crate) fn tax_worksheet_table(worksheet: &Worksheet) -> Table {
         rows.push(TableRow::new("section", 0, "Accounts without a tax line"));
         for u in &worksheet.unmapped {
             rows.push(
-                TableRow::new("note", 1, format!("{} {}", u.code, u.name).trim().to_owned())
-                    .value("amount", u.amount.clone())
-                    .value("beginning", opt(&u.beginning_amount)),
+                TableRow::new(
+                    "note",
+                    1,
+                    format!("{} {}", u.code, u.name).trim().to_owned(),
+                )
+                .value("amount", u.amount.clone())
+                .value("beginning", opt(&u.beginning_amount)),
             );
         }
     }
     let s = &worksheet.summary;
     rows.push(TableRow::new("section", 0, "Summary"));
-    rows.push(TableRow::new("subtotal", 0, "Net income per books").value("amount", s.net_income_per_books.clone()));
-    rows.push(TableRow::new("subtotal", 0, "Net income from tax lines").value("amount", s.net_income_from_lines.clone()));
-    rows.push(TableRow::new("subtotal", 0, "Not deductible").value("amount", s.not_deductible_total.clone()));
+    rows.push(
+        TableRow::new("subtotal", 0, "Net income per books")
+            .value("amount", s.net_income_per_books.clone()),
+    );
+    rows.push(
+        TableRow::new("subtotal", 0, "Net income from tax lines")
+            .value("amount", s.net_income_from_lines.clone()),
+    );
+    rows.push(
+        TableRow::new("subtotal", 0, "Not deductible")
+            .value("amount", s.not_deductible_total.clone()),
+    );
     rows.push(
         TableRow::new("subtotal", 0, "Accounts without a tax line (net)")
             .value("amount", s.unmapped_net_income.clone()),

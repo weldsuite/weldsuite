@@ -87,6 +87,13 @@ export interface ConformanceTarget {
   reportDir: string | undefined;
 }
 
+/**
+ * The harness's own calls to the Rust server, taken before any test runs: a
+ * test that stubs the global `fetch` for a third-party API (`vi.stubGlobal`)
+ * must not answer them.
+ */
+export const harnessFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
 /** The Rust server to send requests to, or null outside conformance mode. */
 export function conformanceTarget(): ConformanceTarget | null {
   if (process.env.CONFORMANCE_TARGET !== 'rust') return null;
@@ -379,7 +386,7 @@ interface RustSideEffects {
 }
 
 export async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
-  const response = await fetch(`${target.url}/__conformance/side-effects`);
+  const response = await harnessFetch(`${target.url}/__conformance/side-effects`);
   const body = (await response.json()) as Omit<SideEffects, 'mail'> & { mail?: RustMail[] };
   const mail = body.mail ?? [];
   return {
@@ -1160,7 +1167,7 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     isWrite,
     // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
     () =>
-      fetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
+      harnessFetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
         ...init,
         method,
         headers: rustHeaders,

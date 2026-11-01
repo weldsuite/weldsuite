@@ -35,10 +35,6 @@ impl Basis {
     }
 }
 
-/// Journal source types of documents: income and expense are recognised at
-/// payment on cash basis.
-const DOCUMENT_SOURCE_TYPES: [&str; 4] = ["invoice", "credit_note", "bill", "bill_credit_note"];
-
 pub const UNAPPLIED_INCOME_ACCOUNT_ID: &str = "virtual:unapplied_cash_payment_income";
 pub const UNAPPLIED_EXPENSE_ACCOUNT_ID: &str = "virtual:unapplied_cash_bill_payment_expense";
 
@@ -48,9 +44,7 @@ pub fn parse_basis(value: Option<&str>) -> Result<Option<Basis>, ReportInputErro
         None | Some("") => Ok(None),
         Some("accrual") => Ok(Some(Basis::Accrual)),
         Some("cash") => Ok(Some(Basis::Cash)),
-        Some(_) => Err(ReportInputError::new(
-            "basis must be 'accrual' or 'cash'",
-        )),
+        Some(_) => Err(ReportInputError::new("basis must be 'accrual' or 'cash'")),
     }
 }
 
@@ -267,7 +261,9 @@ pub async fn create_ledger(
             &base_currency,
             up_to,
             &control_ids,
-            unapplied_income.as_deref().unwrap_or(UNAPPLIED_INCOME_ACCOUNT_ID),
+            unapplied_income
+                .as_deref()
+                .unwrap_or(UNAPPLIED_INCOME_ACCOUNT_ID),
             unapplied_expense
                 .as_deref()
                 .unwrap_or(UNAPPLIED_EXPENSE_ACCOUNT_ID),
@@ -921,7 +917,6 @@ async fn load_cash_events(
             });
         }
     }
-    debug_assert!(DOCUMENT_SOURCE_TYPES.len() == 4);
 
     let payment_by_id: HashMap<&str, &PaymentRow> =
         payment_rows.iter().map(|p| (p.id.as_str(), p)).collect();
@@ -956,7 +951,10 @@ async fn load_cash_events(
         }
         let mut sorted: Vec<&Allocation> = list.iter().collect();
         sorted.sort_by(|a, b| {
-            let (pa, pb) = (payment_by_id.get(a.payment_id.as_str()), payment_by_id.get(b.payment_id.as_str()));
+            let (pa, pb) = (
+                payment_by_id.get(a.payment_id.as_str()),
+                payment_by_id.get(b.payment_id.as_str()),
+            );
             match (pa, pb) {
                 (Some(pa), Some(pb)) => pa
                     .date
@@ -969,17 +967,13 @@ async fn load_cash_events(
         let sum = round_money(entry.groups.iter().fold(0.0, |total, g| total + g.net));
         // The group that absorbs rounding, so the lines always add up to the
         // share of the whole.
-        let largest = entry
-            .groups
-            .iter()
-            .enumerate()
-            .fold(0, |best, (i, g)| {
-                if g.net.abs() > entry.groups[best].net.abs() {
-                    i
-                } else {
-                    best
-                }
-            });
+        let largest = entry.groups.iter().enumerate().fold(0, |best, (i, g)| {
+            if g.net.abs() > entry.groups[best].net.abs() {
+                i
+            } else {
+                best
+            }
+        });
         let mut paid = 0.0_f64;
         let mut previous: Vec<f64> = vec![0.0; entry.groups.len()];
 
@@ -1003,7 +997,10 @@ async fn load_cash_events(
                 if is_money_zero(delta) {
                     continue;
                 }
-                let number = document.number.clone().unwrap_or_else(|| document_id.clone());
+                let number = document
+                    .number
+                    .clone()
+                    .unwrap_or_else(|| document_id.clone());
                 let reference = payment
                     .reference
                     .as_deref()

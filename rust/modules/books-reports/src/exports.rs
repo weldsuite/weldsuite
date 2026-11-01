@@ -18,7 +18,9 @@ use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, reply};
 use weldsuite_books_domain::js::{days_from_civil, number_text, parse_int, to_fixed};
 use weldsuite_books_domain::jurisdictions::{is_js_space, js_trim};
 use weldsuite_books_domain::reports_basis::{iso, iso_day};
-use weldsuite_books_domain::tables::{ACCOUNTS, ENTITIES, JOURNAL_ENTRIES, JOURNAL_LINES, TAX_RATES};
+use weldsuite_books_domain::tables::{
+    ACCOUNTS, ENTITIES, JOURNAL_ENTRIES, JOURNAL_LINES, TAX_RATES,
+};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -236,23 +238,26 @@ fn cust_sup_type(role: Option<&str>) -> &'static str {
 fn generate_xaf(input: &XafInput<'_>) -> String {
     let entity = input.entity;
     let text = |key: &str| entity.get(key).and_then(Value::as_str);
-    let currency = text("baseCurrency").filter(|c| !c.is_empty()).unwrap_or("EUR");
+    let currency = text("baseCurrency")
+        .filter(|c| !c.is_empty())
+        .unwrap_or("EUR");
 
     let lines = || input.transactions.iter().flat_map(|t| &t.lines);
     let total_debit = lines().fold(0.0, |sum, l| sum + number_of(l.debit.as_ref()));
     let total_credit = lines().fold(0.0, |sum, l| sum + number_of(l.credit.as_ref()));
     let lines_count: usize = input.transactions.iter().map(|t| t.lines.len()).sum();
 
-    let company_address = normalize_postal_address(entity.get("address")).map_or_else(String::new, |a| {
-        let field = |key: &str| a.get(key).and_then(Value::as_str);
-        street_address_xml(
-            field("line1"),
-            field("line2"),
-            field("city"),
-            field("postalCode"),
-            field("country").or_else(|| text("jurisdictionCode")),
-        )
-    });
+    let company_address =
+        normalize_postal_address(entity.get("address")).map_or_else(String::new, |a| {
+            let field = |key: &str| a.get(key).and_then(Value::as_str);
+            street_address_xml(
+                field("line1"),
+                field("line2"),
+                field("city"),
+                field("postalCode"),
+                field("country").or_else(|| text("jurisdictionCode")),
+            )
+        });
 
     let customers_suppliers: String = input
         .contacts
@@ -273,7 +278,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                 ),
             )
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
 
     let account_text = |a: &Value, key: &str| a.get(key).and_then(Value::as_str).map(str::to_owned);
     let ledger_accounts: String = input
@@ -290,7 +296,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                 ),
             )
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
 
     let vat_codes: String = input
         .vat_codes
@@ -302,7 +309,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                 tag("vatDesc", v.get("name")),
             )
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
 
     let opening = |a: &Value| weldsuite_books_domain::js::js_number_value(a.get("openingBalance"));
     let opening_balance_lines: String = input
@@ -323,7 +331,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                 amount,
             )
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
     let opening_count = input.accounts.iter().filter(|a| opening(a) != 0.0).count();
 
     let journal_transactions: String = input
@@ -362,7 +371,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                         vat,
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>()
+                .concat();
             format!(
                 "\n        <transaction>\n          {}\n          {}\n          {}\n          {}\n        </transaction>",
                 tag_str("nr", Some(&(tr_index + 1).to_string())),
@@ -371,7 +381,8 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
                 lines,
             )
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
 
     let ids = entity.get("taxIdentifiers");
     let fiscal_year = input.fiscal_year.to_string();
@@ -436,7 +447,10 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
         tag_str("dateCreated", Some(&input.generated_at)),
         tag_str("softwareDesc", Some("WeldBooks (WeldSuite)")),
         tag_str("softwareVersion", Some("1.0")),
-        tag("companyIdent", ids.and_then(|ids| ids.get("registrationNumber"))),
+        tag(
+            "companyIdent",
+            ids.and_then(|ids| ids.get("registrationNumber"))
+        ),
         tag("companyName", company_name),
         tag("taxRegistrationCountry", entity.get("jurisdictionCode")),
         tag("taxRegIdent", ids.and_then(|ids| ids.get("vatNumber"))),
@@ -455,6 +469,15 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
     )
 }
 
+/// id, display name, role, billing address and the company VAT number of a party.
+type PartyRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+    Option<String>,
+);
+
 // ---------------------------------------------------------------------------
 // GET /xaf
 // ---------------------------------------------------------------------------
@@ -467,10 +490,15 @@ async fn xaf(caller: Caller) -> Response {
         .and_then(parse_int)
         .filter(|year| *year != 0 && (2000..=2100).contains(year));
     let Some(fiscal_year) = fiscal_year else {
-        return Refusal::bad_request("fiscalYear query parameter is required (e.g. ?fiscalYear=2026)")
-            .respond("");
+        return Refusal::bad_request(
+            "fiscalYear query parameter is required (e.g. ?fiscalYear=2026)",
+        )
+        .respond("");
     };
-    reply(export_xaf(&caller, fiscal_year).await, "Failed to generate XAF auditfile")
+    reply(
+        export_xaf(&caller, fiscal_year).await,
+        "Failed to generate XAF auditfile",
+    )
 }
 
 #[allow(clippy::too_many_lines)] // the route's one handler
@@ -515,7 +543,10 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         "select contact_id from payments where entity_id = $1 and deleted_at is null",
         "select contact_id from journal_lines where entity_id = $1 and deleted_at is null",
     ] {
-        let ids: Vec<Option<String>> = sqlx::query_scalar(sql).bind(&entity_id).fetch_all(db).await?;
+        let ids: Vec<Option<String>> = sqlx::query_scalar(sql)
+            .bind(&entity_id)
+            .fetch_all(db)
+            .await?;
         for id in ids.into_iter().flatten().filter(|id| !id.is_empty()) {
             if !contact_ids.contains(&id) {
                 contact_ids.push(id);
@@ -532,7 +563,6 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
     .fetch_all(db)
     .await?;
     let accounts = ACCOUNTS.js_rows(accounts);
-    type PartyRow = (String, Option<String>, Option<String>, Option<Value>, Option<String>);
     let parties: Vec<PartyRow> = if contact_ids.is_empty() {
         Vec::new()
     } else {
@@ -641,7 +671,10 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         fiscal_year,
         start_date: &start_date,
         end_date: &end_date,
-        generated_at: weldsuite_books_domain::http::now().chars().take(10).collect(),
+        generated_at: weldsuite_books_domain::http::now()
+            .chars()
+            .take(10)
+            .collect(),
         accounts: &accounts,
         contacts,
         vat_codes: &tax_rates,
@@ -668,7 +701,10 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         .chars()
         .flat_map(|c| {
             let keep = c.is_ascii_alphanumeric() || c == '-';
-            std::iter::repeat_n(if keep { c } else { '_' }, if keep { 1 } else { c.len_utf16() })
+            std::iter::repeat_n(
+                if keep { c } else { '_' },
+                if keep { 1 } else { c.len_utf16() },
+            )
         })
         .collect();
     Ok((

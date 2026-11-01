@@ -43,7 +43,10 @@ where
         .route("/profit-loss", get(profit_loss).route_layer(read()))
         .route("/balance-sheet", get(balance_sheet).route_layer(read()))
         .route("/trial-balance", get(trial_balance).route_layer(read()))
-        .route("/aged-receivables", get(aged_receivables).route_layer(read()))
+        .route(
+            "/aged-receivables",
+            get(aged_receivables).route_layer(read()),
+        )
         .route("/aged-payables", get(aged_payables).route_layer(read()))
         .route("/vat-summary", get(vat_summary).route_layer(read()))
         .route("/general-ledger", get(general_ledger).route_layer(read()))
@@ -200,14 +203,14 @@ struct Answer<'a> {
     table: &'a dyn Fn() -> Table,
     period_label: String,
     filename: String,
-    json: Value,
+    json: crate::ordered::Json,
     show_basis: bool,
 }
 
 /// `respond(c, ctx, args)`: the JSON, the CSV download or the print document.
 fn respond(ctx: &Context, answer: &Answer<'_>) -> Response {
     if ctx.format == Format::Json {
-        return ok(answer.json.clone());
+        return crate::ordered::ok(&answer.json);
     }
     let table = (answer.table)();
     let meta = Meta {
@@ -229,15 +232,32 @@ fn range_label(range: &DateRange) -> String {
     format!("Period: {} to {}", range.from, range.to)
 }
 
-async fn ledger_for(ctx: &Context, caller: &Caller, up_to: i64) -> Result<weldsuite_books_domain::reports_basis::Ledger, Failure> {
-    Ok(create_ledger(&caller.db, &ctx.entity_id, ctx.basis, ctx.filters.clone(), up_to).await?)
+async fn ledger_for(
+    ctx: &Context,
+    caller: &Caller,
+    up_to: i64,
+) -> Result<weldsuite_books_domain::reports_basis::Ledger, Failure> {
+    Ok(create_ledger(
+        &caller.db,
+        &ctx.entity_id,
+        ctx.basis,
+        ctx.filters.clone(),
+        up_to,
+    )
+    .await?)
 }
 
 /// `periodArgs(entity, query, { periods })`.
 fn period_args(
     ctx: &Context,
     allow_periods: bool,
-) -> Result<(DateRange, Vec<weldsuite_books_domain::reports_basis::ReportColumn>), Failure> {
+) -> Result<
+    (
+        DateRange,
+        Vec<weldsuite_books_domain::reports_basis::ReportColumn>,
+    ),
+    Failure,
+> {
     let range = resolve_period(&ctx.entity, ctx.get("from"), ctx.get("to"), &ctx.today())?;
     let compare = parse_compare(ctx.get("compare"))?;
     let periods = if allow_periods {
@@ -271,7 +291,7 @@ async fn profit_loss(caller: Caller) -> Response {
                 table: &|| export::profit_loss_table(&report),
                 period_label: range_label(&range),
                 filename: format!("profit-and-loss-{}_{}", range.from, range.to),
-                json: report.json(),
+                json: report.json().into(),
                 show_basis: true,
             },
         ))
@@ -307,7 +327,7 @@ async fn balance_sheet(caller: Caller) -> Response {
                 table: &|| export::balance_sheet_table(&report),
                 period_label: format!("As of {as_of}"),
                 filename: format!("balance-sheet-{as_of}"),
-                json: report.json(),
+                json: report.json().into(),
                 show_basis: true,
             },
         ))
@@ -330,7 +350,7 @@ async fn trial_balance(caller: Caller) -> Response {
                 table: &|| export::trial_balance_table(&report),
                 period_label: range_label(&range),
                 filename: format!("trial-balance-{}_{}", range.from, range.to),
-                json: report.json(),
+                json: report.json().into(),
                 show_basis: true,
             },
         ))
@@ -356,28 +376,20 @@ async fn aged(caller: &Caller, receivables: bool) -> Result<Response, Failure> {
         None => ctx.today(),
     };
     let report = build::build_aged_report(&caller.db, &ctx.entity_id, receivables, &as_of).await?;
-    let json = if receivables {
-        report.json()
-    } else {
+    let mut json = report.json();
+    if !receivables {
         // Aged payables answer plain strings per bucket, the counts next to them.
-        let mut json = report.json();
-        json["buckets"] = Value::Object(
-            build::BUCKETS
-                .iter()
-                .zip(&report.buckets)
-                .map(|(b, (total, _))| ((*b).to_owned(), json!(total)))
-                .collect(),
+        json.set("buckets", report.buckets_ordered(|total, _| json!(total)));
+        json.set(
+            "bucketCounts",
+            report.buckets_ordered(|_, count| json!(count)),
         );
-        json["bucketCounts"] = Value::Object(
-            build::BUCKETS
-                .iter()
-                .zip(&report.buckets)
-                .map(|(b, (_, count))| ((*b).to_owned(), json!(count)))
-                .collect(),
-        );
-        json
+    }
+    let kind = if receivables {
+        "receivables"
+    } else {
+        "payables"
     };
-    let kind = if receivables { "receivables" } else { "payables" };
     Ok(respond(
         &ctx,
         &Answer {
@@ -463,7 +475,7 @@ async fn vat_summary(caller: Caller) -> Response {
                 table: &table,
                 period_label: range_label(&range),
                 filename: format!("tax-summary-{}_{}", range.from, range.to),
-                json: json!({ "period": range.json(), "breakdown": breakdown }),
+                json: json!({ "period": range.json(), "breakdown": breakdown }).into(),
                 show_basis: false,
             },
         ))
@@ -491,7 +503,10 @@ async fn general_ledger(caller: Caller) -> Response {
         let (page, page_size) = if exporting {
             (1, 9_007_199_254_740_991)
         } else {
-            (int_or("page", 1).max(1), int_or("pageSize", 50).clamp(1, 500))
+            (
+                int_or("page", 1).max(1),
+                int_or("pageSize", 50).clamp(1, 500),
+            )
         };
         let ledger = ledger_for(&ctx, &caller, parse_report_date(&range.to, Edge::End)?).await?;
         let Some(report) =
@@ -510,7 +525,7 @@ async fn general_ledger(caller: Caller) -> Response {
                 table: &|| export::general_ledger_table(&report),
                 period_label: range_label(&range),
                 filename: format!("general-ledger-{code}-{}_{}", range.from, range.to),
-                json: report.json(),
+                json: report.json().into(),
                 show_basis: true,
             },
         ))
@@ -533,7 +548,8 @@ async fn cash_flow_report(caller: Caller) -> Response {
                 CompareMode::PriorYear => prior_year_of(&ctx.entity, &range)?,
                 CompareMode::PriorPeriod => prior_period_of(&range)?,
             };
-            let prior = cash_flow::build_cash_flow(&caller.db, &ctx.entity_id, &prior_range).await?;
+            let prior =
+                cash_flow::build_cash_flow(&caller.db, &ctx.entity_id, &prior_range).await?;
             let mut comparison = prior.json();
             comparison["mode"] = json!(compare.as_str());
             let delta = |current: &str, prior: &str| {
@@ -556,7 +572,7 @@ async fn cash_flow_report(caller: Caller) -> Response {
                 table: &|| export::cash_flow_table(&report),
                 period_label: range_label(&range),
                 filename: format!("cash-flow-{}_{}", range.from, range.to),
-                json,
+                json: json.into(),
                 show_basis: false,
             },
         ))
@@ -597,7 +613,7 @@ async fn revenue_by_customer(caller: Caller) -> Response {
                 table: &|| export::revenue_by_customer_table(&customers, &grand_total),
                 period_label: range_label(&range),
                 filename: format!("revenue-by-customer-{}_{}", range.from, range.to),
-                json,
+                json: json.into(),
                 show_basis: true,
             },
         ))
@@ -638,7 +654,7 @@ async fn expense_by_category(caller: Caller) -> Response {
                 table: &|| export::expense_by_category_table(&categories, &grand_total),
                 period_label: range_label(&range),
                 filename: format!("expenses-by-category-{}_{}", range.from, range.to),
-                json,
+                json: json.into(),
                 show_basis: true,
             },
         ))
@@ -686,7 +702,7 @@ async fn tax_worksheet(caller: Caller, State(_state): State<BooksState>) -> Resp
                 table: &|| worksheet::tax_worksheet_table(&sheet),
                 period_label: format!("{}, {}", sheet.form_label, range_label(&range)),
                 filename: format!("tax-worksheet-{form}-{}_{}", range.from, range.to),
-                json: sheet.json(),
+                json: sheet.json().into(),
                 show_basis: true,
             },
         ))

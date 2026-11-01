@@ -8,7 +8,10 @@ use serde_json::{Map, Value, json};
 use weldsuite_books_domain::js::number_text;
 use weldsuite_books_domain::reports_basis::ReportColumn;
 
-use super::build::{AccountRow, AgedReport, BUCKETS, BalanceSheet, GeneralLedger, ProfitLoss, TrialBalance, ValueSet};
+use super::build::{
+    AccountRow, AgedReport, BUCKETS, BalanceSheet, GeneralLedger, ProfitLoss, TrialBalance,
+    ValueSet,
+};
 use super::cash_flow::CashFlow;
 
 /// `ReportTableColumn`.
@@ -228,7 +231,10 @@ pub(crate) fn csv_response(csv: String, filename: &str) -> Response {
     (
         [
             (CONTENT_TYPE, "text/csv; charset=utf-8".to_owned()),
-            (CONTENT_DISPOSITION, format!("attachment; filename=\"{safe}\"")),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{safe}\""),
+            ),
         ],
         csv,
     )
@@ -370,8 +376,13 @@ pub(crate) fn profit_loss_table(report: &ProfitLoss) -> Table {
     let mut rows: Vec<TableRow> = Vec::new();
     let all: Vec<&AccountRow> = report.revenue.iter().chain(&report.expenses).collect();
     let has = |section: &str| all.iter().any(|r| r.section == Some(section));
-    let block = |rows: &mut Vec<TableRow>, label: &str, section: &str, total_label: &str, total: &ValueSet| {
-        let members: Vec<&&AccountRow> = all.iter().filter(|r| r.section == Some(section)).collect();
+    let block = |rows: &mut Vec<TableRow>,
+                 label: &str,
+                 section: &str,
+                 total_label: &str,
+                 total: &ValueSet| {
+        let members: Vec<&&AccountRow> =
+            all.iter().filter(|r| r.section == Some(section)).collect();
         if members.is_empty() && section != "income" && section != "expense" {
             return;
         }
@@ -380,7 +391,13 @@ pub(crate) fn profit_loss_table(report: &ProfitLoss) -> Table {
         rows.push(total_line("subtotal", total_label, total));
     };
 
-    block(&mut rows, "Income", "income", "Total income", report.total("income"));
+    block(
+        &mut rows,
+        "Income",
+        "income",
+        "Total income",
+        report.total("income"),
+    );
     block(
         &mut rows,
         "Cost of goods sold",
@@ -389,9 +406,19 @@ pub(crate) fn profit_loss_table(report: &ProfitLoss) -> Table {
         report.total("costOfGoodsSold"),
     );
     if has("cost_of_goods_sold") {
-        rows.push(total_line("total", "Gross profit", report.total("grossProfit")));
+        rows.push(total_line(
+            "total",
+            "Gross profit",
+            report.total("grossProfit"),
+        ));
     }
-    block(&mut rows, "Expenses", "expense", "Total expenses", report.total("expenses"));
+    block(
+        &mut rows,
+        "Expenses",
+        "expense",
+        "Total expenses",
+        report.total("expenses"),
+    );
     rows.push(total_line(
         "total",
         "Net operating income",
@@ -412,7 +439,11 @@ pub(crate) fn profit_loss_table(report: &ProfitLoss) -> Table {
             "Total other expenses",
             report.total("otherExpenses"),
         );
-        rows.push(total_line("total", "Net other income", report.total("netOtherIncome")));
+        rows.push(total_line(
+            "total",
+            "Net other income",
+            report.total("netOtherIncome"),
+        ));
     }
     rows.push(total_line("total", "Net income", report.total("netProfit")));
 
@@ -433,10 +464,18 @@ pub(crate) fn balance_sheet_table(report: &BalanceSheet) -> Table {
     rows.push(total_line("total", "Total assets", report.total("assets")));
     rows.push(section_line("Liabilities"));
     rows.extend(report.liabilities.iter().map(account_line));
-    rows.push(total_line("subtotal", "Total liabilities", report.total("liabilities")));
+    rows.push(total_line(
+        "subtotal",
+        "Total liabilities",
+        report.total("liabilities"),
+    ));
     rows.push(section_line("Equity"));
     rows.extend(report.equity.iter().map(account_line));
-    rows.push(total_line("subtotal", "Total equity", report.total("equity")));
+    rows.push(total_line(
+        "subtotal",
+        "Total equity",
+        report.total("equity"),
+    ));
     rows.push(total_line(
         "total",
         "Total liabilities and equity",
@@ -526,7 +565,8 @@ pub(crate) fn general_ledger_table(report: &GeneralLedger) -> Table {
         TableColumn::new("balance", "Balance", true),
     ];
     let mut rows = vec![
-        TableRow::new("section", 0, "Opening balance").value("balance", report.opening_balance.clone()),
+        TableRow::new("section", 0, "Opening balance")
+            .value("balance", report.opening_balance.clone()),
     ];
     for l in &report.lines {
         rows.push(
@@ -549,12 +589,9 @@ pub(crate) fn general_ledger_table(report: &GeneralLedger) -> Table {
     );
     Table {
         report: "general_ledger",
-        title: format!(
-            "General ledger: {} {}",
-            report.account.1, report.account.2
-        )
-        .trim()
-        .to_owned(),
+        title: format!("General ledger: {} {}", report.account.1, report.account.2)
+            .trim()
+            .to_owned(),
         has_code: false,
         columns,
         rows,
@@ -599,7 +636,8 @@ pub(crate) fn cash_flow_table(report: &CashFlow) -> Table {
             .value("net", f.net.clone())
     };
     let mut rows = vec![
-        TableRow::new("subtotal", 0, "Opening cash balance").value("net", report.opening_balance.clone()),
+        TableRow::new("subtotal", 0, "Opening cash balance")
+            .value("net", report.opening_balance.clone()),
     ];
     for block in &report.activities {
         let active: Vec<_> = block
@@ -615,15 +653,28 @@ pub(crate) fn cash_flow_table(report: &CashFlow) -> Table {
         }
         rows.push(TableRow::new("section", 0, activity_label(block.activity)));
         for (category, f) in active {
-            rows.push(figures(TableRow::new("account", 1, category_label(category)), f));
+            rows.push(figures(
+                TableRow::new("account", 1, category_label(category)),
+                f,
+            ));
         }
         rows.push(figures(
-            TableRow::new("subtotal", 0, format!("Net cash from {} activities", block.activity)),
+            TableRow::new(
+                "subtotal",
+                0,
+                format!("Net cash from {} activities", block.activity),
+            ),
             &block.figures,
         ));
     }
-    rows.push(figures(TableRow::new("total", 0, "Net change in cash"), &report.totals));
-    rows.push(TableRow::new("total", 0, "Closing cash balance").value("net", report.closing_balance.clone()));
+    rows.push(figures(
+        TableRow::new("total", 0, "Net change in cash"),
+        &report.totals,
+    ));
+    rows.push(
+        TableRow::new("total", 0, "Closing cash balance")
+            .value("net", report.closing_balance.clone()),
+    );
     if !report.monthly.is_empty() {
         rows.push(TableRow::new("section", 0, "By month"));
         for (month, f) in &report.monthly {
@@ -655,7 +706,9 @@ pub(crate) fn revenue_by_customer_table(
             TableRow::new(
                 "account",
                 0,
-                c.contact_name.clone().unwrap_or_else(|| c.contact_id.clone()),
+                c.contact_name
+                    .clone()
+                    .unwrap_or_else(|| c.contact_id.clone()),
             )
             .value("revenue", c.total_revenue.clone())
         })
@@ -717,11 +770,14 @@ pub(crate) fn aged_table(report: &AgedReport, receivables: bool) -> Table {
         .contacts
         .iter()
         .map(|c| {
-            let label = c.contact_name.clone().unwrap_or_else(|| match &c.contact_id {
-                Value::String(s) => s.clone(),
-                Value::Null => String::new(),
-                other => other.to_string(),
-            });
+            let label = c
+                .contact_name
+                .clone()
+                .unwrap_or_else(|| match &c.contact_id {
+                    Value::String(s) => s.clone(),
+                    Value::Null => String::new(),
+                    other => other.to_string(),
+                });
             let mut row = TableRow::new("account", 0, label);
             for (bucket, value) in BUCKETS.iter().zip(&c.buckets) {
                 row = row.value(bucket, value.clone());

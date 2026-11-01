@@ -10,6 +10,8 @@
 
 mod dashboard;
 mod exports;
+mod ordered;
+mod payroll;
 mod reports;
 
 use std::sync::Arc;
@@ -35,5 +37,6 @@ where
             dashboard::router(state.clone(), gate),
         ),
         ("/accounting-exports", exports::router(state.clone(), gate)),
+        ("/payroll", payroll::router(state.clone(), gate)),
     ]
 }

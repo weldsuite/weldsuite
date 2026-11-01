@@ -12,7 +12,7 @@ use axum::routing::get;
 use serde_json::{Value, json};
 use weldsuite_books_domain::dates::last_day_of_month;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
-use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now_ms, ok, reply};
+use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now_ms, reply};
 use weldsuite_books_domain::js::{days_from_civil, parse_float};
 use weldsuite_books_domain::reports_basis::{
     DateRange, LedgerFilters, ReportColumn, create_ledger, iso, money, resolve_basis, today_for,
@@ -20,6 +20,7 @@ use weldsuite_books_domain::reports_basis::{
 use weldsuite_books_domain::tables::{ENTITIES, INVOICES, PAYMENTS};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::ordered::Json;
 use crate::reports::build::{self, BuildError, balance_in_base};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -56,6 +57,15 @@ fn month_columns(today: &str, count: i64) -> Vec<ReportColumn> {
         .collect()
 }
 
+/// `{ id, name, iban, currentBalance, currency }` of a bank account.
+type BankAccountRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 fn refusal(error: BuildError) -> Refusal {
     match error {
         BuildError::Input(error) => Refusal::Internal(error.0),
@@ -65,7 +75,10 @@ fn refusal(error: BuildError) -> Refusal {
 }
 
 async fn dashboard(caller: Caller) -> Response {
-    reply(build_dashboard(&caller).await, "Failed to fetch dashboard data")
+    reply(
+        build_dashboard(&caller).await,
+        "Failed to fetch dashboard data",
+    )
 }
 
 #[allow(clippy::too_many_lines)] // the route's one handler
@@ -156,24 +169,31 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             .iter()
             .filter(|d| d.days_past_due > 0 && parse_float(&d.balance) > 0.0)
             .collect();
-        json!({
-            "outstanding": report.total,
-            "outstandingCount": report.documents.len(),
-            "overdue": money(overdue.iter().fold(0.0, |t, d| t + parse_float(&d.balance))),
-            "overdueCount": overdue.len(),
-            "aging": report.buckets_json(),
-        })
+        Json::object([
+            ("outstanding", Json::from(json!(report.total))),
+            (
+                "outstandingCount",
+                Json::from(json!(report.documents.len())),
+            ),
+            (
+                "overdue",
+                Json::from(json!(money(
+                    overdue.iter().fold(0.0, |t, d| t + parse_float(&d.balance))
+                ))),
+            ),
+            ("overdueCount", Json::from(json!(overdue.len()))),
+            ("aging", report.aging()),
+        ])
     };
 
     // Bank balances (entity-scoped).
-    let bank_accounts: Vec<(String, String, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "select id, name, iban, current_balance::text, currency from bank_accounts \
+    let bank_accounts: Vec<BankAccountRow> = sqlx::query_as(
+        "select id, name, iban, current_balance::text, currency from bank_accounts \
              where entity_id = $1 and deleted_at is null and is_active = true",
-        )
-        .bind(&entity_id)
-        .fetch_all(db)
-        .await?;
+    )
+    .bind(&entity_id)
+    .fetch_all(db)
+    .await?;
 
     // Recent payments (last 10).
     let recent_payments: Vec<Value> = sqlx::query_scalar(concat!(
@@ -234,7 +254,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
 
     let value = |set: &build::ValueSet, key: &str| set.value(key).map_or(Value::Null, |v| json!(v));
     let last_twelve = &trend[trend.len() - 12..];
-    Ok(ok(json!({
+    let mut data = Json::from(json!({
         "currency": base_currency,
         "revenue": {
             "month": value(revenue, current_month),
@@ -249,8 +269,6 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             "month": value(profit, current_month),
             "year": value(profit, "year"),
         },
-        "receivables": summarize(&aged_receivables),
-        "payables": summarize(&aged_payables),
         "bankAccounts": bank_accounts.into_iter().map(|(id, name, iban, balance, currency)| json!({
             "id": id,
             "name": name,
@@ -271,7 +289,10 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             "expenses": value(expenses, &c.key),
             "profit": value(profit, &c.key),
         })).collect::<Vec<_>>(),
-    })))
+    }));
+    data.set("receivables", summarize(&aged_receivables));
+    data.set("payables", summarize(&aged_payables));
+    Ok(crate::ordered::ok(&data))
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 //! under `rust/modules/` and is mounted at its path prefix.
 
 mod access_requests;
-mod books;
+pub(crate) mod books;
 mod feature_flags;
 mod me;
 

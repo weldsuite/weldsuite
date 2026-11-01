@@ -169,7 +169,10 @@ async fn totals_by_column(
     let mut ids: Vec<String> = Vec::new();
     for column in columns {
         let rows = ledger
-            .aggregate(column_range(column)?, AggregateOptions::types(account_types))
+            .aggregate(
+                column_range(column)?,
+                AggregateOptions::types(account_types),
+            )
             .await?;
         let mut totals = Totals::new();
         for row in rows {
@@ -210,7 +213,8 @@ pub(crate) fn by_code(a: &LedgerAccount, b: &LedgerAccount) -> std::cmp::Orderin
 }
 
 fn sorted_accounts<'a>(ledger: &'a Ledger, ids: &[String]) -> Vec<&'a LedgerAccount> {
-    let mut accounts: Vec<&LedgerAccount> = ids.iter().filter_map(|id| ledger.account(id)).collect();
+    let mut accounts: Vec<&LedgerAccount> =
+        ids.iter().filter_map(|id| ledger.account(id)).collect();
     accounts.sort_by(|a, b| by_code(a, b));
     accounts
 }
@@ -309,7 +313,12 @@ pub(crate) fn profit_loss_section(account_type: &str, subtype: Option<&str>) -> 
     }
     if matches_any(
         subtype,
-        &["cost_of_goods_sold", "cost_of_goods", "cost_of_sales", "cogs"],
+        &[
+            "cost_of_goods_sold",
+            "cost_of_goods",
+            "cost_of_sales",
+            "cogs",
+        ],
     ) {
         return "cost_of_goods_sold";
     }
@@ -505,7 +514,8 @@ impl BalanceSheet {
 
 /// Income minus expense: revenue credit-positive, expense debit-negative.
 fn earnings_of(rows: &[AggregateRow]) -> f64 {
-    rows.iter().fold(0.0, |total, r| total + (r.credit - r.debit))
+    rows.iter()
+        .fold(0.0, |total, r| total + (r.credit - r.debit))
 }
 
 /// `buildBalanceSheet(ledger, columns, fiscalYearStartOf)`: the sheet as of
@@ -553,7 +563,8 @@ pub(crate) async fn build_balance_sheet(
     let rows: Vec<AccountRow> = sorted_accounts(ledger, &ids)
         .into_iter()
         .map(|account| {
-            let debit_positive = account.account_type == "asset" || account.account_type == "expense";
+            let debit_positive =
+                account.account_type == "asset" || account.account_type == "expense";
             account_row(account, columns, &by_column, |t| match t {
                 Some((debit, credit)) if debit_positive => debit - credit,
                 Some((debit, credit)) => credit - debit,
@@ -622,7 +633,8 @@ pub(crate) async fn build_balance_sheet(
             .map(|c| {
                 (
                     c.key.clone(),
-                    list.iter().fold(0.0, |total, r| total + r.set.number(&c.key)),
+                    list.iter()
+                        .fold(0.0, |total, r| total + r.set.number(&c.key)),
                 )
             })
             .collect()
@@ -659,7 +671,10 @@ pub(crate) async fn build_balance_sheet(
             ("assets", value_set(columns, &total_assets)),
             ("liabilities", value_set(columns, &total_liabilities)),
             ("equity", value_set(columns, &total_equity)),
-            ("liabilitiesAndEquity", value_set(columns, &liabilities_and_equity)),
+            (
+                "liabilitiesAndEquity",
+                value_set(columns, &liabilities_and_equity),
+            ),
         ],
     })
 }
@@ -740,7 +755,10 @@ pub(crate) async fn build_trial_balance(
                 .iter()
                 .map(|c| {
                     let t = totals_of(&by_column, &c.key, &account.id);
-                    (c.key.clone(), t.map_or(0.0, |t| t.0) - t.map_or(0.0, |t| t.1))
+                    (
+                        c.key.clone(),
+                        t.map_or(0.0, |t| t.0) - t.map_or(0.0, |t| t.1),
+                    )
                 })
                 .collect();
             TrialBalanceRow {
@@ -883,9 +901,17 @@ pub(crate) async fn build_general_ledger(
             },
         )
         .await?;
-    let opening = before.iter().fold(0.0, |total, r| total + r.debit - r.credit);
+    let opening = before
+        .iter()
+        .fold(0.0, |total, r| total + r.debit - r.credit);
     let all = ledger
-        .account_lines(account_id, LedgerRange { from: Some(from), to })
+        .account_lines(
+            account_id,
+            LedgerRange {
+                from: Some(from),
+                to,
+            },
+        )
         .await?;
 
     let mut running = opening;
@@ -1123,43 +1149,54 @@ impl AgedReport {
         )
     }
 
-    pub(crate) fn contacts_json(&self) -> Value {
-        Value::Array(
+    /// The buckets in their order (clients read `Object.keys`), each laid
+    /// out by `pick(total, count)`.
+    pub(crate) fn buckets_ordered(
+        &self,
+        pick: impl Fn(&str, i64) -> Value,
+    ) -> crate::ordered::Json {
+        crate::ordered::Json::object(
+            BUCKETS
+                .iter()
+                .zip(&self.buckets)
+                .map(|(b, (total, count))| (*b, crate::ordered::Json::from(pick(total, *count)))),
+        )
+    }
+
+    /// `{ current: { total, count }, '1-30': … }`, in bucket order.
+    pub(crate) fn aging(&self) -> crate::ordered::Json {
+        self.buckets_ordered(|total, count| json!({ "total": total, "count": count }))
+    }
+
+    fn contacts_ordered(&self) -> crate::ordered::Json {
+        use crate::ordered::Json;
+        Json::Array(
             self.contacts
                 .iter()
                 .map(|c| {
-                    let mut object = Map::new();
-                    object.insert("contactId".to_owned(), c.contact_id.clone());
-                    object.insert("contactName".to_owned(), json!(c.contact_name));
-                    object.insert("total".to_owned(), json!(c.total));
+                    let mut entries = vec![
+                        ("contactId", Json::from(c.contact_id.clone())),
+                        ("contactName", Json::from(json!(c.contact_name))),
+                        ("total", Json::from(json!(c.total))),
+                    ];
                     for (bucket, value) in BUCKETS.iter().zip(&c.buckets) {
-                        object.insert((*bucket).to_owned(), json!(value));
+                        entries.push((bucket, Json::from(json!(value))));
                     }
-                    Value::Object(object)
+                    Json::object(entries)
                 })
                 .collect(),
         )
     }
 
-    /// `{ bucket: { total, count } }`.
-    pub(crate) fn buckets_json(&self) -> Value {
-        Value::Object(
-            BUCKETS
-                .iter()
-                .zip(&self.buckets)
-                .map(|(b, (total, count))| ((*b).to_owned(), json!({ "total": total, "count": count })))
-                .collect(),
-        )
-    }
-
-    pub(crate) fn json(&self) -> Value {
-        json!({
-            "asOf": self.as_of,
-            "buckets": self.buckets_json(),
-            "total": self.total,
-            "contacts": self.contacts_json(),
-            "documents": self.documents_json(),
-        })
+    pub(crate) fn json(&self) -> crate::ordered::Json {
+        use crate::ordered::Json;
+        Json::object([
+            ("asOf", Json::from(json!(self.as_of))),
+            ("buckets", self.aging()),
+            ("total", Json::from(json!(self.total))),
+            ("contacts", self.contacts_ordered()),
+            ("documents", Json::from(self.documents_json())),
+        ])
     }
 }
 
@@ -1238,7 +1275,11 @@ pub(crate) async fn build_aged_report(
     };
     let rows = weldsuite_books_domain::contacts::with_contact_names(db, rows).await?;
 
-    let number_key = if receivables { "invoiceNumber" } else { "billNumber" };
+    let number_key = if receivables {
+        "invoiceNumber"
+    } else {
+        "billNumber"
+    };
     let mut documents = Vec::with_capacity(rows.len());
     for r in &rows {
         let sign = if r.get("type").and_then(Value::as_str) == Some("credit_note") {
@@ -1254,7 +1295,10 @@ pub(crate) async fn build_aged_report(
             id: r["id"].as_str().unwrap_or_default().to_owned(),
             number: r.get(number_key).and_then(Value::as_str).map(str::to_owned),
             contact_id: r.get("contactId").cloned().unwrap_or(Value::Null),
-            contact_name: r.get("contactName").and_then(Value::as_str).map(str::to_owned),
+            contact_name: r
+                .get("contactName")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             issue_date: day_of(r, "issueDate")?,
             due_date,
             days_past_due: days,
@@ -1278,13 +1322,11 @@ pub(crate) async fn build_aged_report(
         bucket_totals[at].0 += amount;
         bucket_totals[at].1 += 1;
         let index = contacts.iter().position(|c| c.0 == d.contact_id);
-        let contact = match index {
-            Some(i) => &mut contacts[i],
-            None => {
-                contacts.push((d.contact_id.clone(), d.contact_name.clone(), 0.0, [0.0; 5]));
-                contacts.last_mut().expect("just pushed")
-            }
-        };
+        let i = index.unwrap_or_else(|| {
+            contacts.push((d.contact_id.clone(), d.contact_name.clone(), 0.0, [0.0; 5]));
+            contacts.len() - 1
+        });
+        let contact = &mut contacts[i];
         contact.3[at] += amount;
         contact.2 += amount;
     }

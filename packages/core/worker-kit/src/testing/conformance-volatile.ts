@@ -165,6 +165,20 @@ const ROUTES: VolatileRoute[] = [
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
+  // WeldBooks reports: a print document (`?format=print`) is stamped with the moment it was built.
+  ...[
+    'profit-loss',
+    'balance-sheet',
+    'trial-balance',
+    'aged-receivables',
+    'aged-payables',
+    'vat-summary',
+    'general-ledger',
+    'cash-flow',
+    'revenue-by-customer',
+    'expense-by-category',
+    'tax-worksheet',
+  ].map((report) => ({ method: 'GET', route: `/api/accounting-reports/${report}`, fields: [{ path: 'data.generatedAt' }] })),
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {
