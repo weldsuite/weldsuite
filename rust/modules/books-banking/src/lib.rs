@@ -9,6 +9,8 @@
 //! banking` conformance suite (`rust/conformance/suites.json`).
 
 mod bank_accounts;
+mod bank_deposits;
+mod bank_reconciliations;
 mod bank_transactions;
 mod categorize;
 mod common;
@@ -39,6 +41,11 @@ where
         (
             "/bank-transactions",
             bank_transactions::router(state.clone(), gate),
+        ),
+        ("/bank-deposits", bank_deposits::router(state.clone(), gate)),
+        (
+            "/bank-reconciliations",
+            bank_reconciliations::router(state.clone(), gate),
         ),
         (
             "/reconciliation-rules",

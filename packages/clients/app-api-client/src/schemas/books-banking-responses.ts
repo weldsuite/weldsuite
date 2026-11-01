@@ -186,3 +186,95 @@ export const bankLineMatchSchema = z
 
 /** `POST /api/bank-transactions/:id/exclude`. */
 export const bankLineExcludedSchema = z.object({ message: z.string() });
+
+// ── bank deposits ───────────────────────────────────────────────────────────
+
+/** `GET /api/bank-deposits/undeposited`: a received payment waiting in Undeposited Funds. */
+export const undepositedPaymentSchema = z.object({
+  paymentId: z.string(),
+  date: z.string(),
+  paymentMethod: nullableString,
+  checkNumber: nullableString,
+  reference: nullableString,
+  currency: nullableString,
+  paymentAmount: z.string(),
+  amount: z.number(),
+  contactId: z.string(),
+  contactName: nullableString,
+  journalEntryId: nullableString,
+});
+
+/** A `bank_deposits` row. */
+export const bankDepositSchema = z
+  .object({
+    id: z.string(),
+    entityId: z.string(),
+    bankAccountId: z.string(),
+    date: z.string(),
+    amount: z.string(),
+    currency: z.string(),
+    status: z.string(),
+    memo: nullishString,
+  })
+  .passthrough();
+
+/** `GET /api/bank-deposits/:id`: the deposit with its payments and other lines. */
+export const bankDepositDetailSchema = bankDepositSchema.extend({
+  bankAccountName: nullableString,
+  journalEntryNumber: nullableString,
+  payments: z.array(z.object({ id: z.string(), amount: z.string(), contactName: nullableString }).passthrough()),
+  otherLines: z.array(
+    z.object({ accountId: z.string(), amount: z.number(), accountCode: nullableString, accountName: nullableString }).passthrough(),
+  ),
+});
+
+/** `POST /api/bank-deposits`. */
+export const createdBankDepositSchema = z.object({ id: z.string(), journalEntryId: nullableString, amount: z.string() });
+
+// ── statement reconciliations ───────────────────────────────────────────────
+
+const reconciliationLineSchema = z
+  .object({
+    id: z.string(),
+    journalEntryId: z.string(),
+    date: z.string(),
+    amount: z.number(),
+    cleared: z.boolean(),
+    document: z.object({ type: z.string(), id: nullableString }).passthrough().nullable(),
+  })
+  .passthrough();
+const lineGroupTotalsSchema = z.object({ count: z.number(), total: z.number(), clearedCount: z.number(), clearedTotal: z.number() });
+
+/** A reconciliation as the screen reads it (`getReconciliationView`). */
+export const reconciliationViewSchema = z
+  .object({
+    id: z.string(),
+    bankAccountId: z.string(),
+    bankAccountName: nullableString,
+    ledgerAccountId: z.string(),
+    ledger: z.object({ code: z.string(), name: z.string(), type: z.string() }),
+    accountKind: z.enum(['bank', 'credit_card']),
+    status: z.string(),
+    statementDate: z.string(),
+    beginningBalance: z.string(),
+    statementEndingBalance: z.string(),
+    clearedBalance: z.string(),
+    difference: z.string(),
+    clearedLineIds: z.array(z.string()),
+    inflows: z.array(reconciliationLineSchema),
+    outflows: z.array(reconciliationLineSchema),
+    totals: z.object({ inflows: lineGroupTotalsSchema, outflows: lineGroupTotalsSchema }),
+    nettedLineCount: z.number(),
+  })
+  .passthrough();
+
+/** `GET /api/bank-reconciliations`: a history row, without its report. */
+export const reconciliationHistorySchema = z
+  .object({ id: z.string(), bankAccountId: z.string(), statementDate: z.string(), status: z.string(), hasReport: z.boolean() })
+  .passthrough()
+  .refine((row) => !('report' in row), { message: 'the history does not carry the report' });
+
+/** `GET /api/bank-reconciliations/:id/report`: the stored report, or a live preview. */
+export const reconciliationReportSchema = z
+  .object({ status: z.string(), version: z.number(), summary: z.record(z.unknown()), preview: z.boolean().optional() })
+  .passthrough();

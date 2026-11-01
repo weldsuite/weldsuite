@@ -1895,7 +1895,9 @@
         "src/routes/bank-accounts/bank-accounts.integration.test.ts",
         "src/routes/reconciliation-rules/reconciliation-rules.integration.test.ts",
         "src/routes/bank-transactions/integration.test.ts",
-        "src/routes/bank-transactions/matching.integration.test.ts"
+        "src/routes/bank-transactions/matching.integration.test.ts",
+        "src/routes/bank-deposits/bank-deposits.integration.test.ts",
+        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bank-accounts/",
