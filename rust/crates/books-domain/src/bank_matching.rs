@@ -16,12 +16,8 @@ use weldsuite_ports::OutboundHttp;
 
 use crate::document_posting::{owned, text, update_with_entry};
 use crate::http::now;
-use crate::js::{
-    js_date_millis, math_round, millis_of, number_text, parse_float, round_money, to_fixed,
-};
-use crate::payments::{
-    AllocationInput, RecordPaymentInput, payment_net_amount, record_payment, void_payment,
-};
+use crate::js::{js_date_millis, math_round, millis_of, number_text, parse_float, round_money, to_fixed};
+use crate::payments::{AllocationInput, RecordPaymentInput, payment_net_amount, record_payment, void_payment};
 use crate::posting::{PostError, ReverseArgs, reverse_journal_entry};
 use crate::tables::{BANK_DEPOSITS, BANK_TRANSACTIONS, BILLS, INVOICES, PAYMENTS};
 
@@ -37,85 +33,17 @@ fn posting(message: impl Into<String>) -> PostError {
 // ── Names ───────────────────────────────────────────────────────────────────
 
 const LEGAL_SUFFIXES: &[&str] = &[
-    "inc",
-    "incorporated",
-    "llc",
-    "llp",
-    "lp",
-    "ltd",
-    "limited",
-    "corp",
-    "corporation",
-    "co",
-    "company",
-    "plc",
-    "pllc",
-    "pc",
-    "bv",
-    "nv",
-    "gmbh",
-    "ag",
-    "sa",
-    "sarl",
-    "the",
-    "and",
-    "of",
+    "inc", "incorporated", "llc", "llp", "lp", "ltd", "limited", "corp", "corporation", "co",
+    "company", "plc", "pllc", "pc", "bv", "nv", "gmbh", "ag", "sa", "sarl", "the", "and", "of",
     "dba",
 ];
 
 const BANK_NOISE: &[&str] = &[
-    "ach",
-    "credit",
-    "debit",
-    "cr",
-    "dr",
-    "pmt",
-    "pymt",
-    "payment",
-    "payments",
-    "deposit",
-    "dep",
-    "web",
-    "ppd",
-    "ccd",
-    "ctx",
-    "online",
-    "onl",
-    "transfer",
-    "xfer",
-    "wire",
-    "incoming",
-    "outgoing",
-    "from",
-    "to",
-    "ref",
-    "reference",
-    "id",
-    "check",
-    "chk",
-    "pos",
-    "purchase",
-    "card",
-    "recurring",
-    "preauthorized",
-    "preauth",
-    "remote",
-    "mobile",
-    "bill",
-    "pay",
-    "trn",
-    "trace",
-    "orig",
-    "co",
-    "name",
-    "inv",
-    "invoice",
-    "no",
-    "num",
-    "number",
-    "for",
-    "thank",
-    "you",
+    "ach", "credit", "debit", "cr", "dr", "pmt", "pymt", "payment", "payments", "deposit", "dep",
+    "web", "ppd", "ccd", "ctx", "online", "onl", "transfer", "xfer", "wire", "incoming",
+    "outgoing", "from", "to", "ref", "reference", "id", "check", "chk", "pos", "purchase", "card",
+    "recurring", "preauthorized", "preauth", "remote", "mobile", "bill", "pay", "trn", "trace",
+    "orig", "co", "name", "inv", "invoice", "no", "num", "number", "for", "thank", "you",
 ];
 
 /// `nameTokens(value, { dropNoise })`: lower-case tokens without
@@ -128,8 +56,7 @@ pub fn name_tokens(value: Option<&str>, drop_noise: bool) -> Vec<String> {
     let cleaned: String = lower
         .chars()
         .map(|c| {
-            if c.is_ascii_lowercase() || c.is_ascii_digit() || crate::jurisdictions::is_js_space(c)
-            {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || crate::jurisdictions::is_js_space(c) {
                 c
             } else {
                 ' '
@@ -190,11 +117,7 @@ pub fn name_similarity(
     let described = name_tokens(description, true);
     if !described.is_empty() {
         let held = coverage(&contact, &described);
-        let weight = if contact.len() == 1 && described.len() > 4 {
-            0.7
-        } else {
-            0.9
-        };
+        let weight = if contact.len() == 1 && described.len() > 4 { 0.7 } else { 0.9 };
         best = f64::max(best, held * weight);
     }
     math_round(best * 100.0) / 100.0
@@ -448,11 +371,7 @@ fn name_match(line: &Line<'_>, contact_name: Option<&str>) -> Option<(f64, &'sta
 }
 
 /// `paymentWindow(txnDate, issueDate, dueDate)`.
-fn payment_window(
-    line_date: Option<&str>,
-    issue: Option<&str>,
-    due: Option<&str>,
-) -> Option<(f64, &'static str)> {
+fn payment_window(line_date: Option<&str>, issue: Option<&str>, due: Option<&str>) -> Option<(f64, &'static str)> {
     let when = millis_of(line_date?)?;
     let issued = millis_of(issue?)?;
     if when < issued - 3 * 86_400_000 {
@@ -466,12 +385,7 @@ fn parse_amount(row: &Value, key: &str) -> f64 {
     parse_float(text(row, key).filter(|v| !v.is_empty()).unwrap_or("0"))
 }
 
-fn match_documents(
-    pool: &Candidates,
-    abs_amount: f64,
-    line: &Line<'_>,
-    invoice: bool,
-) -> Vec<Suggestion> {
+fn match_documents(pool: &Candidates, abs_amount: f64, line: &Line<'_>, invoice: bool) -> Vec<Suggestion> {
     let rows = if invoice { &pool.invoices } else { &pool.bills };
     let entity = line.filled("entityId");
     let mut out = Vec::new();
@@ -511,9 +425,7 @@ fn match_documents(
         let contact = pool.contact(text(doc, "contactId"));
         if let (Some(iban), Some(contact_iban)) = (
             line.filled("counterpartyIban"),
-            contact
-                .and_then(|c| c.2.as_deref())
-                .filter(|i| !i.is_empty()),
+            contact.and_then(|c| c.2.as_deref()).filter(|i| !i.is_empty()),
         ) && contact_iban == iban
         {
             confidence += 0.3;
@@ -541,15 +453,7 @@ fn match_documents(
             reasons.push(reason.to_owned());
         }
         if confidence > 0.0 {
-            let number = text(
-                doc,
-                if invoice {
-                    "invoiceNumber"
-                } else {
-                    "billNumber"
-                },
-            )
-            .map(str::to_owned);
+            let number = text(doc, if invoice { "invoiceNumber" } else { "billNumber" }).map(str::to_owned);
             let amount = text(doc, "balanceDue")
                 .filter(|v| !v.is_empty())
                 .unwrap_or("0")
@@ -578,11 +482,7 @@ fn normalize_check(value: Option<&str>) -> String {
     let zeros = compact.bytes().take_while(|b| *b == b'0').count();
     let drop = if zeros == 0 {
         0
-    } else if compact
-        .as_bytes()
-        .get(zeros)
-        .is_some_and(u8::is_ascii_digit)
-    {
+    } else if compact.as_bytes().get(zeros).is_some_and(u8::is_ascii_digit) {
         zeros
     } else {
         zeros - 1
@@ -590,12 +490,7 @@ fn normalize_check(value: Option<&str>) -> String {
     compact[drop..].to_lowercase()
 }
 
-fn match_payments(
-    pool: &Candidates,
-    line: &Line<'_>,
-    abs_amount: f64,
-    received: bool,
-) -> Vec<Suggestion> {
+fn match_payments(pool: &Candidates, line: &Line<'_>, abs_amount: f64, received: bool) -> Vec<Suggestion> {
     let Some(entity) = line.filled("entityId") else {
         return Vec::new();
     };
@@ -609,8 +504,7 @@ fn match_payments(
         let bank_amount = payment_net_amount(payment);
         let withheld = parse_float(text(payment, "backupWithholdingAmount").unwrap_or("0")) > 0.0;
         let amount_matches = (bank_amount - abs_amount).abs() < 0.01;
-        let check_matches =
-            !check.is_empty() && normalize_check(text(payment, "checkNumber")) == check;
+        let check_matches = !check.is_empty() && normalize_check(text(payment, "checkNumber")) == check;
         if !amount_matches && !check_matches {
             continue;
         }
@@ -638,9 +532,7 @@ fn match_payments(
                 .to_owned(),
             );
         }
-        let contact_name = pool
-            .contact(text(payment, "contactId"))
-            .and_then(|c| c.1.clone());
+        let contact_name = pool.contact(text(payment, "contactId")).and_then(|c| c.1.clone());
         if let Some((boost, reason)) = name_match(line, contact_name.as_deref()) {
             confidence += boost;
             reasons.push(format!("{reason} the payment's contact"));
@@ -674,8 +566,7 @@ fn match_payments(
 }
 
 fn match_deposits(pool: &Candidates, line: &Line<'_>, abs_amount: f64) -> Vec<Suggestion> {
-    let (Some(entity), Some(account)) = (line.filled("entityId"), line.filled("bankAccountId"))
-    else {
+    let (Some(entity), Some(account)) = (line.filled("entityId"), line.filled("bankAccountId")) else {
         return Vec::new();
     };
     pool.deposits
@@ -745,11 +636,7 @@ pub async fn find_matches(
         out.extend(match_payments(pool, &line, abs_amount, false));
         out
     };
-    suggestions.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     Ok(suggestions)
 }
 
@@ -801,11 +688,7 @@ pub async fn reconcile_to_document(
     .fetch_optional(db)
     .await?;
     let Some((doc_id, doc_entity, contact_id, balance_due)) = doc else {
-        return Err(posting(if invoice {
-            "Invoice not found"
-        } else {
-            "Bill not found"
-        }));
+        return Err(posting(if invoice { "Invoice not found" } else { "Bill not found" }));
     };
     if doc_entity.as_deref() != text(txn, "entityId") {
         return Err(posting(format!(
@@ -819,10 +702,7 @@ pub async fn reconcile_to_document(
             .fetch_optional(db)
             .await?;
     let paid = round_money(amount.abs());
-    let allocated = round_money(f64::min(
-        paid,
-        parse_float(balance_due.as_deref().unwrap_or("0")),
-    ));
+    let allocated = round_money(f64::min(paid, parse_float(balance_due.as_deref().unwrap_or("0"))));
     let check_number = owned(txn, "checkNumber");
     let has_check = check_number.as_deref().is_some_and(|c| !c.is_empty());
     let result = record_payment(
@@ -868,11 +748,7 @@ pub async fn reconcile_to_document(
 /// `reconcileBankTransactionToPayment`: tie a line to a payment recorded
 /// before it arrived; only links (a printed check becomes cleared).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
-pub async fn reconcile_to_payment(
-    db: &PgPool,
-    txn: &Value,
-    payment_id: &str,
-) -> Result<Matched, PostError> {
+pub async fn reconcile_to_payment(db: &PgPool, txn: &Value, payment_id: &str) -> Result<Matched, PostError> {
     if text(txn, "status") != Some("unreconciled") {
         return Err(posting("Transaction is already reconciled or excluded"));
     }
@@ -888,9 +764,7 @@ pub async fn reconcile_to_payment(
         return Err(posting("Payment not found"));
     };
     if text(&payment, "entityId") != text(txn, "entityId") {
-        return Err(posting(
-            "The payment belongs to a different accounting entity",
-        ));
+        return Err(posting("The payment belongs to a different accounting entity"));
     }
     if text(&payment, "bankTransactionId").is_some_and(|v| !v.is_empty()) {
         return Err(posting("This payment is already matched to a bank line"));
@@ -902,11 +776,7 @@ pub async fn reconcile_to_payment(
     }
     let amount = parse_float(text(txn, "amount").unwrap_or("0"));
     let received = text(&payment, "type") == Some("received");
-    if if received {
-        !(amount > 0.0)
-    } else {
-        !(amount < 0.0)
-    } {
+    if if received { !(amount > 0.0) } else { !(amount < 0.0) } {
         return Err(posting(if received {
             "Only money coming in can be matched to a payment received"
         } else {
@@ -974,11 +844,7 @@ pub async fn reconcile_to_payment(
 /// `reconcileBankTransactionToDeposit`: tie an incoming line to the bank
 /// deposit it came from; only links.
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
-pub async fn reconcile_to_deposit(
-    db: &PgPool,
-    txn: &Value,
-    deposit_id: &str,
-) -> Result<Matched, PostError> {
+pub async fn reconcile_to_deposit(db: &PgPool, txn: &Value, deposit_id: &str) -> Result<Matched, PostError> {
     if text(txn, "status") != Some("unreconciled") {
         return Err(posting("Transaction is already reconciled or excluded"));
     }
@@ -998,9 +864,7 @@ pub async fn reconcile_to_deposit(
         return Err(posting("Deposit not found"));
     };
     if text(&deposit, "entityId") != text(txn, "entityId") {
-        return Err(posting(
-            "The deposit belongs to a different accounting entity",
-        ));
+        return Err(posting("The deposit belongs to a different accounting entity"));
     }
     if text(&deposit, "status") != Some("posted") {
         return Err(posting("This deposit has been voided"));
@@ -1071,11 +935,7 @@ fn reset_values(stamp: &str) -> Map<String, Value> {
 
 /// `unreconcileBankTransaction`: void the payment the match created, reverse
 /// the entry a categorization posted, or unlink a payment or deposit.
-pub async fn unreconcile(
-    db: &PgPool,
-    txn: &Value,
-    user_id: Option<String>,
-) -> Result<(), PostError> {
+pub async fn unreconcile(db: &PgPool, txn: &Value, user_id: Option<String>) -> Result<(), PostError> {
     if text(txn, "status") == Some("unreconciled") {
         return Err(posting("Transaction is not reconciled"));
     }
@@ -1088,19 +948,17 @@ pub async fn unreconcile(
     if kind == Some(PAYMENT_LINK)
         && let Some(payment_id) = filled("reconciledPaymentId")
     {
-        let payment: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, payment_method, check_status from payments where id = $1 limit 1",
-        )
-        .bind(payment_id)
-        .fetch_optional(db)
-        .await?;
+        let payment: Option<(String, Option<String>, Option<String>)> =
+            sqlx::query_as("select id, payment_method, check_status from payments where id = $1 limit 1")
+                .bind(payment_id)
+                .fetch_optional(db)
+                .await?;
         let mut tx = db.begin().await?;
         BANK_TRANSACTIONS
             .patch_raw(&mut *tx, &id, BANK_TRANSACTIONS.values(&reset), false)
             .await?;
         if let Some((payment, method, status)) = payment {
-            let unclear =
-                method.as_deref() == Some("check") && status.as_deref() == Some("cleared");
+            let unclear = method.as_deref() == Some("check") && status.as_deref() == Some("cleared");
             sqlx::query(
                 "update payments set bank_transaction_id = null, \
                  check_status = case when $2 then 'printed' else check_status end, updated_at = $3::timestamp where id = $1",
@@ -1134,7 +992,10 @@ pub async fn unreconcile(
         return Ok(());
     }
     if let Some(entry_id) = filled("journalEntryId") {
-        let description = format!("Undo bank line {}", text(txn, "description").unwrap_or(&id));
+        let description = format!(
+            "Undo bank line {}",
+            text(txn, "description").unwrap_or(&id)
+        );
         reverse_journal_entry(
             db,
             ReverseArgs {
@@ -1173,10 +1034,7 @@ impl AutoResult {
             "suggestions".to_owned(),
             Value::Array(self.suggestions.iter().map(Suggestion::to_json).collect()),
         );
-        out.insert(
-            "autoReconciled".to_owned(),
-            json!(self.reconciled.is_some()),
-        );
+        out.insert("autoReconciled".to_owned(), json!(self.reconciled.is_some()));
         if let Some((kind, id)) = &self.reconciled {
             out.insert("reconciledEntityType".to_owned(), json!(kind));
             out.insert("reconciledEntityId".to_owned(), json!(id));
@@ -1210,14 +1068,7 @@ pub async fn auto_reconcile_batch(
     let Some(first) = lines.first() else {
         return Ok((count, results));
     };
-    let mut pool = load_candidates(
-        db,
-        text(first, "entityId"),
-        Some(bank_account_id),
-        None,
-        None,
-    )
-    .await?;
+    let mut pool = load_candidates(db, text(first, "entityId"), Some(bank_account_id), None, None).await?;
     for txn in &lines {
         let suggestions = find_matches(db, txn, Some(&pool)).await?;
         let auto = suggestions
@@ -1277,17 +1128,10 @@ mod tests {
             name_tokens(Some("ACH CREDIT Acme & Sons, Inc. 2001"), true),
             vec!["acme", "sons"]
         );
-        assert!(
-            (name_similarity(Some("ACME CORP"), None, Some("Acme Corporation Inc")) - 1.0).abs()
-                < f64::EPSILON
-        );
+        assert!((name_similarity(Some("ACME CORP"), None, Some("Acme Corporation Inc")) - 1.0).abs() < f64::EPSILON);
         assert!(name_similarity(Some("ACME"), None, Some("Acme Roofing")) < 0.8);
         assert_eq!(
-            name_similarity(
-                None,
-                Some("ACH CREDIT ACME CORP INV 2001"),
-                Some("Acme Corp")
-            ),
+            name_similarity(None, Some("ACH CREDIT ACME CORP INV 2001"), Some("Acme Corp")),
             0.9
         );
         assert_eq!(name_confidence(0.5), Some((0.15, "name partly matches")));
