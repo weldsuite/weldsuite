@@ -165,6 +165,8 @@ export const FORWARDED_ENV = [
   'DISCORD_CLIENT_SECRET',
   'SLACK_CLIENT_ID',
   'SLACK_CLIENT_SECRET',
+  // WeldConnect: this API's public origin (the workflow webhook URLs).
+  'CONNECT_API_URL',
   // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
   // tokens are signed with, the realtime origin it advertises to the widget, and
   // the secret its realtime publishes carry.
@@ -687,8 +689,13 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
+  // WeldConnect: a workflow webhook's inbound HMAC secret, new per run (create, rotate).
+  if (key === 'secret' && WEBHOOK_SECRET.test(value)) return '<webhook-secret>';
   return undefined;
 }
+
+/** `generateWebhookSecret()`: 32 alphanumeric characters. */
+const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 
 /** Timestamps, generated ids and the links and slugs that carry one; undefined when none applies. */
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
@@ -704,6 +711,9 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
   // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
   if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
+  // WeldConnect: the receiver URL of a webhook the request just created
+  // (`…/api/workflows/webhook/wh_<id>`).
+  if (value.includes('/api/workflows/webhook/')) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
 }
@@ -1139,11 +1149,20 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
       'Conformance mode needs a pglite tenantDb (createPgliteDb()): this test uses a mock database, which the Rust server cannot reach.',
     );
   }
-  const context = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
+  const baseContext = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
 
   // A request body can be read once: keep it as text or bytes for both runs.
   const headers = new Headers(init?.headers);
   const body = await replayableBody(init?.body, headers);
+  // The header names the Hono app sees (a string body adds its content
+  // type), for the routes that keep the request's headers (WeldConnect's
+  // webhook receiver): the Rust server gets more from its HTTP client.
+  const seen = new Request('http://localhost/', {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' ? undefined : body,
+  }).headers;
+  const context = { ...baseContext, requestHeaders: [...seen.keys()] };
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
   // The Hono app sees the test's URL (`http://localhost/...` for a bare

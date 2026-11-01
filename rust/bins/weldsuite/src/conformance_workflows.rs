@@ -87,6 +87,71 @@ impl SequenceRuns for BridgedWorkflow {
     }
 }
 
+impl BridgedWorkflow {
+    /// One call, answering the bridge's `result` (`{ id }` for a `create`).
+    async fn call_for_result(&self, method: &str, id: Value, args: Value) -> Result<Value, String> {
+        let response = self
+            .client
+            .post(format!("{}/rpc", self.bridge))
+            .header("content-type", "application/json")
+            .body(
+                json!({ "binding": self.binding, "method": method, "id": id, "args": args })
+                    .to_string(),
+            )
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let ok = response.status().is_success();
+        let text = response.text().await.unwrap_or_default();
+        let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        if ok {
+            return Ok(body["result"].clone());
+        }
+        Err(body["error"]
+            .as_str()
+            .unwrap_or("workflow call failed")
+            .to_owned())
+    }
+}
+
+impl weldsuite_connect::WorkflowRuns for BridgedWorkflow {
+    /// `binding.create({ params })`: the instance id the fake answered.
+    fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+        Box::pin(async move {
+            let result = self
+                .call_for_result("create", Value::Null, json!({ "params": params }))
+                .await?;
+            Ok(result["id"].as_str().unwrap_or_default().to_owned())
+        })
+    }
+
+    /// `(await binding.get(id)).terminate()`.
+    fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            self.call("get", id, Value::Null).await?;
+            self.call("terminate", id, Value::Null).await
+        })
+    }
+
+    /// `(await binding.get(id)).sendEvent({ type, payload })`.
+    fn send_event<'a>(
+        &'a self,
+        id: &'a str,
+        event_type: &'a str,
+        payload: &'a Value,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            self.call("get", id, Value::Null).await?;
+            self.call(
+                "sendEvent",
+                id,
+                json!({ "type": event_type, "payload": payload }),
+            )
+            .await
+        })
+    }
+}
+
 impl weldsuite_data::EnrichRuns for BridgedWorkflow {
     /// `binding.create(options)`, without an instance id.
     fn create<'a>(&'a self, options: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -150,6 +215,20 @@ impl WorkflowBridges {
                 binding: "WELDDATA_ENRICH",
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_data::EnrichRuns>
+        })
+    }
+
+    /// The test's `EXECUTE_WORKFLOW`, from `{ EXECUTE_WORKFLOW: url }`.
+    pub(crate) fn execute_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::WorkflowRuns>> {
+        workflows.get("EXECUTE_WORKFLOW").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "EXECUTE_WORKFLOW",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::WorkflowRuns>
         })
     }
 

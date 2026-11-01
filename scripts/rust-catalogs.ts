@@ -28,6 +28,18 @@ import {
 } from '../packages/core/permissions/src/catalog';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '../packages/core/permissions/src/apps';
 import { FIRST_PARTY_ORIGINS } from '../packages/core/worker-kit/src/cors';
+import {
+  BUILT_IN_WORKFLOW_TEMPLATES,
+  resolveBuiltInTemplate,
+  type BuiltInTemplateCatalog,
+} from '../packages/clients/app-api-client/src/schemas/weldconnect-templates';
+import { weldconnectTemplates as enTemplateStrings } from '../packages/core/i18n/src/locales/en/weldconnect-templates';
+import { weldconnectTemplates as nlTemplateStrings } from '../packages/core/i18n/src/locales/nl/weldconnect-templates';
+import {
+  ACTION_TYPES as WELDCONNECT_ACTION_TYPES,
+  ENTITY_EVENTS as WELDCONNECT_ENTITY_EVENTS,
+  TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
+} from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +61,27 @@ function stableJson(value: unknown): string {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
+/**
+ * WeldConnect's code catalogs: the built-in workflow templates resolved in
+ * each locale (connect-api `services/workflow-templates.ts`) and the editor's
+ * pickers (`/api/workflow-dashboard/{action-types,trigger-types,entity-events}`).
+ */
+function weldconnectCatalog(): unknown {
+  const strings: Record<string, BuiltInTemplateCatalog> = { en: enTemplateStrings, nl: nlTemplateStrings };
+  const templates = Object.fromEntries(
+    Object.entries(strings).map(([locale, catalog]) => [
+      locale,
+      BUILT_IN_WORKFLOW_TEMPLATES.map((definition) => resolveBuiltInTemplate(definition, catalog, strings.en)),
+    ]),
+  );
+  return {
+    templates,
+    actionTypes: WELDCONNECT_ACTION_TYPES,
+    triggerTypes: WELDCONNECT_TRIGGER_TYPES,
+    entityEvents: WELDCONNECT_ENTITY_EVENTS,
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -57,6 +90,7 @@ async function main(): Promise<void> {
     'catalogs/entity-events.json': ENTITY_EVENTS,
     'catalogs/feature-flags.json': FLAGS,
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
+    'catalogs/weldconnect.json': weldconnectCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

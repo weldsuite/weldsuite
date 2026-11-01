@@ -550,6 +550,22 @@ impl Issues {
         self.issues.push(issue);
     }
 
+    /// An issue exactly as Zod reports it, its `path` included (a union's
+    /// winning option's issues).
+    pub fn push_raw(&mut self, issue: Value) {
+        self.issues.push(issue);
+    }
+
+    /// An issue a schema reports at the current path itself (an array item
+    /// read by [`Issues::list`]): `issue` is the rest of Zod's object.
+    pub fn issue_here(&mut self, issue: Value) {
+        let mut issue = issue;
+        if let Value::Object(fields) = &mut issue {
+            fields.insert("path".to_owned(), self.path_at(None));
+        }
+        self.issues.push(issue);
+    }
+
     /// `z.union([z.string(), z.number()])` with `presence`: the value as it
     /// came when it is a string or a number, else Zod's `invalid_union` with
     /// one `invalid_type` per option.

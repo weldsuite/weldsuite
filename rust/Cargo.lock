@@ -3829,6 +3829,7 @@ dependencies = [
  "weldsuite-chat",
  "weldsuite-commerce",
  "weldsuite-commerce-domain",
+ "weldsuite-connect",
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
@@ -4132,6 +4133,35 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-connect"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
+ "http",
+ "jiff",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 

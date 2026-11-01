@@ -2057,6 +2057,61 @@
         "rust/modules/books/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "connect: workflows",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflows/integration.test.ts",
+        "src/routes/workflows/routes.test.ts",
+        "src/routes/workflows/webhook-provisioning.integration.test.ts",
+        "src/routes/workflow-executions/integration.test.ts",
+        "src/routes/workflow-executions/approval.integration.test.ts",
+        "src/routes/workflow-executions/routes.test.ts",
+        "src/routes/workflow-versions/integration.test.ts",
+        "src/routes/workflow-versions/routes.test.ts",
+        "src/routes/workflow-templates/integration.test.ts",
+        "src/routes/workflow-templates/routes.test.ts",
+        "src/routes/workflow-variables/integration.test.ts",
+        "src/routes/workflow-variables/routes.test.ts",
+        "src/routes/workflow-webhooks/integration.test.ts",
+        "src/routes/workflow-webhooks/routes.test.ts",
+        "src/routes/workflow-dashboard/errors.integration.test.ts",
+        "src/routes/workflow-dashboard/routes.test.ts",
+        "src/routes/workflow-schedules/routes.test.ts",
+        "src/routes/workflow-triggers/routes.test.ts",
+        "src/routes/workflow-builder/routes.test.ts",
+        "src/routes/public-workflow-webhook/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflows/",
+        "apps/workers/connect-api/src/routes/workflow-builder/",
+        "apps/workers/connect-api/src/routes/workflow-dashboard/",
+        "apps/workers/connect-api/src/routes/workflow-executions/",
+        "apps/workers/connect-api/src/routes/workflow-schedules/",
+        "apps/workers/connect-api/src/routes/workflow-templates/",
+        "apps/workers/connect-api/src/routes/workflow-triggers/",
+        "apps/workers/connect-api/src/routes/workflow-variables/",
+        "apps/workers/connect-api/src/routes/workflow-versions/",
+        "apps/workers/connect-api/src/routes/workflow-webhooks/",
+        "apps/workers/connect-api/src/routes/public-workflow-webhook/",
+        "apps/workers/connect-api/src/services/",
+        "apps/workers/connect-api/src/lib/",
+        "packages/clients/app-api-client/src/schemas/weldconnect.ts",
+        "packages/clients/app-api-client/src/schemas/weldconnect-templates.ts",
+        "packages/clients/core-api-client/src/schemas/workflow-executions.ts",
+        "packages/clients/core-api-client/src/schemas/weldconnect-builder.ts",
+        "packages/core/workflow-integrations/src/cron.ts",
+        "packages/core/db/src/lib/workflow-concurrency.ts",
+        "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/workflows/generate",
+          "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
+        }
+      ]
     }
   ]
 }

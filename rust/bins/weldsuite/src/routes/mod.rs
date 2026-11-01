@@ -101,6 +101,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = crm(router, state);
     let router = commerce(router, state);
+    let router = connect(router, state);
     let router = ads(router, state);
     let router = social(router, state);
     let router = data(router, state);
@@ -287,6 +288,73 @@ fn ads(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         return router;
     }
     router.merge(weldsuite_ads::router(ads_state(state), &state.permissions))
+}
+
+/// WeldConnect (`weldsuite-connect`): connect-api's routes at their own
+/// prefixes (`/workflows`, `/workflow-executions`, …), once the module is
+/// marked ported.
+fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("connect") {
+        return router;
+    }
+    router.merge(weldsuite_connect::router(
+        connect_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldConnect's public routes (the workflow webhook receiver at
+/// `/api/workflows/webhook/:id`). Conformance builds open the test's tenant
+/// database for every workspace.
+fn connect_public(state: &AppState) -> Router<AppState> {
+    if !mounts("connect") {
+        return Router::new();
+    }
+    let router = weldsuite_connect::public_router(connect_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldConnect's handle on the app: events, the cache (the webhook
+/// registry's), the master database, third-party HTTP, the jobs runs start
+/// on and the workspaces' tenant databases. Conformance builds take the
+/// test's KV, master database, fetch stub and Workflow binding per request.
+pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_connect::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    weldsuite_connect::ConnectState {
+        events: state.infra.events.clone(),
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance { None } else { shared_outbound() },
+        jobs: (!conformance).then(|| Arc::clone(&state.infra.jobs)),
+        tenants: Some(tenants),
+        env: Arc::clone(ENV.get_or_init(|| {
+            let mut env = weldsuite_connect::env_from_process();
+            env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
+            Arc::new(env)
+        })),
+        trusted_proxies: state.trusted_proxies,
+    }
 }
 
 /// WeldAds' handle on the app: events, the cache its OAuth state lives in,
@@ -880,7 +948,8 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(desk_public(state))
         .merge(social_public(state))
         .merge(books::public(state))
-        .merge(commerce_public(state));
+        .merge(commerce_public(state))
+        .merge(connect_public(state));
     if mounts("mail") {
         router
             .nest(

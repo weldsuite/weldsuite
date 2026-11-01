@@ -9,19 +9,19 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 let masterDb: MasterDatabase;
 vi.mock('@weldsuite/worker-kit/db', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/worker-kit/db')>('@weldsuite/worker-kit/db');
-  return { ...actual, getMasterDb: () => masterDb };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(masterDb) };
 });
 
 // Imported AFTER the mocks above are registered.
@@ -36,6 +36,7 @@ function app() {
     context: {
       permissions: permissions('workflow-webhooks:read', 'workflow-webhooks:update', 'workflow-webhooks:delete'),
       tenantDb: db,
+      masterDb,
     },
     env: { CONNECT_API_URL: BASE } as never,
   }).request;

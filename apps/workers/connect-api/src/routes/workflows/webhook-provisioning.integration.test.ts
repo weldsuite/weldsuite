@@ -12,19 +12,19 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 let masterDb: MasterDatabase;
 vi.mock('@weldsuite/worker-kit/db', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/worker-kit/db')>('@weldsuite/worker-kit/db');
-  return { ...actual, getMasterDb: () => masterDb };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(masterDb) };
 });
 
 // Imported AFTER the mocks above are registered.
@@ -43,6 +43,7 @@ function app() {
     context: {
       permissions: permissions('workflows:create', 'workflows:update', 'workflows:delete'),
       tenantDb: db,
+      masterDb,
       // Distinct ids: the registry stores the Clerk org id (phase 3 of the
       // workspace-id plan moves it to workspaces.id), never `workspaceId`.
       workspaceId: 'ws_registry_test',

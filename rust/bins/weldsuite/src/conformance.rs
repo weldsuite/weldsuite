@@ -232,6 +232,10 @@ struct TestContext {
     /// Its Workflow bindings over HTTP (`conformance_workflows`).
     #[serde(default)]
     workflows: HashMap<String, String>,
+    /// The header names of the test's request as the Hono app saw them
+    /// (`requestHeaders`), for a route that keeps the request's headers.
+    #[serde(default)]
+    request_headers: Option<Vec<String>>,
 }
 
 impl TestContext {
@@ -343,6 +347,14 @@ impl Pools {
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
         ));
+        // WeldConnect's runs start on the test's `EXECUTE_WORKFLOW`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestWorkflowRuns(
+            self.workflows.execute_runs(&context.workflows),
+        ));
+        // The headers the test's request carried, as the Hono app saw them.
+        if let Some(names) = &context.request_headers {
+            extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
+        }
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {

@@ -11,20 +11,20 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { WorkflowTemplateItem } from '@weldsuite/app-api-client/schemas/weldconnect-templates';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 let masterDb: MasterDatabase;
 vi.mock('@weldsuite/worker-kit/db', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/worker-kit/db')>('@weldsuite/worker-kit/db');
-  return { ...actual, getMasterDb: () => masterDb };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(masterDb) };
 });
 
 // Imported AFTER the mocks above are registered.
@@ -49,7 +49,7 @@ const ALL = [
 
 function app(granted: string[] = ALL) {
   return createTestApp('/api/workflow-templates', workflowTemplatesRoutes, {
-    context: { permissions: permissions(...granted), tenantDb: db },
+    context: { permissions: permissions(...granted), tenantDb: db, masterDb },
     env: { SCHEDULE_INDEX: undefined } as never,
   }).request;
 }
@@ -173,8 +173,10 @@ describe('POST /api/workflow-templates/:id/use', () => {
     ]);
     expect(steps[0].name).toBe('Om goedkeuring vragen');
     expect(row.triggers).toEqual([expect.objectContaining({ type: 'entity_event', entityType: 'person', eventType: 'created' })]);
+    // The new workflow's id is not asserted: conformance runs the request on
+    // both backends, and the spy sees the TypeScript run's (on a copy).
     expect(publishEntityEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ entityType: 'workflow', action: 'created', entityId: data.id }),
+      expect.objectContaining({ entityType: 'workflow', action: 'created', data: expect.objectContaining({ status: 'draft' }) }),
     );
   });
 

@@ -1,0 +1,2123 @@
+{
+  "actionTypes": [
+    {
+      "category": "communication",
+      "description": "Send an email message",
+      "icon": "mail",
+      "id": "send_email",
+      "name": "Send Email"
+    },
+    {
+      "category": "communication",
+      "description": "Send an SMS message",
+      "icon": "message-square",
+      "id": "send_sms",
+      "name": "Send SMS"
+    },
+    {
+      "category": "communication",
+      "description": "Send a push notification",
+      "icon": "bell",
+      "id": "send_notification",
+      "name": "Send Notification"
+    },
+    {
+      "category": "communication",
+      "description": "Post a message to a WeldChat channel",
+      "icon": "message-circle",
+      "id": "post_chat_message",
+      "name": "Post Chat Message"
+    },
+    {
+      "category": "communication",
+      "description": "Send a message to Slack",
+      "icon": "slack",
+      "id": "slack_message",
+      "name": "Slack Message"
+    },
+    {
+      "category": "data",
+      "description": "Create a new database record",
+      "icon": "plus",
+      "id": "create_record",
+      "name": "Create Record"
+    },
+    {
+      "category": "data",
+      "description": "Update an existing record",
+      "icon": "edit",
+      "id": "update_record",
+      "name": "Update Record"
+    },
+    {
+      "category": "data",
+      "description": "Delete a record",
+      "icon": "trash",
+      "id": "delete_record",
+      "name": "Delete Record"
+    },
+    {
+      "category": "data",
+      "description": "Query and filter data",
+      "icon": "search",
+      "id": "query_data",
+      "name": "Query Data"
+    },
+    {
+      "category": "data",
+      "description": "Create a customer (CRM company)",
+      "icon": "building",
+      "id": "create_customer",
+      "name": "Create Customer"
+    },
+    {
+      "category": "data",
+      "description": "Create a CRM contact (person)",
+      "icon": "user-plus",
+      "id": "create_contact",
+      "name": "Create Contact"
+    },
+    {
+      "category": "data",
+      "description": "Update a CRM contact (person)",
+      "icon": "user-check",
+      "id": "update_contact",
+      "name": "Update Contact"
+    },
+    {
+      "category": "data",
+      "description": "Create a CRM lead",
+      "icon": "user-plus",
+      "id": "create_lead",
+      "name": "Create Lead"
+    },
+    {
+      "category": "data",
+      "description": "Create a CRM opportunity",
+      "icon": "briefcase",
+      "id": "create_deal",
+      "name": "Create Deal"
+    },
+    {
+      "category": "data",
+      "description": "Move a deal to a different pipeline stage",
+      "icon": "move",
+      "id": "move_deal_stage",
+      "name": "Move Deal Stage"
+    },
+    {
+      "category": "data",
+      "description": "Log a CRM activity (call, email, meeting, task, note)",
+      "icon": "activity",
+      "id": "log_activity",
+      "name": "Log Activity"
+    },
+    {
+      "category": "data",
+      "description": "Create a WeldFlow project task",
+      "icon": "clipboard-list",
+      "id": "create_task",
+      "name": "Create Task"
+    },
+    {
+      "category": "logic",
+      "description": "Branch based on conditions",
+      "icon": "git-branch",
+      "id": "condition",
+      "name": "Condition"
+    },
+    {
+      "category": "logic",
+      "description": "Iterate over a list",
+      "icon": "repeat",
+      "id": "loop",
+      "name": "Loop"
+    },
+    {
+      "category": "logic",
+      "description": "Wait for a specified time",
+      "icon": "clock",
+      "id": "delay",
+      "name": "Delay"
+    },
+    {
+      "category": "logic",
+      "description": "Pause until someone approves or rejects",
+      "icon": "user-check",
+      "id": "manual_step",
+      "name": "Approval"
+    },
+    {
+      "category": "logic",
+      "description": "Transform data using expressions",
+      "icon": "shuffle",
+      "id": "transform",
+      "name": "Transform Data"
+    },
+    {
+      "category": "integration",
+      "description": "Make an HTTP request",
+      "icon": "globe",
+      "id": "http_request",
+      "name": "HTTP Request"
+    },
+    {
+      "category": "integration",
+      "description": "Call a webhook URL",
+      "icon": "webhook",
+      "id": "webhook",
+      "name": "Call Webhook"
+    },
+    {
+      "category": "ai",
+      "description": "Generate text with AI",
+      "icon": "sparkles",
+      "id": "ai_generate",
+      "name": "AI Generate"
+    },
+    {
+      "category": "ai",
+      "description": "Classify content with AI",
+      "icon": "tag",
+      "id": "ai_classify",
+      "name": "AI Classify"
+    },
+    {
+      "category": "helpdesk",
+      "description": "Generate and send an AI-powered reply to a conversation",
+      "icon": "bot",
+      "id": "ai_auto_reply",
+      "name": "AI Auto-Reply"
+    },
+    {
+      "category": "helpdesk",
+      "description": "Open a conversation in the WeldDesk inbox, or add to the one with the same external id",
+      "icon": "inbox",
+      "id": "create_conversation",
+      "name": "Open Inbox Conversation"
+    },
+    {
+      "category": "helpdesk",
+      "description": "Send a message to the customer in chat",
+      "icon": "message-square-text",
+      "id": "send_message",
+      "name": "Send Bot Message"
+    },
+    {
+      "category": "helpdesk",
+      "description": "Send multiple choice options to the customer",
+      "icon": "list-checks",
+      "id": "send_choices",
+      "name": "Send Choices"
+    },
+    {
+      "category": "helpdesk",
+      "description": "Ask the customer for information",
+      "icon": "clipboard-list",
+      "id": "collect_input",
+      "name": "Collect Input"
+    },
+    {
+      "category": "integration",
+      "description": "Post a message to a Slack channel.",
+      "icon": "slack",
+      "id": "slack.post_message",
+      "inputs": [
+        {
+          "description": "Which connected Slack workspace to post as, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "channel",
+          "label": "Channel",
+          "placeholder": "#general or C0123ABC",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "text",
+          "label": "Message",
+          "placeholder": "Hello from WeldConnect",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "description": "A previous message's ts to reply in its thread.",
+          "key": "threadTs",
+          "label": "Reply to thread (optional)",
+          "type": "string"
+        }
+      ],
+      "name": "Slack: Post Message",
+      "provider": "slack"
+    },
+    {
+      "category": "integration",
+      "description": "Append a row of values to a sheet.",
+      "icon": "sheet",
+      "id": "google_sheets.append_row",
+      "inputs": [
+        {
+          "description": "Which connected Google account to use, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "spreadsheetId",
+          "label": "Spreadsheet",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "sheetName",
+          "label": "Sheet",
+          "placeholder": "Sheet1",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "JSON object of column letter to value, e.g. {\"A\": \"Jane\", \"B\": \"jane@acme.com\"}. Values support {{variables}}.",
+          "key": "columnMapping",
+          "label": "Column values",
+          "required": true,
+          "type": "json"
+        }
+      ],
+      "name": "Google Sheets: Append Row",
+      "provider": "google_sheets"
+    },
+    {
+      "category": "integration",
+      "description": "Overwrite one row, found by row number or by looking up a column value.",
+      "icon": "sheet",
+      "id": "google_sheets.update_row",
+      "inputs": [
+        {
+          "description": "Which connected Google account to use, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "spreadsheetId",
+          "label": "Spreadsheet",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "sheetName",
+          "label": "Sheet",
+          "placeholder": "Sheet1",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "The exact row to update (including the header row in the count). Leave blank to look up the row by a column value instead.",
+          "key": "rowNumber",
+          "label": "Row number",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "description": "Column letter to search for lookupValue, when rowNumber is blank.",
+          "key": "lookupColumn",
+          "label": "Lookup column",
+          "placeholder": "A",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "The value to find in lookupColumn. The first matching row is updated.",
+          "key": "lookupValue",
+          "label": "Lookup value",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "JSON object of column letter to value, e.g. {\"C\": \"Updated\"}. Values support {{variables}}.",
+          "key": "columnMapping",
+          "label": "Column values",
+          "required": true,
+          "type": "json"
+        }
+      ],
+      "name": "Google Sheets: Update Row",
+      "provider": "google_sheets"
+    },
+    {
+      "category": "integration",
+      "description": "Send an email from the connected Gmail account.",
+      "icon": "mail",
+      "id": "gmail.send_email",
+      "inputs": [
+        {
+          "description": "Which connected Gmail account to send from, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "description": "Comma-separated recipient addresses. Every resolved address is validated before sending.",
+          "key": "to",
+          "label": "To",
+          "placeholder": "jane@acme.com",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "subject",
+          "label": "Subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "label": "Body",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "description": "Off treats the body as plain text (escaped and line-broken into HTML).",
+          "key": "isHtml",
+          "label": "Body is HTML",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "key": "cc",
+          "label": "Cc",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "bcc",
+          "label": "Bcc",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "Gmail: Send Email",
+      "provider": "gmail"
+    },
+    {
+      "category": "integration",
+      "description": "Create an event on a calendar.",
+      "icon": "calendar",
+      "id": "google_calendar.create_event",
+      "inputs": [
+        {
+          "description": "Which connected Google account to use, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "calendarId",
+          "label": "Calendar",
+          "placeholder": "primary",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "summary",
+          "label": "Title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "startDateTime",
+          "label": "Start (ISO 8601)",
+          "placeholder": "2026-07-01T09:00:00",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "endDateTime",
+          "label": "End (ISO 8601)",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "IANA time zone for start/end when they are not UTC (no trailing Z). Defaults to the calendar’s own time zone.",
+          "key": "timeZone",
+          "label": "Time zone",
+          "placeholder": "Europe/Amsterdam",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "description",
+          "label": "Description",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "attendees",
+          "label": "Attendees (comma emails)",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "Google Calendar: Create Event",
+      "provider": "google_calendar"
+    },
+    {
+      "category": "integration",
+      "description": "Post a message card to the configured Teams channel.",
+      "icon": "message-square",
+      "id": "teams.post_message",
+      "inputs": [
+        {
+          "key": "title",
+          "label": "Title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "text",
+          "label": "Message",
+          "required": true,
+          "type": "text"
+        }
+      ],
+      "name": "Microsoft Teams: Post Message",
+      "provider": "teams"
+    },
+    {
+      "category": "integration",
+      "description": "Send an SMS (or WhatsApp) message.",
+      "icon": "message-circle",
+      "id": "twilio.send_sms",
+      "inputs": [
+        {
+          "key": "to",
+          "label": "To",
+          "placeholder": "+15557654321",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "label": "Message",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "from",
+          "label": "From (overrides default)",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "Twilio: Send SMS",
+      "provider": "twilio"
+    },
+    {
+      "category": "integration",
+      "description": "Create a page in a database.",
+      "icon": "file-text",
+      "id": "notion.create_page",
+      "inputs": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "Sets the database's Name/title property.",
+          "key": "title",
+          "label": "Title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "Notion property objects, merged with Title.",
+          "key": "properties",
+          "label": "Extra properties (JSON)",
+          "required": false,
+          "type": "json"
+        }
+      ],
+      "name": "Notion: Create Page",
+      "provider": "notion"
+    },
+    {
+      "category": "integration",
+      "description": "Update properties of an existing page.",
+      "icon": "file-text",
+      "id": "notion.update_page",
+      "inputs": [
+        {
+          "key": "pageId",
+          "label": "Page ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "properties",
+          "label": "Properties (JSON)",
+          "required": true,
+          "type": "json"
+        }
+      ],
+      "name": "Notion: Update Page",
+      "provider": "notion"
+    },
+    {
+      "category": "integration",
+      "description": "Create a record in a table.",
+      "icon": "table",
+      "id": "airtable.create_record",
+      "inputs": [
+        {
+          "key": "baseId",
+          "label": "Base ID",
+          "placeholder": "app...",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID or name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "fields",
+          "label": "Fields (JSON object)",
+          "required": true,
+          "type": "json"
+        }
+      ],
+      "name": "Airtable: Create Record",
+      "provider": "airtable"
+    },
+    {
+      "category": "integration",
+      "description": "Update fields on an existing record.",
+      "icon": "table",
+      "id": "airtable.update_record",
+      "inputs": [
+        {
+          "key": "baseId",
+          "label": "Base ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID or name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "recordId",
+          "label": "Record ID",
+          "placeholder": "rec...",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "fields",
+          "label": "Fields (JSON object)",
+          "required": true,
+          "type": "json"
+        }
+      ],
+      "name": "Airtable: Update Record",
+      "provider": "airtable"
+    },
+    {
+      "category": "integration",
+      "description": "Open a new issue in a repository.",
+      "icon": "github",
+      "id": "github.create_issue",
+      "inputs": [
+        {
+          "description": "Which connected GitHub installation to use, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "repo",
+          "label": "Repository",
+          "placeholder": "owner/repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "body",
+          "label": "Body",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "description": "Comma-separated label names.",
+          "key": "labels",
+          "label": "Labels",
+          "type": "string"
+        },
+        {
+          "description": "Comma-separated GitHub usernames.",
+          "key": "assignees",
+          "label": "Assignees",
+          "type": "string"
+        }
+      ],
+      "name": "GitHub: Create Issue",
+      "provider": "github"
+    },
+    {
+      "category": "integration",
+      "description": "Comment on an issue or pull request.",
+      "icon": "github",
+      "id": "github.create_comment",
+      "inputs": [
+        {
+          "description": "Which connected GitHub installation to use, when more than one is connected.",
+          "key": "integrationId",
+          "label": "Connection",
+          "type": "string"
+        },
+        {
+          "key": "repo",
+          "label": "Repository",
+          "placeholder": "owner/repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "issueNumber",
+          "label": "Issue / PR number",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "key": "body",
+          "label": "Comment",
+          "required": true,
+          "type": "text"
+        }
+      ],
+      "name": "GitHub: Create Comment",
+      "provider": "github"
+    },
+    {
+      "category": "integration",
+      "description": "Create a task in a project or workspace.",
+      "icon": "check-circle",
+      "id": "asana.create_task",
+      "inputs": [
+        {
+          "key": "name",
+          "label": "Task name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "notes",
+          "label": "Notes",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "projectId",
+          "label": "Project ID",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID (if no project)",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "assignee",
+          "label": "Assignee (user gid or email)",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "dueOn",
+          "label": "Due date (YYYY-MM-DD)",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "Asana: Create Task",
+      "provider": "asana"
+    },
+    {
+      "category": "integration",
+      "description": "Update fields on an existing task.",
+      "icon": "check-circle",
+      "id": "asana.update_task",
+      "inputs": [
+        {
+          "key": "taskId",
+          "label": "Task ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "name",
+          "label": "Task name",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "notes",
+          "label": "Notes",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "completed",
+          "label": "Completed",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "key": "dueOn",
+          "label": "Due date (YYYY-MM-DD)",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "Asana: Update Task",
+      "provider": "asana"
+    }
+  ],
+  "entityEvents": [
+    {
+      "category": "CRM",
+      "entityType": "company",
+      "events": [
+        {
+          "description": "When a company is created",
+          "id": "created",
+          "name": "Company Created"
+        },
+        {
+          "description": "When a company is updated",
+          "id": "updated",
+          "name": "Company Updated"
+        },
+        {
+          "description": "When a company is deleted",
+          "id": "deleted",
+          "name": "Company Deleted"
+        },
+        {
+          "description": "When a company is archived",
+          "id": "archived",
+          "name": "Company Archived"
+        }
+      ],
+      "label": "Company"
+    },
+    {
+      "category": "CRM",
+      "entityType": "person",
+      "events": [
+        {
+          "description": "When a person is created",
+          "id": "created",
+          "name": "Person Created"
+        },
+        {
+          "description": "When a person is updated",
+          "id": "updated",
+          "name": "Person Updated"
+        },
+        {
+          "description": "When a person is deleted",
+          "id": "deleted",
+          "name": "Person Deleted"
+        },
+        {
+          "description": "When a person is archived",
+          "id": "archived",
+          "name": "Person Archived"
+        },
+        {
+          "description": "When a person is unarchived",
+          "id": "unarchived",
+          "name": "Person Unarchived"
+        }
+      ],
+      "label": "Person"
+    },
+    {
+      "category": "CRM",
+      "entityType": "opportunity",
+      "events": [
+        {
+          "description": "When a deal is created",
+          "id": "created",
+          "name": "Deal Created"
+        },
+        {
+          "description": "When a deal is updated",
+          "id": "updated",
+          "name": "Deal Updated"
+        },
+        {
+          "description": "When a deal is deleted",
+          "id": "deleted",
+          "name": "Deal Deleted"
+        },
+        {
+          "description": "When a deal is archived",
+          "id": "archived",
+          "name": "Deal Archived"
+        },
+        {
+          "description": "When a deal is won",
+          "id": "won",
+          "name": "Deal Won"
+        },
+        {
+          "description": "When a deal is lost",
+          "id": "lost",
+          "name": "Deal Lost"
+        },
+        {
+          "description": "When a deal stage changes",
+          "id": "stage_changed",
+          "name": "Deal Stage Changed"
+        }
+      ],
+      "label": "Deal"
+    },
+    {
+      "category": "Projects",
+      "entityType": "project",
+      "events": [
+        {
+          "description": "When a project is created",
+          "id": "created",
+          "name": "Project Created"
+        },
+        {
+          "description": "When a project is updated",
+          "id": "updated",
+          "name": "Project Updated"
+        },
+        {
+          "description": "When a project is deleted",
+          "id": "deleted",
+          "name": "Project Deleted"
+        },
+        {
+          "description": "When a project is archived",
+          "id": "archived",
+          "name": "Project Archived"
+        }
+      ],
+      "label": "Project"
+    },
+    {
+      "category": "Projects",
+      "entityType": "project_task",
+      "events": [
+        {
+          "description": "When a task is created",
+          "id": "created",
+          "name": "Task Created"
+        },
+        {
+          "description": "When a task is updated",
+          "id": "updated",
+          "name": "Task Updated"
+        },
+        {
+          "description": "When a task is deleted",
+          "id": "deleted",
+          "name": "Task Deleted"
+        },
+        {
+          "description": "When a task is completed",
+          "id": "completed",
+          "name": "Task Completed"
+        }
+      ],
+      "label": "Task"
+    },
+    {
+      "category": "Helpdesk",
+      "entityType": "ticket",
+      "events": [
+        {
+          "description": "When a ticket is created",
+          "id": "created",
+          "name": "Ticket Created"
+        },
+        {
+          "description": "When a ticket is updated",
+          "id": "updated",
+          "name": "Ticket Updated"
+        },
+        {
+          "description": "When a ticket is deleted",
+          "id": "deleted",
+          "name": "Ticket Deleted"
+        },
+        {
+          "description": "When a ticket is archived",
+          "id": "archived",
+          "name": "Ticket Archived"
+        },
+        {
+          "description": "When a ticket is assigned",
+          "id": "assigned",
+          "name": "Ticket Assigned"
+        },
+        {
+          "description": "When a ticket is escalated",
+          "id": "escalated",
+          "name": "Ticket Escalated"
+        },
+        {
+          "description": "When a ticket is resolved",
+          "id": "resolved",
+          "name": "Ticket Resolved"
+        },
+        {
+          "description": "When a ticket status changes",
+          "id": "status_changed",
+          "name": "Ticket Status Changed"
+        },
+        {
+          "description": "When a ticket is tagged",
+          "id": "tagged",
+          "name": "Ticket Tagged"
+        },
+        {
+          "description": "When a ticket priority changes",
+          "id": "priority_changed",
+          "name": "Ticket Priority Changed"
+        }
+      ],
+      "label": "Ticket"
+    },
+    {
+      "category": "Accounting",
+      "entityType": "invoice",
+      "events": [
+        {
+          "description": "When a invoice is created",
+          "id": "created",
+          "name": "Invoice Created"
+        },
+        {
+          "description": "When a invoice is updated",
+          "id": "updated",
+          "name": "Invoice Updated"
+        },
+        {
+          "description": "When a invoice is deleted",
+          "id": "deleted",
+          "name": "Invoice Deleted"
+        },
+        {
+          "description": "When a invoice is paid",
+          "id": "paid",
+          "name": "Invoice Paid"
+        },
+        {
+          "description": "When a invoice becomes overdue",
+          "id": "overdue",
+          "name": "Invoice Overdue"
+        },
+        {
+          "description": "When a invoice is sent",
+          "id": "sent",
+          "name": "Invoice Sent"
+        }
+      ],
+      "label": "Invoice"
+    }
+  ],
+  "templates": {
+    "en": [
+      {
+        "category": "sales",
+        "description": "When a lead comes in, create a follow-up task for it in a WeldFlow project and send yourself a notification.",
+        "icon": "UserPlus",
+        "id": "builtin_lead_follow_up",
+        "key": "leadFollowUp",
+        "name": "Follow up on new leads",
+        "setup": [
+          {
+            "field": "projectId",
+            "stepId": "step_task"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "description": "New lead from {{trigger.record.companyName}}. Email: {{trigger.record.email}}, phone: {{trigger.record.phone}}.",
+              "dueDate": "tomorrow",
+              "priority": "high",
+              "projectId": "",
+              "title": "Follow up with {{trigger.record.fullName}}"
+            },
+            "id": "step_task",
+            "name": "Create follow-up task",
+            "order": 0,
+            "type": "create_task"
+          },
+          {
+            "config": {
+              "body": "A follow-up task was created: {{steps.step_task.url}}",
+              "title": "New lead: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Notify me",
+            "order": 1,
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "lead",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "sales",
+        "description": "When a deal is won, announce it in a WeldChat channel and log a note on the deal.",
+        "icon": "Trophy",
+        "id": "builtin_deal_won",
+        "key": "dealWonAnnouncement",
+        "name": "Celebrate won deals",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_announce"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Deal won: {{trigger.record.name}} ({{trigger.record.amount}})."
+            },
+            "id": "step_announce",
+            "name": "Announce in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          },
+          {
+            "config": {
+              "description": "Announced in WeldChat by a workflow.",
+              "opportunityId": "{{trigger.record.id}}",
+              "subject": "Deal won: {{trigger.record.name}}",
+              "type": "note"
+            },
+            "id": "step_log",
+            "name": "Log a note",
+            "order": 1,
+            "type": "log_activity"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "opportunity",
+            "eventType": "won",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "productivity",
+        "description": "Every Monday at 08:00, let AI write a short kickoff message for the week and email it to your team.",
+        "icon": "Sparkles",
+        "id": "builtin_weekly_kickoff",
+        "key": "weeklyKickoff",
+        "name": "Weekly AI kickoff email",
+        "setup": [
+          {
+            "field": "to",
+            "stepId": "step_email"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "prompt": "Write a short, friendly kickoff message for the team for the week starting {{trigger.scheduledTimeLocal}}. Give three practical focus tips. Keep it under 150 words and write plain text."
+            },
+            "id": "step_write",
+            "name": "Write the kickoff with AI",
+            "order": 0,
+            "type": "ai_generate"
+          },
+          {
+            "config": {
+              "body": "{{steps.step_write.text}}",
+              "isHtml": false,
+              "subject": "Weekly kickoff",
+              "to": ""
+            },
+            "id": "step_email",
+            "name": "Email the team",
+            "order": 1,
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "cronExpression": "0 8 * * 1",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "scheduleType": "recurring",
+            "timezone": "Europe/Amsterdam",
+            "type": "schedule"
+          }
+        ]
+      },
+      {
+        "category": "data",
+        "description": "Receive form submissions on a webhook URL, add the sender as a contact and post a message to a Slack channel.",
+        "icon": "Webhook",
+        "id": "builtin_webhook_contact",
+        "key": "webhookToContact",
+        "name": "Web form to contact and Slack",
+        "setup": [
+          {
+            "field": "channel",
+            "stepId": "step_slack"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "email": "{{trigger.body.email}}",
+              "firstName": "{{trigger.body.firstName}}",
+              "lastName": "{{trigger.body.lastName}}",
+              "phone": "{{trigger.body.phone}}",
+              "skipIfEmailExists": true
+            },
+            "id": "step_contact",
+            "name": "Create the contact",
+            "order": 0,
+            "type": "create_contact"
+          },
+          {
+            "config": {
+              "channel": "",
+              "text": "New contact from the web form: {{steps.step_contact.name}} ({{steps.step_contact.email}})"
+            },
+            "id": "step_slack",
+            "name": "Post to Slack",
+            "order": 1,
+            "type": "slack.post_message"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "webhook"
+          }
+        ]
+      },
+      {
+        "category": "operations",
+        "description": "Ask for an approval when a contact is added. Approved contacts get the \"verified\" tag, and you are notified about rejected ones.",
+        "icon": "ShieldCheck",
+        "id": "builtin_contact_approval",
+        "key": "contactApproval",
+        "name": "Review new contacts",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "description": "Check {{trigger.record.fullName}} ({{trigger.record.email}}) and approve to mark the contact as verified.",
+              "title": "Review new contact {{trigger.record.fullName}}"
+            },
+            "id": "step_review",
+            "name": "Ask for approval",
+            "order": 0,
+            "type": "manual_step"
+          },
+          {
+            "config": {
+              "field": "{{steps.step_review.approved}}",
+              "operator": "eq",
+              "value": "true"
+            },
+            "id": "step_check",
+            "name": "Approved?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "contactId": "{{trigger.record.id}}",
+              "tags": "verified"
+            },
+            "id": "step_tag",
+            "name": "Tag as verified",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "update_contact"
+          },
+          {
+            "config": {
+              "body": "Comment: {{steps.step_review.comment}}",
+              "title": "Contact not approved: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Notify about the rejection",
+            "order": 3,
+            "parentBranchId": "step_check_if_not",
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "person",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "data",
+        "description": "Append a row to a Google Sheet for every new company added to WeldCRM.",
+        "icon": "Sheet",
+        "id": "builtin_company_sheet",
+        "key": "companyToSheet",
+        "name": "Log new companies in Google Sheets",
+        "setup": [
+          {
+            "field": "spreadsheetId",
+            "stepId": "step_row"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "columnMapping": {
+                "Email": "{{trigger.record.email}}",
+                "Industry": "{{trigger.record.industry}}",
+                "Name": "{{trigger.record.name}}",
+                "Phone": "{{trigger.record.phone}}",
+                "Website": "{{trigger.record.website}}"
+              },
+              "sheetName": "",
+              "spreadsheetId": ""
+            },
+            "id": "step_row",
+            "name": "Append a row",
+            "order": 0,
+            "type": "google_sheets.append_row"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "company",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "operations",
+        "description": "Get a notification as soon as a run of another workflow fails, with a link to that run.",
+        "icon": "AlertTriangle",
+        "id": "builtin_workflow_failed",
+        "key": "workflowFailureAlert",
+        "name": "Alert me when a workflow fails",
+        "setup": [
+          {
+            "field": "sourceWorkflowId",
+            "triggerId": "trigger_main"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "actionUrl": "/weldconnect/executions/{{trigger.sourceExecutionId}}",
+              "body": "A run of {{trigger.sourceWorkflowName}} did not complete. Open it to see what went wrong.",
+              "severity": "error",
+              "title": "Workflow failed: {{trigger.sourceWorkflowName}}"
+            },
+            "id": "step_notify",
+            "name": "Notify me",
+            "order": 0,
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "sourceWorkflowId": "",
+            "triggerOn": "failure",
+            "type": "workflow_complete"
+          }
+        ]
+      },
+      {
+        "category": "sales",
+        "description": "Let AI rate every new lead as hot, warm or cold, and get notified right away about the hot ones.",
+        "icon": "Tags",
+        "id": "builtin_ai_lead_triage",
+        "key": "aiLeadTriage",
+        "name": "Sort new leads with AI",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "categories": [
+                "Hot",
+                "Warm",
+                "Cold"
+              ],
+              "text": "Lead: {{trigger.record.fullName}}, {{trigger.record.title}} at {{trigger.record.companyName}} ({{trigger.record.website}}). Source: {{trigger.record.source}}."
+            },
+            "id": "step_classify",
+            "name": "Rate the lead with AI",
+            "order": 0,
+            "type": "ai_classify"
+          },
+          {
+            "config": {
+              "field": "{{steps.step_classify.category}}",
+              "operator": "eq",
+              "value": "Hot"
+            },
+            "id": "step_check",
+            "name": "Hot lead?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "body": "{{trigger.record.companyName}} looks like a strong fit. Follow up soon.",
+              "title": "Hot lead: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Notify me",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "lead",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "communication",
+        "description": "One day after a contact is added, send them a welcome email from your default WeldMail account.",
+        "icon": "Mail",
+        "id": "builtin_welcome_email",
+        "key": "welcomeEmail",
+        "name": "Welcome email for new contacts",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "days": 1
+            },
+            "id": "step_wait",
+            "name": "Wait one day",
+            "order": 0,
+            "type": "delay"
+          },
+          {
+            "config": {
+              "field": "{{trigger.record.email}}",
+              "operator": "isNotEmpty"
+            },
+            "id": "step_check",
+            "name": "Has an email address?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "body": "<p>Hi {{trigger.record.firstName}},</p><p>Thanks for getting in touch. We are glad to have you with us and will be in touch soon.</p><p>Kind regards</p>",
+              "subject": "Welcome, {{trigger.record.firstName}}",
+              "to": "{{trigger.record.email}}"
+            },
+            "id": "step_email",
+            "name": "Send the welcome email",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "person",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      }
+    ],
+    "nl": [
+      {
+        "category": "sales",
+        "description": "Maak bij elke nieuwe lead een opvolgtaak aan in een WeldFlow-project en stuur jezelf een melding.",
+        "icon": "UserPlus",
+        "id": "builtin_lead_follow_up",
+        "key": "leadFollowUp",
+        "name": "Nieuwe leads opvolgen",
+        "setup": [
+          {
+            "field": "projectId",
+            "stepId": "step_task"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "description": "Nieuwe lead van {{trigger.record.companyName}}. E-mail: {{trigger.record.email}}, telefoon: {{trigger.record.phone}}.",
+              "dueDate": "tomorrow",
+              "priority": "high",
+              "projectId": "",
+              "title": "{{trigger.record.fullName}} opvolgen"
+            },
+            "id": "step_task",
+            "name": "Opvolgtaak aanmaken",
+            "order": 0,
+            "type": "create_task"
+          },
+          {
+            "config": {
+              "body": "Er is een opvolgtaak aangemaakt: {{steps.step_task.url}}",
+              "title": "Nieuwe lead: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Mij een melding sturen",
+            "order": 1,
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "lead",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "sales",
+        "description": "Kondig een gewonnen deal aan in een WeldChat-kanaal en leg een notitie vast bij de deal.",
+        "icon": "Trophy",
+        "id": "builtin_deal_won",
+        "key": "dealWonAnnouncement",
+        "name": "Gewonnen deals vieren",
+        "setup": [
+          {
+            "field": "channelId",
+            "stepId": "step_announce"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "channelId": "",
+              "message": "Deal gewonnen: {{trigger.record.name}} ({{trigger.record.amount}})."
+            },
+            "id": "step_announce",
+            "name": "Aankondigen in WeldChat",
+            "order": 0,
+            "type": "post_chat_message"
+          },
+          {
+            "config": {
+              "description": "Door een workflow aangekondigd in WeldChat.",
+              "opportunityId": "{{trigger.record.id}}",
+              "subject": "Deal gewonnen: {{trigger.record.name}}",
+              "type": "note"
+            },
+            "id": "step_log",
+            "name": "Notitie vastleggen",
+            "order": 1,
+            "type": "log_activity"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "opportunity",
+            "eventType": "won",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "productivity",
+        "description": "Laat elke maandag om 08:00 AI een korte kick-off voor de week schrijven en mail die naar je team.",
+        "icon": "Sparkles",
+        "id": "builtin_weekly_kickoff",
+        "key": "weeklyKickoff",
+        "name": "Wekelijkse kick-offmail met AI",
+        "setup": [
+          {
+            "field": "to",
+            "stepId": "step_email"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "prompt": "Schrijf een korte, vriendelijke kick-off voor het team voor de week die begint op {{trigger.scheduledTimeLocal}}. Geef drie praktische focustips. Houd het onder de 150 woorden en schrijf platte tekst."
+            },
+            "id": "step_write",
+            "name": "Kick-off schrijven met AI",
+            "order": 0,
+            "type": "ai_generate"
+          },
+          {
+            "config": {
+              "body": "{{steps.step_write.text}}",
+              "isHtml": false,
+              "subject": "Kick-off van de week",
+              "to": ""
+            },
+            "id": "step_email",
+            "name": "Het team mailen",
+            "order": 1,
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "cronExpression": "0 8 * * 1",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "scheduleType": "recurring",
+            "timezone": "Europe/Amsterdam",
+            "type": "schedule"
+          }
+        ]
+      },
+      {
+        "category": "data",
+        "description": "Ontvang formulierinzendingen op een webhook-URL, voeg de afzender toe als contact en plaats een bericht in een Slack-kanaal.",
+        "icon": "Webhook",
+        "id": "builtin_webhook_contact",
+        "key": "webhookToContact",
+        "name": "Webformulier naar contact en Slack",
+        "setup": [
+          {
+            "field": "channel",
+            "stepId": "step_slack"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "email": "{{trigger.body.email}}",
+              "firstName": "{{trigger.body.firstName}}",
+              "lastName": "{{trigger.body.lastName}}",
+              "phone": "{{trigger.body.phone}}",
+              "skipIfEmailExists": true
+            },
+            "id": "step_contact",
+            "name": "Contact aanmaken",
+            "order": 0,
+            "type": "create_contact"
+          },
+          {
+            "config": {
+              "channel": "",
+              "text": "Nieuw contact via het webformulier: {{steps.step_contact.name}} ({{steps.step_contact.email}})"
+            },
+            "id": "step_slack",
+            "name": "Plaatsen in Slack",
+            "order": 1,
+            "type": "slack.post_message"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "webhook"
+          }
+        ]
+      },
+      {
+        "category": "operations",
+        "description": "Vraag om goedkeuring wanneer een contact wordt toegevoegd. Goedgekeurde contacten krijgen het label \"geverifieerd\" en over afgewezen contacten krijg je een melding.",
+        "icon": "ShieldCheck",
+        "id": "builtin_contact_approval",
+        "key": "contactApproval",
+        "name": "Nieuwe contacten beoordelen",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "description": "Controleer {{trigger.record.fullName}} ({{trigger.record.email}}) en keur goed om het contact als geverifieerd te markeren.",
+              "title": "Nieuw contact {{trigger.record.fullName}} beoordelen"
+            },
+            "id": "step_review",
+            "name": "Om goedkeuring vragen",
+            "order": 0,
+            "type": "manual_step"
+          },
+          {
+            "config": {
+              "field": "{{steps.step_review.approved}}",
+              "operator": "eq",
+              "value": "true"
+            },
+            "id": "step_check",
+            "name": "Goedgekeurd?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "contactId": "{{trigger.record.id}}",
+              "tags": "geverifieerd"
+            },
+            "id": "step_tag",
+            "name": "Label geverifieerd toevoegen",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "update_contact"
+          },
+          {
+            "config": {
+              "body": "Opmerking: {{steps.step_review.comment}}",
+              "title": "Contact niet goedgekeurd: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Melden dat het is afgewezen",
+            "order": 3,
+            "parentBranchId": "step_check_if_not",
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "person",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "data",
+        "description": "Voeg een rij toe aan een Google Sheet voor elk nieuw bedrijf in WeldCRM.",
+        "icon": "Sheet",
+        "id": "builtin_company_sheet",
+        "key": "companyToSheet",
+        "name": "Nieuwe bedrijven bijhouden in Google Sheets",
+        "setup": [
+          {
+            "field": "spreadsheetId",
+            "stepId": "step_row"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "columnMapping": {
+                "Branche": "{{trigger.record.industry}}",
+                "E-mail": "{{trigger.record.email}}",
+                "Naam": "{{trigger.record.name}}",
+                "Telefoon": "{{trigger.record.phone}}",
+                "Website": "{{trigger.record.website}}"
+              },
+              "sheetName": "",
+              "spreadsheetId": ""
+            },
+            "id": "step_row",
+            "name": "Rij toevoegen",
+            "order": 0,
+            "type": "google_sheets.append_row"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "company",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "operations",
+        "description": "Krijg een melding zodra een run van een andere workflow mislukt, met een link naar die run.",
+        "icon": "AlertTriangle",
+        "id": "builtin_workflow_failed",
+        "key": "workflowFailureAlert",
+        "name": "Melding als een workflow mislukt",
+        "setup": [
+          {
+            "field": "sourceWorkflowId",
+            "triggerId": "trigger_main"
+          }
+        ],
+        "steps": [
+          {
+            "config": {
+              "actionUrl": "/weldconnect/executions/{{trigger.sourceExecutionId}}",
+              "body": "Een run van {{trigger.sourceWorkflowName}} is niet voltooid. Open de run om te zien wat er misging.",
+              "severity": "error",
+              "title": "Workflow mislukt: {{trigger.sourceWorkflowName}}"
+            },
+            "id": "step_notify",
+            "name": "Mij een melding sturen",
+            "order": 0,
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "trigger_main",
+            "isEnabled": true,
+            "sourceWorkflowId": "",
+            "triggerOn": "failure",
+            "type": "workflow_complete"
+          }
+        ]
+      },
+      {
+        "category": "sales",
+        "description": "Laat AI elke nieuwe lead beoordelen als warm, lauw of koud en krijg direct een melding over de warme leads.",
+        "icon": "Tags",
+        "id": "builtin_ai_lead_triage",
+        "key": "aiLeadTriage",
+        "name": "Nieuwe leads sorteren met AI",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "categories": [
+                "Warm",
+                "Lauw",
+                "Koud"
+              ],
+              "text": "Lead: {{trigger.record.fullName}}, {{trigger.record.title}} bij {{trigger.record.companyName}} ({{trigger.record.website}}). Bron: {{trigger.record.source}}."
+            },
+            "id": "step_classify",
+            "name": "Lead beoordelen met AI",
+            "order": 0,
+            "type": "ai_classify"
+          },
+          {
+            "config": {
+              "field": "{{steps.step_classify.category}}",
+              "operator": "eq",
+              "value": "Warm"
+            },
+            "id": "step_check",
+            "name": "Warme lead?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "body": "{{trigger.record.companyName}} lijkt goed te passen. Volg snel op.",
+              "title": "Warme lead: {{trigger.record.fullName}}"
+            },
+            "id": "step_notify",
+            "name": "Mij een melding sturen",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "send_notification"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "lead",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      },
+      {
+        "category": "communication",
+        "description": "Stuur een contact een dag na het toevoegen een welkomstmail vanuit je standaard WeldMail-account.",
+        "icon": "Mail",
+        "id": "builtin_welcome_email",
+        "key": "welcomeEmail",
+        "name": "Welkomstmail voor nieuwe contacten",
+        "setup": [],
+        "steps": [
+          {
+            "config": {
+              "days": 1
+            },
+            "id": "step_wait",
+            "name": "Een dag wachten",
+            "order": 0,
+            "type": "delay"
+          },
+          {
+            "config": {
+              "field": "{{trigger.record.email}}",
+              "operator": "isNotEmpty"
+            },
+            "id": "step_check",
+            "name": "Heeft een e-mailadres?",
+            "order": 1,
+            "type": "condition"
+          },
+          {
+            "config": {
+              "body": "<p>Hoi {{trigger.record.firstName}},</p><p>Bedankt voor je bericht. Fijn dat je er bent, we nemen snel contact met je op.</p><p>Met vriendelijke groet</p>",
+              "subject": "Welkom, {{trigger.record.firstName}}",
+              "to": "{{trigger.record.email}}"
+            },
+            "id": "step_email",
+            "name": "Welkomstmail versturen",
+            "order": 2,
+            "parentBranchId": "step_check_if",
+            "type": "send_email"
+          }
+        ],
+        "triggers": [
+          {
+            "entityType": "person",
+            "eventType": "created",
+            "id": "trigger_main",
+            "isEnabled": true,
+            "type": "entity_event"
+          }
+        ]
+      }
+    ]
+  },
+  "triggerTypes": [
+    {
+      "category": "entity_event",
+      "description": "Trigger when a WeldSuite record changes",
+      "icon": "zap",
+      "id": "entity_event",
+      "name": "Entity Event"
+    },
+    {
+      "category": "integration_event",
+      "description": "Trigger from connected apps (Slack, Google Sheets, …)",
+      "icon": "plug",
+      "id": "integration_event",
+      "name": "Integration Event"
+    },
+    {
+      "category": "workflow_complete",
+      "description": "Trigger when another workflow finishes",
+      "icon": "git-merge",
+      "id": "workflow_complete",
+      "name": "Workflow Complete"
+    },
+    {
+      "category": "schedule",
+      "description": "Run on a schedule",
+      "icon": "calendar",
+      "id": "schedule",
+      "name": "Schedule"
+    },
+    {
+      "category": "webhook",
+      "description": "Trigger via HTTP webhook",
+      "icon": "webhook",
+      "id": "webhook",
+      "name": "Webhook"
+    },
+    {
+      "category": "manual",
+      "description": "Trigger manually",
+      "icon": "hand",
+      "id": "manual",
+      "name": "Manual"
+    },
+    {
+      "category": "api",
+      "description": "Trigger via the WeldConnect API",
+      "icon": "code",
+      "id": "api",
+      "name": "API Call"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when a message is posted in a channel the app belongs to.",
+      "icon": "slack",
+      "id": "slack.message",
+      "kind": "webhook",
+      "name": "Slack: New Message",
+      "outputFields": [
+        "channel",
+        "user",
+        "text",
+        "ts",
+        "team_id"
+      ],
+      "provider": "slack"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when your custom slash command is invoked.",
+      "icon": "slack",
+      "id": "slack.slash_command",
+      "kind": "webhook",
+      "name": "Slack: Slash Command",
+      "outputFields": [
+        "command",
+        "text",
+        "user_id",
+        "channel_id",
+        "team_id"
+      ],
+      "provider": "slack"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when a new row is added to a watched sheet.",
+      "icon": "sheet",
+      "id": "google_sheets.new_row",
+      "kind": "poll",
+      "name": "Google Sheets: New Row",
+      "outputFields": [
+        "rowNumber",
+        "values"
+      ],
+      "provider": "google_sheets"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when a new message arrives in the inbox (optionally matching a Gmail search query).",
+      "icon": "mail",
+      "id": "gmail.new_email",
+      "kind": "poll",
+      "name": "Gmail: New Email",
+      "outputFields": [
+        "id",
+        "threadId",
+        "from",
+        "subject",
+        "snippet"
+      ],
+      "provider": "gmail"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when a new upcoming event is created on the calendar.",
+      "icon": "calendar",
+      "id": "google_calendar.new_event",
+      "kind": "poll",
+      "name": "Google Calendar: New Event",
+      "outputFields": [
+        "id",
+        "summary",
+        "start",
+        "end",
+        "htmlLink"
+      ],
+      "provider": "google_calendar"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when an SMS is received on your Twilio number.",
+      "icon": "message-circle",
+      "id": "twilio.inbound_sms",
+      "kind": "webhook",
+      "name": "Twilio: Inbound SMS",
+      "outputFields": [
+        "from",
+        "to",
+        "body",
+        "messageSid"
+      ],
+      "provider": "twilio"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers when a new record is added to a watched table.",
+      "icon": "table",
+      "id": "airtable.new_record",
+      "kind": "poll",
+      "name": "Airtable: New Record",
+      "outputFields": [
+        "id",
+        "fields",
+        "createdTime"
+      ],
+      "provider": "airtable"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers on issue activity (opened, closed, …).",
+      "icon": "github",
+      "id": "github.issue",
+      "kind": "webhook",
+      "name": "GitHub: Issue Event",
+      "outputFields": [
+        "action",
+        "number",
+        "title",
+        "state",
+        "repository"
+      ],
+      "provider": "github"
+    },
+    {
+      "category": "integration",
+      "description": "Triggers on pull request activity (opened, merged, …).",
+      "icon": "github",
+      "id": "github.pull_request",
+      "kind": "webhook",
+      "name": "GitHub: Pull Request Event",
+      "outputFields": [
+        "action",
+        "number",
+        "title",
+        "state",
+        "repository"
+      ],
+      "provider": "github"
+    }
+  ]
+}

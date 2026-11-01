@@ -31,6 +31,7 @@ weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-commerce = { path = "modules/commerce" }
 weldsuite-commerce-domain = { path = "crates/commerce-domain" }
+weldsuite-connect = { path = "modules/connect" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }

@@ -10,6 +10,9 @@
  *     get        → binding.get(id)                     (the instance is kept)
  *     sendEvent  → (the kept instance).sendEvent(args) (args: { type, payload })
  *     200 { result: null } | 500 { error }   the fake threw
+ *     (a `create` whose instance has an id answers `{ result: { id } }`: a
+ *     run started without one learns the instance's, as `EXECUTE_WORKFLOW`'s
+ *     callers do)
  *
  * Both runs' calls are compared as `workflows` side effects
  * (`{ binding, method, id, args }`). The TypeScript run calls the fake's
@@ -24,7 +27,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow bindings the bridge serves. */
-export const WORKFLOW_BINDINGS = ['EXECUTE_SEQUENCE', 'SEND_SCHEDULED_EMAIL', 'WELDDATA_ENRICH'] as const;
+export const WORKFLOW_BINDINGS = [
+  'EXECUTE_SEQUENCE',
+  'SEND_SCHEDULED_EMAIL',
+  'WELDDATA_ENRICH',
+  'EXECUTE_WORKFLOW',
+] as const;
 
 interface WorkflowLike {
   create(options?: unknown): Promise<unknown>;
@@ -99,7 +107,11 @@ async function handle(
   const key = `${call.binding}:${call.id ?? ''}`;
   try {
     if (call.method === 'create') {
-      await binding.create(call.args);
+      const instance = (await binding.create(call.args)) as { id?: unknown } | undefined;
+      if (typeof instance?.id === 'string') {
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ result: { id: instance.id } }));
+        return;
+      }
     } else if (call.method === 'get') {
       instances.set(key, await binding.get(call.id ?? ''));
     } else if (call.method === 'sendEvent' || call.method === 'terminate') {
