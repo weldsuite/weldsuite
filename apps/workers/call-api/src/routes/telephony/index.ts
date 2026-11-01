@@ -446,6 +446,39 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 // ---------- Sync ----------
 
 /**
+ * The Telnyx account is shared by every workspace: keep only the numbers this
+ * workspace owns, so a sync can't claim another tenant's number or re-point
+ * its inbound routing (TASK-1044).
+ */
+async function ownedProviderNumbers(
+  env: TelnyxEnv,
+  listed: ProviderPhoneNumber[],
+  tenantNumberIds: string[],
+  clerkOrgId: string,
+): Promise<ProviderPhoneNumber[]> {
+  const registry = await getMasterDb(env)
+    .select({
+      phoneNumber: masterSchema.phoneNumberRegistry.phoneNumber,
+      clerkOrgId: masterSchema.phoneNumberRegistry.clerkOrgId,
+    })
+    .from(masterSchema.phoneNumberRegistry)
+    .where(inArray(
+      masterSchema.phoneNumberRegistry.phoneNumber,
+      listed.map((n) => normalizeE164(n.phone_number)),
+    ));
+  const { owned, skipped } = selectOwnedProviderNumbers({
+    providerNumbers: listed,
+    registry,
+    tenantNumberIds,
+    clerkOrgId,
+  });
+  if (skipped > 0) {
+    console.warn(`[Telephony] Sync skipped ${skipped} number(s) not owned by ${clerkOrgId}`);
+  }
+  return owned;
+}
+
+/**
  * POST /telephony/phone-numbers/sync — Sync phone numbers from Telnyx
  */
 app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) => {
@@ -481,28 +514,12 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       .from(voipPhoneNumbers)
       .where(isNull(voipPhoneNumbers.deletedAt));
 
-    // The Telnyx account is shared by every workspace: keep only the numbers
-    // this workspace owns, so a sync can't claim another tenant's number or
-    // re-point its inbound routing (TASK-1044).
-    const registry = await getMasterDb(c.env)
-      .select({
-        phoneNumber: masterSchema.phoneNumberRegistry.phoneNumber,
-        clerkOrgId: masterSchema.phoneNumberRegistry.clerkOrgId,
-      })
-      .from(masterSchema.phoneNumberRegistry)
-      .where(inArray(
-        masterSchema.phoneNumberRegistry.phoneNumber,
-        listed.map((n) => normalizeE164(n.phone_number)),
-      ));
-    const { owned: telnyxNumbers, skipped } = selectOwnedProviderNumbers({
-      providerNumbers: listed,
-      registry,
-      tenantNumberIds: existing.map((p: { id: string }) => p.id),
+    const telnyxNumbers = await ownedProviderNumbers(
+      c.env,
+      listed,
+      existing.map((p: { id: string }) => p.id),
       clerkOrgId,
-    });
-    if (skipped > 0) {
-      console.warn(`[Telephony] Sync skipped ${skipped} number(s) not owned by ${clerkOrgId}`);
-    }
+    );
 
     let synced = 0;
     for (const number of telnyxNumbers) {
