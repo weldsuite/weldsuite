@@ -55,8 +55,14 @@ where
 
 async fn no_store(mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert(http::header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    headers.insert("x-robots-tag", HeaderValue::from_static("noindex, nofollow"));
+    headers.insert(
+        http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    headers.insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
     response
 }
 
@@ -111,7 +117,9 @@ fn echoed_secret(parts: &Parts) -> String {
         .unwrap_or_default();
     let space = weldsuite_books_domain::jurisdictions::is_js_space;
     let rest = match (raw.get(..6), raw.get(6..)) {
-        (Some(prefix), Some(rest)) if prefix.eq_ignore_ascii_case("bearer") && rest.starts_with(space) => {
+        (Some(prefix), Some(rest))
+            if prefix.eq_ignore_ascii_case("bearer") && rest.starts_with(space) =>
+        {
             rest.trim_start_matches(space)
         }
         _ => raw,
@@ -133,15 +141,27 @@ async fn deliver(
     // The body is read either way (up to a bound), so a refused upload isn't
     // cut off mid-send.
     let Ok(bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES * 16).await else {
-        return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
+        return answer(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+            "The payload is too large",
+        );
     };
     #[allow(clippy::cast_precision_loss)]
     if declared > MAX_BODY_BYTES as f64 {
-        return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
+        return answer(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+            "The payload is too large",
+        );
     }
     let text = String::from_utf8_lossy(&bytes).into_owned();
     if text.len() > MAX_BODY_BYTES {
-        return answer(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", "The payload is too large");
+        return answer(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+            "The payload is too large",
+        );
     }
     let shared = Shared {
         tenant: parts.extensions.get::<Tenant>().cloned(),
@@ -210,10 +230,24 @@ async fn deliver(
                 tracing::error!("[books-api/public-fiscal-webhooks] refresh failed: no tenant");
                 return;
             };
-            refresh_from_webhook(&books, &tenant, &keyring, http, &entity_id, environment.as_deref(), &reference, ip.as_deref()).await;
+            refresh_from_webhook(
+                &books,
+                &tenant,
+                &keyring,
+                http,
+                &entity_id,
+                environment.as_deref(),
+                &reference,
+                ip.as_deref(),
+            )
+            .await;
         });
     }
-    (StatusCode::OK, axum::Json(json!({ "data": { "received": true } }))).into_response()
+    (
+        StatusCode::OK,
+        axum::Json(json!({ "data": { "received": true } })),
+    )
+        .into_response()
 }
 
 /// `refreshFromWebhook(...)`: re-read the document behind `ref` and publish
@@ -252,12 +286,9 @@ async fn refresh_from_webhook(
             return;
         }
     };
-    let refreshed = match refresh_document(db, keyring, http, &doc).await {
-        Ok(refreshed) => refreshed,
-        Err(_) => {
-            tracing::error!("[books-api/public-fiscal-webhooks] refresh failed");
-            return;
-        }
+    let Ok(refreshed) = refresh_document(db, keyring, http, &doc).await else {
+        tracing::error!("[books-api/public-fiscal-webhooks] refresh failed");
+        return;
     };
     if !refreshed.changed {
         return;
@@ -287,9 +318,16 @@ async fn refresh_from_webhook(
     } else {
         FISCAL_DOCUMENT_UPDATED
     };
-    let context = EventContext::new(tenant.workspace_id.clone(), "fiscal-webhook", EventSource::Api);
+    let context = EventContext::new(
+        tenant.workspace_id.clone(),
+        "fiscal-webhook",
+        EventSource::Api,
+    );
     books
         .events
-        .publish_and_wait(&context, EntityEvent::new(event, &id, event_data(&document)))
+        .publish_and_wait(
+            &context,
+            EntityEvent::new(event, &id, event_data(&document)),
+        )
         .await;
 }

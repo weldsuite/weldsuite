@@ -124,7 +124,10 @@ impl FiscalError {
 
 /// `requireFiscalEntity(db, entityId)`: a live entity of a jurisdiction
 /// with fiscal documents (Brazil).
-pub(crate) async fn require_fiscal_entity(db: &PgPool, entity_id: &str) -> Result<Value, FiscalError> {
+pub(crate) async fn require_fiscal_entity(
+    db: &PgPool,
+    entity_id: &str,
+) -> Result<Value, FiscalError> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         weldsuite_books_domain::books_row!(entities),

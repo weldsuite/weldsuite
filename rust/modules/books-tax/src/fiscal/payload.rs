@@ -241,7 +241,8 @@ pub(crate) fn split_street(line1: Option<&str>) -> (String, String) {
                     // `[a-z]?` then `\b`: take the letter only when a word boundary follows it.
                     let with_letter = &rest[..digits + letter];
                     let after = rest[digits + letter..].chars().next();
-                    if letter == 1 && after.is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_')) {
+                    if letter == 1 && after.is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'))
+                    {
                         with_letter.to_owned()
                     } else {
                         rest[..digits].to_owned()
@@ -342,7 +343,10 @@ fn line_category(line: &Line) -> Option<&'static str> {
 }
 
 /// `chooseFiscalKind(lines, settings)`.
-pub(crate) fn choose_kind(lines: &[Line], settings: &Map<String, Value>) -> Result<&'static str, PayloadError> {
+pub(crate) fn choose_kind(
+    lines: &[Line],
+    settings: &Map<String, Value>,
+) -> Result<&'static str, PayloadError> {
     let mut categories: Vec<&str> = Vec::new();
     for category in lines.iter().filter_map(line_category) {
         if !categories.contains(&category) {
@@ -400,7 +404,12 @@ fn counterparty_id(counterparty: &Counterparty) -> Option<(&'static str, String)
     .then_some(("cnpj", raw))
 }
 
-fn party_id_fields(out: &mut Map<String, Value>, id: Option<&(&str, String)>, cnpj: &str, cpf: &str) {
+fn party_id_fields(
+    out: &mut Map<String, Value>,
+    id: Option<&(&str, String)>,
+    cnpj: &str,
+    cpf: &str,
+) {
     match id {
         Some(("cnpj", value)) => put(out, cnpj, value.clone()),
         Some((_, value)) => put(out, cpf, value.clone()),
@@ -436,20 +445,26 @@ fn ibs_cbs_fields(out: &mut Map<String, Value>, line: &Line, rows: &[Map<String,
     if cbs.is_none() && ibs.is_none() {
         return;
     }
-    let base = cbs
-        .or(ibs)
-        .map_or(0.0, |r| amount(r, "taxableAmount"));
+    let base = cbs.or(ibs).map_or(0.0, |r| amount(r, "taxableAmount"));
     let cbs_value = cbs.map_or(0.0, |r| amount(r, "taxAmount"));
     let ibs_value = ibs.map_or(0.0, |r| amount(r, "taxAmount"));
     put(
         out,
         "ibs_cbs_situacao_tributaria",
-        line.fiscal.get("ibsCbsCst").cloned().filter(|v| !v.is_null()).unwrap_or_else(|| json!("000")),
+        line.fiscal
+            .get("ibsCbsCst")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .unwrap_or_else(|| json!("000")),
     );
     put(
         out,
         "ibs_cbs_classificacao_tributaria",
-        line.fiscal.get("cClassTrib").cloned().filter(|v| !v.is_null()).unwrap_or_else(|| json!("000001")),
+        line.fiscal
+            .get("cClassTrib")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .unwrap_or_else(|| json!("000001")),
     );
     put(out, "ibs_cbs_base_calculo", n(round2(base)));
     put(out, "ibs_uf_aliquota", ibs.map_or(json!(0), rate_value));
@@ -492,7 +507,11 @@ fn regular_item_taxes(out: &mut Map<String, Value>, line: &Line, rows: &[Map<Str
     if let Some(icms) = row_of(rows, "icms") {
         put(out, "icms_situacao_tributaria", "00");
         put(out, "icms_modalidade_base_calculo", 3);
-        put(out, "icms_base_calculo", n(round2(amount(icms, "taxableAmount"))));
+        put(
+            out,
+            "icms_base_calculo",
+            n(round2(amount(icms, "taxableAmount"))),
+        );
         put(out, "icms_aliquota", rate_value(icms));
         put(out, "icms_valor", n(round2(amount(icms, "taxAmount"))));
     } else {
@@ -508,22 +527,38 @@ fn regular_item_taxes(out: &mut Map<String, Value>, line: &Line, rows: &[Map<Str
     }
     if let Some(fcp) = row_of(rows, "fcp") {
         put(out, "fcp_percentual", rate_value(fcp));
-        put(out, "fcp_base_calculo", n(round2(amount(fcp, "taxableAmount"))));
+        put(
+            out,
+            "fcp_base_calculo",
+            n(round2(amount(fcp, "taxableAmount"))),
+        );
         put(out, "fcp_valor", n(round2(amount(fcp, "taxAmount"))));
     }
     if let Some(ipi) = row_of(rows, "ipi") {
         put(out, "ipi_situacao_tributaria", "50");
         put(out, "ipi_codigo_enquadramento_legal", "999");
-        put(out, "ipi_base_calculo", n(round2(amount(ipi, "taxableAmount"))));
+        put(
+            out,
+            "ipi_base_calculo",
+            n(round2(amount(ipi, "taxableAmount"))),
+        );
         put(out, "ipi_aliquota", rate_value(ipi));
         put(out, "ipi_valor", n(round2(amount(ipi, "taxAmount"))));
     }
     for tax in ["pis", "cofins"] {
         if let Some(row) = row_of(rows, tax) {
             put(out, &format!("{tax}_situacao_tributaria"), "01");
-            put(out, &format!("{tax}_base_calculo"), n(round2(amount(row, "taxableAmount"))));
+            put(
+                out,
+                &format!("{tax}_base_calculo"),
+                n(round2(amount(row, "taxableAmount"))),
+            );
             put(out, &format!("{tax}_aliquota_porcentual"), rate_value(row));
-            put(out, &format!("{tax}_valor"), n(round2(amount(row, "taxAmount"))));
+            put(
+                out,
+                &format!("{tax}_valor"),
+                n(round2(amount(row, "taxAmount"))),
+            );
         } else {
             put(
                 out,
@@ -550,7 +585,14 @@ fn int_or_zero(value: Option<&Value>) -> i64 {
     js::parse_int(&text).unwrap_or(0)
 }
 
-fn nfe_item(index: usize, line: &Line, rows: &[Map<String, Value>], args: &Args, destination: i64, missing: &mut Vec<String>) -> Value {
+fn nfe_item(
+    index: usize,
+    line: &Line,
+    rows: &[Map<String, Value>],
+    args: &Args,
+    destination: i64,
+    missing: &mut Vec<String>,
+) -> Value {
     let simples = is_simples_regime(&args.issuer.regime);
     let number = index + 1;
     let ncm = digits_of(line.ncm.as_deref());
@@ -586,9 +628,17 @@ fn nfe_item(index: usize, line: &Line, rows: &[Map<String, Value>], args: &Args,
             .filter(|c| !c.is_empty())
             .unwrap_or_else(|| number.to_string()),
     );
-    put(&mut item, "descricao", head(js_trim(&line.description), 120));
+    put(
+        &mut item,
+        "descricao",
+        head(js_trim(&line.description), 120),
+    );
     put(&mut item, "codigo_ncm", ncm);
-    put(&mut item, "cest", line.fiscal.get("cest").cloned().unwrap_or(Value::Null));
+    put(
+        &mut item,
+        "cest",
+        line.fiscal.get("cest").cloned().unwrap_or(Value::Null),
+    );
     put(&mut item, "codigo_barras_comercial", "SEM GTIN");
     put(&mut item, "codigo_barras_tributavel", "SEM GTIN");
     put(&mut item, "cfop", cfop);
@@ -603,7 +653,11 @@ fn nfe_item(index: usize, line: &Line, rows: &[Map<String, Value>], args: &Args,
         put(&mut item, "valor_desconto", n(discount));
     }
     put(&mut item, "inclui_no_total", 1);
-    put(&mut item, "icms_origem", int_or_zero(line.fiscal.get("origin")));
+    put(
+        &mut item,
+        "icms_origem",
+        int_or_zero(line.fiscal.get("origin")),
+    );
     let exempt = matches!(line.kind.as_deref(), Some("exempt" | "export_goods"));
     if simples {
         simples_item_taxes(&mut item, line, args, exempt);
@@ -618,7 +672,12 @@ fn invoice_notes(document: &Document) -> Vec<String> {
     if let Some(number) = document.number.as_deref().filter(|n| !n.is_empty()) {
         out.push(format!("Fatura {number}"));
     }
-    if let Some(notes) = document.notes.as_deref().map(js_trim).filter(|n| !n.is_empty()) {
+    if let Some(notes) = document
+        .notes
+        .as_deref()
+        .map(js_trim)
+        .filter(|n| !n.is_empty())
+    {
         out.push(notes.to_owned());
     }
     out
@@ -703,7 +762,10 @@ pub(crate) fn build_nfe(args: &Args) -> Result<Value, PayloadError> {
         })
         .collect();
     if !missing.is_empty() {
-        return Err(PayloadError::new("The NF-e is missing data", unique(missing)));
+        return Err(PayloadError::new(
+            "The NF-e is missing data",
+            unique(missing),
+        ));
     }
 
     let total = round2(args.lines.iter().enumerate().fold(0.0, |sum, (i, line)| {
@@ -753,11 +815,23 @@ pub(crate) fn build_nfe(args: &Args) -> Result<Value, PayloadError> {
     put(&mut out, "natureza_operacao", head(nature, 60));
     put(&mut out, "data_emissao", issue_iso.clone());
     put(&mut out, "data_entrada_saida", issue_iso);
-    put(&mut out, "tipo_documento", i64::from(!document.is_credit_note));
+    put(
+        &mut out,
+        "tipo_documento",
+        i64::from(!document.is_credit_note),
+    );
     put(&mut out, "local_destino", destination);
-    put(&mut out, "finalidade_emissao", if document.is_credit_note { 4 } else { 1 });
+    put(
+        &mut out,
+        "finalidade_emissao",
+        if document.is_credit_note { 4 } else { 1 },
+    );
     put(&mut out, "consumidor_final", i64::from(final_consumer));
-    put(&mut out, "presenca_comprador", if document.online { 2 } else { 9 });
+    put(
+        &mut out,
+        "presenca_comprador",
+        if document.online { 2 } else { 9 },
+    );
     put(&mut out, "cnpj_emitente", issuer.cnpj.clone());
     put(&mut out, "inscricao_estadual_emitente", ie);
     put(
@@ -766,7 +840,11 @@ pub(crate) fn build_nfe(args: &Args) -> Result<Value, PayloadError> {
         js::parse_int(crt_of(&issuer.regime, false)).unwrap_or(0),
     );
     if let Some(series) = present(&issuer.settings, "nfeSeries") {
-        put_opt(&mut out, "serie", js::parse_int(&series).filter(|s| *s != 0));
+        put_opt(
+            &mut out,
+            "serie",
+            js::parse_int(&series).filter(|s| *s != 0),
+        );
     }
     put(
         &mut out,
@@ -777,43 +855,99 @@ pub(crate) fn build_nfe(args: &Args) -> Result<Value, PayloadError> {
             head(&counterparty.name, 60)
         },
     );
-    party_id_fields(&mut out, id.as_ref(), "cnpj_destinatario", "cpf_destinatario");
-    put(&mut out, "indicador_inscricao_estadual_destinatario", ie_indicator);
+    party_id_fields(
+        &mut out,
+        id.as_ref(),
+        "cnpj_destinatario",
+        "cpf_destinatario",
+    );
+    put(
+        &mut out,
+        "indicador_inscricao_estadual_destinatario",
+        ie_indicator,
+    );
     if ie_indicator == 1 {
         put(&mut out, "inscricao_estadual_destinatario", buyer_ie);
     }
     if destination == 3 {
-        put(&mut out, "pais_destinatario", address.get("country").cloned().unwrap_or(Value::Null));
-        put(&mut out, "municipio_destinatario", address.get("city").cloned().unwrap_or(Value::Null));
+        put(
+            &mut out,
+            "pais_destinatario",
+            address.get("country").cloned().unwrap_or(Value::Null),
+        );
+        put(
+            &mut out,
+            "municipio_destinatario",
+            address.get("city").cloned().unwrap_or(Value::Null),
+        );
         put(&mut out, "logradouro_destinatario", street);
         put(&mut out, "numero_destinatario", number);
-        put(&mut out, "bairro_destinatario", address.get("county").cloned().unwrap_or(Value::Null));
+        put(
+            &mut out,
+            "bairro_destinatario",
+            address.get("county").cloned().unwrap_or(Value::Null),
+        );
     } else {
         put(&mut out, "logradouro_destinatario", street);
         put(&mut out, "numero_destinatario", number);
-        put(&mut out, "complemento_destinatario", address.get("line2").cloned().unwrap_or(Value::Null));
-        put(&mut out, "bairro_destinatario", address.get("county").cloned().unwrap_or(Value::Null));
-        put(&mut out, "municipio_destinatario", address.get("city").cloned().unwrap_or(Value::Null));
+        put(
+            &mut out,
+            "complemento_destinatario",
+            address.get("line2").cloned().unwrap_or(Value::Null),
+        );
+        put(
+            &mut out,
+            "bairro_destinatario",
+            address.get("county").cloned().unwrap_or(Value::Null),
+        );
+        put(
+            &mut out,
+            "municipio_destinatario",
+            address.get("city").cloned().unwrap_or(Value::Null),
+        );
         put(
             &mut out,
             "codigo_municipio_destinatario",
-            counterparty.fiscal.get("municipalityCode").cloned().unwrap_or(Value::Null),
+            counterparty
+                .fiscal
+                .get("municipalityCode")
+                .cloned()
+                .unwrap_or(Value::Null),
         );
-        put_opt(&mut out, "uf_destinatario", text(address, "state").map(|s| s.to_uppercase()));
+        put_opt(
+            &mut out,
+            "uf_destinatario",
+            text(address, "state").map(|s| s.to_uppercase()),
+        );
         let cep = digits_of(text(address, "postalCode").as_deref());
         if !cep.is_empty() {
             put(&mut out, "cep_destinatario", cep);
         }
     }
-    put_opt(&mut out, "email_destinatario", counterparty.email.as_deref().map(|e| head(e, 60)));
+    put_opt(
+        &mut out,
+        "email_destinatario",
+        counterparty.email.as_deref().map(|e| head(e, 60)),
+    );
     put(&mut out, "modalidade_frete", 9);
     if document.is_credit_note
-        && let Some(key) = document.referenced_access_key.as_deref().filter(|k| !k.is_empty())
+        && let Some(key) = document
+            .referenced_access_key
+            .as_deref()
+            .filter(|k| !k.is_empty())
     {
-        put(&mut out, "notas_referenciadas", json!([{ "chave_nfe": key }]));
+        put(
+            &mut out,
+            "notas_referenciadas",
+            json!([{ "chave_nfe": key }]),
+        );
     }
     if !extra.is_empty() {
-        put(&mut out, "informacoes_adicionais_contribuinte", head(&extra.join(" | "), 5000));
+        put(
+            &mut out,
+            "informacoes_adicionais_contribuinte",
+            head(&extra.join(" | "), 5000),
+        );
     }
     let payment = if document.is_credit_note {
         json!({ "indicador_pagamento": 0, "forma_pagamento": "90", "valor_pagamento": 0 })
@@ -825,7 +959,11 @@ pub(crate) fn build_nfe(args: &Args) -> Result<Value, PayloadError> {
         let pix = js::truthy(issuer.settings.get("pixKey"));
         let mut payment = Map::new();
         put(&mut payment, "indicador_pagamento", i64::from(on_credit));
-        put(&mut payment, "forma_pagamento", if pix { "17" } else { "99" });
+        put(
+            &mut payment,
+            "forma_pagamento",
+            if pix { "17" } else { "99" },
+        );
         if !pix {
             put(&mut payment, "descricao_pagamento", "Outros");
         }
@@ -921,7 +1059,9 @@ fn summarize_service(args: &Args, missing: &mut Vec<String>) -> Result<Service, 
             .find(|d| !d.is_empty()),
         iss_rate: iss_rows.first().map(|r| rate_value(r)),
         iss_amount: round2(iss_rows.iter().fold(0.0, |s, r| s + amount(r, "taxAmount"))),
-        export_service: lines.iter().all(|l| l.kind.as_deref() == Some("export_service")),
+        export_service: lines
+            .iter()
+            .all(|l| l.kind.as_deref() == Some("export_service")),
         exempt: lines.iter().all(|l| l.kind.as_deref() == Some("exempt")),
     })
 }
@@ -969,14 +1109,30 @@ fn tomador_address(counterparty: &Counterparty) -> Map<String, Value> {
         put(&mut out, "logradouro", street);
         put(&mut out, "numero", number);
     }
-    put(&mut out, "complemento", address.get("line2").cloned().unwrap_or(Value::Null));
-    put(&mut out, "bairro", address.get("county").cloned().unwrap_or(Value::Null));
+    put(
+        &mut out,
+        "complemento",
+        address.get("line2").cloned().unwrap_or(Value::Null),
+    );
+    put(
+        &mut out,
+        "bairro",
+        address.get("county").cloned().unwrap_or(Value::Null),
+    );
     put(
         &mut out,
         "codigo_municipio",
-        counterparty.fiscal.get("municipalityCode").cloned().unwrap_or(Value::Null),
+        counterparty
+            .fiscal
+            .get("municipalityCode")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
-    put_opt(&mut out, "uf", text(address, "state").map(|s| s.to_uppercase()));
+    put_opt(
+        &mut out,
+        "uf",
+        text(address, "state").map(|s| s.to_uppercase()),
+    );
     let cep = digits_of(text(address, "postalCode").as_deref());
     if !cep.is_empty() {
         put(&mut out, "cep", cep);
@@ -1012,7 +1168,10 @@ pub(crate) fn build_nfsen(args: &Args) -> Result<Value, PayloadError> {
         missing.push("the DPS number".into());
     }
     if !missing.is_empty() {
-        return Err(PayloadError::new("The NFS-e is missing data", unique(missing)));
+        return Err(PayloadError::new(
+            "The NFS-e is missing data",
+            unique(missing),
+        ));
     }
     let simples = is_simples_regime(&issuer.regime);
     let withheld = withholding_totals(&args.taxes.withheld);
@@ -1037,18 +1196,35 @@ pub(crate) fn build_nfsen(args: &Args) -> Result<Value, PayloadError> {
     put(
         &mut out,
         "serie_dps",
-        issuer.settings.get("dpsSeries").cloned().filter(|v| !v.is_null()).unwrap_or(json!(1)),
+        issuer
+            .settings
+            .get("dpsSeries")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .unwrap_or(json!(1)),
     );
     put_opt(&mut out, "numero_dps", args.dps_number);
     put(&mut out, "emitente_dps", 1);
-    put(&mut out, "codigo_municipio_emissora", parse_municipality(&municipality));
+    put(
+        &mut out,
+        "codigo_municipio_emissora",
+        parse_municipality(&municipality),
+    );
     put(&mut out, "cnpj_prestador", issuer.cnpj.clone());
     put(
         &mut out,
         "inscricao_municipal_prestador",
-        issuer.settings.get("inscricaoMunicipal").cloned().unwrap_or(Value::Null),
+        issuer
+            .settings
+            .get("inscricaoMunicipal")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
-    put(&mut out, "codigo_municipio_prestador", parse_municipality(&municipality));
+    put(
+        &mut out,
+        "codigo_municipio_prestador",
+        parse_municipality(&municipality),
+    );
     put(
         &mut out,
         "codigo_opcao_simples_nacional",
@@ -1066,18 +1242,33 @@ pub(crate) fn build_nfsen(args: &Args) -> Result<Value, PayloadError> {
     put(&mut out, "regime_especial_tributacao", 0);
     let tomador = tomador_address(counterparty);
     party_id_fields(&mut out, id.as_ref(), "cnpj_tomador", "cpf_tomador");
-    put(&mut out, "razao_social_tomador", head(&counterparty.name, 150));
+    put(
+        &mut out,
+        "razao_social_tomador",
+        head(&counterparty.name, 150),
+    );
     put(
         &mut out,
         "inscricao_municipal_tomador",
-        counterparty.fiscal.get("inscricaoMunicipal").cloned().unwrap_or(Value::Null),
+        counterparty
+            .fiscal
+            .get("inscricaoMunicipal")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
-    if let Some(code) = tomador.get("codigo_municipio").filter(|c| js::truthy(Some(c))) {
+    if let Some(code) = tomador
+        .get("codigo_municipio")
+        .filter(|c| js::truthy(Some(c)))
+    {
         let code = match code {
             Value::String(s) => s.clone(),
             other => other.to_string(),
         };
-        put(&mut out, "codigo_municipio_tomador", parse_municipality(&code));
+        put(
+            &mut out,
+            "codigo_municipio_tomador",
+            parse_municipality(&code),
+        );
     }
     for (key, from) in [
         ("cep_tomador", "cep"),
@@ -1086,19 +1277,43 @@ pub(crate) fn build_nfsen(args: &Args) -> Result<Value, PayloadError> {
         ("complemento_tomador", "complemento"),
         ("bairro_tomador", "bairro"),
     ] {
-        put(&mut out, key, tomador.get(from).cloned().unwrap_or(Value::Null));
+        put(
+            &mut out,
+            key,
+            tomador.get(from).cloned().unwrap_or(Value::Null),
+        );
     }
-    put_opt(&mut out, "email_tomador", counterparty.email.as_deref().map(|e| head(e, 80)));
-    put(&mut out, "codigo_municipio_prestacao", parse_municipality(&municipality));
+    put_opt(
+        &mut out,
+        "email_tomador",
+        counterparty.email.as_deref().map(|e| head(e, 80)),
+    );
+    put(
+        &mut out,
+        "codigo_municipio_prestacao",
+        parse_municipality(&municipality),
+    );
     put_opt(&mut out, "codigo_tributacao_nacional_iss", national);
     put_opt(&mut out, "codigo_nbs", service.nbs.clone());
     put(&mut out, "descricao_servico", service.description.clone());
-    put_opt(&mut out, "informacoes_complementares", service_notes(&args.document));
+    put_opt(
+        &mut out,
+        "informacoes_complementares",
+        service_notes(&args.document),
+    );
     put(&mut out, "valor_servico", n(service.amount));
     put(&mut out, "tributacao_iss", iss_taxation);
-    put(&mut out, "tipo_retencao_iss", if withheld.iss > 0.0 { 2 } else { 1 });
+    put(
+        &mut out,
+        "tipo_retencao_iss",
+        if withheld.iss > 0.0 { 2 } else { 1 },
+    );
     if !simples && iss_taxation == 1 {
-        put_opt(&mut out, "percentual_aliquota_relativa_municipio", service.iss_rate.clone());
+        put_opt(
+            &mut out,
+            "percentual_aliquota_relativa_municipio",
+            service.iss_rate.clone(),
+        );
     }
     if withheld.pis > 0.0 || withheld.cofins > 0.0 || withheld.csll > 0.0 {
         put(&mut out, "situacao_tributaria_pis_cofins", "01");
@@ -1116,11 +1331,10 @@ pub(crate) fn build_nfsen(args: &Args) -> Result<Value, PayloadError> {
     if withheld.inss > 0.0 {
         put(&mut out, "valor_cp", n(withheld.inss));
     }
-    let has_ibs_cbs = args
-        .taxes
-        .lines
-        .iter()
-        .any(|rows| rows.iter().any(|r| matches!(component(r), Some("cbs" | "ibs"))));
+    let has_ibs_cbs = args.taxes.lines.iter().any(|rows| {
+        rows.iter()
+            .any(|r| matches!(component(r), Some("cbs" | "ibs")))
+    });
     if has_ibs_cbs {
         let first = args.lines.first();
         put(&mut out, "finalidade_emissao", 0);
@@ -1170,7 +1384,10 @@ pub(crate) fn build_nfse(args: &Args) -> Result<Value, PayloadError> {
         ));
     }
     if !missing.is_empty() {
-        return Err(PayloadError::new("The NFS-e is missing data", unique(missing)));
+        return Err(PayloadError::new(
+            "The NFS-e is missing data",
+            unique(missing),
+        ));
     }
     let simples = is_simples_regime(&issuer.regime);
     let withheld = withholding_totals(&args.taxes.withheld);
@@ -1186,7 +1403,11 @@ pub(crate) fn build_nfse(args: &Args) -> Result<Value, PayloadError> {
     put(
         &mut prestador,
         "inscricao_municipal",
-        issuer.settings.get("inscricaoMunicipal").cloned().unwrap_or(Value::Null),
+        issuer
+            .settings
+            .get("inscricaoMunicipal")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
     put(&mut prestador, "codigo_municipio", municipality.clone());
 
@@ -1196,10 +1417,22 @@ pub(crate) fn build_nfse(args: &Args) -> Result<Value, PayloadError> {
     put(
         &mut tomador,
         "inscricao_municipal",
-        counterparty.fiscal.get("inscricaoMunicipal").cloned().unwrap_or(Value::Null),
+        counterparty
+            .fiscal
+            .get("inscricaoMunicipal")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
-    put_opt(&mut tomador, "email", counterparty.email.as_deref().map(|e| head(e, 80)));
-    put(&mut tomador, "endereco", Value::Object(compact(tomador_address(counterparty))));
+    put_opt(
+        &mut tomador,
+        "email",
+        counterparty.email.as_deref().map(|e| head(e, 80)),
+    );
+    put(
+        &mut tomador,
+        "endereco",
+        Value::Object(compact(tomador_address(counterparty))),
+    );
 
     let mut servico = Map::new();
     put(&mut servico, "valor_servicos", n(service.amount));
@@ -1230,19 +1463,34 @@ pub(crate) fn build_nfse(args: &Args) -> Result<Value, PayloadError> {
     put(
         &mut servico,
         "codigo_tributario_municipio",
-        issuer.settings.get("codigoTributarioMunicipio").cloned().unwrap_or(Value::Null),
+        issuer
+            .settings
+            .get("codigoTributarioMunicipio")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
-    let discriminacao: Vec<String> = [Some(service.description.clone()), service_notes(&args.document)]
-        .into_iter()
-        .flatten()
-        .filter(|s| !s.is_empty())
-        .collect();
-    put(&mut servico, "discriminacao", head(&discriminacao.join("\n"), 2000));
+    let discriminacao: Vec<String> = [
+        Some(service.description.clone()),
+        service_notes(&args.document),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|s| !s.is_empty())
+    .collect();
+    put(
+        &mut servico,
+        "discriminacao",
+        head(&discriminacao.join("\n"), 2000),
+    );
     put(&mut servico, "codigo_municipio", municipality);
 
     let mut out = Map::new();
     put(&mut out, "data_emissao", brasilia_iso(args.now_ms));
-    put(&mut out, "natureza_operacao", if service.exempt { "3" } else { "1" });
+    put(
+        &mut out,
+        "natureza_operacao",
+        if service.exempt { "3" } else { "1" },
+    );
     put(&mut out, "optante_simples_nacional", simples);
     put(&mut out, "prestador", Value::Object(compact(prestador)));
     put(&mut out, "tomador", Value::Object(compact(tomador)));
@@ -1256,10 +1504,22 @@ mod tests {
 
     #[test]
     fn streets() {
-        assert_eq!(split_street(Some("Rua das Flores, 123")), ("Rua das Flores".into(), "123".into()));
-        assert_eq!(split_street(Some("Rua das Flores 12a")), ("Rua das Flores".into(), "12A".into()));
-        assert_eq!(split_street(Some("Av. Paulista, s/n")), ("Av. Paulista".into(), "S/N".into()));
-        assert_eq!(split_street(Some("Praça da Sé")), ("Praça da Sé".into(), "S/N".into()));
+        assert_eq!(
+            split_street(Some("Rua das Flores, 123")),
+            ("Rua das Flores".into(), "123".into())
+        );
+        assert_eq!(
+            split_street(Some("Rua das Flores 12a")),
+            ("Rua das Flores".into(), "12A".into())
+        );
+        assert_eq!(
+            split_street(Some("Av. Paulista, s/n")),
+            ("Av. Paulista".into(), "S/N".into())
+        );
+        assert_eq!(
+            split_street(Some("Praça da Sé")),
+            ("Praça da Sé".into(), "S/N".into())
+        );
         assert_eq!(return_cfop("5102"), "1202");
         assert_eq!(return_cfop("5405"), "1405");
         assert_eq!(national_service_code("01.07").as_deref(), Some("010701"));

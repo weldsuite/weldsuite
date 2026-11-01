@@ -25,8 +25,10 @@ use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::{profile_of, regime_of};
 use weldsuite_books_domain::jurisdictions::br_tax::is_simples_regime;
 use weldsuite_books_domain::sales_tax::document_tax::{DocumentContext, DocumentKind, IssueDate};
-use weldsuite_books_domain::tables::{BILLS, BILL_ITEMS, RECEIVED_FISCAL_DOCUMENTS};
-use weldsuite_books_domain::tax::{Direction, DocumentTaxItem, TaxArgs, TaxError, calculate_document_tax};
+use weldsuite_books_domain::tables::{BILL_ITEMS, BILLS, RECEIVED_FISCAL_DOCUMENTS};
+use weldsuite_books_domain::tax::{
+    Direction, DocumentTaxItem, TaxArgs, TaxError, calculate_document_tax,
+};
 use weldsuite_catalogs::entity_events::{
     BILL_CREATED, RECEIVED_FISCAL_DOCUMENT_CREATED, RECEIVED_FISCAL_DOCUMENT_UPDATED,
 };
@@ -62,12 +64,18 @@ where
                 .layer(axum::extract::DefaultBodyLimit::max(MAX_XML_BYTES * 2)),
         )
         .route("/{id}", get(detail).route_layer(need("bills:read")))
-        .route("/{id}/manifest", post(manifest).route_layer(need("bills:update")))
+        .route(
+            "/{id}/manifest",
+            post(manifest).route_layer(need("bills:update")),
+        )
         .route(
             "/{id}/create-bill",
             post(create_bill).route_layer(need("bills:create")),
         )
-        .route("/{id}/ignore", post(ignore).route_layer(need("bills:create")))
+        .route(
+            "/{id}/ignore",
+            post(ignore).route_layer(need("bills:create")),
+        )
         .with_state(state)
 }
 
@@ -149,7 +157,11 @@ async fn find(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, FiscalErr
         .ok_or_else(|| FiscalError::status("Received fiscal document not found", 404, None))
 }
 
-async fn find_by_key(db: &PgPool, entity_id: &str, key: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find_by_key(
+    db: &PgPool,
+    entity_id: &str,
+    key: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         weldsuite_books_domain::books_row!(received_fiscal_documents),
@@ -192,8 +204,14 @@ fn parsed_columns(parsed: &Value, xml: &str) -> Map<String, Value> {
     let cut = |v: Option<&str>, n: usize| v.map_or(Value::Null, |v| json!(js::slice_utf16(v, n)));
     let mut out = Map::new();
     out.insert("accessKey".into(), parsed["accessKey"].clone());
-    out.insert("issuerTaxId".into(), cut(parsed["issuer"]["taxId"].as_str(), 14));
-    out.insert("issuerName".into(), cut(parsed["issuer"]["name"].as_str(), 255));
+    out.insert(
+        "issuerTaxId".into(),
+        cut(parsed["issuer"]["taxId"].as_str(), 14),
+    );
+    out.insert(
+        "issuerName".into(),
+        cut(parsed["issuer"]["name"].as_str(), 255),
+    );
     out.insert("number".into(), cut(parsed["number"].as_str(), 20));
     out.insert("series".into(), cut(parsed["series"].as_str(), 5));
     out.insert("issueDate".into(), parsed["issueDate"].clone());
@@ -366,15 +384,28 @@ fn versao_of(item: &Value) -> f64 {
     }
 }
 
-async fn sync_received(caller: &Caller, state: &BooksState, entity_id: &str) -> Result<SyncResult, FiscalError> {
+async fn sync_received(
+    caller: &Caller,
+    state: &BooksState,
+    entity_id: &str,
+) -> Result<SyncResult, FiscalError> {
     let db = &caller.db;
     let entity = require_fiscal_entity(db, entity_id).await?;
     let settings = settings_of(&entity);
     let environment = environment_of(&settings);
-    let client = client_for(&entity, &caller.keyring(state), environment, caller.http(state))?;
+    let client = client_for(
+        &entity,
+        &caller.keyring(state),
+        environment,
+        caller.http(state),
+    )?;
     let cnpj = entity_cnpj(&entity)?;
     let stored_version = settings.get("receivedNfeVersion").and_then(Value::as_f64);
-    let mut version = if settings.get("receivedNfeVersionEnv").and_then(Value::as_str) == Some(environment) {
+    let mut version = if settings
+        .get("receivedNfeVersionEnv")
+        .and_then(Value::as_str)
+        == Some(environment)
+    {
         stored_version.unwrap_or(0.0)
     } else {
         0.0
@@ -408,7 +439,10 @@ async fn sync_received(caller: &Caller, state: &BooksState, entity_id: &str) -> 
     result.version = version;
     #[allow(clippy::float_cmp)]
     let unchanged = version == stored_version.unwrap_or(0.0)
-        && settings.get("receivedNfeVersionEnv").and_then(Value::as_str) == Some(environment);
+        && settings
+            .get("receivedNfeVersionEnv")
+            .and_then(Value::as_str)
+            == Some(environment);
     if !unchanged {
         let mut next = settings.clone();
         next.insert("receivedNfeVersion".into(), js::number_value(version));
@@ -458,16 +492,27 @@ async fn sync_item(
 fn series_and_number(key: &str) -> (String, String) {
     let strip = |v: &str| {
         let s = v.trim_start_matches('0');
-        if s.is_empty() { "0".to_owned() } else { s.to_owned() }
+        if s.is_empty() {
+            "0".to_owned()
+        } else {
+            s.to_owned()
+        }
     };
     (strip(&key[22..25]), strip(&key[25..34]))
 }
 
-async fn upsert_summary(db: &PgPool, entity_id: &str, item: &Value) -> Result<Option<(Value, bool)>, FiscalError> {
+async fn upsert_summary(
+    db: &PgPool,
+    entity_id: &str,
+    item: &Value,
+) -> Result<Option<(Value, bool)>, FiscalError> {
     let Some(chave) = str_of(item.get("chave_nfe")) else {
         return Ok(None);
     };
-    let key = if chave.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("nfe")) {
+    let key = if chave
+        .get(..3)
+        .is_some_and(|p| p.eq_ignore_ascii_case("nfe"))
+    {
         chave[3..].to_owned()
     } else {
         chave
@@ -494,12 +539,17 @@ async fn upsert_summary(db: &PgPool, entity_id: &str, item: &Value) -> Result<Op
         "cancelReason": str_of(item.get("justificativa_cancelamento")),
         "correction": str_of(item.get("carta_correcao")),
     });
-    let cut = |key: &str, n: usize| str_of(item.get(key)).map_or(Value::Null, |v| json!(js::slice_utf16(&v, n)));
+    let cut = |key: &str, n: usize| {
+        str_of(item.get(key)).map_or(Value::Null, |v| json!(js::slice_utf16(&v, n)))
+    };
     let mut columns = Map::new();
     columns.insert("issuerTaxId".into(), cut("documento_emitente", 14));
     columns.insert("issuerName".into(), cut("nome_emitente", 255));
     columns.insert("issueDate".into(), cut("data_emissao", 10));
-    columns.insert("total".into(), str_of(item.get("valor_total")).map_or(Value::Null, |v| json!(v)));
+    columns.insert(
+        "total".into(),
+        str_of(item.get("valor_total")).map_or(Value::Null, |v| json!(v)),
+    );
     columns.insert(
         "manifestation".into(),
         str_of(item.get("manifestacao_destinatario"))
@@ -597,7 +647,12 @@ async fn read_uploaded_xml(headers: &HeaderMap, body: Bytes) -> Result<String, F
     }
 }
 
-async fn upload(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn upload(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     fiscal_reply(
         async {
             let entity = require_entity(&caller).await?;
@@ -640,7 +695,9 @@ async fn import_xml(db: &PgPool, entity_id: &str, xml: &str) -> Result<(Value, b
         }
     };
     let cnpj = entity_cnpj(&entity)?;
-    if let Some(recipient) = parsed["recipient"]["taxId"].as_str().filter(|t| !t.is_empty())
+    if let Some(recipient) = parsed["recipient"]["taxId"]
+        .as_str()
+        .filter(|t| !t.is_empty())
         && normalize_cnpj(recipient) != cnpj
     {
         return Err(FiscalError::bad(format!(
@@ -678,7 +735,12 @@ fn read_manifest(issues: &mut Issues, body: &Map<String, Value>) -> (String, Opt
     let kind = issues
         .choice(body, "type", Presence::Required, &MANIFESTATIONS)
         .into_option();
-    let reason_field = issues.text_with(body, "reason", Presence::Optional, Text::trimmed(Some(15), Some(255)));
+    let reason_field = issues.text_with(
+        body,
+        "reason",
+        Presence::Optional,
+        Text::trimmed(Some(15), Some(255)),
+    );
     let reason_raw = body.get("reason");
     let reason_type_ok = reason_raw.is_none_or(Value::is_string);
     if kind.as_deref() == Some("nao_realizada")
@@ -729,11 +791,11 @@ async fn manifest(
             props.insert("manifestation".into(), json!(kind));
             props.insert("updatedAt".into(), json!(now()));
             let mut saved = patch(db, &id, &props).await?;
-            if kind == "ciencia" && !js::truthy(saved.get("xml")) {
-                match client.received_xml(key).await {
-                    Ok(Some(xml)) => saved = attach_xml(db, &saved, &xml).await?,
-                    Ok(None) | Err(_) => {}
-                }
+            if kind == "ciencia"
+                && !js::truthy(saved.get("xml"))
+                && let Ok(Some(xml)) = client.received_xml(key).await
+            {
+                saved = attach_xml(db, &saved, &xml).await?;
             }
             let mut changes = Map::new();
             changes.insert(
@@ -750,7 +812,11 @@ async fn manifest(
 
 // ── POST /:id/ignore ────────────────────────────────────────────────────────
 
-async fn ignore(caller: Caller, State(state): State<BooksState>, Path(id): Path<String>) -> Response {
+async fn ignore(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     fiscal_reply(
         async {
             let entity = require_entity(&caller).await?;
@@ -767,7 +833,10 @@ async fn ignore(caller: Caller, State(state): State<BooksState>, Path(id): Path<
             props.insert("updatedAt".into(), json!(now()));
             let saved = patch(&caller.db, &id, &props).await?;
             let mut changes = Map::new();
-            changes.insert("status".into(), change(doc["status"].clone(), saved["status"].clone()));
+            changes.insert(
+                "status".into(),
+                change(doc["status"].clone(), saved["status"].clone()),
+            );
             audit_and_publish(&caller, &state, &saved, false, "ignored", Some(changes)).await;
             Ok(ok(summary(&saved)))
         }
@@ -796,9 +865,13 @@ fn read_bill(issues: &mut Issues, body: &Map<String, Value>) -> BillBody {
         |d| {
             let b = d.as_bytes();
             b.len() == 10
-                && b.iter()
-                    .enumerate()
-                    .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+                && b.iter().enumerate().all(|(i, c)| {
+                    if i == 4 || i == 7 {
+                        *c == b'-'
+                    } else {
+                        c.is_ascii_digit()
+                    }
+                })
         },
         "Use a date as YYYY-MM-DD",
     );
@@ -824,7 +897,8 @@ async fn create_bill(
         async {
             let entity = require_entity(&caller).await?;
             let doc = find(&caller.db, entity["id"].as_str().unwrap_or_default(), &id).await?;
-            let (bill, document, warnings) = bill_from_received(&caller, &state, &entity, &doc, &data).await?;
+            let (bill, document, warnings) =
+                bill_from_received(&caller, &state, &entity, &doc, &data).await?;
             let bill_id = bill["id"].as_str().unwrap_or_default().to_owned();
             write_accounting_audit(
                 &caller,
@@ -854,9 +928,14 @@ async fn create_bill(
                 }),
             );
             let mut changes = Map::new();
-            changes.insert("status".into(), change(doc["status"].clone(), document["status"].clone()));
+            changes.insert(
+                "status".into(),
+                change(doc["status"].clone(), document["status"].clone()),
+            );
             audit_and_publish(&caller, &state, &document, false, "imported", Some(changes)).await;
-            Ok(created(json!({ "bill": bill, "document": summary(&document), "warnings": warnings })))
+            Ok(created(
+                json!({ "bill": bill, "document": summary(&document), "warnings": warnings }),
+            ))
         }
         .await,
         "Failed to create the bill",
@@ -929,12 +1008,17 @@ fn bill_lines(parsed: &Value, tax_rate_id: Option<&str>) -> Vec<BillLine> {
                 item: DocumentTaxItem {
                     id: Some(generate_id("bli")),
                     description: Some(description.clone()),
-                    quantity: Some(js::number_text(if quantity == 0.0 || quantity.is_nan() { 1.0 } else { quantity })),
+                    quantity: Some(js::number_text(if quantity == 0.0 || quantity.is_nan() {
+                        1.0
+                    } else {
+                        quantity
+                    })),
                     unit_price: js::number_text(unit_price_of(item)),
                     discount_percent: Some(discount_percent),
                     sort_order: Some(idx as f64),
                     tax_rate_id: tax_rate_id.map(str::to_owned),
-                    ncm: (ncm.len() == 8 && ncm.bytes().all(|b| b.is_ascii_digit())).then(|| ncm.to_owned()),
+                    ncm: (ncm.len() == 8 && ncm.bytes().all(|b| b.is_ascii_digit()))
+                        .then(|| ncm.to_owned()),
                     cfop: entry_cfop(item["cfop"].as_str().unwrap_or_default()),
                     fiscal_data: Some(Value::Object(fiscal)),
                     ..DocumentTaxItem::default()
@@ -995,7 +1079,8 @@ async fn bill_from_received(
         .and_then(|p| p.get("nfe"))
         .filter(|p| p.is_object())
         .cloned();
-    let Some(parsed) = parsed.filter(|p| p["items"].as_array().is_some_and(|i| !i.is_empty())) else {
+    let Some(parsed) = parsed.filter(|p| p["items"].as_array().is_some_and(|i| !i.is_empty()))
+    else {
         return Err(FiscalError::bad(
             "The full XML of this NF-e is not available yet. Send a ciência manifestation (or upload the XML), then try again.",
         ));
@@ -1082,8 +1167,12 @@ async fn bill_from_received(
         .clone()
         .or_else(|| {
             parsed["installments"].as_array().and_then(|list| {
-                list.iter()
-                    .find_map(|i| i["dueDate"].as_str().filter(|d| !d.is_empty()).map(str::to_owned))
+                list.iter().find_map(|i| {
+                    i["dueDate"]
+                        .as_str()
+                        .filter(|d| !d.is_empty())
+                        .map(str::to_owned)
+                })
             })
         })
         .or_else(|| parsed["issueDate"].as_str().map(str::to_owned))
@@ -1092,7 +1181,9 @@ async fn bill_from_received(
     let Some(due_date) = due_date else {
         return Err(Refusal::Internal("Invalid time value".into()).into());
     };
-    let bill_number = next_entity_number(db, &entity_id, SequenceType::Bill).await?.formatted;
+    let bill_number = next_entity_number(db, &entity_id, SequenceType::Bill)
+        .await?
+        .formatted;
     let fiscal_data = json!({ "accessKey": parsed["accessKey"] });
 
     let items: Vec<DocumentTaxItem> = lines.iter().map(|l| l.item.clone()).collect();
@@ -1160,11 +1251,23 @@ async fn bill_from_received(
     set("amountPaid", json!("0"));
     set(
         "externalReference",
-        parsed["number"].as_str().filter(|n| !n.is_empty()).map_or(Value::Null, |number| {
-            json!(format!("{}/{number}", parsed["series"].as_str().unwrap_or("1")))
-        }),
+        parsed["number"]
+            .as_str()
+            .filter(|n| !n.is_empty())
+            .map_or(Value::Null, |number| {
+                json!(format!(
+                    "{}/{number}",
+                    parsed["series"].as_str().unwrap_or("1")
+                ))
+            }),
     );
-    set("reference", json!(format!("NF-e {}", parsed["accessKey"].as_str().unwrap_or_default())));
+    set(
+        "reference",
+        json!(format!(
+            "NF-e {}",
+            parsed["accessKey"].as_str().unwrap_or_default()
+        )),
+    );
     set(
         "internalNotes",
         if mismatch {

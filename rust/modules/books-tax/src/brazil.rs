@@ -3,6 +3,7 @@
 //! (`POST /ecd`) and the federal withholdings a service sale suggests
 //! (`GET /withholdings/suggest`). Brazilian entities only.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use axum::Router;
@@ -15,7 +16,9 @@ use serde_json::{Map, Value, json};
 use weldsuite_books_domain::compliance::get_contact_vat_number;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
-use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, created, ok, reply, validate};
+use weldsuite_books_domain::http::{
+    BooksState, Caller, Refusal, Reply, created, ok, reply, validate,
+};
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::regime_of;
 use weldsuite_books_domain::jurisdictions::br_tax::suggest_withholdings;
@@ -24,7 +27,9 @@ use weldsuite_catalogs::entity_events::TAX_RETURN_CREATED;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::apuracao::{ApuracaoError, book_apuracao, compute_entity_apuracao, month_range, stored_apuracao};
+use crate::apuracao::{
+    ApuracaoError, book_apuracao, compute_entity_apuracao, month_range, stored_apuracao,
+};
 use crate::ecd::{EcdError, Signatory, build_entity_ecd, encode_latin1};
 use crate::vat_returns::{entity_row, has_feature};
 
@@ -36,10 +41,7 @@ where
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
         .route("/apuracao", get(apuracao).route_layer(need("taxes:read")))
-        .route(
-            "/apuracao/book",
-            post(book).route_layer(need("taxes:file")),
-        )
+        .route("/apuracao/book", post(book).route_layer(need("taxes:file")))
         .route("/ecd", post(ecd).route_layer(need("taxes:read")))
         .route(
             "/withholdings/suggest",
@@ -140,7 +142,10 @@ async fn book(
         Ok(period) => period,
         Err(refusal) => return refusal.respond("Failed to book the apuração"),
     };
-    reply(book_month(&caller, &state, &period).await, "Failed to book the apuração")
+    reply(
+        book_month(&caller, &state, &period).await,
+        "Failed to book the apuração",
+    )
 }
 
 async fn book_month(caller: &Caller, state: &BooksState, period: &str) -> Reply {
@@ -187,8 +192,18 @@ fn only(pattern: &str, value: &str) -> bool {
 
 /// `signatorySchema`.
 fn read_signatory(issues: &mut Issues, fields: &Map<String, Value>) -> Signatory {
-    let name = issues.text_with(fields, "name", Presence::Required, Text::trimmed(Some(1), Some(255)));
-    let tax_id = issues.text_with(fields, "taxId", Presence::Required, Text::trimmed(None, None));
+    let name = issues.text_with(
+        fields,
+        "name",
+        Presence::Required,
+        Text::trimmed(Some(1), Some(255)),
+    );
+    let tax_id = issues.text_with(
+        fields,
+        "taxId",
+        Presence::Required,
+        Text::trimmed(None, None),
+    );
     if let Some(tax_id) = tax_id.as_set()
         && !only(r"^[0-9./-]{11,18}$", tax_id)
     {
@@ -212,8 +227,18 @@ fn read_signatory(issues: &mut Issues, fields: &Map<String, Value>) -> Signatory
         Presence::Required,
         Text::trimmed(Some(1), Some(100)),
     );
-    let crc = issues.text_with(fields, "crc", Presence::Optional, Text::trimmed(None, Some(20)));
-    let crc_uf = issues.text_with(fields, "crcUf", Presence::Optional, Text::trimmed(None, None));
+    let crc = issues.text_with(
+        fields,
+        "crc",
+        Presence::Optional,
+        Text::trimmed(None, Some(20)),
+    );
+    let crc_uf = issues.text_with(
+        fields,
+        "crcUf",
+        Presence::Optional,
+        Text::trimmed(None, None),
+    );
     if let Some(uf) = crc_uf.as_set() {
         issues.string_length("crcUf", 2, js::utf16_len(uf));
     }
@@ -227,7 +252,12 @@ fn read_signatory(issues: &mut Issues, fields: &Map<String, Value>) -> Signatory
             ..Text::default()
         },
     );
-    let phone = issues.text_with(fields, "phone", Presence::Optional, Text::trimmed(None, Some(14)));
+    let phone = issues.text_with(
+        fields,
+        "phone",
+        Presence::Optional,
+        Text::trimmed(None, Some(14)),
+    );
     let legal = issues.boolean(fields, "legalRepresentative", Presence::Required);
     Signatory {
         name: name.into_option().unwrap_or_default(),
@@ -325,11 +355,14 @@ fn encode_uri_component(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
         {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
@@ -339,7 +372,10 @@ fn encode_uri_component(text: &str) -> String {
 
 async fn suggest(caller: Caller) -> Response {
     let q = caller.query();
-    let kind = q.get("serviceKind").filter(|k| !k.is_empty()).map(str::to_owned);
+    let kind = q
+        .get("serviceKind")
+        .filter(|k| !k.is_empty())
+        .map(str::to_owned);
     if kind
         .as_deref()
         .is_some_and(|k| !matches!(k, "professional" | "cleaning_security" | "other"))

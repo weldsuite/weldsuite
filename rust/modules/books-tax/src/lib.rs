@@ -8,6 +8,22 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! tax` conformance suite (`rust/conformance/suites.json`).
 
+// The handlers mirror the worker's TypeScript functions one for one (the
+// long ones too), its names (`periodStart` / `periodEnd`, `base` / `bases`)
+// and its JavaScript comparisons (`===` on numbers); the docs name Dutch,
+// Indian and Brazilian tax terms (NF-e, DANFE, XBRL) as words.
+#![allow(
+    clippy::too_many_lines,
+    clippy::similar_names,
+    clippy::doc_markdown,
+    clippy::struct_field_names,
+    clippy::type_complexity,
+    clippy::single_match_else,
+    clippy::items_after_statements,
+    clippy::match_same_arms,
+    clippy::float_cmp
+)]
+
 mod apuracao;
 mod brazil;
 mod ecd;

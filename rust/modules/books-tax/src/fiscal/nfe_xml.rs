@@ -54,7 +54,9 @@ fn decode(text: &str) -> Result<String, XmlError> {
             Some(len) if tail.as_bytes().get(len) == Some(&b';') => {
                 let body = &tail[..len];
                 let replaced = if let Some(hex) = body.strip_prefix("#x") {
-                    Some(code_point(u64::from_str_radix(hex, 16).unwrap_or(u64::MAX))?)
+                    Some(code_point(
+                        u64::from_str_radix(hex, 16).unwrap_or(u64::MAX),
+                    )?)
                 } else if let Some(dec) = body.strip_prefix('#') {
                     Some(code_point(dec.parse::<u64>().unwrap_or(u64::MAX))?)
                 } else {
@@ -269,7 +271,9 @@ pub(crate) fn parse_xml(xml: &str) -> Result<Node, XmlError> {
             }
             Token::Close(name) => {
                 let matches = stack.len() > 1
-                    && stack.last().is_some_and(|top| top.name == local_name(&name));
+                    && stack
+                        .last()
+                        .is_some_and(|top| top.name == local_name(&name));
                 if !matches {
                     return Err(XmlError::Parse(format!("Unexpected closing tag </{name}>")));
                 }
@@ -361,7 +365,11 @@ fn tax_of(group: Option<&Node>, rate_tag: &str, value_tag: &str) -> Value {
 fn strip_zeros(value: Option<String>) -> Option<String> {
     let value = value.filter(|v| !v.is_empty())?;
     let stripped = value.trim_start_matches('0');
-    Some(if stripped.is_empty() { "0".into() } else { stripped.into() })
+    Some(if stripped.is_empty() {
+        "0".into()
+    } else {
+        stripped.into()
+    })
 }
 
 /// `parseNfeXml(xml)`: the note as `ParsedNfe` (JSON, as it is stored).
@@ -469,12 +477,16 @@ mod tests {
 
     #[test]
     fn reads_elements_entities_and_errors() {
-        let root = parse_xml("<?xml version=\"1.0\"?><a x='1'><b>Porca &lt;M8&gt; &#65;</b><c/><![CDATA[x<y]]></a>")
-            .expect("parses");
+        let root = parse_xml(
+            "<?xml version=\"1.0\"?><a x='1'><b>Porca &lt;M8&gt; &#65;</b><c/><![CDATA[x<y]]></a>",
+        )
+        .expect("parses");
         assert_eq!(root.name, "a");
         assert_eq!(root.children[0].text, "Porca <M8> A");
         assert_eq!(root.text, "x<y");
-        assert!(matches!(parse_xml("<a></b>"), Err(XmlError::Parse(m)) if m == "Unexpected closing tag </b>"));
+        assert!(
+            matches!(parse_xml("<a></b>"), Err(XmlError::Parse(m)) if m == "Unexpected closing tag </b>")
+        );
         assert!(matches!(parse_xml("<a>"), Err(XmlError::Parse(m)) if m == "Unclosed tag <a>"));
         assert!(matches!(parse_xml("text"), Err(XmlError::Parse(_))));
         assert!(matches!(parse_nfe("<invoice/>"), Err(XmlError::Parse(m)) if m.contains("infNFe")));

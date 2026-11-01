@@ -23,15 +23,16 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::tables::{ICP_DECLARATIONS, ICP_LINES};
 use weldsuite_books_domain::vies::{NormalizedVat, normalize_vat_number};
-use weldsuite_catalogs::entity_events::{VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED,
+};
 use weldsuite_kit::generate_id;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::filing::{is_unfiled, iso_day, load_period_lines, parse_period, submit_filing};
 use crate::nl::{self, IcpXmlInput, IcpXmlLine};
 use crate::vat_returns::{
-    PeriodBody, btw_number, company_name, entity_row, has_feature, phone, read_period,
-    xml_response,
+    PeriodBody, btw_number, company_name, entity_row, has_feature, phone, read_period, xml_response,
 };
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -397,7 +398,11 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         "skippedContacts": missing,
         "recalculated": recalculated,
     });
-    Ok(if recalculated { ok(body) } else { created(body) })
+    Ok(if recalculated {
+        ok(body)
+    } else {
+        created(body)
+    })
 }
 
 // ── POST /:id/file ──────────────────────────────────────────────────────────

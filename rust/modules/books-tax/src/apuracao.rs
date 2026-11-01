@@ -11,13 +11,13 @@ use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::currency::to_base_currency;
 use weldsuite_books_domain::fx::parse_rate;
+use weldsuite_books_domain::guards::PostingLockKind;
 use weldsuite_books_domain::js::{self, number_value as n, round_money};
 use weldsuite_books_domain::jurisdictions::br::{profile_of, regime_of};
 use weldsuite_books_domain::posting::{
     AlsoWrite, PostError, PostJournalEntryInput, PostingLine, account_for_role,
     load_entity_accounts, post_journal_entry,
 };
-use weldsuite_books_domain::guards::PostingLockKind;
 use weldsuite_kit::generate_id;
 
 /// Why the worksheet can't be made (`BrApuracaoError`): a 400.
@@ -54,48 +54,378 @@ const LIMITS: [f64; 6] = [
 type Faixa = (f64, f64, &'static [(&'static str, f64)]);
 
 const ANEXO_I: [Faixa; 6] = [
-    (4.0, 0.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 12.74), ("pis", 2.76), ("cpp", 41.5), ("icms", 34.0)]),
-    (7.3, 5_940.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 12.74), ("pis", 2.76), ("cpp", 41.5), ("icms", 34.0)]),
-    (9.5, 13_860.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 12.74), ("pis", 2.76), ("cpp", 42.0), ("icms", 33.5)]),
-    (10.7, 22_500.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 12.74), ("pis", 2.76), ("cpp", 42.0), ("icms", 33.5)]),
-    (14.3, 87_300.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 12.74), ("pis", 2.76), ("cpp", 42.0), ("icms", 33.5)]),
-    (19.0, 378_000.0, &[("irpj", 13.5), ("csll", 10.0), ("cofins", 28.27), ("pis", 6.13), ("cpp", 42.1), ("icms", 0.0)]),
+    (
+        4.0,
+        0.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 12.74),
+            ("pis", 2.76),
+            ("cpp", 41.5),
+            ("icms", 34.0),
+        ],
+    ),
+    (
+        7.3,
+        5_940.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 12.74),
+            ("pis", 2.76),
+            ("cpp", 41.5),
+            ("icms", 34.0),
+        ],
+    ),
+    (
+        9.5,
+        13_860.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 12.74),
+            ("pis", 2.76),
+            ("cpp", 42.0),
+            ("icms", 33.5),
+        ],
+    ),
+    (
+        10.7,
+        22_500.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 12.74),
+            ("pis", 2.76),
+            ("cpp", 42.0),
+            ("icms", 33.5),
+        ],
+    ),
+    (
+        14.3,
+        87_300.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 12.74),
+            ("pis", 2.76),
+            ("cpp", 42.0),
+            ("icms", 33.5),
+        ],
+    ),
+    (
+        19.0,
+        378_000.0,
+        &[
+            ("irpj", 13.5),
+            ("csll", 10.0),
+            ("cofins", 28.27),
+            ("pis", 6.13),
+            ("cpp", 42.1),
+            ("icms", 0.0),
+        ],
+    ),
 ];
 
 const ANEXO_II: [Faixa; 6] = [
-    (4.5, 0.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 11.51), ("pis", 2.49), ("cpp", 37.5), ("ipi", 7.5), ("icms", 32.0)]),
-    (7.8, 5_940.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 11.51), ("pis", 2.49), ("cpp", 37.5), ("ipi", 7.5), ("icms", 32.0)]),
-    (10.0, 13_860.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 11.51), ("pis", 2.49), ("cpp", 37.5), ("ipi", 7.5), ("icms", 32.0)]),
-    (11.2, 22_500.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 11.51), ("pis", 2.49), ("cpp", 37.5), ("ipi", 7.5), ("icms", 32.0)]),
-    (14.7, 85_500.0, &[("irpj", 5.5), ("csll", 3.5), ("cofins", 11.51), ("pis", 2.49), ("cpp", 37.5), ("ipi", 7.5), ("icms", 32.0)]),
-    (30.0, 720_000.0, &[("irpj", 8.5), ("csll", 7.5), ("cofins", 20.96), ("pis", 4.54), ("cpp", 23.5), ("ipi", 35.0), ("icms", 0.0)]),
+    (
+        4.5,
+        0.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 11.51),
+            ("pis", 2.49),
+            ("cpp", 37.5),
+            ("ipi", 7.5),
+            ("icms", 32.0),
+        ],
+    ),
+    (
+        7.8,
+        5_940.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 11.51),
+            ("pis", 2.49),
+            ("cpp", 37.5),
+            ("ipi", 7.5),
+            ("icms", 32.0),
+        ],
+    ),
+    (
+        10.0,
+        13_860.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 11.51),
+            ("pis", 2.49),
+            ("cpp", 37.5),
+            ("ipi", 7.5),
+            ("icms", 32.0),
+        ],
+    ),
+    (
+        11.2,
+        22_500.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 11.51),
+            ("pis", 2.49),
+            ("cpp", 37.5),
+            ("ipi", 7.5),
+            ("icms", 32.0),
+        ],
+    ),
+    (
+        14.7,
+        85_500.0,
+        &[
+            ("irpj", 5.5),
+            ("csll", 3.5),
+            ("cofins", 11.51),
+            ("pis", 2.49),
+            ("cpp", 37.5),
+            ("ipi", 7.5),
+            ("icms", 32.0),
+        ],
+    ),
+    (
+        30.0,
+        720_000.0,
+        &[
+            ("irpj", 8.5),
+            ("csll", 7.5),
+            ("cofins", 20.96),
+            ("pis", 4.54),
+            ("cpp", 23.5),
+            ("ipi", 35.0),
+            ("icms", 0.0),
+        ],
+    ),
 ];
 
 const ANEXO_III: [Faixa; 6] = [
-    (6.0, 0.0, &[("irpj", 4.0), ("csll", 3.5), ("cofins", 12.82), ("pis", 2.78), ("cpp", 43.4), ("iss", 33.5)]),
-    (11.2, 9_360.0, &[("irpj", 4.0), ("csll", 3.5), ("cofins", 14.05), ("pis", 3.05), ("cpp", 43.4), ("iss", 32.0)]),
-    (13.5, 17_640.0, &[("irpj", 4.0), ("csll", 3.5), ("cofins", 13.64), ("pis", 2.96), ("cpp", 43.4), ("iss", 32.5)]),
-    (16.0, 35_640.0, &[("irpj", 4.0), ("csll", 3.5), ("cofins", 13.64), ("pis", 2.96), ("cpp", 43.4), ("iss", 32.5)]),
-    (21.0, 125_640.0, &[("irpj", 4.0), ("csll", 3.5), ("cofins", 12.82), ("pis", 2.78), ("cpp", 43.4), ("iss", 33.5)]),
-    (33.0, 648_000.0, &[("irpj", 35.0), ("csll", 15.0), ("cofins", 16.03), ("pis", 3.47), ("cpp", 30.5), ("iss", 0.0)]),
+    (
+        6.0,
+        0.0,
+        &[
+            ("irpj", 4.0),
+            ("csll", 3.5),
+            ("cofins", 12.82),
+            ("pis", 2.78),
+            ("cpp", 43.4),
+            ("iss", 33.5),
+        ],
+    ),
+    (
+        11.2,
+        9_360.0,
+        &[
+            ("irpj", 4.0),
+            ("csll", 3.5),
+            ("cofins", 14.05),
+            ("pis", 3.05),
+            ("cpp", 43.4),
+            ("iss", 32.0),
+        ],
+    ),
+    (
+        13.5,
+        17_640.0,
+        &[
+            ("irpj", 4.0),
+            ("csll", 3.5),
+            ("cofins", 13.64),
+            ("pis", 2.96),
+            ("cpp", 43.4),
+            ("iss", 32.5),
+        ],
+    ),
+    (
+        16.0,
+        35_640.0,
+        &[
+            ("irpj", 4.0),
+            ("csll", 3.5),
+            ("cofins", 13.64),
+            ("pis", 2.96),
+            ("cpp", 43.4),
+            ("iss", 32.5),
+        ],
+    ),
+    (
+        21.0,
+        125_640.0,
+        &[
+            ("irpj", 4.0),
+            ("csll", 3.5),
+            ("cofins", 12.82),
+            ("pis", 2.78),
+            ("cpp", 43.4),
+            ("iss", 33.5),
+        ],
+    ),
+    (
+        33.0,
+        648_000.0,
+        &[
+            ("irpj", 35.0),
+            ("csll", 15.0),
+            ("cofins", 16.03),
+            ("pis", 3.47),
+            ("cpp", 30.5),
+            ("iss", 0.0),
+        ],
+    ),
 ];
 
 const ANEXO_IV: [Faixa; 6] = [
-    (4.5, 0.0, &[("irpj", 18.8), ("csll", 15.2), ("cofins", 17.67), ("pis", 3.83), ("iss", 44.5)]),
-    (9.0, 8_100.0, &[("irpj", 19.8), ("csll", 15.2), ("cofins", 20.55), ("pis", 4.45), ("iss", 40.0)]),
-    (10.2, 12_420.0, &[("irpj", 20.8), ("csll", 15.2), ("cofins", 19.73), ("pis", 4.27), ("iss", 40.0)]),
-    (14.0, 39_780.0, &[("irpj", 17.8), ("csll", 19.2), ("cofins", 18.9), ("pis", 4.1), ("iss", 40.0)]),
-    (22.0, 183_780.0, &[("irpj", 18.8), ("csll", 19.2), ("cofins", 18.08), ("pis", 3.92), ("iss", 40.0)]),
-    (33.0, 828_000.0, &[("irpj", 53.5), ("csll", 21.5), ("cofins", 20.55), ("pis", 4.45), ("iss", 0.0)]),
+    (
+        4.5,
+        0.0,
+        &[
+            ("irpj", 18.8),
+            ("csll", 15.2),
+            ("cofins", 17.67),
+            ("pis", 3.83),
+            ("iss", 44.5),
+        ],
+    ),
+    (
+        9.0,
+        8_100.0,
+        &[
+            ("irpj", 19.8),
+            ("csll", 15.2),
+            ("cofins", 20.55),
+            ("pis", 4.45),
+            ("iss", 40.0),
+        ],
+    ),
+    (
+        10.2,
+        12_420.0,
+        &[
+            ("irpj", 20.8),
+            ("csll", 15.2),
+            ("cofins", 19.73),
+            ("pis", 4.27),
+            ("iss", 40.0),
+        ],
+    ),
+    (
+        14.0,
+        39_780.0,
+        &[
+            ("irpj", 17.8),
+            ("csll", 19.2),
+            ("cofins", 18.9),
+            ("pis", 4.1),
+            ("iss", 40.0),
+        ],
+    ),
+    (
+        22.0,
+        183_780.0,
+        &[
+            ("irpj", 18.8),
+            ("csll", 19.2),
+            ("cofins", 18.08),
+            ("pis", 3.92),
+            ("iss", 40.0),
+        ],
+    ),
+    (
+        33.0,
+        828_000.0,
+        &[
+            ("irpj", 53.5),
+            ("csll", 21.5),
+            ("cofins", 20.55),
+            ("pis", 4.45),
+            ("iss", 0.0),
+        ],
+    ),
 ];
 
 const ANEXO_V: [Faixa; 6] = [
-    (15.5, 0.0, &[("irpj", 25.0), ("csll", 15.0), ("cofins", 14.1), ("pis", 3.05), ("cpp", 28.85), ("iss", 14.0)]),
-    (18.0, 4_500.0, &[("irpj", 23.0), ("csll", 15.0), ("cofins", 14.1), ("pis", 3.05), ("cpp", 27.85), ("iss", 17.0)]),
-    (19.5, 9_900.0, &[("irpj", 24.0), ("csll", 15.0), ("cofins", 14.92), ("pis", 3.23), ("cpp", 23.85), ("iss", 19.0)]),
-    (20.5, 17_100.0, &[("irpj", 21.0), ("csll", 15.0), ("cofins", 15.74), ("pis", 3.41), ("cpp", 23.85), ("iss", 21.0)]),
-    (23.0, 62_100.0, &[("irpj", 23.0), ("csll", 12.5), ("cofins", 14.1), ("pis", 3.05), ("cpp", 23.85), ("iss", 23.5)]),
-    (30.5, 540_000.0, &[("irpj", 35.0), ("csll", 15.5), ("cofins", 16.44), ("pis", 3.56), ("cpp", 29.5), ("iss", 0.0)]),
+    (
+        15.5,
+        0.0,
+        &[
+            ("irpj", 25.0),
+            ("csll", 15.0),
+            ("cofins", 14.1),
+            ("pis", 3.05),
+            ("cpp", 28.85),
+            ("iss", 14.0),
+        ],
+    ),
+    (
+        18.0,
+        4_500.0,
+        &[
+            ("irpj", 23.0),
+            ("csll", 15.0),
+            ("cofins", 14.1),
+            ("pis", 3.05),
+            ("cpp", 27.85),
+            ("iss", 17.0),
+        ],
+    ),
+    (
+        19.5,
+        9_900.0,
+        &[
+            ("irpj", 24.0),
+            ("csll", 15.0),
+            ("cofins", 14.92),
+            ("pis", 3.23),
+            ("cpp", 23.85),
+            ("iss", 19.0),
+        ],
+    ),
+    (
+        20.5,
+        17_100.0,
+        &[
+            ("irpj", 21.0),
+            ("csll", 15.0),
+            ("cofins", 15.74),
+            ("pis", 3.41),
+            ("cpp", 23.85),
+            ("iss", 21.0),
+        ],
+    ),
+    (
+        23.0,
+        62_100.0,
+        &[
+            ("irpj", 23.0),
+            ("csll", 12.5),
+            ("cofins", 14.1),
+            ("pis", 3.05),
+            ("cpp", 23.85),
+            ("iss", 23.5),
+        ],
+    ),
+    (
+        30.5,
+        540_000.0,
+        &[
+            ("irpj", 35.0),
+            ("csll", 15.5),
+            ("cofins", 16.44),
+            ("pis", 3.56),
+            ("cpp", 29.5),
+            ("iss", 0.0),
+        ],
+    ),
 ];
 
 fn anexo_table(anexo: &str) -> &'static [Faixa; 6] {
@@ -142,7 +472,10 @@ fn effective_rate(anexo: &str, rbt12: f64) -> (usize, f64, f64, f64, Vec<(&'stat
             if *tax == "iss" {
                 *value = SIMPLES_ISS_CAP;
             } else {
-                let share = split.iter().find(|(t, _)| t == tax).map_or(0.0, |(_, s)| *s);
+                let share = split
+                    .iter()
+                    .find(|(t, _)| t == tax)
+                    .map_or(0.0, |(_, s)| *s);
                 *value += (excess * share) / other_share;
             }
         }
@@ -344,7 +677,7 @@ struct ApuracaoInput {
     apply_lc224: bool,
 }
 
-fn tax_line(code: &str, debits: f64, credits: f64, offsets: f64, due: Option<String>) -> Value {
+fn tax_line(code: &str, debits: f64, credits: f64, offsets: f64, due: Option<&str>) -> Value {
     json!({
         "code": code,
         "debits": n(debits),
@@ -406,10 +739,7 @@ fn compute_apuracao(input: &ApuracaoInput) -> Map<String, Value> {
     let mut taxes: Vec<Value> = Vec::new();
     let mut payable_sum = 0.0;
     if input.regime == "simples_nacional" {
-        let (slices, rbt12, payroll) = input
-            .simples
-            .clone()
-            .unwrap_or((Vec::new(), 0.0, 0.0));
+        let (slices, rbt12, payroll) = input.simples.clone().unwrap_or((Vec::new(), 0.0, 0.0));
         let mut das = simples_das(rbt12, payroll, &slices);
         simples_total = das["total"].as_f64().unwrap_or(0.0);
         let over_limit = das["overLimit"] == json!(true);
@@ -432,8 +762,16 @@ fn compute_apuracao(input: &ApuracaoInput) -> Map<String, Value> {
             ));
         }
         let inss_part = round2(wage * 0.05);
-        let icms = if input.mei_activity == "services" { 0.0 } else { 1.0 };
-        let iss = if input.mei_activity == "commerce" { 0.0 } else { 5.0 };
+        let icms = if input.mei_activity == "services" {
+            0.0
+        } else {
+            1.0
+        };
+        let iss = if input.mei_activity == "commerce" {
+            0.0
+        } else {
+            5.0
+        };
         mei_amount = round2(inss_part + icms + iss);
         mei = json!({ "amount": n(mei_amount), "inss": n(inss_part), "icms": n(icms), "iss": n(iss), "dueDate": next_month_day(period, 20) });
     } else {
@@ -496,7 +834,7 @@ fn compute_apuracao(input: &ApuracaoInput) -> Map<String, Value> {
         }
         for ((code, debits, credits, offsets), due) in rows.into_iter().zip(dues) {
             payable_sum += round2((debits - credits - offsets).max(0.0));
-            taxes.push(tax_line(&code, debits, credits, offsets, due));
+            taxes.push(tax_line(&code, debits, credits, offsets, due.as_deref()));
         }
     }
 
@@ -596,7 +934,10 @@ fn compute_apuracao(input: &ApuracaoInput) -> Map<String, Value> {
         ),
     );
     out.insert("quarterly".into(), quarterly);
-    out.insert("informational".into(), json!({ "cbs": n(cbs), "ibs": n(ibs) }));
+    out.insert(
+        "informational".into(),
+        json!({ "cbs": n(cbs), "ibs": n(ibs) }),
+    );
     out.insert("total".into(), n(total));
     out.insert("warnings".into(), json!(warnings));
     out
@@ -610,7 +951,10 @@ pub(crate) fn month_range(period: &str) -> Option<(String, String, String, Strin
     let valid = b.len() == 7
         && b[..4].iter().all(u8::is_ascii_digit)
         && b[4] == b'-'
-        && matches!(&period[5..7], "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12");
+        && matches!(
+            &period[5..7],
+            "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+        );
     if !valid {
         return None;
     }
@@ -742,7 +1086,13 @@ async fn revenue_lines(
             .and_then(Value::as_str)
             .map(str::to_owned)
             .or_else(|| default_anexo.clone())
-            .unwrap_or_else(|| if kind == "goods" { "I".into() } else { "III".into() });
+            .unwrap_or_else(|| {
+                if kind == "goods" {
+                    "I".into()
+                } else {
+                    "III".into()
+                }
+            });
         let line_total = js::parse_float(row.5.as_deref().unwrap_or("0"));
         lines.push(RevenueLine {
             amount: sign * to_base(line_total, row.2.as_deref(), row.3.as_deref()),
@@ -759,7 +1109,10 @@ async fn revenue_lines(
                     rows.iter()
                         .filter(|b| b.get("component").and_then(Value::as_str) == Some("iss_ret"))
                         .fold(0.0, |sum, b| {
-                            sum + b.get("taxableAmount").and_then(Value::as_f64).unwrap_or(0.0)
+                            sum + b
+                                .get("taxableAmount")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0)
                         })
                 });
             iss_withheld.push((
@@ -954,7 +1307,12 @@ async fn payroll_12m(db: &PgPool, entity: &Value, from: &str) -> Result<f64, sql
     ]
     .into_iter()
     .flatten()
-    .filter_map(|a| a["id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned))
+    .filter_map(|a| {
+        a["id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+    })
     .collect();
     let from_ledger = account_movement(db, entity_id, &ids, &add_months(from, -12), from).await?;
     if from_ledger > 0.0 {
@@ -1175,9 +1533,7 @@ pub(crate) async fn book_apuracao(
     };
 
     let f = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-    let das = apuracao
-        .get("simples")
-        .map_or(0.0, |s| f(s, "total"))
+    let das = apuracao.get("simples").map_or(0.0, |s| f(s, "total"))
         + apuracao.get("mei").map_or(0.0, |m| f(m, "amount"));
     pair(
         "revenue_deduction_simples",
@@ -1280,8 +1636,10 @@ pub(crate) async fn book_apuracao(
                 if let Value::Object(map) = &mut summary {
                     map.insert("journalEntryId".into(), json!(posted.journal_entry_id));
                 }
-                insert_return(&mut *conn, &id, &entity_id, &start, &end, &total_due, &summary, &now)
-                    .await
+                insert_return(
+                    &mut *conn, &id, &entity_id, &start, &end, &total_due, &summary, &now,
+                )
+                .await
             })
         })
     };
@@ -1373,7 +1731,10 @@ mod tests {
             Some("2026-02-28".to_owned())
         );
         assert!(month_range("2026-13").is_none());
-        assert_eq!(add_months("2026-01-01T00:00:00.000Z", -12), "2025-01-01T00:00:00.000Z");
+        assert_eq!(
+            add_months("2026-01-01T00:00:00.000Z", -12),
+            "2025-01-01T00:00:00.000Z"
+        );
         assert_eq!(lc224_excess(&[1_500_000.0]), 250_000.0);
     }
 }

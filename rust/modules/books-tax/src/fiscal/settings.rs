@@ -4,6 +4,7 @@
 //! (a random token in the URL, indexed in the workspace cache; a random
 //! secret Focus echoes, kept only as its hash).
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -53,7 +54,10 @@ pub(crate) fn credential<'a>(credentials: &'a Credentials, environment: &str) ->
 }
 
 /// `readFiscalCredentials(entity, env)`.
-pub(crate) fn read_credentials(entity: &Value, keyring: &Keyring) -> Result<Credentials, FiscalError> {
+pub(crate) fn read_credentials(
+    entity: &Value,
+    keyring: &Keyring,
+) -> Result<Credentials, FiscalError> {
     let Some(sealed) = entity
         .get("fiscalCredentialsEncrypted")
         .and_then(Value::as_str)
@@ -100,12 +104,14 @@ pub(crate) fn seal_credentials(
         if i > 0 {
             object.push(',');
         }
-        object.push_str(&format!("{}:{}", json!(env), json!(token)));
+        let _ = write!(object, "{}:{}", json!(env), json!(token));
     }
     object.push('}');
-    encrypt_field(&object, keyring)
-        .map(Some)
-        .map_err(|error| FiscalError::Refusal(weldsuite_books_domain::http::Refusal::Internal(format!("{error:?}"))))
+    encrypt_field(&object, keyring).map(Some).map_err(|error| {
+        FiscalError::Refusal(weldsuite_books_domain::http::Refusal::Internal(format!(
+            "{error:?}"
+        )))
+    })
 }
 
 /// `focusClientFor(entity, env, environment)`.
@@ -134,7 +140,10 @@ pub(crate) fn timing_safe_equal_hex(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.bytes().zip(b.bytes()).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |diff, (x, y)| diff | (x ^ y))
+        == 0
 }
 
 /// 32 random bytes, base64url without padding.
@@ -161,7 +170,11 @@ pub(crate) async fn remove_webhooks(
         cache
             .delete_boxed(&hook_key(token_hash))
             .await
-            .map_err(|error| FiscalError::Refusal(weldsuite_books_domain::http::Refusal::Internal(format!("{error:?}"))))?;
+            .map_err(|error| {
+                FiscalError::Refusal(weldsuite_books_domain::http::Refusal::Internal(format!(
+                    "{error:?}"
+                )))
+            })?;
     }
     let Some(client) = client else {
         return Ok(());

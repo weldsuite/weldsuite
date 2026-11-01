@@ -4,6 +4,8 @@
 //! is a [`ProviderError`] carrying Focus' own `codigo` / `mensagem` /
 //! `erros`; a short 429 is waited out once.
 
+use std::fmt::Write as _;
+
 use base64::Engine;
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{HttpRequest, HttpResponse, OutboundHttp, PortError};
@@ -132,7 +134,10 @@ pub(crate) fn map_status(status: Option<&Value>) -> &'static str {
 /// `accessKeyOf(chave)`: the 44 digits of a `NFe…` key.
 pub(crate) fn access_key_of(chave: Option<&Value>) -> Option<String> {
     let chave = chave?.as_str()?;
-    let digits = if chave.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("nfe")) {
+    let digits = if chave
+        .get(..3)
+        .is_some_and(|p| p.eq_ignore_ascii_case("nfe"))
+    {
         &chave[3..]
     } else {
         chave
@@ -144,7 +149,7 @@ pub(crate) fn access_key_of(chave: Option<&Value>) -> Option<String> {
 fn port_message(error: &PortError) -> String {
     match error {
         PortError::Backend(inner) => inner.to_string(),
-        other => other.to_string(),
+        PortError::Json(_) => error.to_string(),
     }
 }
 
@@ -153,11 +158,14 @@ pub(crate) fn encode_component(value: &str) -> String {
     let mut out = String::new();
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
         {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
@@ -333,7 +341,11 @@ impl Focus {
     }
 
     /// `get(kind, ref)`: NF-e with `completa=1`.
-    pub(crate) async fn get(&self, kind: &str, reference: &str) -> Result<FocusResponse, ProviderError> {
+    pub(crate) async fn get(
+        &self,
+        kind: &str,
+        reference: &str,
+    ) -> Result<FocusResponse, ProviderError> {
         let query: Vec<(&str, String)> = if kind == "nfe" {
             vec![("completa", "1".to_owned())]
         } else {
@@ -418,7 +430,9 @@ impl Focus {
         if let Some(versao) = versao.filter(|v| *v != 0.0 && !v.is_nan()) {
             query.push(("versao", weldsuite_books_domain::js::number_text(versao)));
         }
-        let res = self.request("GET", "/v2/nfes_recebidas", &query, None).await?;
+        let res = self
+            .request("GET", "/v2/nfes_recebidas", &query, None)
+            .await?;
         let items = match res.data {
             Value::Array(items) => items,
             _ => Vec::new(),
@@ -436,9 +450,17 @@ impl Focus {
     }
 
     /// `receivedXml(accessKey)`: the XML, `None` on a 404.
-    pub(crate) async fn received_xml(&self, access_key: &str) -> Result<Option<String>, ProviderError> {
+    pub(crate) async fn received_xml(
+        &self,
+        access_key: &str,
+    ) -> Result<Option<String>, ProviderError> {
         let response = self
-            .send("GET", &format!("/v2/nfes_recebidas/{access_key}.xml"), &[], None)
+            .send(
+                "GET",
+                &format!("/v2/nfes_recebidas/{access_key}.xml"),
+                &[],
+                None,
+            )
             .await?;
         if response.status == 404 {
             return Ok(None);
@@ -499,6 +521,9 @@ mod tests {
             }],
         };
         assert!(error.is_rejection());
-        assert_eq!(error.detail(), "Erro (codigo_municipio: Municipio inexistente)");
+        assert_eq!(
+            error.detail(),
+            "Erro (codigo_municipio: Municipio inexistente)"
+        );
     }
 }

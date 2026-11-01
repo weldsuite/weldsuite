@@ -94,13 +94,11 @@ pub fn interstate_icms_rate(origin_uf: &str, destination_uf: &str, origin: Optio
     if origin.is_some_and(|o| IMPORTED_ORIGINS.contains(&o)) {
         return 4.0;
     }
-    let (Some(from), Some(to)) = (br_state(Some(origin_uf)), br_state(Some(destination_uf)))
-    else {
+    let (Some(from), Some(to)) = (br_state(Some(origin_uf)), br_state(Some(destination_uf))) else {
         return 12.0;
     };
     let south_southeast = (from.region == "S" || from.region == "SE") && from.uf != "ES";
-    let lower =
-        to.region == "N" || to.region == "NE" || to.region == "CO" || to.uf == "ES";
+    let lower = to.region == "N" || to.region == "NE" || to.region == "CO" || to.uf == "ES";
     if south_southeast && lower { 7.0 } else { 12.0 }
 }
 
@@ -113,11 +111,9 @@ pub fn icms_rate_for_sale(
     let from = br_state(Some(origin_uf));
     let to = br_state(Some(destination_uf.unwrap_or(origin_uf))).or(from);
     match (from, to) {
-        (Some(from), Some(to)) if from.uf != to.uf => (
-            interstate_icms_rate(from.uf, to.uf, origin),
-            true,
-            0.0,
-        ),
+        (Some(from), Some(to)) if from.uf != to.uf => {
+            (interstate_icms_rate(from.uf, to.uf, origin), true, 0.0)
+        }
         _ => (
             from.map_or(0.0, |f| f.icms_internal),
             false,
@@ -199,7 +195,7 @@ fn finish_pt(digits: &[u8], int_len: usize, negative: bool) -> String {
     let int = String::from_utf8_lossy(int).into_owned();
     let mut grouped = String::new();
     for (i, c) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i) % 3 == 0 {
+        if i > 0 && (int.len() - i).is_multiple_of(3) {
             grouped.push('.');
         }
         grouped.push(c);
@@ -296,6 +292,7 @@ fn tax_of(row: &Map<String, Value>) -> f64 {
     row.get("taxAmount").and_then(Value::as_f64).unwrap_or(0.0)
 }
 
+#[allow(clippy::struct_excessive_bools)] // the engine's state, as TypeScript keeps it
 struct State {
     regime: String,
     year: i64,
@@ -325,6 +322,7 @@ fn kind_of(profile: &Value) -> &str {
     profile["kind"].as_str().unwrap_or_default()
 }
 
+#[allow(clippy::too_many_lines)] // the taxes of a sale line, as the TypeScript function
 fn sales_line(line: &HookLine, profile: &Value, s: &mut State) -> Vec<Map<String, Value>> {
     let kind = kind_of(profile);
     if matches!(kind, "exempt" | "export_goods" | "export_service")
@@ -609,6 +607,7 @@ fn purchase_line(line: &HookLine, profile: &Value, s: &mut State) -> Vec<Map<Str
 }
 
 /// The withholdings of a document's service lines (`withholdingRows`).
+#[allow(clippy::too_many_lines)] // one block per withholding, as TypeScript
 fn withholding_rows(
     service_base: f64,
     config: &Value,
@@ -633,10 +632,7 @@ fn withholding_rows(
     } else {
         counterparty_simples
     };
-    let withheld = |name: &'static str,
-                    component: &'static str,
-                    rate: f64,
-                    role: &'static str| {
+    let withheld = |name: &'static str, component: &'static str, rate: f64, role: &'static str| {
         row(&RowArgs {
             line: &doc,
             name,
@@ -756,6 +752,11 @@ fn counterparty_is_foreign(country: Option<&str>) -> bool {
 }
 
 /// `computeBrDocumentTaxes(lines, ctx)`: the document tax hook of Brazil.
+///
+/// # Errors
+///
+/// None today; the hook's signature lets an engine refuse a document.
+#[allow(clippy::too_many_lines)] // the engine's entry, as the TypeScript function
 pub fn compute_document_taxes(
     lines: &[HookLine],
     ctx: &HookContext,
@@ -896,6 +897,7 @@ mod tests {
     use super::*;
     use crate::tax::Counterparty;
 
+    #[allow(clippy::needless_pass_by_value)]
     fn line(profile: Value, total: f64, fiscal: Option<Value>) -> HookLine {
         HookLine {
             line_total: total,

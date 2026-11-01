@@ -39,9 +39,13 @@ pub(crate) async fn worksheet(caller: Caller) -> Response {
     let is_day = |value: &str| {
         let b = value.as_bytes();
         b.len() == 10
-            && b.iter()
-                .enumerate()
-                .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+            && b.iter().enumerate().all(|(i, c)| {
+                if i == 4 || i == 7 {
+                    *c == b'-'
+                } else {
+                    c.is_ascii_digit()
+                }
+            })
             && js::js_date_millis(value).is_some()
     };
     if !is_day(&start) || !is_day(&end) {
@@ -257,8 +261,12 @@ async fn load_input(
             .await?;
             rows.into_iter()
                 .filter_map(|(id, vat)| {
-                    vat.filter(|v| !v.is_empty())
-                        .map(|v| (id, weldsuite_books_domain::jurisdictions::js_trim(&v).to_owned()))
+                    vat.filter(|v| !v.is_empty()).map(|v| {
+                        (
+                            id,
+                            weldsuite_books_domain::jurisdictions::js_trim(&v).to_owned(),
+                        )
+                    })
                 })
                 .collect()
         };
@@ -599,20 +607,14 @@ fn str_of(value: &Value, key: &str) -> String {
         .to_owned()
 }
 
-
 /// `computeGstWorksheet(input)`.
 #[allow(clippy::too_many_lines)] // the worksheet in one pass, as in TypeScript
 fn compute(input: &Input) -> Value {
     let state = input.entity_state_code.as_deref();
-    let docs: HashMap<&str, &Document> = input
-        .documents
-        .iter()
-        .map(|d| (d.id.as_str(), d))
-        .collect();
+    let docs: HashMap<&str, &Document> =
+        input.documents.iter().map(|d| (d.id.as_str(), d)).collect();
     let is_inter = |pos: Option<&str>| {
-        pos.is_some_and(|p| !p.is_empty())
-            && state.is_some_and(|s| !s.is_empty())
-            && pos != state
+        pos.is_some_and(|p| !p.is_empty()) && state.is_some_and(|s| !s.is_empty()) && pos != state
     };
 
     // The pass over the ledger.
@@ -680,19 +682,22 @@ fn compute(input: &Input) -> Value {
             0.0
         };
         let key = format!("{source}|{}|{}", kind.as_str(), js::number_text(slab));
-        let at = sales.iter().position(|(k, _)| *k == key).unwrap_or_else(|| {
-            sales.push((
-                key,
-                DocAgg {
-                    doc: docs.get(source).copied(),
-                    kind,
-                    slab_rate: slab,
-                    taxable: 0.0,
-                    heads: Heads::default(),
-                },
-            ));
-            sales.len() - 1
-        });
+        let at = sales
+            .iter()
+            .position(|(k, _)| *k == key)
+            .unwrap_or_else(|| {
+                sales.push((
+                    key,
+                    DocAgg {
+                        doc: docs.get(source).copied(),
+                        kind,
+                        slab_rate: slab,
+                        taxable: 0.0,
+                        heads: Heads::default(),
+                    },
+                ));
+                sales.len() - 1
+            });
         let agg = &mut sales[at].1;
         agg.taxable = round2(agg.taxable + taxable);
         agg.heads = agg.heads.add(heads);
@@ -775,18 +780,21 @@ fn compute(input: &Input) -> Value {
             Kind::Taxable => {
                 if registered {
                     let gstin = doc.gstin.clone().unwrap_or_default();
-                    let at = b2b.iter().position(|p| p.gstin == gstin).unwrap_or_else(|| {
-                        b2b.push(Party {
-                            gstin: gstin.clone(),
-                            name: doc.counterparty_name.clone(),
-                            lines: Vec::new(),
-                            taxable: 0.0,
-                            igst: 0.0,
-                            cgst: 0.0,
-                            sgst: 0.0,
+                    let at = b2b
+                        .iter()
+                        .position(|p| p.gstin == gstin)
+                        .unwrap_or_else(|| {
+                            b2b.push(Party {
+                                gstin: gstin.clone(),
+                                name: doc.counterparty_name.clone(),
+                                lines: Vec::new(),
+                                taxable: 0.0,
+                                igst: 0.0,
+                                cgst: 0.0,
+                                sgst: 0.0,
+                            });
+                            b2b.len() - 1
                         });
-                        b2b.len() - 1
-                    });
                     let party = &mut b2b[at];
                     let line = rate_line(agg);
                     party.taxable = round2(party.taxable + agg.taxable);
@@ -960,8 +968,11 @@ fn compute(input: &Input) -> Value {
         locale_compare(a.unwrap_or_default(), b.unwrap_or_default())
     };
     b2c_small.sort_by(|a, b| {
-        pos_order(a.place_of_supply.as_deref(), b.place_of_supply.as_deref())
-            .then_with(|| a.slab_rate.partial_cmp(&b.slab_rate).unwrap_or(std::cmp::Ordering::Equal))
+        pos_order(a.place_of_supply.as_deref(), b.place_of_supply.as_deref()).then_with(|| {
+            a.slab_rate
+                .partial_cmp(&b.slab_rate)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
     let b2c_small: Vec<Value> = b2c_small
         .into_iter()
@@ -995,8 +1006,11 @@ fn compute(input: &Input) -> Value {
     let mut credit_notes: Vec<Value> = credit_notes.into_iter().map(Value::Object).collect();
     credit_notes.sort_by(by_date);
     hsn.sort_by(|a, b| {
-        pos_order(a.hsn_sac.as_deref(), b.hsn_sac.as_deref())
-            .then_with(|| a.slab_rate.partial_cmp(&b.slab_rate).unwrap_or(std::cmp::Ordering::Equal))
+        pos_order(a.hsn_sac.as_deref(), b.hsn_sac.as_deref()).then_with(|| {
+            a.slab_rate
+                .partial_cmp(&b.slab_rate)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
     let hsn: Vec<Value> = hsn
         .into_iter()

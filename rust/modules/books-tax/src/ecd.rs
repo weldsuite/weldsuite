@@ -171,19 +171,20 @@ struct Node {
 /// `buildChart(accounts)`: the chart with synthetic parents.
 fn build_chart(accounts: &[Account]) -> Vec<Node> {
     let mut nodes: Vec<Node> = Vec::new();
-    let add_synthetic = |nodes: &mut Vec<Node>, code: String, level: i64, parent: Option<String>| {
-        if nodes.iter().any(|n| n.code == code) {
-            return;
-        }
-        nodes.push(Node {
-            name: synthetic_name(&code),
-            nature: nature_code(None, &code),
-            code,
-            level,
-            parent,
-            synthetic: true,
-        });
-    };
+    let add_synthetic =
+        |nodes: &mut Vec<Node>, code: String, level: i64, parent: Option<String>| {
+            if nodes.iter().any(|n| n.code == code) {
+                return;
+            }
+            nodes.push(Node {
+                name: synthetic_name(&code),
+                nature: nature_code(None, &code),
+                code,
+                level,
+                parent,
+                synthetic: true,
+            });
+        };
     for account in accounts {
         let parts: Vec<&str> = account.code.split('.').collect();
         let parent = if parts.len() > 1 {
@@ -246,7 +247,7 @@ fn months_of(start: &str, end: &str) -> Vec<(String, String)> {
     let (sy, sm) = parse(start);
     let (ey, em) = parse(end);
     let mut months = Vec::new();
-    for index in (sy * 12 + sm - 1)..=(ey * 12 + em - 1) {
+    for index in (sy * 12 + sm - 1)..(ey * 12 + em) {
         let (y, m) = (index.div_euclid(12), index.rem_euclid(12) + 1);
         let first = format!("{y}-{m:02}-01");
         let next = js::days_from_civil(y + m / 12, m % 12 + 1, 1);
@@ -325,7 +326,9 @@ fn build_ecd(input: Input) -> Ecd {
         })
         .filter(|e| !e.lines.is_empty())
         .collect();
-    entries.sort_by(|a, b| locale_compare(&a.date, &b.date).then_with(|| locale_compare(&a.id, &b.id)));
+    entries.sort_by(|a, b| {
+        locale_compare(&a.date, &b.date).then_with(|| locale_compare(&a.id, &b.id))
+    });
 
     let opening = |code: &str| input.opening.get(code).copied().unwrap_or(0.0);
     let mut before_closing: HashMap<String, f64> = analytical
@@ -534,10 +537,32 @@ fn build_ecd(input: Input) -> Ecd {
                 hist
             };
             if l.debit != 0.0 && !l.debit.is_nan() {
-                emit!(out, "I250", l.account_code, "", amount(l.debit), "D", "", "", hist, "");
+                emit!(
+                    out,
+                    "I250",
+                    l.account_code,
+                    "",
+                    amount(l.debit),
+                    "D",
+                    "",
+                    "",
+                    hist,
+                    ""
+                );
             }
             if l.credit != 0.0 && !l.credit.is_nan() {
-                emit!(out, "I250", l.account_code, "", amount(l.credit), "C", "", "", hist, "");
+                emit!(
+                    out,
+                    "I250",
+                    l.account_code,
+                    "",
+                    amount(l.credit),
+                    "C",
+                    "",
+                    "",
+                    hist,
+                    ""
+                );
             }
         }
     }
@@ -579,7 +604,9 @@ fn build_ecd(input: Input) -> Ecd {
     };
     for node in chart.iter().filter(|n| n.nature != "04") {
         let ini = r2(subtree(node, &|code| opening(code)));
-        let fin = r2(subtree(node, &|code| running.get(code).copied().unwrap_or(0.0)));
+        let fin = r2(subtree(node, &|code| {
+            running.get(code).copied().unwrap_or(0.0)
+        }));
         emit!(
             out,
             "J100",
@@ -596,8 +623,8 @@ fn build_ecd(input: Input) -> Ecd {
             ""
         );
     }
-    let mut order = 1;
-    for node in chart.iter().filter(|n| n.nature == "04") {
+    for (index, node) in chart.iter().filter(|n| n.nature == "04").enumerate() {
+        let order = index + 1;
         let value = r2(subtree(node, &|code| {
             before_closing.get(code).copied().unwrap_or(0.0)
         }));
@@ -617,7 +644,6 @@ fn build_ecd(input: Input) -> Ecd {
             if value <= 0.0 { "R" } else { "D" },
             ""
         );
-        order += 1;
     }
     emit!(
         out,
@@ -936,8 +962,14 @@ mod tests {
         assert_eq!(amount(-1234.5), "1234,50");
         assert_eq!(ddmmaaaa("2026-03-04"), "04032026");
         assert_eq!(text(Some(" a|b\r\nc ")), "a b c");
-        assert_eq!(fiscal_year_range(1, 2026), ("2026-01-01".into(), "2026-12-31".into()));
-        assert_eq!(fiscal_year_range(7, 2026), ("2025-07-01".into(), "2026-06-30".into()));
+        assert_eq!(
+            fiscal_year_range(1, 2026),
+            ("2026-01-01".into(), "2026-12-31".into())
+        );
+        assert_eq!(
+            fiscal_year_range(7, 2026),
+            ("2025-07-01".into(), "2026-06-30".into())
+        );
         assert_eq!(months_of("2026-01-15", "2026-02-10").len(), 2);
         assert_eq!(encode_latin1("ç€"), vec![0xe7, b'?']);
     }
@@ -957,9 +989,21 @@ mod tests {
                 im: None,
             },
             accounts: vec![
-                Account { code: "1.1.1.01".into(), name: "Caixa".into(), kind: "asset".into() },
-                Account { code: "2.3.1.01".into(), name: "Lucros".into(), kind: "equity".into() },
-                Account { code: "3.1.1.01".into(), name: "Receita".into(), kind: "revenue".into() },
+                Account {
+                    code: "1.1.1.01".into(),
+                    name: "Caixa".into(),
+                    kind: "asset".into(),
+                },
+                Account {
+                    code: "2.3.1.01".into(),
+                    name: "Lucros".into(),
+                    kind: "equity".into(),
+                },
+                Account {
+                    code: "3.1.1.01".into(),
+                    name: "Receita".into(),
+                    kind: "revenue".into(),
+                },
             ],
             opening: HashMap::new(),
             entries: vec![Entry {
@@ -967,15 +1011,28 @@ mod tests {
                 date: "2026-03-01".into(),
                 description: Some("Venda".into()),
                 lines: vec![
-                    Line { account_code: "1.1.1.01".into(), debit: 100.0, credit: 0.0, description: None },
-                    Line { account_code: "3.1.1.01".into(), debit: 0.0, credit: 100.0, description: None },
+                    Line {
+                        account_code: "1.1.1.01".into(),
+                        debit: 100.0,
+                        credit: 0.0,
+                        description: None,
+                    },
+                    Line {
+                        account_code: "3.1.1.01".into(),
+                        debit: 0.0,
+                        credit: 100.0,
+                        description: None,
+                    },
                 ],
                 closing: false,
             }],
             retained_code: "2.3.1.01".into(),
             signatories: Vec::new(),
         });
-        assert!(ecd.content.starts_with("|0000|LECD|01012026|31122026|Empresa|12345678000123|SP|"));
+        assert!(
+            ecd.content
+                .starts_with("|0000|LECD|01012026|31122026|Empresa|12345678000123|SP|")
+        );
         assert!(ecd.content.contains("|I200|ENC-2026|31122026|100,00|E||"));
         assert_eq!(ecd.warnings.len(), 2);
     }

@@ -215,10 +215,7 @@ impl DynOutboundHttp for FakeVies {
                 Some("000000000B00") => json!({ "valid": false }),
                 _ => json!({ "valid": false, "errorWrappers": [{ "error": "MS_UNAVAILABLE" }] }),
             };
-            Ok(HttpResponse {
-                status: 200,
-                body: answer.to_string().into_bytes(),
-            })
+            Ok(HttpResponse::new(200, answer.to_string().into_bytes()))
         })
     }
 }

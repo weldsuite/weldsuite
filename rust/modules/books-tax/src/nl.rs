@@ -4,6 +4,8 @@
 //! current layout, and the SBR/XBRL messages of the aangifte and the Opgaaf
 //! ICP.
 
+use std::fmt::Write as _;
+
 use serde_json::{Map, Value};
 use weldsuite_books_domain::js::{self, math_round, number_value};
 
@@ -338,10 +340,16 @@ pub(crate) fn generate_vat_xml(input: &VatXmlInput<'_>) -> String {
         "  <!-- 1. Prestaties binnenland -->".to_owned(),
         "  <!-- 1a: hoog tarief -->".to_owned(),
         amount("TaxedTurnoverSuppliesServicesGeneralTariff", r.get("r1a")),
-        amount("ValueAddedTaxSuppliesServicesGeneralTariff", r.get("r1aBtw")),
+        amount(
+            "ValueAddedTaxSuppliesServicesGeneralTariff",
+            r.get("r1aBtw"),
+        ),
         "  <!-- 1b: laag tarief -->".to_owned(),
         amount("TaxedTurnoverSuppliesServicesReducedTariff", r.get("r1b")),
-        amount("ValueAddedTaxSuppliesServicesReducedTariff", r.get("r1bBtw")),
+        amount(
+            "ValueAddedTaxSuppliesServicesReducedTariff",
+            r.get("r1bBtw"),
+        ),
         "  <!-- 1c: overige tarieven, behalve 0% -->".to_owned(),
         amount("TaxedTurnoverSuppliesServicesOtherRates", r.get("r1c")),
         amount("ValueAddedTaxSuppliesServicesOtherRates", r.get("r1cBtw")),
@@ -500,7 +508,11 @@ pub(crate) fn generate_icp_xml(input: &IcpXmlInput<'_>) -> String {
     for line in input.lines {
         let at = per.iter().position(|(vat, _, _)| *vat == line.vat_number);
         let at = at.unwrap_or_else(|| {
-            per.push((line.vat_number.clone(), line.country_code.clone(), Vec::new()));
+            per.push((
+                line.vat_number.clone(),
+                line.country_code.clone(),
+                Vec::new(),
+            ));
             per.len() - 1
         });
         let amounts = &mut per[at].2;
@@ -522,7 +534,8 @@ pub(crate) fn generate_icp_xml(input: &IcpXmlInput<'_>) -> String {
         } else {
             vat.clone()
         };
-        contexts.push_str(&format!(
+        let _ = write!(
+            contexts,
             "
   <xbrli:context id=\"{id}\">
     <xbrli:entity>
@@ -543,7 +556,7 @@ pub(crate) fn generate_icp_xml(input: &IcpXmlInput<'_>) -> String {
   </xbrli:context>",
             escape_xml(&country),
             escape_xml(&number)
-        ));
+        );
         for kind in ["goods", "services", "triangulation"] {
             let Some((_, amount)) = amounts.iter().find(|(t, _)| t == kind) else {
                 continue;
@@ -646,8 +659,10 @@ mod tests {
 
     #[test]
     fn legacy_layout() {
-        let r = normalize(Some(&serde_json::json!({ "r1a": 10, "r1b": 2.1, "r1e": 5, "r5f": 7 })))
-            .expect("an object");
+        let r = normalize(Some(
+            &serde_json::json!({ "r1a": 10, "r1b": 2.1, "r1e": 5, "r5f": 7 }),
+        ))
+        .expect("an object");
         assert_eq!(r.get("r1aBtw"), 2.1);
         assert_eq!(r.get("r1e"), 5.0);
         assert_eq!(r.get("r5g"), 7.0);

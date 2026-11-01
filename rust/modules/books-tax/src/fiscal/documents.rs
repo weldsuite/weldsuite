@@ -16,6 +16,7 @@ use axum::routing::{get, post, put};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::compliance::get_contact_vat_number;
 use weldsuite_books_domain::document_posting::load_tax_rates;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
@@ -23,12 +24,13 @@ use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit}
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, created, now, now_ms, ok, paged, reply, validate,
 };
-use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::{profile_of, regime_of};
 use weldsuite_books_domain::jurisdictions::br_tax::compute_document_taxes;
 use weldsuite_books_domain::tables::{FISCAL_DOCUMENTS, INVOICE_ITEMS, INVOICES, PARTIES};
-use weldsuite_books_domain::tax::{Counterparty as HookCounterparty, Direction, HookContext, HookLine};
+use weldsuite_books_domain::tax::{
+    Counterparty as HookCounterparty, Direction, HookContext, HookLine,
+};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_ENTITY_UPDATED, FISCAL_DOCUMENT_CANCELLED, FISCAL_DOCUMENT_CREATED,
     FISCAL_DOCUMENT_UPDATED,
@@ -54,13 +56,25 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/settings", get(get_settings).route_layer(need("accounts:read")))
-        .route("/settings", put(put_settings).route_layer(need("accounts:update")))
+        .route(
+            "/settings",
+            get(get_settings).route_layer(need("accounts:read")),
+        )
+        .route(
+            "/settings",
+            put(put_settings).route_layer(need("accounts:update")),
+        )
         .route("/", get(list).route_layer(need("invoices:read")))
         .route("/{id}", get(detail).route_layer(need("invoices:read")))
         .route("/issue", post(issue).route_layer(need("invoices:update")))
-        .route("/{id}/refresh", post(refresh).route_layer(need("invoices:update")))
-        .route("/{id}/cancel", post(cancel).route_layer(need("invoices:update")))
+        .route(
+            "/{id}/refresh",
+            post(refresh).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/{id}/cancel",
+            post(cancel).route_layer(need("invoices:update")),
+        )
         .route(
             "/{id}/correction",
             post(correction).route_layer(need("invoices:update")),
@@ -191,12 +205,27 @@ struct SettingsBody {
 fn read_settings(issues: &mut Issues, body: &Map<String, Value>) -> SettingsBody {
     use weldsuite_kit::validation::Field;
     let environment = issues
-        .choice(body, "environment", Presence::Required, &["homologacao", "producao"])
+        .choice(
+            body,
+            "environment",
+            Presence::Required,
+            &["homologacao", "producao"],
+        )
         .into_option()
         .unwrap_or_default();
-    let token = issues.text_with(body, "token", Presence::Nullish, Text::trimmed(Some(8), Some(200)));
+    let token = issues.text_with(
+        body,
+        "token",
+        Presence::Nullish,
+        Text::trimmed(Some(8), Some(200)),
+    );
     let nfse_standard = issues
-        .choice(body, "nfseStandard", Presence::Optional, &["nacional", "municipal"])
+        .choice(
+            body,
+            "nfseStandard",
+            Presence::Optional,
+            &["nacional", "municipal"],
+        )
         .into_option();
     let to_value = |field: Field<f64>| match field {
         Field::Set(v) => Field::Set(js::number_value(v)),
@@ -446,7 +475,7 @@ async fn update_settings(
 
 fn set_credential(credentials: &mut Vec<(String, String)>, environment: &str, token: &str) {
     if let Some(entry) = credentials.iter_mut().find(|(env, _)| env == environment) {
-        entry.1 = token.to_owned();
+        token.clone_into(&mut entry.1);
     } else {
         credentials.push((environment.to_owned(), token.to_owned()));
     }
@@ -516,7 +545,11 @@ async fn list(caller: Caller) -> Response {
 }
 
 /// `getFiscalDocument(db, entityId, id)`.
-pub(crate) async fn get_document(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, FiscalError> {
+pub(crate) async fn get_document(
+    db: &PgPool,
+    entity_id: &str,
+    id: &str,
+) -> Result<Value, FiscalError> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         weldsuite_books_domain::books_row!(fiscal_documents),
@@ -582,7 +615,11 @@ pub(crate) fn document_columns(row: &Value, data: &Value, client: &Focus) -> Map
     patch.insert("status".into(), json!(status));
     let message = if (status == "rejected" || status == "authorized") && !messages.is_empty() {
         let joined = messages.join(" | ");
-        if joined.is_empty() { Value::Null } else { json!(joined) }
+        if joined.is_empty() {
+            Value::Null
+        } else {
+            json!(joined)
+        }
     } else {
         Value::Null
     };
@@ -620,7 +657,10 @@ pub(crate) fn document_columns(row: &Value, data: &Value, client: &Focus) -> Map
     if status == "authorized" && row.get("authorizedAt").is_none_or(Value::is_null) {
         let received = str_of(protocol_record.and_then(|p| p.get("data_recebimento")))
             .and_then(|d| js::js_date(&d));
-        patch.insert("authorizedAt".into(), json!(received.unwrap_or_else(|| now.clone())));
+        patch.insert(
+            "authorizedAt".into(),
+            json!(received.unwrap_or_else(|| now.clone())),
+        );
     }
     if status == "cancelled" && row.get("cancelledAt").is_none_or(Value::is_null) {
         patch.insert("cancelledAt".into(), json!(now));
@@ -638,7 +678,11 @@ pub(crate) fn document_columns(row: &Value, data: &Value, client: &Focus) -> Map
 }
 
 /// `db.update(fiscalDocuments).set(patch).where(id).returning()`.
-pub(crate) async fn patch_document(db: &PgPool, id: &str, patch: &Map<String, Value>) -> Result<Value, FiscalError> {
+pub(crate) async fn patch_document(
+    db: &PgPool,
+    id: &str,
+    patch: &Map<String, Value>,
+) -> Result<Value, FiscalError> {
     let row = FISCAL_DOCUMENTS
         .patch_raw(db, id, FISCAL_DOCUMENTS.values(patch), false)
         .await?;
@@ -752,14 +796,22 @@ async fn load_counterparty(db: &PgPool, invoice: &Value) -> Result<Counterparty,
     let party = party.map(|row| PARTIES.js(row));
     let mut br_fiscal = object(party.as_ref().and_then(|p| p.get("brFiscal")));
     let mut identity_name: Option<String> = None;
-    if let Some(company_id) = party.as_ref().and_then(|p| text(p, "companyId")).filter(|c| !c.is_empty()) {
+    if let Some(company_id) = party
+        .as_ref()
+        .and_then(|p| text(p, "companyId"))
+        .filter(|c| !c.is_empty())
+    {
         let name: Option<Option<String>> =
             sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
                 .bind(&company_id)
                 .fetch_optional(db)
                 .await?;
         identity_name = name.flatten();
-    } else if let Some(person_id) = party.as_ref().and_then(|p| text(p, "personId")).filter(|c| !c.is_empty()) {
+    } else if let Some(person_id) = party
+        .as_ref()
+        .and_then(|p| text(p, "personId"))
+        .filter(|c| !c.is_empty())
+    {
         let name: Option<Option<String>> =
             sqlx::query_scalar("select display_name from people where id = $1 limit 1")
                 .bind(&person_id)
@@ -773,12 +825,20 @@ async fn load_counterparty(db: &PgPool, invoice: &Value) -> Result<Counterparty,
         .or_else(|| normalize_postal_address(party.as_ref().and_then(|p| p.get("billingAddress"))));
     let tax_id = match get_contact_vat_number(db, contact_id.as_deref()).await? {
         Some(vat) => Some(vat),
-        None => br_fiscal.get("taxId").and_then(Value::as_str).map(str::to_owned),
+        None => br_fiscal
+            .get("taxId")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     };
     br_fiscal.remove("taxId");
     let name = text(invoice, "contactName")
         .filter(|n| !n.is_empty())
-        .or_else(|| party.as_ref().and_then(|p| text(p, "displayName")).filter(|n| !n.is_empty()))
+        .or_else(|| {
+            party
+                .as_ref()
+                .and_then(|p| text(p, "displayName"))
+                .filter(|n| !n.is_empty())
+        })
         .or_else(|| identity_name.filter(|n| !n.is_empty()))
         .unwrap_or_default();
     Ok(Counterparty {
@@ -794,7 +854,10 @@ async fn load_counterparty(db: &PgPool, invoice: &Value) -> Result<Counterparty,
 pub(crate) fn normalize_cnpj(value: &str) -> String {
     value
         .chars()
-        .filter(|c| !(weldsuite_books_domain::jurisdictions::is_js_space(*c) || matches!(c, '.' | '/' | '-')))
+        .filter(|c| {
+            !(weldsuite_books_domain::jurisdictions::is_js_space(*c)
+                || matches!(c, '.' | '/' | '-'))
+        })
         .collect::<String>()
         .to_uppercase()
 }
@@ -836,7 +899,9 @@ async fn build_issue_context(
     let rates = load_tax_rates(
         db,
         entity_id,
-        items.iter().map(|i| i.get("taxRateId").and_then(Value::as_str)),
+        items
+            .iter()
+            .map(|i| i.get("taxRateId").and_then(Value::as_str)),
     )
     .await?;
     let rate_of = |item: &Value| {
@@ -938,7 +1003,10 @@ async fn build_issue_context(
         &HookContext {
             direction: Direction::Sales,
             issue_date: Some(iso_day(invoice.get("issueDate"))),
-            entity_settings: entity.get("jurisdictionSettings").filter(|v| !v.is_null()).cloned(),
+            entity_settings: entity
+                .get("jurisdictionSettings")
+                .filter(|v| !v.is_null())
+                .cloned(),
             entity_tax_classification: text(entity, "taxClassification"),
             counterparty: HookCounterparty {
                 country: payload::text(&counterparty.address, "country"),
@@ -1001,7 +1069,11 @@ async fn build_issue_context(
 }
 
 /// `nextDpsNumber(db, entityId, environment)`.
-async fn next_dps_number(db: &PgPool, entity_id: &str, environment: &str) -> Result<i64, sqlx::Error> {
+async fn next_dps_number(
+    db: &PgPool,
+    entity_id: &str,
+    environment: &str,
+) -> Result<i64, sqlx::Error> {
     let next: i64 = sqlx::query_scalar(
         "insert into entity_number_sequences (id, entity_id, sequence_type, prefix, next_value, padding) \
          values ($1, $2, $3, '', 2, 0) on conflict (entity_id, sequence_type) \
@@ -1119,7 +1191,8 @@ async fn issue_document(
         ));
     }
 
-    let (kind, mut args) = build_issue_context(db, &entity, &invoice, environment, now_millis).await?;
+    let (kind, mut args) =
+        build_issue_context(db, &entity, &invoice, environment, now_millis).await?;
     let payload = match kind {
         "nfe" => payload::build_nfe(&args)?,
         "nfse" => payload::build_nfse(&args)?,
@@ -1152,7 +1225,8 @@ async fn issue_document(
         Ok(row) => FISCAL_DOCUMENTS.js(row),
         Err(error) => {
             let text = error.to_string();
-            if text.contains("fiscal_documents_provider_ref_idx") || text.contains("duplicate key") {
+            if text.contains("fiscal_documents_provider_ref_idx") || text.contains("duplicate key")
+            {
                 return Err(FiscalError::status(
                     "This invoice is already being issued",
                     409,
@@ -1179,9 +1253,16 @@ async fn record_failure(db: &PgPool, id: &str, error: &ProviderError) -> Result<
     let mut patch = Map::new();
     patch.insert(
         "status".into(),
-        json!(if error.is_rejection() { "rejected" } else { "error" }),
+        json!(if error.is_rejection() {
+            "rejected"
+        } else {
+            "error"
+        }),
     );
-    patch.insert("statusMessage".into(), json!(js::slice_utf16(&error.detail(), 2000)));
+    patch.insert(
+        "statusMessage".into(),
+        json!(js::slice_utf16(&error.detail(), 2000)),
+    );
     patch.insert(
         "responsePayload".into(),
         json!({ "codigo": error.codigo, "mensagem": error.message, "erros": error.erros_json() }),
@@ -1222,7 +1303,12 @@ fn read_issue(issues: &mut Issues, body: &Map<String, Value>) -> String {
         .unwrap_or_default()
 }
 
-async fn issue(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn issue(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let invoice_id = match validate(&headers, &body, read_issue) {
         Ok(id) => id,
         Err(refusal) => return refusal.respond("Failed to issue the fiscal document"),
@@ -1237,7 +1323,15 @@ async fn issue(caller: Caller, State(state): State<BooksState>, headers: HeaderM
                 "status".into(),
                 change(Value::Null, document["status"].clone()),
             );
-            audit_and_publish(&caller, &state, &document, FISCAL_DOCUMENT_CREATED, "issued", Some(changes)).await;
+            audit_and_publish(
+                &caller,
+                &state,
+                &document,
+                FISCAL_DOCUMENT_CREATED,
+                "issued",
+                Some(changes),
+            )
+            .await;
             Ok(created(document))
         }
         .await,
@@ -1245,12 +1339,23 @@ async fn issue(caller: Caller, State(state): State<BooksState>, headers: HeaderM
     )
 }
 
-async fn refresh(caller: Caller, State(state): State<BooksState>, Path(id): Path<String>) -> Response {
+async fn refresh(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     fiscal_reply(
         async {
             let entity = require_entity(&caller).await?;
-            let doc = get_document(&caller.db, entity["id"].as_str().unwrap_or_default(), &id).await?;
-            let refreshed = refresh_document(&caller.db, &caller.keyring(&state), caller.http(&state), &doc).await?;
+            let doc =
+                get_document(&caller.db, entity["id"].as_str().unwrap_or_default(), &id).await?;
+            let refreshed = refresh_document(
+                &caller.db,
+                &caller.keyring(&state),
+                caller.http(&state),
+                &doc,
+            )
+            .await?;
             if refreshed.changed {
                 let event = if refreshed.document["status"].as_str() == Some("cancelled") {
                     FISCAL_DOCUMENT_CANCELLED
@@ -1260,9 +1365,20 @@ async fn refresh(caller: Caller, State(state): State<BooksState>, Path(id): Path
                 let mut changes = Map::new();
                 changes.insert(
                     "status".into(),
-                    change(json!(refreshed.previous_status), refreshed.document["status"].clone()),
+                    change(
+                        json!(refreshed.previous_status),
+                        refreshed.document["status"].clone(),
+                    ),
                 );
-                audit_and_publish(&caller, &state, &refreshed.document, event, "refreshed", Some(changes)).await;
+                audit_and_publish(
+                    &caller,
+                    &state,
+                    &refreshed.document,
+                    event,
+                    "refreshed",
+                    Some(changes),
+                )
+                .await;
             }
             Ok(ok(refreshed.document))
         }
@@ -1271,10 +1387,18 @@ async fn refresh(caller: Caller, State(state): State<BooksState>, Path(id): Path
     )
 }
 
-fn read_reason(key: &'static str, max: usize) -> impl Fn(&mut Issues, &Map<String, Value>) -> String {
+fn read_reason(
+    key: &'static str,
+    max: usize,
+) -> impl Fn(&mut Issues, &Map<String, Value>) -> String {
     move |issues, body| {
         issues
-            .text_with(body, key, Presence::Required, Text::trimmed(Some(15), Some(max)))
+            .text_with(
+                body,
+                key,
+                Presence::Required,
+                Text::trimmed(Some(15), Some(max)),
+            )
             .into_option()
             .unwrap_or_default()
     }
@@ -1297,7 +1421,12 @@ async fn cancel(
     )
 }
 
-async fn cancel_document(caller: &Caller, state: &BooksState, id: &str, reason: &str) -> Result<Response, FiscalError> {
+async fn cancel_document(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    reason: &str,
+) -> Result<Response, FiscalError> {
     let db = &caller.db;
     let entity = require_entity(caller).await?;
     let doc = get_document(db, entity["id"].as_str().unwrap_or_default(), id).await?;
@@ -1306,7 +1435,8 @@ async fn cancel_document(caller: &Caller, state: &BooksState, id: &str, reason: 
             "Only an authorized fiscal document can be cancelled",
         ));
     }
-    let doc_entity = require_fiscal_entity(db, doc["entityId"].as_str().unwrap_or_default()).await?;
+    let doc_entity =
+        require_fiscal_entity(db, doc["entityId"].as_str().unwrap_or_default()).await?;
     let client = client_for(
         &doc_entity,
         &caller.keyring(state),
@@ -1341,9 +1471,20 @@ async fn cancel_document(caller: &Caller, state: &BooksState, id: &str, reason: 
     patch.insert("updatedAt".into(), json!(now));
     let saved = patch_document(db, id, &patch).await?;
     let mut changes = Map::new();
-    changes.insert("status".into(), change(doc["status"].clone(), saved["status"].clone()));
+    changes.insert(
+        "status".into(),
+        change(doc["status"].clone(), saved["status"].clone()),
+    );
     changes.insert("cancelReason".into(), change(Value::Null, json!(reason)));
-    audit_and_publish(caller, state, &saved, FISCAL_DOCUMENT_CANCELLED, "cancelled", Some(changes)).await;
+    audit_and_publish(
+        caller,
+        state,
+        &saved,
+        FISCAL_DOCUMENT_CANCELLED,
+        "cancelled",
+        Some(changes),
+    )
+    .await;
     Ok(ok(saved))
 }
 
@@ -1379,17 +1520,25 @@ async fn correction(
     )
 }
 
-async fn correct_document(caller: &Caller, state: &BooksState, id: &str, correction_text: &str) -> Result<Response, FiscalError> {
+async fn correct_document(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    correction_text: &str,
+) -> Result<Response, FiscalError> {
     let db = &caller.db;
     let entity = require_entity(caller).await?;
     let doc = get_document(db, entity["id"].as_str().unwrap_or_default(), id).await?;
     if doc["kind"].as_str() != Some("nfe") {
-        return Err(FiscalError::bad("A carta de correção only exists for the NF-e"));
+        return Err(FiscalError::bad(
+            "A carta de correção only exists for the NF-e",
+        ));
     }
     if doc["status"].as_str() != Some("authorized") {
         return Err(FiscalError::bad("Only an authorized NF-e can be corrected"));
     }
-    let doc_entity = require_fiscal_entity(db, doc["entityId"].as_str().unwrap_or_default()).await?;
+    let doc_entity =
+        require_fiscal_entity(db, doc["entityId"].as_str().unwrap_or_default()).await?;
     let client = client_for(
         &doc_entity,
         &caller.keyring(state),
@@ -1397,7 +1546,10 @@ async fn correct_document(caller: &Caller, state: &BooksState, id: &str, correct
         caller.http(state),
     )?;
     let res = client
-        .correction(doc["providerRef"].as_str().unwrap_or_default(), correction_text)
+        .correction(
+            doc["providerRef"].as_str().unwrap_or_default(),
+            correction_text,
+        )
         .await?;
     if map_status(res.data.get("status")) != "authorized" {
         return Err(not_accepted(&res.data, "The correction was not accepted"));
@@ -1436,7 +1588,15 @@ async fn correct_document(caller: &Caller, state: &BooksState, id: &str, correct
         "correction".into(),
         change(Value::Null, json!({ "number": correction["number"] })),
     );
-    audit_and_publish(caller, state, &saved, FISCAL_DOCUMENT_UPDATED, "corrected", Some(changes)).await;
+    audit_and_publish(
+        caller,
+        state,
+        &saved,
+        FISCAL_DOCUMENT_UPDATED,
+        "corrected",
+        Some(changes),
+    )
+    .await;
     Ok(ok(json!({ "document": saved, "correction": correction })))
 }
 

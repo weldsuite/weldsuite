@@ -21,17 +21,18 @@ use weldsuite_books_domain::guards::{AuditInput, change, is_kor_active, write_ac
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, now_ms, ok, reply, validate,
 };
-use weldsuite_books_domain::jurisdictions::features;
 use weldsuite_books_domain::js;
+use weldsuite_books_domain::jurisdictions::features;
 use weldsuite_books_domain::tables::{ENTITIES, VAT_RETURNS};
-use weldsuite_catalogs::entity_events::{VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED,
+};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::filing::{
-    file_period, filing_status, is_unfiled, iso_day, load_period_lines, parse_period,
-    submit_filing,
+    file_period, filing_status, is_unfiled, iso_day, load_period_lines, parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
 
@@ -380,7 +381,11 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
         json!({ "id": id, "rubrieken": rubrieken.to_value() }),
     );
     let body = json!({ "id": id, "rubrieken": rubrieken.to_value(), "recalculated": recalculated });
-    Ok(if recalculated { ok(body) } else { created(body) })
+    Ok(if recalculated {
+        ok(body)
+    } else {
+        created(body)
+    })
 }
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
@@ -472,7 +477,10 @@ async fn update_return(caller: &Caller, state: &BooksState, id: &str, data: Patc
         let mut changes = Map::new();
         changes.insert(
             "rubrieken".into(),
-            change(ret.get("rubrieken").cloned().unwrap_or(Value::Null), value.clone()),
+            change(
+                ret.get("rubrieken").cloned().unwrap_or(Value::Null),
+                value.clone(),
+            ),
         );
         changes
     });
@@ -619,7 +627,9 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
         return Err(Refusal::bad_request("Original return has no rubrieken"));
     }
     let entity_id = text(&original, "entityId").unwrap_or_default().to_owned();
-    let start = text(&original, "periodStart").unwrap_or_default().to_owned();
+    let start = text(&original, "periodStart")
+        .unwrap_or_default()
+        .to_owned();
     let end = text(&original, "periodEnd").unwrap_or_default().to_owned();
     let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end)).await?;
     let recalculated = compute_rubrieken(&lines.into_iter().map(|l| l.line).collect::<Vec<_>>());
