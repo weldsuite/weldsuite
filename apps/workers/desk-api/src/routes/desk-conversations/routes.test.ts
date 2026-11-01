@@ -179,12 +179,11 @@ describe('GET /api/desk/conversations', () => {
       'dconv_email',
       'dconv_email_noaddr',
     ]);
-    // z.coerce.boolean(): any non-empty value, "false" included, is true.
-    expect(await ids(await request(`${BASE}?unassigned=false&sort=oldest`))).toEqual([
-      'dconv_printer',
-      'dconv_email',
-      'dconv_email_noaddr',
-    ]);
+    // "false" is no filter at all, as the Rust backend reads it.
+    expect(await ids(await request(`${BASE}?unassigned=false&sort=oldest`))).toEqual(
+      await ids(await request(`${BASE}?sort=oldest`)),
+    );
+    expect((await request(`${BASE}?unassigned=maybe`)).status).toBe(400);
     expect(await ids(await request(`${BASE}?channel=phone`))).toEqual(['dconv_invoice']);
     expect(await ids(await request(`${BASE}?channel=email&sort=oldest`))).toEqual(['dconv_email', 'dconv_email_noaddr']);
     expect(await ids(await request(`${BASE}?visitorId=vis_grace`))).toEqual(['dconv_printer']);
