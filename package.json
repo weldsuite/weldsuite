@@ -29,6 +29,7 @@
     "rust:subscriber-fixtures": "tsx scripts/rust-subscriber-fixtures.ts",
     "rust:payroll-fixtures": "tsx scripts/rust-payroll-fixtures.ts",
     "rust:mail-inbound-fixtures": "tsx scripts/rust-mail-inbound-fixtures.ts",
+    "rust:desk-sla-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter @weldsuite/db exec vitest run src/lib/desk-sla.rust-fixtures.test.ts",
     "rust:desk-workflow-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter helpdesk-workflow-worker exec vitest run src/testing/rust-fixtures.test.ts",
     "rust:lint": "cd rust && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "rust:test": "cd rust && cargo test --workspace --locked",

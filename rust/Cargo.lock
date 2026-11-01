@@ -4544,6 +4544,7 @@ dependencies = [
 name = "weldsuite-desk-domain"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "regex",
  "serde",
  "serde_json",
