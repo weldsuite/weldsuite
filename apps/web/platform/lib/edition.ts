@@ -60,6 +60,8 @@ export const EDITION_FEATURES = [
   'payroll-digipoort',
   /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */
   'books-ocr',
+  /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
+  'phone-number-purchase',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

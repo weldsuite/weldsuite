@@ -118,7 +118,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const method = (req.method ?? 'GET').toUpperCase();
   const bytes = await readBody(req);
   const text = bytes.byteLength > 0 ? new TextDecoder().decode(bytes) : null;
-  rustCalls.push({ method, url: target, body: bodyOf(text) });
+  // A multipart form is recorded as the TypeScript side records a `FormData`
+  // body (`textOf`): its boundary is drawn per run.
+  const multipart = (req.headers['content-type'] ?? '').toLowerCase().startsWith('multipart/form-data');
+  rustCalls.push({ method, url: target, body: multipart ? '<body>' : bodyOf(text) });
 
   // The call's own headers (a forwarded request carries the app's), minus
   // the hop-by-hop ones of this leg.

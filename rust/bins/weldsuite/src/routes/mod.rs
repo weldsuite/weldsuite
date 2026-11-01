@@ -103,6 +103,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = commerce(router, state);
     let router = ads(router, state);
     let router = social(router, state);
+    let router = call(router, state);
     let router = data(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
@@ -323,6 +324,67 @@ fn social(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         social_state(state),
         &state.permissions,
     ))
+}
+
+/// WeldCall (`weldsuite-call`): call-api's `/api/calls`,
+/// `/api/call-intelligence`, `/api/desk/phone`, `/api/porting` and
+/// `/api/telephony`.
+fn call(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("call") {
+        return router;
+    }
+    router.merge(weldsuite_call::router(
+        call_state(state),
+        &state.permissions,
+    ))
+}
+
+/// call-api's routes ahead of the session: billing-worker's phone-number
+/// fulfilment (`/api/internal/telephony`) and the Telnyx webhook
+/// (`/public/webhooks/telnyx`). Conformance builds open the test's tenant
+/// database for every workspace.
+fn call_public(state: &AppState) -> Router<AppState> {
+    if !mounts("call") {
+        return Router::new();
+    }
+    let router = weldsuite_call::public_router(call_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldCall's handle on the app: events, the master database, Telnyx over
+/// the shared HTTP client, the `STORAGE` bucket, realtime and the
+/// workspaces' tenant databases. Conformance builds take the test's per
+/// request.
+fn call_state(state: &AppState) -> weldsuite_call::CallState {
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_call::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    weldsuite_call::CallState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance { None } else { shared_outbound() },
+        storage: if conformance {
+            None
+        } else {
+            state.infra.public_files.clone()
+        },
+        realtime: state.infra.realtime.clone(),
+        tenants: Some(tenants),
+    }
 }
 
 /// WeldData (`weldsuite-data`): data-api's `/api/welddata`,
@@ -929,6 +991,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
         .merge(social_public(state))
+        .merge(call_public(state))
         .merge(books::public(state))
         .merge(commerce_public(state));
     if mounts("mail") {

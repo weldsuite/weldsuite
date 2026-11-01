@@ -428,7 +428,7 @@
       "/api/telephony",
       "/public/webhooks/telnyx"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "call-api"
   },
   {

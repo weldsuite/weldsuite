@@ -404,6 +404,17 @@ pub async fn create_on_channel(
     db: &PgPool,
     spec: ChannelConversation<'_>,
 ) -> Result<(Value, Value), AppendError> {
+    create_on_channel_for(db, spec, None).await
+}
+
+/// [`create_on_channel`] linked to a CRM person from the start
+/// (`createDeskConversation`'s `contactId`, which the phone channel sets to
+/// the caller it matched).
+pub async fn create_on_channel_for(
+    db: &PgPool,
+    spec: ChannelConversation<'_>,
+    contact_id: Option<&str>,
+) -> Result<(Value, Value), AppendError> {
     let ChannelConversation {
         channel,
         title,
@@ -430,7 +441,10 @@ pub async fn create_on_channel(
         values.insert("visitor_id".to_owned(), json!(input.visitor_id));
         values.insert("name".to_owned(), input.name.clone());
         values.insert("email".to_owned(), input.email.clone());
-        values.insert("contact_id".to_owned(), Value::Null);
+        values.insert(
+            "contact_id".to_owned(),
+            contact_id.map_or(Value::Null, |id| json!(id)),
+        );
         values.insert("assignee_id".to_owned(), Value::Null);
         values.insert(
             "waiting_since".to_owned(),

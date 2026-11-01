@@ -85,6 +85,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // reads the file with a model on Workers AI; the route keeps its refusals
     // and answers 503 where it would call the model.
     "books-ocr",
+    // WeldCall: buying a phone number and submitting a number port are Stripe
+    // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
+    // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
+    "phone-number-purchase",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
