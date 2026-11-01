@@ -19,6 +19,12 @@ export interface VolatileField {
   pattern?: RegExp;
   /** What a match becomes (default `<volatile>`). */
   replacement?: string;
+  /**
+   * Compare the value decoded instead of masking it: `base64-json` is a
+   * base64 JSON string (Telnyx's `client_state`), whose new ids are then
+   * normalised like any other.
+   */
+  decode?: 'base64-json';
 }
 
 interface VolatileRoute {
@@ -30,6 +36,13 @@ interface VolatileRoute {
    * `ENTITY_EVENTS` message it sends (`data.duration`).
    */
   events?: VolatileField[];
+  /** The same in each third-party call it makes: dot paths into `{ method, url, body }`. */
+  outbound?: VolatileField[];
+}
+
+/** A desk phone tool token (`Bearer <claims>.<signature>`) at `path`. */
+function toolToken(path: string): VolatileField {
+  return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
 
 const ROUTES: VolatileRoute[] = [
@@ -165,9 +178,36 @@ const ROUTES: VolatileRoute[] = [
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
+  // WeldCall: a voice agent's Telnyx assistant carries a tool token that
+  // expires a day from the current second (and names the new call).
+  ...['/api/desk/phone/agents', '/api/desk/phone/agents/:id'].map((route) => ({
+    method: route.endsWith(':id') ? 'PATCH' : 'POST',
+    route,
+    fields: [],
+    outbound: [toolToken('body.tools.1.webhook.headers.0.value')],
+  })),
+  // The Telnyx webhook routes an inbound call: its Call Control requests carry
+  // the new call and conversation ids in base64 JSON (`client_state`), and
+  // the voice agent's tool token.
+  {
+    method: 'POST',
+    route: '/public/webhooks/telnyx',
+    fields: [],
+    outbound: [
+      { path: 'body.client_state', decode: 'base64-json' },
+      toolToken('body.assistant.tools.1.webhook.headers.0.value'),
+    ],
+  },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {
+  if (field.decode === 'base64-json' && typeof value === 'string') {
+    try {
+      return JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as unknown;
+    } catch {
+      return value;
+    }
+  }
   if (field.pattern && typeof value === 'string') return value.replace(field.pattern, field.replacement ?? '<volatile>');
   return `<volatile:${value === null ? 'null' : typeof value}>`;
 }
@@ -197,6 +237,13 @@ export function maskVolatile(method: string, route: string | null, body: unknown
   const entry = entryFor(method, route);
   if (!entry) return body;
   return entry.fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), body);
+}
+
+/** The request's third-party calls with the route's volatile values masked. */
+export function maskVolatileOutbound<T>(method: string, route: string | null, calls: T[]): T[] {
+  const fields = entryFor(method, route)?.outbound;
+  if (!fields?.length) return calls;
+  return calls.map((call) => fields.reduce<unknown>((masked, field) => maskAt(masked, field.path.split('.'), field), call) as T);
 }
 
 /** The request's entity events with the route's volatile values masked. */

@@ -52,7 +52,7 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents, maskVolatileOutbound } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import {
@@ -193,6 +193,15 @@ export const FORWARDED_ENV = [
   'LEMLIST_API_KEY',
   'FINDYMAIL_API_KEY',
   'PROSPEO_API_KEY',
+  // WeldCall: Telnyx (the API key, the Call Control and WebRTC connections,
+  // the webhook signing key), Stripe (phone-number fulfilment) and the
+  // public base URL the voice agent's tool is called back on.
+  'TELNYX_API_KEY',
+  'TELNYX_CONNECTION_ID',
+  'TELNYX_SIP_CONNECTION_ID',
+  'TELNYX_PUBLIC_KEY',
+  'STRIPE_SECRET_KEY',
+  'APP_API_PUBLIC_URL',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -1077,7 +1086,8 @@ function compareRuns(
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
   const prepare = (effects: SideEffects) => {
     const normalized = own(effects);
-    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events) };
+    const outbound = normalized.outbound ? { outbound: maskVolatileOutbound(method, route, normalized.outbound) } : {};
+    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events), ...outbound };
   };
   const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
