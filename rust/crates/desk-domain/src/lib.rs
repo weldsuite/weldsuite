@@ -12,6 +12,8 @@
 //!   that, on a `LedgerStore` (Valkey).
 //! - [`email`] (`@weldsuite/db/lib/desk`, the email channel): a customer
 //!   email starts a conversation or continues the one it threads into.
+//! - [`phone`] (`@weldsuite/db/lib/desk`, the phone channel): an inbound
+//!   call starts a conversation or continues the caller's open one.
 //! - [`table`]: writing a JSON object into a table the way Drizzle does,
 //!   for the webchat tables here and the desk crate's generated ones.
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
@@ -33,6 +35,7 @@ pub mod assignment_router;
 pub mod email;
 pub mod http;
 pub mod notify;
+pub mod phone;
 pub mod realtime;
 pub mod table;
 pub mod webchat;

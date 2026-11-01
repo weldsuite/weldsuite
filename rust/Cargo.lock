@@ -3826,6 +3826,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-books-sales",
  "weldsuite-calendar",
+ "weldsuite-call",
  "weldsuite-catalogs",
  "weldsuite-chat",
  "weldsuite-commerce",
@@ -4055,6 +4056,34 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-call"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hmac",
+ "http",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]

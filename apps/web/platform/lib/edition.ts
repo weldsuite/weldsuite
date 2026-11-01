@@ -56,6 +56,8 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
+  'phone-number-purchase',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
