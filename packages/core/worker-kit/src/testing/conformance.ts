@@ -206,6 +206,22 @@ export const FORWARDED_ENV = [
   'LEMLIST_API_KEY',
   'FINDYMAIL_API_KEY',
   'PROSPEO_API_KEY',
+  // WeldBooks bank feeds: the providers on offer per country, their webhook
+  // base, and each aggregator's credentials (Plaid, Stripe Financial
+  // Connections, Ponto, Enable Banking).
+  'BANK_FEED_PROVIDERS',
+  'BANK_FEED_WEBHOOK_URL',
+  'PLAID_CLIENT_ID',
+  'PLAID_SECRET',
+  'PLAID_ENV',
+  'PLAID_REDIRECT_URI',
+  'PLAID_COUNTRY_CODES',
+  'STRIPE_FC_SECRET_KEY',
+  'STRIPE_FC_API_VERSION',
+  'PONTO_CLIENT_ID',
+  'PONTO_CLIENT_SECRET',
+  'ENABLE_BANKING_APP_ID',
+  'ENABLE_BANKING_PRIVATE_KEY',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

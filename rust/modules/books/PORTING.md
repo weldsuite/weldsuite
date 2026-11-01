@@ -218,6 +218,28 @@ outbound calls through `OutboundHttp`; Ponto needs an mTLS client
 certificate, a reqwest identity on Kubernetes). Owns
 `books_domain::bank_accounts` (payment runs read it).
 
+**Status: ported.** All 52 routes of the six groups in `weldsuite-books-banking`;
+the `books: banking` suite (7 test files, 355 requests) at zero differences
+and zero schema failures, every route reached (the unreached ones above got
+tests: `bank-accounts`, `reconciliation-rules`, `bank-transactions/matching`,
+`bank-deposits`, `bank-reconciliations`, `bank-connections` integration
+tests). The bank-feed providers run against their real HTTP APIs answered
+by a `fetch` stub, compared through the outbound bridge: Plaid and Stripe
+Financial Connections end to end, Ponto and Enable Banking from completing
+a link to disconnecting or deleting it, Enable Banking's bank list. Ponto's
+and Enable Banking's link sessions carry a random `state` (and a time-based
+consent end), so their outbound calls cannot match; the test starts Plaid
+and Stripe links only. Ponto's mTLS
+client is `BooksState::ponto_http`, made from `PONTO_MTLS_CERT` and
+`PONTO_MTLS_KEY` (`ReqwestOutbound::with_client_certificate`). Bank-connection
+billing is Global's billing-worker: off on these editions (the `billing`
+feature), so `GET /billing` is `null` and no connection is limited or
+charged, as the worker answers where billing is off. The two internal
+routes are `bank_feeds::events::apply_events` and
+`bank_feeds::sync::sync_connection` (real-schema test
+`crates/books-domain/tests/bank_feeds.rs`), for the integration workers'
+port (P8 wave C).
+
 ### 4. US sales tax — `books-sales-tax` (~15k)
 
 | Group | Routes | Unreached |
@@ -307,7 +329,9 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | boundary from sales: `errors` (engine, document and setup errors, `salesTaxErrorResponse`) and `document_tax` (the types, `load_sales_tax_entity`, `uses_sales_tax`, `untaxed_totals`, `map_credit_items_to_original`, and the stubs `calculate_us_document_tax` / `accrue_use_tax` that answer "engine unavailable" until the sales-tax area fills them in, keeping the signatures) |
 | `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | partial (from sales): the snapshot (`load_contact_snapshot`, `document_contact_fields`, `with_contact_names`) and the read of a company's billing contact (`billing_contact_email`); setting the billing contact comes with purchases |
 | `vendor_tax` | `vendor-tax-data`, `w9-requests` (tokens) | purchases, reports (1099), tax (fiscal webhooks) | purchases | |
-| `bank_accounts` | `accounting-bank-accounts` | banking, purchases (payment runs) | banking | |
+| `bank_accounts` | `accounting-bank-accounts` (+ `bank-feeds/ledger`) | banking, purchases (payment runs) | banking | done: `is_valid_aba_routing`, `normalize_account_number`, `public_bank_account`, `seal_account_number`, `reveal_account_number` (`BankAccountError::Posting` is the routes' 400, `NoKey` their 500 with `NO_KEY_MESSAGE`), `assert_ledger_account_fits`, `plan_bank_ledger_account`, `create_ledger_account_for_bank`; real-schema test `tests/bank_accounts.rs` |
+| `bank_matching` | `accounting-reconciliation` (candidates, suggestions, reconcile to an invoice, bill, payment or deposit, unreconcile, auto-reconcile) | banking (transactions, the feed sync) | banking | done: `find_matches`, `reconcile_to_document`, `reconcile_to_payment`, `reconcile_to_deposit`, `unreconcile`, `auto_reconcile_batch` |
+| `bank_feeds` | `services/bank-feeds/*`, `@weldsuite/bank-feeds` (Plaid, Stripe FC, Ponto, Enable Banking), the internal sync and events | banking; the integration workers (wave C) | banking | done: `FeedContext`, `providers::Provider`, `connections::*` (views, link session, complete, map, disconnect, delete, pending), `sync::sync_connection`, `events::{apply_feed_event, apply_events}`; real-schema test `tests/bank_feeds.rs` |
 | `reports_basis` | `accounting-reports-basis`, `accounting-report-periods` | reports | reports | |
 | `invoice_html`, `compliance` | `accounting-invoice-html`, `invoice-template/*`, `accounting-compliance` | sales, **commerce** (portal invoices) | sales | done: `generate_invoice_html`, `invoice_template_data`, `generate_templated_invoice_html` (`layout`, `svg`, `mobile`), Node's `Intl` money/number/date shapes and the PDF font metrics exported by `tools/invoice-export.mts` into `data/invoice.json` (checked against 3440 Node outputs, `data/intl-cases.json`); `compliance`: notices, `validate_invoice_for_finalize`, missing entity fields. Not yet: Brazil's Pix QR (`jurisdictions/br/pix`, uqr) — a BR invoice prints without the Pix block; VIES (`compliance::check_vat_number`) is a boundary that answers "unavailable" until purchases ports `vies` |
 | `attachments` | `lib/document-attachment` | sales, purchases (bills) | sales | done: `stream_document_attachment`, `is_workspace_object_key` |
@@ -376,8 +400,15 @@ Rust unit tests, or add a `createTestApp`/`conformanceSweep` test.
   its own tenant database. Done, with a test on the real schema
   (`crates/books-domain/tests/payroll_import.rs`).
 - `/internal/bank-connections/{events,:id/sync}` (integration workers): the
-  same idea when those workers are ported (P8 wave C):
-  `books_domain::bank_feeds` functions.
+  same idea when those workers are ported (P8 wave C). Done:
+  `bank_feeds::events::apply_events(ctx, connection_id, events)` (its
+  `EventsOutcome::to_json()` is the route's `data`) and
+  `bank_feeds::sync::sync_connection(ctx, connection_id, false)` (a
+  `skipped: not_found` outcome is the route's 404). The caller builds the
+  `FeedContext` for the workspace (its tenant database, the books keyring,
+  master, outbound clients, the env's provider config) and publishes
+  `BANK_CONNECTION_SYNCED` (source `system`, data `{ id, status, added,
+  updated, removed }`) when the sync ran without a skip or an error.
 - `/public/w9/:token`, `/public/fiscal-webhooks/:token`: outside the session
   and tenant layers; the token resolves the workspace. Merge them through
   `routes::books::public` (`server.rs` merges `routes::public`).

@@ -8,7 +8,9 @@ use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
-use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, portal, sign};
+use weldsuite_emails::{
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, portal, sign,
+};
 
 #[derive(Deserialize)]
 struct Case {
@@ -58,6 +60,10 @@ fn list(props: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per exported template, each building its props"
+)]
 fn render(case: &Case) -> RenderedEmail {
     let locale = if case.locale == "nl" {
         EmailLocale::Nl
