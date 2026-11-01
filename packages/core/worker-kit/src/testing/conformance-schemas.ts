@@ -526,6 +526,7 @@ import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
 import { COMMERCE_ROUTES } from './conformance-schemas-commerce';
 import { COMMERCE_SHIPPING_ROUTES } from './conformance-schemas-commerce-shipping';
 import { HR_ROUTES } from './conformance-schemas-hr';
+import { MEET_ROUTES } from './conformance-schemas-meet';
 import { STASH_ROUTES } from './conformance-schemas-stash';
 import { BOOKS_ROUTES } from './conformance-schemas-books';
 
@@ -1381,6 +1382,7 @@ const ROUTES: RouteSchema[] = [
   ...COMMERCE_ROUTES,
   ...COMMERCE_SHIPPING_ROUTES,
   ...HR_ROUTES,
+  ...MEET_ROUTES,
   ...STASH_ROUTES,
   ...BOOKS_ROUTES,
   // pass: WeldPass secret vaults and the password manager
