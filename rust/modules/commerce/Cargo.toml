@@ -16,6 +16,7 @@ weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 aws-lc-rs = { workspace = true }

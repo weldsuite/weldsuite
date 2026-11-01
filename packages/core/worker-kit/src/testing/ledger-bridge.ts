@@ -146,7 +146,11 @@ export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
   return { env: wrapped, finish: () => calls.splice(0) };
 }
 
-/** The calls in a stable order. */
+/**
+ * The calls in a stable order, by their fields rather than by the key order
+ * each side wrote them in (Rust's JSON objects come with sorted keys).
+ */
 export function sortLedgerCalls(calls: LedgerCall[]): LedgerCall[] {
-  return [...calls].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  const key = (call: LedgerCall) => JSON.stringify([call.binding, call.name, call.method, call.args]);
+  return [...calls].sort((a, b) => key(a).localeCompare(key(b)));
 }

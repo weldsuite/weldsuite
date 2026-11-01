@@ -205,6 +205,25 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// WeldCommerce's public B2B portal at `/public/commerce-portal` (no
+/// session: the workspace comes from its slug, the buyer from a session
+/// token). Conformance builds open the test's tenant database and take its
+/// user id, as the worker's test harness sets both.
+fn commerce_public(state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    let portal = weldsuite_commerce::public_router(commerce_state(state));
+    #[cfg(feature = "conformance")]
+    let portal = portal
+        .layer(axum::middleware::from_fn(crate::conformance::public_session))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ));
+    Router::new().nest("/public/commerce-portal", portal)
+}
+
 /// WeldCommerce's handle on the app: events, the workspace cache, system
 /// mail, third-party HTTP, the portal's rate-limit counters (on the shared
 /// cache's atomic counters), the master database and its env.
@@ -619,7 +638,9 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
 /// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
-    let router = public_core(state).merge(desk_public(state));
+    let router = public_core(state)
+        .merge(desk_public(state))
+        .merge(commerce_public(state));
     if mounts("mail") {
         router.nest(
             "/internal/outbound",

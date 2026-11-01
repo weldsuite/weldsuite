@@ -546,6 +546,22 @@ pub(crate) async fn public_tenant(
     next.run(request).await
 }
 
+/// Middleware for public routes that publish entity events as the
+/// request's user (WeldCommerce's portal): the test's session context
+/// sets `userId`, so the user goes in as the request's `AuthContext`.
+/// Runs inside [`public`].
+pub(crate) async fn public_session(mut request: Request, next: Next) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        request.extensions_mut().insert(AuthContext {
+            user_id: context.user_id,
+            org_id: context.org_id,
+            session_id: context.session_id,
+            factor_verification_age: context.factor_verification_age,
+        });
+    }
+    next.run(request).await
+}
+
 // ── Cron jobs ───────────────────────────────────────────────────────────────
 
 /// `POST /__conformance/cron/sign-lifecycle`: one tick of the WeldSign

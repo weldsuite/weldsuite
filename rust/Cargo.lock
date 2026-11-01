@@ -4025,6 +4025,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mail-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]

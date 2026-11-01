@@ -68,6 +68,9 @@ mod notifications;
 mod order_tax;
 mod orders;
 mod parcel;
+mod portal;
+mod portal_orders;
+mod portal_public;
 mod printnode;
 mod products;
 mod sales_channels;
@@ -169,6 +172,7 @@ where
 {
     Router::new()
         .nest("/carriers", crud::routes(&simple::CARRIERS, gate))
+        .nest("/commerce-portal", portal::routes(gate))
         .nest("/categories", categories::routes(gate))
         .nest("/orders", orders::routes(gate))
         .nest("/parcels", crud::routes(&simple::PARCELS, gate))
@@ -199,6 +203,23 @@ where
         .with_state(state)
 }
 
+/// The public B2B commerce portal (`/public/commerce-portal`, no session):
+/// its routes relative to that prefix, each resolving the workspace from
+/// `?slug=` / `X-Workspace-Slug` unless a `Tenant` is already on the request
+/// (conformance builds put the test's there), and the buyer's session from
+/// its bearer token.
+pub fn public_router<S>(state: CommerceState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    portal_public::routes()
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            portal_public::resolve_workspace,
+        ))
+        .with_state(state)
+}
+
 /// Who is asking, in which workspace, with what permissions.
 #[allow(dead_code)] // filled in route group by route group
 pub(crate) struct Caller {
@@ -221,16 +242,26 @@ pub(crate) struct Overrides {
     pub(crate) http: Option<OutboundHttp>,
     pub(crate) limiter: Option<RequestRateLimiter>,
     pub(crate) master: Option<weldsuite_db::MasterDb>,
+    /// The test's `SEND_EMAIL` (conformance): the portal's sign-in mail goes
+    /// there instead of the state's system mail.
+    pub(crate) outbound: Option<weldsuite_mail_domain::outbound::RequestOutbound>,
 }
 
 impl Overrides {
     pub(crate) fn from_parts(parts: &Parts) -> Self {
+        Self::from_extensions(&parts.extensions)
+    }
+
+    pub(crate) fn from_extensions(extensions: &http::Extensions) -> Self {
         Self {
-            env: parts.extensions.get::<RequestEnv>().cloned(),
-            cache: parts.extensions.get::<RequestCache>().cloned(),
-            http: parts.extensions.get::<OutboundHttp>().cloned(),
-            limiter: parts.extensions.get::<RequestRateLimiter>().cloned(),
-            master: parts.extensions.get::<weldsuite_db::MasterDb>().cloned(),
+            env: extensions.get::<RequestEnv>().cloned(),
+            cache: extensions.get::<RequestCache>().cloned(),
+            http: extensions.get::<OutboundHttp>().cloned(),
+            limiter: extensions.get::<RequestRateLimiter>().cloned(),
+            master: extensions.get::<weldsuite_db::MasterDb>().cloned(),
+            outbound: extensions
+                .get::<weldsuite_mail_domain::outbound::RequestOutbound>()
+                .cloned(),
         }
     }
 

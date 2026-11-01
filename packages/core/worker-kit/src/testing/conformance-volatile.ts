@@ -146,6 +146,13 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.returnNumber' }],
     events: [{ path: 'data.returnNumber' }],
   },
+  // The order portal's buyer session and company-picker tokens: 32 random bytes per run.
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/auth/verify',
+    fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
+  },
+  { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

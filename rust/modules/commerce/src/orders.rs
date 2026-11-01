@@ -505,8 +505,8 @@ fn written(id: &str, tax: Option<&TaxOutcome>, application: Option<&Application>
     Value::Object(out)
 }
 
-/// `ORD-<Date.now() base 36>-<4 random base-36 characters>`.
-fn order_number() -> String {
+/// `<prefix>-<Date.now() base 36>-<4 random base-36 characters>` (`ORD-…`, `RMA-…`).
+pub(crate) fn numbered(prefix: &str) -> String {
     const BASE36_UPPER: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let millis = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
         .unwrap_or(0);
@@ -526,7 +526,7 @@ fn order_number() -> String {
         .iter()
         .map(|b| char::from(BASE36_UPPER[usize::from(*b) % 36]))
         .collect();
-    format!("ORD-{}-{random}", String::from_utf8_lossy(&stamp))
+    format!("{prefix}-{}-{random}", String::from_utf8_lossy(&stamp))
 }
 
 async fn create_order(
@@ -546,7 +546,7 @@ async fn create_order(
     let now = now();
     let number = match data.get("orderNumber") {
         Some(Value::String(number)) if !number.is_empty() => number.clone(),
-        _ => order_number(),
+        _ => numbered("ORD"),
     };
 
     // Tax first: an engine failure refuses the order instead of storing it with a guessed tax.
