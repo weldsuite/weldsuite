@@ -222,6 +222,21 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
+  // WeldHost: Realtime Register (the registrar and ADAC keys, the customer
+  // handle, OTE, the platform contact handles and the webhook secret) and
+  // Cloudflare (zones and DNS records, the legacy registrar).
+  'REALTIME_REGISTER_API_KEY',
+  'REALTIME_REGISTER_CUSTOMER',
+  'REALTIME_REGISTER_OTE',
+  'REALTIME_REGISTER_ADAC_API_KEY',
+  'REALTIME_REGISTER_ADAC_TLD_SET_TOKEN',
+  'REALTIME_REGISTER_CONTACT_ADMIN',
+  'REALTIME_REGISTER_CONTACT_TECH',
+  'REALTIME_REGISTER_CONTACT_BILLING',
+  'REALTIME_REGISTER_WEBHOOK_SECRET',
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_ACCOUNT_ID',
+  'CF_ACCOUNT_ID',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -247,6 +262,10 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
+  // WeldHost: a zone's records, synced from the DNS host first when it has
+  // none or never synced; a registration's status, its process driven forward.
+  /^\/api\/dns-records(\/by-(zone|domain)\/[^/?]+)?(\?|$)/,
+  /^\/api\/domains\/registrations\/[^/?]+\/status(\?|$)/,
 ];
 
 interface ConformanceContext {

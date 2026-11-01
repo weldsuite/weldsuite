@@ -81,6 +81,11 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // by hand and marked as filed (`POST …/filings/:id/submit` answers
     // DIGIPOORT_NOT_CONFIGURED, as the worker without the binding does).
     "payroll-digipoort",
+    // WeldHost: buying and renewing domains charge through Stripe, which
+    // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
+    // "Stripe is not configured", as the worker without the key does).
+    // Managing, transferring and external domains stay available.
+    "domain-purchase",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

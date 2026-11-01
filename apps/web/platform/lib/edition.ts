@@ -58,6 +58,8 @@ export const EDITION_FEATURES = [
   'helpcenter-custom-domains',
   /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
   'payroll-digipoort',
+  /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
+  'domain-purchase',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

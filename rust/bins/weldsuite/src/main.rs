@@ -52,7 +52,7 @@ commands:
   consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge
+             calendar-replan, flow-file-purge, domain-auto-renew
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit

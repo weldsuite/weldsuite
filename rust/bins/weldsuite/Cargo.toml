@@ -42,6 +42,7 @@ weldsuite-books-domain = { workspace = true }
 weldsuite-books-sales = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-host = { workspace = true }
 weldsuite-hr = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-pass = { workspace = true }

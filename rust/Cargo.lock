@@ -3846,6 +3846,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-flow",
+ "weldsuite-host",
  "weldsuite-hr",
  "weldsuite-kit",
  "weldsuite-know",
@@ -4577,6 +4578,31 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-host"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "http",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
