@@ -14,6 +14,7 @@ import {
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useMeetingRecording, useRecordingAccess, useSessionRecording } from '@/hooks/queries/use-weldmeet-recording-queries';
 import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -313,8 +314,10 @@ export default function MeetingDetailPage() {
   const { can } = usePermissions();
   const canViewRecording = can('weldmeet:recordings:read');
   const canDeleteRecording = can('weldmeet:recordings:delete');
-  // Transcribe / summarize spend credits: sessions:update on top of read.
-  const canUseRecordingAi = canViewRecording && can('weldmeet:sessions:update');
+  // Transcribe / summarize spend credits: sessions:update on top of read. The
+  // Kubernetes editions have no transcript or summary workflow.
+  const canUseRecordingAi =
+    canViewRecording && can('weldmeet:sessions:update') && isFeatureAvailable('meet-transcription');
 
   const { download: downloadRecording } = useDownloadRecording();
   // Playback tokens last an hour: the player asks for a new one before that, or

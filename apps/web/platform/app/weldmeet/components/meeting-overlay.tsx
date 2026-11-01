@@ -48,6 +48,7 @@ import {
   type MeetingPeer,
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { MeetingInvitePicker } from './meeting-invite-picker';
 import { StartRecordingDialog } from './start-recording-dialog';
@@ -201,9 +202,14 @@ function MeetingRoomAdapter() {
   // (or a workspace admin with meetings:scope:all) with sessions:update may
   // choose them; the API enforces the same rule. Fully qualified keys because
   // this view also renders as an overlay outside the WeldMeet module.
+  // The Kubernetes editions have neither the recorder nor the transcript and
+  // summary workflows (`meet-recordings`, `meet-transcription`).
   const { can } = usePermissions();
+  const recordingsAvailable = isFeatureAvailable('meet-recordings');
   const canSetAiOptions =
-    (isOrganizer || can('weldmeet:meetings:scope:all')) && can('weldmeet:sessions:update');
+    isFeatureAvailable('meet-transcription') &&
+    (isOrganizer || can('weldmeet:meetings:scope:all')) &&
+    can('weldmeet:sessions:update');
   const { data: recordingInfo } = useSessionRecording(activeSessionId, { poll: false });
   const [startDialogOpen, setStartDialogOpen] = useState(false);
   // Set once the host has seen the start dialog, so the auto-record prompt never
@@ -754,10 +760,11 @@ function MeetingRoomAdapter() {
       // showControlBarRecording={false}.
       isRecording={isRecording}
       recordingState={recordingState}
-      startRecording={handleRecordRequest}
-      stopRecording={stopRecording}
-      pauseRecording={pauseRecording}
-      resumeRecording={resumeRecording}
+      // Without them the Record tool is left out.
+      startRecording={recordingsAvailable ? handleRecordRequest : undefined}
+      stopRecording={recordingsAvailable ? stopRecording : undefined}
+      pauseRecording={recordingsAvailable ? pauseRecording : undefined}
+      resumeRecording={recordingsAvailable ? resumeRecording : undefined}
       showControlBarRecording={false}
       recordingStartElapsedSeconds={recordingStartElapsedSeconds}
       recordingLabels={recordingLabels}

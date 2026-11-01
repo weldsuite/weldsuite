@@ -58,6 +58,10 @@ export const EDITION_FEATURES = [
   'helpcenter-custom-domains',
   /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
   'payroll-digipoort',
+  /** WeldMeet transcripts and AI summaries (the MEETING_AI Workflow and RealtimeKit's own AI). */
+  'meet-transcription',
+  /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
+  'meet-recordings',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

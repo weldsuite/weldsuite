@@ -378,7 +378,7 @@
       "/api/webhooks/cloudflare-realtime",
       "/public/meeting-recordings"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "meet-api"
   },
   {
