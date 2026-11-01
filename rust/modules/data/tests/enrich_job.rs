@@ -53,10 +53,10 @@ impl DynOutboundHttp for Findymail {
         } else {
             json!({ "contact": null })
         };
-        Box::pin(std::future::ready(Ok(HttpResponse {
-            status: 200,
-            body: answer.to_string().into_bytes(),
-        })))
+        Box::pin(std::future::ready(Ok(HttpResponse::new(
+            200,
+            answer.to_string().into_bytes(),
+        ))))
     }
 }
 
