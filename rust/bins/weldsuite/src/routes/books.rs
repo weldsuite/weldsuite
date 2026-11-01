@@ -47,8 +47,9 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     let mut routers = Vec::new();
     // The ledger (foundation).
     routers.extend(weldsuite_books::routers(&books, gate));
-    // The other areas: one line each, e.g.
-    // routers.extend(weldsuite_books_sales::routers(&books, gate));
+    // The other areas: one line each.
+    routers.extend(weldsuite_books_banking::routers(&books, gate));
+    routers.extend(weldsuite_books_purchases::routers(&books, gate));
     routers.extend(weldsuite_books_sales::routers(&books, gate));
     routers.extend(weldsuite_books_reports::routers(&books, gate));
     // Every books request marks its workspace for the daily sweep (books-api's
@@ -197,9 +198,22 @@ pub(crate) async fn sweep_tenant(
 }
 
 /// books-api's routes outside the session (`/public/w9`,
-/// `/public/fiscal-webhooks`), at their full paths. None ported yet.
-pub(crate) fn public(_state: &AppState) -> Router<AppState> {
-    Router::new()
+/// `/public/fiscal-webhooks`), at their full paths. Conformance builds open
+/// the test's tenant database for every workspace.
+pub(crate) fn public(state: &AppState) -> Router<AppState> {
+    if !super::mounts("books") {
+        return Router::new();
+    }
+    let books = books_state(state);
+    // The W-9 form (purchases).
+    let router: Router<AppState> =
+        weldsuite_books_purchases::public_router(&books, Some(Arc::clone(&state.workspaces)));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
 }
 
 /// WeldBooks' handle on the app: events, files, the master database,
