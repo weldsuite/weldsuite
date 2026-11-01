@@ -19,13 +19,16 @@ use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_commerce_domain::portal_tokens::{
-    PortalChallenge, PortalKv, commerce_portal_origin, random_otp, random_token, sha256_hex, store_challenge,
+    PortalChallenge, PortalKv, commerce_portal_origin, random_otp, random_token, sha256_hex,
+    store_challenge,
 };
 use weldsuite_commerce_domain::rate_limit::{
     RATE_LIMIT_MAX, RATE_LIMIT_TTL_SECONDS, RateLimitCounters, RateLimitOutcome, consume_rate_limit,
 };
 use weldsuite_emails::portal::{PortalSignIn, sign_in};
-use weldsuite_emails::{EmailBrand, EmailLocale, SYSTEM_FROM_ADDRESS, SystemEmail, send_system_email};
+use weldsuite_emails::{
+    EmailBrand, EmailLocale, SYSTEM_FROM_ADDRESS, SystemEmail, send_system_email,
+};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_mail_domain::outbound::mime::MailAddress;
@@ -42,7 +45,9 @@ use crate::{Caller, CommerceState, Overrides, Refusal, all, now, validate};
 // ---------------------------------------------------------------------------
 
 /// `loadPortalSettings(db)`: the live settings row, as Drizzle returns it.
-pub(crate) async fn load_portal_settings(db: &PgPool) -> Result<Option<Map<String, Value>>, sqlx::Error> {
+pub(crate) async fn load_portal_settings(
+    db: &PgPool,
+) -> Result<Option<Map<String, Value>>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         row_of!(commerce_portal_settings),
@@ -50,10 +55,12 @@ pub(crate) async fn load_portal_settings(db: &PgPool) -> Result<Option<Map<Strin
     ))
     .fetch_optional(db)
     .await?;
-    Ok(row.and_then(|row| match tables::COMMERCE_PORTAL_SETTINGS.js(row) {
-        Value::Object(map) => Some(map),
-        _ => None,
-    }))
+    Ok(
+        row.and_then(|row| match tables::COMMERCE_PORTAL_SETTINGS.js(row) {
+            Value::Object(map) => Some(map),
+            _ => None,
+        }),
+    )
 }
 
 /// `isPortalEnabled(settings)`: `isEnabled === 1`.
@@ -62,7 +69,10 @@ pub(crate) fn is_portal_enabled(settings: Option<&Map<String, Value>>) -> bool {
 }
 
 /// `findCompanyParty(db, companyId)`: the company's live party, its id.
-pub(crate) async fn find_company_party(db: &PgPool, company_id: &str) -> Result<Option<String>, sqlx::Error> {
+pub(crate) async fn find_company_party(
+    db: &PgPool,
+    company_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
         "select id from parties where company_id = $1 and kind = 'company' and deleted_at is null limit 1",
     )
@@ -96,7 +106,11 @@ pub(crate) enum PortalMail {
 impl PortalMail {
     pub(crate) fn of(overrides: &Overrides, state: &CommerceState) -> Self {
         if let Some(outbound) = &overrides.outbound {
-            return outbound.0.transport.clone().map_or(Self::None, Self::Transport);
+            return outbound
+                .0
+                .transport
+                .clone()
+                .map_or(Self::None, Self::Transport);
         }
         state.mail.clone().map_or(Self::None, Self::System)
     }
@@ -202,7 +216,10 @@ pub(crate) async fn send_magic_link(
         PortalMail::System(system) => {
             let mut email = SystemEmail::to(rendered, brand, &recipient);
             email.from_name = Some(from_name);
-            send_system_email(system.as_ref(), email).await.map(|_| ()).map_err(|e| e.to_string())
+            send_system_email(system.as_ref(), email)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
         }
         PortalMail::Transport(transport) => {
             if recipient.is_empty() {
@@ -224,7 +241,10 @@ pub(crate) async fn send_magic_link(
                     headers: Vec::new(),
                     attachments: Vec::new(),
                 };
-                send_email(transport.as_ref(), &params).await.map(|_| ()).map_err(|e| e.to_string())
+                send_email(transport.as_ref(), &params)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
             }
         }
         PortalMail::None => return false,
@@ -239,7 +259,11 @@ pub(crate) async fn send_magic_link(
 }
 
 /// A new sign-in challenge for `email` (its link token and code, hashed).
-pub(crate) fn new_challenge(workspace_id: &str, email: &str, access_ids: Vec<String>) -> (PortalChallenge, String, String) {
+pub(crate) fn new_challenge(
+    workspace_id: &str,
+    email: &str,
+    access_ids: Vec<String>,
+) -> (PortalChallenge, String, String) {
     let token = random_token(32);
     let otp = random_otp();
     let challenge = PortalChallenge {
@@ -265,7 +289,10 @@ where
     let update = || gate.require([perm::COMPANIES_UPDATE]);
     Router::new()
         .route("/settings", get(get_settings).route_layer(read()))
-        .route("/settings", axum::routing::patch(patch_settings).route_layer(update()))
+        .route(
+            "/settings",
+            axum::routing::patch(patch_settings).route_layer(update()),
+        )
         .route("/access", get(list_access).route_layer(read()))
         .route("/access/invite", post(invite).route_layer(update()))
         .route("/access/{id}/revoke", post(revoke).route_layer(update()))
@@ -279,7 +306,9 @@ async fn workspace_slug(caller: &Caller, state: &CommerceState) -> Option<String
         return None;
     }
     let Some(master) = caller.overrides.master(state) else {
-        tracing::warn!("[app-api/commerce-portal] workspace slug lookup failed: no master database");
+        tracing::warn!(
+            "[app-api/commerce-portal] workspace slug lookup failed: no master database"
+        );
         return None;
     };
     let row: Result<Option<Option<String>>, sqlx::Error> =
@@ -299,15 +328,23 @@ async fn workspace_slug(caller: &Caller, state: &CommerceState) -> Option<String
 /// `${commercePortalOrigin(env)}/${encodeURIComponent(slug)}`.
 fn portal_url(caller: &Caller, state: &CommerceState, slug: Option<&str>) -> Value {
     let origin = commerce_portal_origin(
-        caller.overrides.env(state, "COMMERCE_PORTAL_URL").as_deref(),
+        caller
+            .overrides
+            .env(state, "COMMERCE_PORTAL_URL")
+            .as_deref(),
         caller.overrides.env(state, "ENVIRONMENT").as_deref(),
     );
-    slug.filter(|s| !s.is_empty())
-        .map_or(Value::Null, |slug| json!(format!("{origin}/{}", encode_uri_component(slug))))
+    slug.filter(|s| !s.is_empty()).map_or(Value::Null, |slug| {
+        json!(format!("{origin}/{}", encode_uri_component(slug)))
+    })
 }
 
 /// `settingsPayload(row, { portalUrl, workspaceSlug })`.
-fn settings_payload(row: Option<&Map<String, Value>>, portal_url: Value, slug: Option<String>) -> Value {
+fn settings_payload(
+    row: Option<&Map<String, Value>>,
+    portal_url: &Value,
+    slug: Option<&str>,
+) -> Value {
     let field = |key: &str| row.and_then(|r| r.get(key)).cloned().unwrap_or(Value::Null);
     json!({
         "id": field("id"),
@@ -329,18 +366,34 @@ async fn get_settings(State(state): State<CommerceState>, caller: Caller) -> Res
     };
     let slug = workspace_slug(&caller, &state).await;
     let url = portal_url(&caller, &state, slug.as_deref());
-    Data(settings_payload(row.as_ref(), url, slug)).into_response()
+    Data(settings_payload(row.as_ref(), &url, slug.as_deref())).into_response()
 }
 
 /// `updateCommercePortalSettingsSchema`: the fields the body sets (a
 /// `null` clears one).
 fn read_settings(issues: &mut Issues, fields: &Map<String, Value>) -> Map<String, Value> {
     issues.boolean(fields, "isEnabled", Presence::Optional);
-    for (key, max) in [("displayName", 255), ("logo", 500), ("primaryColor", 20), ("accentColor", 20)] {
-        issues.text_with(fields, key, Presence::Nullish, Text::length(None, Some(max)));
+    for (key, max) in [
+        ("displayName", 255),
+        ("logo", 500),
+        ("primaryColor", 20),
+        ("accentColor", 20),
+    ] {
+        issues.text_with(
+            fields,
+            key,
+            Presence::Nullish,
+            Text::length(None, Some(max)),
+        );
     }
     let mut body = Map::new();
-    for key in ["isEnabled", "displayName", "logo", "primaryColor", "accentColor"] {
+    for key in [
+        "isEnabled",
+        "displayName",
+        "logo",
+        "primaryColor",
+        "accentColor",
+    ] {
         if let Some(value) = fields.get(key) {
             body.insert(key.to_owned(), value.clone());
         }
@@ -348,7 +401,10 @@ fn read_settings(issues: &mut Issues, fields: &Map<String, Value>) -> Map<String
     body
 }
 
-async fn find_settings_by_id(db: &PgPool, id: &str) -> Result<Option<Map<String, Value>>, sqlx::Error> {
+async fn find_settings_by_id(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<Map<String, Value>>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         row_of!(commerce_portal_settings),
@@ -357,13 +413,20 @@ async fn find_settings_by_id(db: &PgPool, id: &str) -> Result<Option<Map<String,
     .bind(id)
     .fetch_optional(db)
     .await?;
-    Ok(row.and_then(|row| match tables::COMMERCE_PORTAL_SETTINGS.js(row) {
-        Value::Object(map) => Some(map),
-        _ => None,
-    }))
+    Ok(
+        row.and_then(|row| match tables::COMMERCE_PORTAL_SETTINGS.js(row) {
+            Value::Object(map) => Some(map),
+            _ => None,
+        }),
+    )
 }
 
-async fn patch_settings(State(state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn patch_settings(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to update portal settings";
     let body = match validate(&headers, &body, read_settings) {
         Ok(body) => body,
@@ -373,9 +436,15 @@ async fn patch_settings(State(state): State<CommerceState>, caller: Caller, head
     let t = &tables::COMMERCE_PORTAL_SETTINGS;
     let enabled = |value: Option<&Value>| json!(i32::from(value == Some(&Value::Bool(true))));
     let written = async {
-        let existing = load_portal_settings(&caller.db).await.map_err(crate::table::WriteError::Database)?;
+        let existing = load_portal_settings(&caller.db)
+            .await
+            .map_err(crate::table::WriteError::Database)?;
         if let Some(existing) = existing {
-            let id = existing.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let id = existing
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             let mut values = Map::new();
             t.set(&mut values, "updatedAt", json!(now));
             if body.contains_key("isEnabled") {
@@ -386,7 +455,8 @@ async fn patch_settings(State(state): State<CommerceState>, caller: Caller, head
                     t.set(&mut values, key, value.clone());
                 }
             }
-            t.patch(&caller.db, &id, values, false, &["updatedAt"]).await?;
+            t.patch(&caller.db, &id, values, false, &["updatedAt"])
+                .await?;
             return find_settings_by_id(&caller.db, &id)
                 .await
                 .map_err(crate::table::WriteError::Database);
@@ -403,7 +473,8 @@ async fn patch_settings(State(state): State<CommerceState>, caller: Caller, head
                 t.set(&mut values, key, value.clone());
             }
         }
-        t.insert(&caller.db, values, &["createdAt", "updatedAt"]).await?;
+        t.insert(&caller.db, values, &["createdAt", "updatedAt"])
+            .await?;
         find_settings_by_id(&caller.db, &id)
             .await
             .map_err(crate::table::WriteError::Database)
@@ -415,12 +486,17 @@ async fn patch_settings(State(state): State<CommerceState>, caller: Caller, head
     };
     let slug = workspace_slug(&caller, &state).await;
     let url = portal_url(&caller, &state, slug.as_deref());
-    Data(settings_payload(row.as_ref(), url, slug)).into_response()
+    Data(settings_payload(row.as_ref(), &url, slug.as_deref())).into_response()
 }
 
-async fn list_access(State(_state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn list_access(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to list portal access";
-    let Some(company_id) = query_param(query.as_deref(), "companyId").filter(|c| !c.is_empty()) else {
+    let Some(company_id) = query_param(query.as_deref(), "companyId").filter(|c| !c.is_empty())
+    else {
         return ApiError::bad_request("companyId is required").into_response();
     };
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
@@ -432,13 +508,19 @@ async fn list_access(State(_state): State<CommerceState>, caller: Caller, RawQue
     .fetch_all(&caller.db)
     .await;
     match rows {
-        Ok(rows) => all(rows.into_iter().map(|row| tables::COMMERCE_PORTAL_ACCESS.js(row)).collect()),
+        Ok(rows) => all(rows
+            .into_iter()
+            .map(|row| tables::COMMERCE_PORTAL_ACCESS.js(row))
+            .collect()),
         Err(error) => Refusal::Database(error).respond(FAILED),
     }
 }
 
 /// An access row by id, as Drizzle returns it.
-pub(crate) async fn find_access(db: &PgPool, id: &str) -> Result<Option<Map<String, Value>>, sqlx::Error> {
+pub(crate) async fn find_access(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<Map<String, Value>>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         row_of!(commerce_portal_access),
@@ -447,10 +529,12 @@ pub(crate) async fn find_access(db: &PgPool, id: &str) -> Result<Option<Map<Stri
     .bind(id)
     .fetch_optional(db)
     .await?;
-    Ok(row.and_then(|row| match tables::COMMERCE_PORTAL_ACCESS.js(row) {
-        Value::Object(map) => Some(map),
-        _ => None,
-    }))
+    Ok(
+        row.and_then(|row| match tables::COMMERCE_PORTAL_ACCESS.js(row) {
+            Value::Object(map) => Some(map),
+            _ => None,
+        }),
+    )
 }
 
 /// `issueChallengeAndEmail(opts)`: staff-triggered, so a refused or
@@ -486,8 +570,18 @@ async fn issue_challenge_and_email(
 
 /// `inviteCommercePortalAccessSchema`.
 fn read_invite(issues: &mut Issues, fields: &Map<String, Value>) -> (String, String) {
-    let person = issues.text_with(fields, "personId", Presence::Required, Text::length(Some(1), None));
-    let company = issues.text_with(fields, "companyId", Presence::Required, Text::length(Some(1), None));
+    let person = issues.text_with(
+        fields,
+        "personId",
+        Presence::Required,
+        Text::length(Some(1), None),
+    );
+    let company = issues.text_with(
+        fields,
+        "companyId",
+        Presence::Required,
+        Text::length(Some(1), None),
+    );
     (
         person.into_option().unwrap_or_default(),
         company.into_option().unwrap_or_default(),
@@ -524,7 +618,12 @@ impl Failure {
     }
 }
 
-async fn invite(State(state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn invite(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to invite portal user";
     let (person_id, company_id) = match validate(&headers, &body, read_invite) {
         Ok(read) => read,
@@ -536,7 +635,13 @@ async fn invite(State(state): State<CommerceState>, caller: Caller, headers: Hea
     }
 }
 
-async fn invite_access(state: &CommerceState, caller: &Caller, person_id: &str, company_id: &str) -> Result<Response, Failure> {
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
+async fn invite_access(
+    state: &CommerceState,
+    caller: &Caller,
+    person_id: &str,
+    company_id: &str,
+) -> Result<Response, Failure> {
     let db = &caller.db;
     let person: Option<Option<String>> =
         sqlx::query_scalar("select email from people where id = $1 and deleted_at is null limit 1")
@@ -552,11 +657,12 @@ async fn invite_access(state: &CommerceState, caller: &Caller, person_id: &str, 
     let Some(email) = email else {
         return Err(Refusal::bad_request("Person must have an email address").into());
     };
-    let company: Option<Option<String>> =
-        sqlx::query_scalar("select display_name from companies where id = $1 and deleted_at is null limit 1")
-            .bind(company_id)
-            .fetch_optional(db)
-            .await?;
+    let company: Option<Option<String>> = sqlx::query_scalar(
+        "select display_name from companies where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(company_id)
+    .fetch_optional(db)
+    .await?;
     let Some(company_name) = company else {
         return Err(Refusal::not_found("Company", company_id).into());
     };
@@ -588,7 +694,11 @@ async fn invite_access(state: &CommerceState, caller: &Caller, person_id: &str, 
              invited_at = $4::timestamp, updated_at = $4::timestamp where id = $5",
         )
         .bind(&email)
-        .bind(if status == "active" { "active" } else { "invited" })
+        .bind(if status == "active" {
+            "active"
+        } else {
+            "invited"
+        })
         .bind(&caller.user_id)
         .bind(&now)
         .bind(id)
@@ -639,7 +749,11 @@ async fn invite_access(state: &CommerceState, caller: &Caller, person_id: &str, 
     })
 }
 
-async fn revoke(State(_state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn revoke(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to revoke portal access";
     let run = async {
         if find_access(&caller.db, &id).await?.is_none() {
@@ -658,13 +772,23 @@ async fn revoke(State(_state): State<CommerceState>, caller: Caller, Path(id): P
     }
 }
 
-async fn resend(State(state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn resend(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to resend invite";
     let run = async {
         let Some(existing) = find_access(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Portal access", &id).into());
         };
-        let text = |key: &str| existing.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let text = |key: &str| {
+            existing
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
         if text("status") == "revoked" {
             return Err(Refusal::bad_request("Access is revoked").into());
         }

@@ -1912,7 +1912,12 @@
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
         "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
       ],
-      "excludedRoutes": []
+      "excludedRoutes": [
+        {
+          "route": "POST /webhooks/woocommerce/auth",
+          "reason": "WooCommerce's app-auth callback completes a WeldConnect authorisation (POST /api/connectors/authorize, the connector D1 index, webhook registration and the first sync), which the Kubernetes editions do not serve until WeldConnect is ported; the Rust backend does not mount it."
+        }
+      ]
     },
     {
       "name": "commerce: portal",

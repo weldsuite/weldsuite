@@ -250,15 +250,23 @@ mod tests {
             attempts: 0,
         };
         store_challenge(&kv, &challenge, "A@B.c").await.expect("ok");
-        let stored: Option<PortalChallenge> = kv_get_json(&kv, "cportal:otp:ws:a@b.c").await.expect("ok");
+        let stored: Option<PortalChallenge> =
+            kv_get_json(&kv, "cportal:otp:ws:a@b.c").await.expect("ok");
         assert_eq!(stored, Some(challenge.clone()));
-        let text = kv.as_ref().expect("ok").get_boxed("cportal:otp:ws:a@b.c").await.expect("ok").expect("ok");
+        let text = kv
+            .as_ref()
+            .expect("ok")
+            .get_boxed("cportal:otp:ws:a@b.c")
+            .await
+            .expect("ok")
+            .expect("ok");
         assert_eq!(
             text,
             r#"{"tokenHash":"t","otpHash":"o","email":"a@b.c","workspaceId":"ws","accessIds":["cpa_1"],"attempts":0}"#
         );
         delete_challenge(&kv, &challenge).await.expect("ok");
-        let gone: Option<PortalChallenge> = kv_get_json(&kv, "cportal:otp:ws:a@b.c").await.expect("ok");
+        let gone: Option<PortalChallenge> =
+            kv_get_json(&kv, "cportal:otp:ws:a@b.c").await.expect("ok");
         assert!(gone.is_none());
         let index: Option<TokenIndex> = kv_get_json(&kv, "cportal:tok:t").await.expect("ok");
         assert!(index.is_none());

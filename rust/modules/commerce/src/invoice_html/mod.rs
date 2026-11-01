@@ -24,7 +24,8 @@ pub(crate) async fn portal_invoice_document(
     invoice_id: &str,
     party_id: &str,
 ) -> Result<InvoiceDocument, sqlx::Error> {
-    let Some(invoice) = crate::portal_public::load_portal_invoice(db, invoice_id, party_id).await? else {
+    let Some(invoice) = crate::portal_public::load_portal_invoice(db, invoice_id, party_id).await?
+    else {
         return Ok(InvoiceDocument::NotFound);
     };
     let entity_id = invoice

@@ -216,7 +216,9 @@ fn commerce_public(state: &AppState) -> Router<AppState> {
     let portal = weldsuite_commerce::public_router(commerce_state(state));
     #[cfg(feature = "conformance")]
     let portal = portal
-        .layer(axum::middleware::from_fn(crate::conformance::public_session))
+        .layer(axum::middleware::from_fn(
+            crate::conformance::public_session,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state.conformance_pools),
             crate::conformance::public_tenant,

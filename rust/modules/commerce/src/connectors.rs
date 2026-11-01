@@ -448,7 +448,7 @@ impl Woo {
                 .map(|u| u.to_string())
                 .unwrap_or(location);
             if response.status == 303 {
-                request.method = "GET".to_owned();
+                "GET".clone_into(&mut request.method);
                 request.body = None;
             }
             request.url = next;
@@ -488,6 +488,7 @@ impl Woo {
     }
 
     /// `requestWithRetries`.
+    #[allow(clippy::too_many_arguments)] // one request's parts, as the TypeScript helper takes them
     async fn with_retries(
         &self,
         http: Option<&OutboundHttp>,

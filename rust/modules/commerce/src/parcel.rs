@@ -739,7 +739,7 @@ async fn put_settings(
             .insert(&caller.db, values, &["createdAt", "updatedAt"])
             .await
         {
-            Ok(_) => Ok(Default::default()),
+            Ok(_) => Ok(sqlx::postgres::PgQueryResult::default()),
             Err(error) => {
                 tracing::error!(%error, "[commerce-api/parcel-settings] {FAILED}");
                 return ApiError::internal().with_message(FAILED).into_response();

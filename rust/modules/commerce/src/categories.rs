@@ -394,6 +394,7 @@ struct CursorKeys {
 }
 
 async fn cursor_keys(caller: &Caller, cursor: &str) -> Result<Option<CursorKeys>, sqlx::Error> {
+    #[allow(clippy::type_complexity)] // the category's columns
     let row: Option<(String, Option<i32>, String, Option<String>, Option<String>)> = sqlx::query_as(
         "select id, sales_count, name, price::text, to_jsonb(created_at)#>>'{}' from products where id = $1 limit 1",
     )
@@ -791,12 +792,11 @@ fn build_tree(rows: &[Value], root: Option<&str>) -> Value {
             parent,
             children: Vec::new(),
         };
-        match index.get(&id) {
-            Some(at) => nodes[*at] = node,
-            None => {
-                index.insert(id, nodes.len());
-                nodes.push(node);
-            }
+        if let Some(at) = index.get(&id) {
+            nodes[*at] = node;
+        } else {
+            index.insert(id, nodes.len());
+            nodes.push(node);
         }
     }
     let mut roots = Vec::new();
@@ -1250,7 +1250,7 @@ async fn create_category(
 fn write_error(error: crate::table::WriteError) -> Failure {
     match error {
         crate::table::WriteError::Database(error) => Failure::Refusal(Refusal::Database(error)),
-        other => {
+        other @ crate::table::WriteError::NotADate(_) => {
             tracing::error!(error = %other, "[commerce-api/categories] write refused");
             Failure::Refusal(Refusal::Response(Box::new(
                 ApiError::internal().into_response(),

@@ -608,6 +608,7 @@ async fn create_order(
     Created(written(&id, tax.as_ref(), None)).into_response()
 }
 
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
 async fn update_order(
     State(state): State<CommerceState>,
     caller: Caller,

@@ -291,6 +291,7 @@ async fn with_transactions(
     .into_response()
 }
 
+#[allow(clippy::struct_field_names)] // `page`, `pageSize`, as the query names them
 struct Page {
     page: f64,
     page_size: f64,
@@ -511,6 +512,7 @@ async fn deduct(
 }
 
 /// A credit (`/credits`, creating a missing wallet) or a debit (`/deduct`).
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
 async fn apply(
     state: &CommerceState,
     caller: &Caller,

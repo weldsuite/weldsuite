@@ -213,6 +213,7 @@ impl LineTax {
 
 /// `OrderSalesTaxCalculated`.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // `calculatedAt`, as the API names it
 pub(crate) struct Calculated {
     entity_id: String,
     engine: String,
@@ -485,6 +486,7 @@ struct Totals {
 }
 
 /// `calculateOrderSalesTax(db, env, input)`.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub(crate) async fn calculate_order_sales_tax(
     db: &PgPool,
     keyring: &weldsuite_db::Keyring,
@@ -660,9 +662,10 @@ pub(crate) async fn calculate_order_sales_tax(
                 d.code,
                 number_text(d.rate)
             );
-            let entry = match totals.iter_mut().find(|(k, _)| *k == key) {
-                Some((_, entry)) => entry,
-                None => {
+            let at = if let Some(at) = totals.iter().position(|(k, _)| *k == key) {
+                at
+            } else {
+                {
                     totals.push((
                         key,
                         Totals {
@@ -675,9 +678,10 @@ pub(crate) async fn calculate_order_sales_tax(
                             tax_cents: 0,
                         },
                     ));
-                    &mut totals.last_mut().expect("just pushed").1
                 }
+                totals.len() - 1
             };
+            let entry = &mut totals[at].1;
             entry.taxable_cents += to_cents(d.taxable_amount);
             entry.tax_cents += to_cents(d.tax);
         }
@@ -784,6 +788,7 @@ pub(crate) async fn load_order_tax_items<'e>(
     db: impl sqlx::PgExecutor<'e>,
     order_id: &str,
 ) -> Result<Vec<TaxItem>, sqlx::Error> {
+    #[allow(clippy::type_complexity)] // the item's columns
     let rows: Vec<(String, Option<String>, Option<i32>, Option<String>, Option<String>, Option<String>)> =
         sqlx::query_as(
             "select id, product_id, quantity, unit_price::text, discount_amount::text, tax_amount::text \

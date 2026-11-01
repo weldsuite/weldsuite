@@ -47,10 +47,9 @@ fn clean(value: Option<&Value>) -> Option<String> {
 /// shape (legacy `street` + `houseNumber`, `province`), or `None` when it
 /// holds nothing.
 pub(crate) fn normalize_postal_address(input: Option<&Value>) -> Option<Address> {
-    let raw = match input {
-        Some(Value::Object(raw)) => raw,
-        // An array is an object to `typeof`; it has none of the fields.
-        _ => return None,
+    // An array is an object to `typeof`; it has none of the fields.
+    let Some(Value::Object(raw)) = input else {
+        return None;
     };
     let street = clean(raw.get("street"));
     let house_number = clean(raw.get("houseNumber"));
@@ -359,6 +358,7 @@ pub(crate) enum Side {
 
 /// `SourcingDecision`.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // `sourcing`, as the result names it
 pub(crate) struct Sourcing {
     pub(crate) sourcing: &'static str,
     pub(crate) taxing_state: String,
@@ -591,7 +591,7 @@ fn rule_applies(rule: &CertificateRule, cert: &Certificate) -> bool {
     {
         return false;
     }
-    !(rule.blanket_only && !cert.blanket)
+    !rule.blanket_only || cert.blanket
 }
 
 /// `certificateExpiry(cert, stateCode)`.
@@ -804,6 +804,7 @@ type RuleRow = (
 );
 
 /// The manual engine's rows of an entity (`buildManualEngineData`).
+#[allow(clippy::too_many_lines)] // four tables into the engine's data
 async fn load_manual(db: &PgPool, entity_id: &str) -> Result<manual::Data, sqlx::Error> {
     let jurisdictions: Vec<JurisdictionRow> = sqlx::query_as(
         "select id, agency_id, state_code, level, code, name from sales_tax_jurisdictions \
@@ -819,6 +820,7 @@ async fn load_manual(db: &PgPool, entity_id: &str) -> Result<manual::Data, sqlx:
     .bind(entity_id)
     .fetch_all(db)
     .await?;
+    #[allow(clippy::type_complexity)] // the zone's columns
     let zones: Vec<(String, Option<Value>, Option<Value>, bool, i32)> = sqlx::query_as(
         "select agency_id, jurisdiction_ids, postal_codes, is_origin, priority \
          from sales_tax_zones where entity_id = $1 and deleted_at is null",

@@ -22,6 +22,7 @@ fn level_rank(level: &str) -> usize {
 
 /// A rate and when it applies.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // `rate`, as the data names it
 pub(crate) struct Rate {
     pub(crate) rate: f64,
     pub(crate) effective_from: String,
@@ -248,6 +249,7 @@ impl Engine {
     }
 
     /// `engine.calculate(req)`; `calculated_at` is `now().toISOString()`.
+    #[allow(clippy::too_many_lines)] // the TypeScript function, step by step
     pub(crate) fn calculate(&self, req: &TaxRequest, calculated_at: String) -> TaxResult {
         let date = iso_day(&req.document_date);
         let Some(decision) = decide_sourcing(req.ship_from.as_ref(), req.ship_to.as_ref()) else {

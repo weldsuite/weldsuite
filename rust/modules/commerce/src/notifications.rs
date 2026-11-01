@@ -39,6 +39,7 @@ struct Kind {
     noun: &'static str,
     list_sql: &'static str,
     count_sql: &'static str,
+    #[allow(clippy::type_complexity)] // the body schema's reader
     schema: fn(&mut Issues, &Map<String, Value>, bool) -> Map<String, Value>,
 }
 
@@ -388,9 +389,7 @@ fn whatsapp_schema(
     p.text(issues, "mediaUrl", OPT, Text::default());
     // `z.array(z.object({ type, text, url?, phoneNumber? }))`: items stripped.
     let buttons = issues.list(fields, "buttons", OPT, None, None, |issues, item| {
-        let Some(button) = issues.object(item) else {
-            return None;
-        };
+        let button = issues.object(item)?;
         let before = issues.count();
         let mut out = Map::new();
         if let Some(kind) = issues
@@ -707,6 +706,7 @@ async fn remove(
 }
 
 /// The live row exists, then `set({ deletedAt, updatedAt })` on it.
+#[allow(clippy::result_large_err)] // the response is the route's answer
 async fn soft_delete(
     table: &Table,
     resource: &str,

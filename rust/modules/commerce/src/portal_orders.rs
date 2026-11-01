@@ -27,37 +27,78 @@ struct Line {
     quantity: f64,
 }
 
-const ADDRESS_FIELDS: [&str; 8] = ["line1", "line2", "city", "state", "postalCode", "country", "name", "phone"];
+const ADDRESS_FIELDS: [&str; 8] = [
+    "line1",
+    "line2",
+    "city",
+    "state",
+    "postalCode",
+    "country",
+    "name",
+    "phone",
+];
 
 pub(crate) fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> PlaceInput {
-    let items = issues.list(fields, "items", Presence::Required, Some(1), Some(200), |issues, item| {
-        let line = issues.object(item)?;
-        let before = issues.count();
-        let product_id = issues.text_with(line, "productId", Presence::Required, Text::length(Some(1), None));
-        let variant_id = issues.text_with(line, "variantId", Presence::Optional, Text::length(Some(1), None));
-        let quantity = positive_int(issues, line, "quantity", Some(10_000.0));
-        if issues.count() > before {
-            return None;
-        }
-        Some(Line {
-            product_id: product_id.into_option()?,
-            variant_id: variant_id.into_option(),
-            quantity: quantity?,
-        })
-    });
-    let customer_note = issues.text_with(fields, "customerNote", Presence::Optional, Text::length(None, Some(4000)));
-    let po = issues.text_with(fields, "purchaseOrderNumber", Presence::Optional, Text::length(None, Some(100)));
-    let shipping_address = issues
-        .nested(fields, "shippingAddress", Presence::Optional, |issues, address| {
-            let mut kept = Map::new();
-            for key in ADDRESS_FIELDS {
-                issues.text_with(address, key, Presence::Optional, Text::default());
-                if let Some(value) = address.get(key) {
-                    kept.insert(key.to_owned(), value.clone());
-                }
+    let items = issues.list(
+        fields,
+        "items",
+        Presence::Required,
+        Some(1),
+        Some(200),
+        |issues, item| {
+            let line = issues.object(item)?;
+            let before = issues.count();
+            let product_id = issues.text_with(
+                line,
+                "productId",
+                Presence::Required,
+                Text::length(Some(1), None),
+            );
+            let variant_id = issues.text_with(
+                line,
+                "variantId",
+                Presence::Optional,
+                Text::length(Some(1), None),
+            );
+            let quantity = positive_int(issues, line, "quantity", Some(10_000.0));
+            if issues.count() > before {
+                return None;
             }
-            Value::Object(kept)
-        })
+            Some(Line {
+                product_id: product_id.into_option()?,
+                variant_id: variant_id.into_option(),
+                quantity: quantity?,
+            })
+        },
+    );
+    let customer_note = issues.text_with(
+        fields,
+        "customerNote",
+        Presence::Optional,
+        Text::length(None, Some(4000)),
+    );
+    let po = issues.text_with(
+        fields,
+        "purchaseOrderNumber",
+        Presence::Optional,
+        Text::length(None, Some(100)),
+    );
+    let shipping_address = issues
+        .nested(
+            fields,
+            "shippingAddress",
+            Presence::Optional,
+            |issues, address| {
+                let mut kept = Map::new();
+                for key in ADDRESS_FIELDS {
+                    issues.text_with(address, key, Presence::Optional, Text::default());
+                    if let Some(value) = address.get(key) {
+                        kept.insert(key.to_owned(), value.clone());
+                    }
+                }
+                Value::Object(kept)
+            },
+        )
         .into_option();
     PlaceInput {
         items: items.into_option().unwrap_or_default(),
@@ -120,15 +161,30 @@ fn to_order_address(addr: Option<&Value>) -> Result<Option<Value>, PlaceError> {
     let fields = match addr {
         Value::Object(map) => map.clone(),
         Value::Array(_) => Map::new(),
-        _ => return Err(PlaceError::Failed("Cannot use 'in' operator to search for 'line1'".to_owned())),
+        _ => {
+            return Err(PlaceError::Failed(
+                "Cannot use 'in' operator to search for 'line1'".to_owned(),
+            ));
+        }
     };
     let mut out = Map::new();
     // `line1 || street`
-    let line1 = fields.get("line1").filter(|v| truthy(v)).or_else(|| fields.get("street"));
+    let line1 = fields
+        .get("line1")
+        .filter(|v| truthy(v))
+        .or_else(|| fields.get("street"));
     if let Some(line1) = line1 {
         out.insert("line1".to_owned(), line1.clone());
     }
-    for key in ["line2", "city", "state", "postalCode", "country", "name", "phone"] {
+    for key in [
+        "line2",
+        "city",
+        "state",
+        "postalCode",
+        "country",
+        "name",
+        "phone",
+    ] {
         if let Some(value) = fields.get(key) {
             out.insert(key.to_owned(), value.clone());
         }
@@ -173,13 +229,31 @@ async fn price_line(db: &PgPool, line: &Line) -> Result<Priced, PlaceError> {
     .bind(&line.product_id)
     .fetch_optional(db)
     .await?;
-    let Some((id, status, visibility, price, sku, name, featured, images, requires_shipping, currency)) = product else {
+    let Some((
+        id,
+        status,
+        visibility,
+        price,
+        sku,
+        name,
+        featured,
+        images,
+        requires_shipping,
+        currency,
+    )) = product
+    else {
         return Err(refused("One or more products are unavailable"));
     };
-    if status != "active" || visibility.as_deref().is_some_and(|v| !v.is_empty() && v != "visible") {
+    if status != "active"
+        || visibility
+            .as_deref()
+            .is_some_and(|v| !v.is_empty() && v != "visible")
+    {
         return Err(refused("One or more products are unavailable"));
     }
-    let mut unit_price = price.as_deref().map_or(0.0, weldsuite_kit::validation::js_number);
+    let mut unit_price = price
+        .as_deref()
+        .map_or(0.0, weldsuite_kit::validation::js_number);
     let mut sku = sku;
     let mut name = name;
     let mut image_url = match featured {
@@ -191,9 +265,10 @@ async fn price_line(db: &PgPool, line: &Line) -> Result<Priced, PlaceError> {
             .cloned()
             .unwrap_or(Value::Null),
     };
-    let mut ships = if requires_shipping == Some(false) { 0 } else { 1 };
+    let mut ships = i32::from(requires_shipping != Some(false));
 
     if let Some(variant_id) = &line.variant_id {
+        #[allow(clippy::type_complexity)] // the variant's columns
         let variant: Option<(String, Option<String>, Option<String>, String, Option<String>, Option<bool>)> =
             sqlx::query_as(
                 "select status, price::text, sku, name, image_url, requires_shipping from product_variants \
@@ -247,11 +322,22 @@ fn order_number() -> String {
     crate::orders::numbered("ORD")
 }
 
-type PartyRow = (Option<String>, Option<String>, Option<bool>, Option<Value>, Option<Value>);
+type PartyRow = (
+    Option<String>,
+    Option<String>,
+    Option<bool>,
+    Option<Value>,
+    Option<Value>,
+);
 
 /// `placePortalOrder(db, params)`: the order row and its items, as Drizzle
 /// returns them.
-pub(crate) async fn place(db: &PgPool, buyer: &Buyer<'_>, input: &PlaceInput) -> Result<(Map<String, Value>, Vec<Value>), PlaceError> {
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+pub(crate) async fn place(
+    db: &PgPool,
+    buyer: &Buyer<'_>,
+    input: &PlaceInput,
+) -> Result<(Map<String, Value>, Vec<Value>), PlaceError> {
     if input.items.is_empty() {
         return Err(refused("At least one line item is required"));
     }
@@ -262,13 +348,17 @@ pub(crate) async fn place(db: &PgPool, buyer: &Buyer<'_>, input: &PlaceInput) ->
     .bind(buyer.party_id)
     .fetch_optional(db)
     .await?;
-    let Some((party_currency, party_name, tax_exempt, party_shipping, party_billing)) = party else {
+    let Some((party_currency, party_name, tax_exempt, party_shipping, party_billing)) = party
+    else {
         return Err(refused("Company has no commercial party record"));
     };
 
     let mut lines = Vec::with_capacity(input.items.len());
     let mut subtotal_num = 0.0;
-    let mut currency = party_currency.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "EUR".to_owned());
+    let mut currency = party_currency
+        .clone()
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "EUR".to_owned());
     for line in &input.items {
         let priced = price_line(db, line).await?;
         if party_currency.as_deref().is_none_or(str::is_empty)
@@ -362,9 +452,8 @@ pub(crate) async fn place(db: &PgPool, buyer: &Buyer<'_>, input: &PlaceInput) ->
     .bind(&order_id)
     .fetch_optional(db)
     .await?;
-    let order = match order.map(|o| tables::ORDERS.js(o)) {
-        Some(Value::Object(order)) => order,
-        _ => return Err(PlaceError::Failed("the order was not stored".to_owned())),
+    let Some(Value::Object(order)) = order.map(|o| tables::ORDERS.js(o)) else {
+        return Err(PlaceError::Failed("the order was not stored".to_owned()));
     };
     let items: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
@@ -374,5 +463,11 @@ pub(crate) async fn place(db: &PgPool, buyer: &Buyer<'_>, input: &PlaceInput) ->
     .bind(&order_id)
     .fetch_all(db)
     .await?;
-    Ok((order, items.into_iter().map(|r| tables::ORDER_ITEMS.js(r)).collect()))
+    Ok((
+        order,
+        items
+            .into_iter()
+            .map(|r| tables::ORDER_ITEMS.js(r))
+            .collect(),
+    ))
 }

@@ -11,6 +11,9 @@
 //! attempts counted per address, per workspace and per challenge), and a
 //! buyer with access to several companies picks one (`/auth/select-company`).
 
+// A refusal is the route's response, returned early from its helpers.
+#![allow(clippy::result_large_err)]
+
 use std::future::Future;
 
 use axum::Json;
@@ -30,14 +33,14 @@ use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_commerce_domain::portal_slug::normalize_portal_slug;
 use weldsuite_commerce_domain::portal_tokens::{
-    MAX_VERIFY_ATTEMPTS, OTP_TTL_SECONDS, PortalChallenge, PortalKv, PortalPicker, PortalSession, SESSION_TTL_SECONDS,
-    TokenIndex, VERIFY_RATE_LIMIT_EMAIL_MAX, VERIFY_RATE_LIMIT_WORKSPACE_MAX, delete_challenge, kv_delete, kv_get_json,
-    kv_put_json, normalize_email, otp_kv_key, picker_kv_key, random_token, session_kv_key, sha256_hex, store_challenge,
-    token_kv_key,
+    MAX_VERIFY_ATTEMPTS, OTP_TTL_SECONDS, PortalChallenge, PortalKv, PortalPicker, PortalSession,
+    SESSION_TTL_SECONDS, TokenIndex, VERIFY_RATE_LIMIT_EMAIL_MAX, VERIFY_RATE_LIMIT_WORKSPACE_MAX,
+    delete_challenge, kv_delete, kv_get_json, kv_put_json, normalize_email, otp_kv_key,
+    picker_kv_key, random_token, session_kv_key, sha256_hex, store_challenge, token_kv_key,
 };
 use weldsuite_commerce_domain::rate_limit::{
-    RATE_LIMIT_MAX, RATE_LIMIT_TTL_SECONDS, REQUEST_RATE_LIMIT_WORKSPACE_MAX, RateLimitOutcome, consume_rate_limit,
-    release_rate_limit,
+    RATE_LIMIT_MAX, RATE_LIMIT_TTL_SECONDS, REQUEST_RATE_LIMIT_WORKSPACE_MAX, RateLimitOutcome,
+    consume_rate_limit, release_rate_limit,
 };
 use weldsuite_db::Tenant;
 use weldsuite_events::{EventContext, publish_entity_event};
@@ -47,8 +50,8 @@ use weldsuite_ports::PortError;
 
 use crate::js::{js_limit, query_param, sql_limit};
 use crate::portal::{
-    PortalBrand, SignInContext, find_company_party, is_portal_enabled, load_portal_settings, new_challenge,
-    send_magic_link,
+    PortalBrand, SignInContext, find_company_party, is_portal_enabled, load_portal_settings,
+    new_challenge, send_magic_link,
 };
 use crate::tables;
 use crate::{CommerceState, Overrides, all, now, validate};
@@ -75,11 +78,17 @@ pub(crate) fn routes() -> Router<CommerceState> {
 }
 
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
-    (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
+    (
+        status,
+        Json(json!({ "error": { "code": code, "message": message } })),
+    )
+        .into_response()
 }
 
 fn unauthorized(message: &str) -> Response {
-    ApiError::unauthorized().with_message(message).into_response()
+    ApiError::unauthorized()
+        .with_message(message)
+        .into_response()
 }
 
 fn internal(message: &str, error: &dyn std::fmt::Display) -> Response {
@@ -104,7 +113,11 @@ const SLUG_TTL_SECONDS: u64 = 300;
 /// Resolves the workspace from the slug, unless the request already has its
 /// tenant (conformance builds put the test's there, as the harness hands
 /// the worker its tenant database).
-pub(crate) async fn resolve_workspace(State(state): State<CommerceState>, mut request: Request, next: Next) -> Response {
+pub(crate) async fn resolve_workspace(
+    State(state): State<CommerceState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     if request.extensions().get::<Tenant>().is_some() {
         return next.run(request).await;
     }
@@ -118,10 +131,18 @@ pub(crate) async fn resolve_workspace(State(state): State<CommerceState>, mut re
     let raw = from_query.or(from_header).unwrap_or_default();
     let raw = weldsuite_kit::validation::js_trim(&raw);
     if raw.is_empty() {
-        return error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Missing workspace slug");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Missing workspace slug",
+        );
     }
     let Some(slug) = normalize_portal_slug(Some(raw)) else {
-        return error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid workspace slug");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Invalid workspace slug",
+        );
     };
     let overrides = Overrides::from_extensions(request.extensions());
     match tenant_of_slug(&state, &overrides, &slug).await {
@@ -132,24 +153,34 @@ pub(crate) async fn resolve_workspace(State(state): State<CommerceState>, mut re
         Ok(None) => error(StatusCode::NOT_FOUND, "NOT_FOUND", "Workspace not found"),
         Err(failure) => {
             tracing::error!(error = %failure, "[commerce-domain/portal-slug] resolution error");
-            error(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Failed to resolve workspace")
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Failed to resolve workspace",
+            )
         }
     }
 }
 
-async fn tenant_of_slug(state: &CommerceState, overrides: &Overrides, slug: &str) -> Result<Option<Tenant>, String> {
+async fn tenant_of_slug(
+    state: &CommerceState,
+    overrides: &Overrides,
+    slug: &str,
+) -> Result<Option<Tenant>, String> {
     let kv = overrides.kv(state);
     let key = format!("cportal:slug:{slug}");
     let mut entry: Option<CachedSlug> = kv_get_json(&kv, &key).await.map_err(|e| e.to_string())?;
     if entry.is_none() {
         let master = overrides.master(state).ok_or("no master database")?;
-        let row: Option<(String, Option<String>, Option<bool>)> =
-            sqlx::query_as("select id, clerk_org_id, is_active from workspaces where slug = $1 limit 1")
-                .bind(slug)
-                .fetch_optional(&master)
-                .await
-                .map_err(|e| e.to_string())?;
-        let Some((id, Some(clerk_org_id), Some(true))) = row.map(|(id, org, active)| (id, org.filter(|o| !o.is_empty()), active))
+        let row: Option<(String, Option<String>, Option<bool>)> = sqlx::query_as(
+            "select id, clerk_org_id, is_active from workspaces where slug = $1 limit 1",
+        )
+        .bind(slug)
+        .fetch_optional(&master)
+        .await
+        .map_err(|e| e.to_string())?;
+        let Some((id, Some(clerk_org_id), Some(true))) =
+            row.map(|(id, org, active)| (id, org.filter(|o| !o.is_empty()), active))
         else {
             return Ok(None);
         };
@@ -188,9 +219,12 @@ pub(crate) struct Portal {
 impl<S: Send + Sync> FromRequestParts<S> for Portal {
     type Rejection = ApiError;
 
-    fn from_request_parts(parts: &mut Parts, _state: &S) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        let portal = match parts.extensions.get::<Tenant>() {
-            Some(tenant) => Ok(Self {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let portal = if let Some(tenant) = parts.extensions.get::<Tenant>() {
+            Ok(Self {
                 db: tenant.db.clone(),
                 workspace_id: tenant.workspace_id.clone(),
                 clerk_org_id: tenant.clerk_org_id.clone(),
@@ -199,11 +233,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Portal {
                     .get::<AuthContext>()
                     .map_or_else(|| "system".to_owned(), |auth| auth.user_id.clone()),
                 overrides: Overrides::from_parts(parts),
-            }),
-            None => {
-                tracing::error!("commerce: a public portal route without the workspace layer");
-                Err(ApiError::internal())
-            }
+            })
+        } else {
+            tracing::error!("commerce: a public portal route without the workspace layer");
+            Err(ApiError::internal())
         };
         std::future::ready(portal)
     }
@@ -211,7 +244,11 @@ impl<S: Send + Sync> FromRequestParts<S> for Portal {
 
 impl Portal {
     fn publish(&self, state: &CommerceState, event: EventName, entity_id: &str, data: &Value) {
-        let context = EventContext::from_ids(&self.workspace_id, self.clerk_org_id.as_deref(), &self.user_id);
+        let context = EventContext::from_ids(
+            &self.workspace_id,
+            self.clerk_org_id.as_deref(),
+            &self.user_id,
+        );
         publish_entity_event(&state.events, &context, event, entity_id, data);
     }
 
@@ -232,13 +269,19 @@ pub(crate) struct Buyer {
 
 /// The session token: `Authorization: Bearer …`, else the `cportal_session` cookie.
 fn read_bearer(headers: &HeaderMap) -> Option<String> {
-    let header = headers.get(http::header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let header = headers
+        .get(http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     if let Some(header) = header
         && header.to_lowercase().starts_with("bearer ")
     {
-        return Some(weldsuite_kit::validation::js_trim(header.get(7..).unwrap_or_default()).to_owned());
+        return Some(
+            weldsuite_kit::validation::js_trim(header.get(7..).unwrap_or_default()).to_owned(),
+        );
     }
-    let cookie = headers.get(http::header::COOKIE).and_then(|v| v.to_str().ok())?;
+    let cookie = headers
+        .get(http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())?;
     // `/(?:^|;\s*)cportal_session=([^;]+)/`
     let mut rest = cookie;
     loop {
@@ -261,7 +304,10 @@ fn read_bearer(headers: &HeaderMap) -> Option<String> {
 impl FromRequestParts<CommerceState> for Buyer {
     type Rejection = Response;
 
-    async fn from_request_parts(parts: &mut Parts, state: &CommerceState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &CommerceState,
+    ) -> Result<Self, Self::Rejection> {
         let portal = Portal::from_request_parts(parts, state)
             .await
             .map_err(IntoResponse::into_response)?;
@@ -269,9 +315,10 @@ impl FromRequestParts<CommerceState> for Buyer {
             return Err(unauthorized("Sign in required"));
         };
         let token_hash = sha256_hex(&raw);
-        let session: Option<PortalSession> = kv_get_json(&portal.kv(state), &session_kv_key(&token_hash))
-            .await
-            .map_err(|e| internal("Internal server error", &e))?;
+        let session: Option<PortalSession> =
+            kv_get_json(&portal.kv(state), &session_kv_key(&token_hash))
+                .await
+                .map_err(|e| internal("Internal server error", &e))?;
         let Some(session) = session else {
             return Err(unauthorized("Session expired"));
         };
@@ -328,7 +375,12 @@ fn generic_ok() -> Response {
     Data(json!({ "ok": true })).into_response()
 }
 
-fn email_text(issues: &mut Issues, fields: &Map<String, Value>, key: &str, presence: Presence) -> Option<String> {
+fn email_text(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+) -> Option<String> {
     issues
         .text_with(
             fields,
@@ -345,11 +397,22 @@ fn email_text(issues: &mut Issues, fields: &Map<String, Value>, key: &str, prese
 /// `commercePortalAuthRequestSchema`: the email.
 fn read_auth_request(issues: &mut Issues, fields: &Map<String, Value>) -> String {
     let email = email_text(issues, fields, "email", Presence::Required);
-    issues.text_with(fields, "slug", Presence::Optional, Text::length(Some(1), None));
+    issues.text_with(
+        fields,
+        "slug",
+        Presence::Optional,
+        Text::length(Some(1), None),
+    );
     email.unwrap_or_default()
 }
 
-async fn auth_request(State(state): State<CommerceState>, portal: Portal, RawQuery(query): RawQuery, headers: HeaderMap, body: Bytes) -> Response {
+async fn auth_request(
+    State(state): State<CommerceState>,
+    portal: Portal,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let raw_email = match validate(&headers, &body, read_auth_request) {
         Ok(email) => email,
         Err(refusal) => return refusal.respond("Internal server error"),
@@ -377,7 +440,12 @@ async fn auth_request(State(state): State<CommerceState>, portal: Portal, RawQue
     }
 }
 
-async fn request_sign_in(state: &CommerceState, portal: &Portal, email: &str, slug: Option<&str>) -> Result<Response, String> {
+async fn request_sign_in(
+    state: &CommerceState,
+    portal: &Portal,
+    email: &str,
+    slug: Option<&str>,
+) -> Result<Response, String> {
     let db = &portal.db;
     let settings = require_enabled(db).await.map_err(|e| e.to_string())?;
     let Some(settings) = settings.filter(|_| !portal.workspace_id.is_empty()) else {
@@ -386,7 +454,15 @@ async fn request_sign_in(state: &CommerceState, portal: &Portal, email: &str, sl
     let ws = &portal.workspace_id;
     let ctx = SignInContext::of(&portal.overrides, state);
     // Per address first, then per workspace; over a limit looks like "no access".
-    match consume_rate_limit(ctx.limiter.as_ref(), ws, &format!("e:{email}"), RATE_LIMIT_MAX, RATE_LIMIT_TTL_SECONDS).await {
+    match consume_rate_limit(
+        ctx.limiter.as_ref(),
+        ws,
+        &format!("e:{email}"),
+        RATE_LIMIT_MAX,
+        RATE_LIMIT_TTL_SECONDS,
+    )
+    .await
+    {
         RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
         RateLimitOutcome::Limited => return Ok(generic_ok()),
         RateLimitOutcome::Allowed => {}
@@ -415,16 +491,29 @@ async fn request_sign_in(state: &CommerceState, portal: &Portal, email: &str, sl
     if access.is_empty() {
         return Ok(generic_ok());
     }
-    let (challenge, token, otp) = new_challenge(ws, email, access.iter().map(|a| a.0.clone()).collect());
-    store_challenge(&ctx.kv, &challenge, email).await.map_err(|e| e.to_string())?;
-    let company: Option<Option<String>> = sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
-        .bind(&access[0].1)
-        .fetch_optional(db)
+    let (challenge, token, otp) =
+        new_challenge(ws, email, access.iter().map(|a| a.0.clone()).collect());
+    store_challenge(&ctx.kv, &challenge, email)
         .await
         .map_err(|e| e.to_string())?;
+    let company: Option<Option<String>> =
+        sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
+            .bind(&access[0].1)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?;
     if let Some(slug) = slug {
         let brand = PortalBrand::of(&settings);
-        send_magic_link(&ctx, email, slug, &token, &otp, company.flatten().as_deref(), Some(&brand)).await;
+        send_magic_link(
+            &ctx,
+            email,
+            slug,
+            &token,
+            &otp,
+            company.flatten().as_deref(),
+            Some(&brand),
+        )
+        .await;
     }
     Ok(generic_ok())
 }
@@ -439,10 +528,25 @@ struct VerifyBody {
 }
 
 fn read_verify(issues: &mut Issues, fields: &Map<String, Value>) -> VerifyBody {
-    let token = issues.text_with(fields, "token", Presence::Optional, Text::length(Some(1), None));
-    let otp = issues.text_with(fields, "otp", Presence::Optional, Text::length(Some(4), Some(12)));
+    let token = issues.text_with(
+        fields,
+        "token",
+        Presence::Optional,
+        Text::length(Some(1), None),
+    );
+    let otp = issues.text_with(
+        fields,
+        "otp",
+        Presence::Optional,
+        Text::length(Some(4), Some(12)),
+    );
     let email = email_text(issues, fields, "email", Presence::Optional);
-    let access_id = issues.text_with(fields, "accessId", Presence::Optional, Text::length(Some(1), None));
+    let access_id = issues.text_with(
+        fields,
+        "accessId",
+        Presence::Optional,
+        Text::length(Some(1), None),
+    );
     let body = VerifyBody {
         token: token.into_option(),
         otp: otp.into_option(),
@@ -450,7 +554,8 @@ fn read_verify(issues: &mut Issues, fields: &Map<String, Value>) -> VerifyBody {
         access_id: access_id.into_option(),
     };
     // `.refine(...)`: only once the object parsed.
-    if issues.is_empty() && !(body.token.is_some() || (body.otp.is_some() && body.email.is_some())) {
+    if issues.is_empty() && !(body.token.is_some() || (body.otp.is_some() && body.email.is_some()))
+    {
         issues.custom_root("token, or otp together with email, is required");
     }
     body
@@ -484,7 +589,10 @@ async fn reserve_verify_budget<'a>(
 ) -> Result<Reservation<'a>, Response> {
     let mut budgets: Vec<(String, u32)> = Vec::new();
     if let (Some(_), Some(email)) = (&body.otp, &body.email) {
-        budgets.push((format!("verify-e:{}", normalize_email(email)), VERIFY_RATE_LIMIT_EMAIL_MAX));
+        budgets.push((
+            format!("verify-e:{}", normalize_email(email)),
+            VERIFY_RATE_LIMIT_EMAIL_MAX,
+        ));
     }
     budgets.push(("verify-ws".to_owned(), VERIFY_RATE_LIMIT_WORKSPACE_MAX));
     let mut reservation = Reservation {
@@ -493,7 +601,14 @@ async fn reserve_verify_budget<'a>(
         keys: Vec::new(),
     };
     for (key, max) in budgets {
-        let outcome = consume_rate_limit(ctx.limiter.as_ref(), &portal.workspace_id, &key, max, RATE_LIMIT_TTL_SECONDS).await;
+        let outcome = consume_rate_limit(
+            ctx.limiter.as_ref(),
+            &portal.workspace_id,
+            &key,
+            max,
+            RATE_LIMIT_TTL_SECONDS,
+        )
+        .await;
         if outcome == RateLimitOutcome::Allowed {
             reservation.keys.push(key);
             continue;
@@ -502,7 +617,11 @@ async fn reserve_verify_budget<'a>(
         if outcome == RateLimitOutcome::Unavailable {
             return Err(sign_in_unavailable());
         }
-        return Err(error(StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED", "Too many attempts, try again later"));
+        return Err(error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+            "Too many attempts, try again later",
+        ));
     }
     Ok(reservation)
 }
@@ -554,7 +673,10 @@ async fn load_matching_challenge(
         if attempts >= MAX_VERIFY_ATTEMPTS {
             delete_challenge(&ctx.kv, &challenge).await?;
         } else {
-            let counted = PortalChallenge { attempts, ..challenge };
+            let counted = PortalChallenge {
+                attempts,
+                ..challenge
+            };
             kv_put_json(&ctx.kv, &key, &counted, OTP_TTL_SECONDS).await?;
         }
         return Ok(Matched::None);
@@ -571,7 +693,11 @@ struct AccessRow {
     email: String,
 }
 
-async fn live_access(db: &PgPool, ids: &[String], company_id: Option<&str>) -> Result<Vec<AccessRow>, sqlx::Error> {
+async fn live_access(
+    db: &PgPool,
+    ids: &[String],
+    company_id: Option<&str>,
+) -> Result<Vec<AccessRow>, sqlx::Error> {
     let rows: Vec<(String, String, String, String)> = sqlx::query_as(
         "select id, person_id, company_id, email from commerce_portal_access \
          where id = any($1) and ($2::text is null or company_id = $2) and status in ('invited', 'active')",
@@ -620,7 +746,12 @@ impl StepError {
 
 /// `accessToSession` + `activateAccess` + `mintSession`: the new session
 /// token, or none when the company has no party.
-async fn sign_in_access(db: &PgPool, kv: &PortalKv, workspace_id: &str, access: &AccessRow) -> Result<Option<String>, StepError> {
+async fn sign_in_access(
+    db: &PgPool,
+    kv: &PortalKv,
+    workspace_id: &str,
+    access: &AccessRow,
+) -> Result<Option<String>, StepError> {
     let Some(party_id) = find_company_party(db, &access.company_id).await? else {
         return Ok(None);
     };
@@ -642,11 +773,22 @@ async fn sign_in_access(db: &PgPool, kv: &PortalKv, workspace_id: &str, access: 
     .execute(db)
     .await?;
     let token = random_token(32);
-    kv_put_json(kv, &session_kv_key(&sha256_hex(&token)), &session, SESSION_TTL_SECONDS).await?;
+    kv_put_json(
+        kv,
+        &session_kv_key(&sha256_hex(&token)),
+        &session,
+        SESSION_TTL_SECONDS,
+    )
+    .await?;
     Ok(Some(token))
 }
 
-async fn auth_verify(State(state): State<CommerceState>, portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
+async fn auth_verify(
+    State(state): State<CommerceState>,
+    portal: Portal,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to verify sign-in";
     let body = match validate(&headers, &body, read_verify) {
         Ok(body) => body,
@@ -662,7 +804,11 @@ async fn auth_verify(State(state): State<CommerceState>, portal: Portal, headers
     }
 }
 
-async fn verify(portal: &Portal, ctx: &SignInContext, body: &VerifyBody) -> Result<Response, StepError> {
+async fn verify(
+    portal: &Portal,
+    ctx: &SignInContext,
+    body: &VerifyBody,
+) -> Result<Response, StepError> {
     let db = &portal.db;
     let ws = &portal.workspace_id;
     let reservation = match reserve_verify_budget(portal, ctx, body).await {
@@ -714,7 +860,10 @@ async fn verify(portal: &Portal, ctx: &SignInContext, body: &VerifyBody) -> Resu
     };
     if let Some(chosen) = chosen {
         return Ok(match sign_in_access(db, &ctx.kv, ws, &chosen).await? {
-            Some(token) => Data(json!({ "token": token, "needsCompanyPicker": false, "companies": [] })).into_response(),
+            Some(token) => {
+                Data(json!({ "token": token, "needsCompanyPicker": false, "companies": [] }))
+                    .into_response()
+            }
             None => ApiError::bad_request("Company has no commercial party record").into_response(),
         });
     }
@@ -726,13 +875,20 @@ async fn verify(portal: &Portal, ctx: &SignInContext, body: &VerifyBody) -> Resu
         email: email.clone(),
         access_ids: access.iter().map(|a| a.id.clone()).collect(),
     };
-    kv_put_json(&ctx.kv, &picker_kv_key(&sha256_hex(&picker_token)), &picker, OTP_TTL_SECONDS).await?;
+    kv_put_json(
+        &ctx.kv,
+        &picker_kv_key(&sha256_hex(&picker_token)),
+        &picker,
+        OTP_TTL_SECONDS,
+    )
+    .await?;
     let mut companies = Vec::with_capacity(access.len());
     for row in &access {
-        let name: Option<Option<String>> = sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
-            .bind(&row.company_id)
-            .fetch_optional(db)
-            .await?;
+        let name: Option<Option<String>> =
+            sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
+                .bind(&row.company_id)
+                .fetch_optional(db)
+                .await?;
         companies.push(json!({
             "accessId": row.id,
             "companyId": row.company_id,
@@ -749,15 +905,30 @@ async fn verify(portal: &Portal, ctx: &SignInContext, body: &VerifyBody) -> Resu
 }
 
 fn read_select_company(issues: &mut Issues, fields: &Map<String, Value>) -> (String, String) {
-    let picker = issues.text_with(fields, "pickerToken", Presence::Required, Text::length(Some(1), None));
-    let company = issues.text_with(fields, "companyId", Presence::Required, Text::length(Some(1), None));
+    let picker = issues.text_with(
+        fields,
+        "pickerToken",
+        Presence::Required,
+        Text::length(Some(1), None),
+    );
+    let company = issues.text_with(
+        fields,
+        "companyId",
+        Presence::Required,
+        Text::length(Some(1), None),
+    );
     (
         picker.into_option().unwrap_or_default(),
         company.into_option().unwrap_or_default(),
     )
 }
 
-async fn select_company(State(state): State<CommerceState>, portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
+async fn select_company(
+    State(state): State<CommerceState>,
+    portal: Portal,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to select company";
     let (picker_token, company_id) = match validate(&headers, &body, read_select_company) {
         Ok(read) => read,
@@ -778,7 +949,9 @@ async fn select_company(State(state): State<CommerceState>, portal: Portal, head
             return Ok(ApiError::bad_request("Unknown company").into_response());
         };
         let Some(party_id) = find_company_party(&portal.db, &access.company_id).await? else {
-            return Ok(ApiError::bad_request("Company has no commercial party record").into_response());
+            return Ok(
+                ApiError::bad_request("Company has no commercial party record").into_response(),
+            );
         };
         // Activates the access, then the picker goes, then the session is minted.
         let now = now();
@@ -800,7 +973,13 @@ async fn select_company(State(state): State<CommerceState>, portal: Portal, head
             email: access.email.clone(),
         };
         let token = random_token(32);
-        kv_put_json(&kv, &session_kv_key(&sha256_hex(&token)), &session, SESSION_TTL_SECONDS).await?;
+        kv_put_json(
+            &kv,
+            &session_kv_key(&sha256_hex(&token)),
+            &session,
+            SESSION_TTL_SECONDS,
+        )
+        .await?;
         Ok::<_, StepError>(Data(json!({ "token": token })).into_response())
     };
     match run.await {
@@ -810,8 +989,14 @@ async fn select_company(State(state): State<CommerceState>, portal: Portal, head
 }
 
 /// Logout reads the bearer header only, and always answers 204.
-async fn logout(State(state): State<CommerceState>, portal: Portal, headers: HeaderMap) -> Response {
-    let header = headers.get(http::header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+async fn logout(
+    State(state): State<CommerceState>,
+    portal: Portal,
+    headers: HeaderMap,
+) -> Response {
+    let header = headers
+        .get(http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     let raw = header
         .filter(|h| h.to_lowercase().starts_with("bearer "))
         .map(|h| weldsuite_kit::validation::js_trim(h.get(7..).unwrap_or_default()).to_owned())
@@ -878,7 +1063,9 @@ async fn me(buyer: Buyer) -> Response {
             }
             Value::Object(out)
         });
-        Ok::<_, sqlx::Error>(Data(json!({ "person": person, "company": company, "party": party })).into_response())
+        Ok::<_, sqlx::Error>(
+            Data(json!({ "person": person, "company": company, "party": party })).into_response(),
+        )
     };
     match run.await {
         Ok(response) => response,
@@ -888,7 +1075,8 @@ async fn me(buyer: Buyer) -> Response {
 
 /// `list(c, data, cursorPagination(total, hasMore, cursor))` from a `limit + 1` page.
 fn page(rows: Vec<Value>, limit: f64, total: Option<i64>) -> Response {
-    let (data, has_more, cursor) = crate::crud::page_of(rows, limit, |row| crate::js::text(row, "id"));
+    let (data, has_more, cursor) =
+        crate::crud::page_of(rows, limit, |row| crate::js::text(row, "id"));
     let total = total.unwrap_or_else(|| i64::try_from(data.len()).unwrap_or(0));
     weldsuite_kit::List::new(
         data,
@@ -898,7 +1086,11 @@ fn page(rows: Vec<Value>, limit: f64, total: Option<i64>) -> Response {
 }
 
 /// The keyset operands of `?cursor=` (any row of `table`), when it names one.
-async fn cursor_of(db: &PgPool, table: &str, query: Option<&str>) -> Result<(bool, Option<(String, String)>), sqlx::Error> {
+async fn cursor_of(
+    db: &PgPool,
+    table: &str,
+    query: Option<&str>,
+) -> Result<(bool, Option<(String, String)>), sqlx::Error> {
     match query_param(query, "cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => Ok((true, crate::crud::cursor_row(db, table, &cursor).await?)),
         None => Ok((false, None)),
@@ -908,7 +1100,11 @@ async fn cursor_of(db: &PgPool, table: &str, query: Option<&str>) -> Result<(boo
 async fn products(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list products";
     let db = &buyer.portal.db;
-    let limit = js_limit(query_param(query.as_deref(), "limit").as_deref(), 25.0, 100.0);
+    let limit = js_limit(
+        query_param(query.as_deref(), "limit").as_deref(),
+        25.0,
+        100.0,
+    );
     let search = query_param(query.as_deref(), "search")
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
@@ -990,7 +1186,11 @@ async fn orders(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list orders";
     let db = &buyer.portal.db;
     let party = &buyer.session.party_id;
-    let limit = js_limit(query_param(query.as_deref(), "limit").as_deref(), 25.0, 100.0);
+    let limit = js_limit(
+        query_param(query.as_deref(), "limit").as_deref(),
+        25.0,
+        100.0,
+    );
     let run = async {
         let (given, cursor) = cursor_of(db, "orders", query.as_deref()).await?;
         let rows: Vec<Value> = sqlx::query_scalar(concat!(
@@ -1038,7 +1238,10 @@ async fn order_items(db: &PgPool, order_id: &str) -> Result<Vec<Value>, sqlx::Er
     .bind(order_id)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|r| tables::ORDER_ITEMS.js(r)).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| tables::ORDER_ITEMS.js(r))
+        .collect())
 }
 
 fn with_items(row: Value, items: Vec<Value>) -> Value {
@@ -1074,7 +1277,12 @@ async fn order(buyer: Buyer, Path(id): Path<String>) -> Response {
     }
 }
 
-async fn place_order(State(state): State<CommerceState>, buyer: Buyer, headers: HeaderMap, body: Bytes) -> Response {
+async fn place_order(
+    State(state): State<CommerceState>,
+    buyer: Buyer,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to place order";
     let input = match validate(&headers, &body, crate::portal_orders::read_order) {
         Ok(input) => input,
@@ -1106,7 +1314,11 @@ async fn place_order(State(state): State<CommerceState>, buyer: Buyer, headers: 
     };
     match run.await {
         Ok(Ok((order, items))) => {
-            let id = order.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let id = order
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             let field = |key: &str| order.get(key).cloned().unwrap_or(Value::Null);
             buyer.portal.publish(
                 &state,
@@ -1125,7 +1337,11 @@ async fn place_order(State(state): State<CommerceState>, buyer: Buyer, headers: 
         }
         Ok(Err(response)) => response,
         Err(crate::portal_orders::PlaceError::Refused(status, message)) => {
-            let code = if status == StatusCode::NOT_FOUND { "NOT_FOUND" } else { "BAD_REQUEST" };
+            let code = if status == StatusCode::NOT_FOUND {
+                "NOT_FOUND"
+            } else {
+                "BAD_REQUEST"
+            };
             error(status, code, &message)
         }
         Err(crate::portal_orders::PlaceError::Failed(message)) => internal(FAILED, &message),
@@ -1136,7 +1352,11 @@ async fn invoices(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list invoices";
     let db = &buyer.portal.db;
     let party = &buyer.session.party_id;
-    let limit = js_limit(query_param(query.as_deref(), "limit").as_deref(), 25.0, 100.0);
+    let limit = js_limit(
+        query_param(query.as_deref(), "limit").as_deref(),
+        25.0,
+        100.0,
+    );
     let run = async {
         let (given, cursor) = cursor_of(db, "invoices", query.as_deref()).await?;
         let rows: Vec<Value> = sqlx::query_scalar(concat!(
@@ -1176,7 +1396,11 @@ async fn invoices(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
 }
 
 /// `loadPortalInvoice(db, invoiceId, partyId)`: the buyer's invoice, never a draft.
-pub(crate) async fn load_portal_invoice(db: &PgPool, id: &str, party_id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn load_portal_invoice(
+    db: &PgPool,
+    id: &str,
+    party_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         row_of!(invoices),
@@ -1204,7 +1428,10 @@ async fn invoice(buyer: Buyer, Path(id): Path<String>) -> Response {
         .bind(&id)
         .fetch_all(db)
         .await?;
-        let items = items.into_iter().map(|r| tables::INVOICE_ITEMS.js(r)).collect();
+        let items = items
+            .into_iter()
+            .map(|r| tables::INVOICE_ITEMS.js(r))
+            .collect();
         Ok::<_, sqlx::Error>(Data(with_items(invoice, items)).into_response())
     };
     match run.await {
@@ -1221,7 +1448,8 @@ async fn invoice_document(buyer: Buyer, Path(id): Path<String>) -> Response {
     match portal_invoice_document(&buyer.portal.db, &id, &buyer.session.party_id).await {
         Ok(InvoiceDocument::NotFound) => ApiError::not_found("Invoice", Some(&id)).into_response(),
         Ok(InvoiceDocument::Unavailable) => {
-            ApiError::unavailable("Invoice documents are not available on this edition yet").into_response()
+            ApiError::unavailable("Invoice documents are not available on this edition yet")
+                .into_response()
         }
         Err(error) => internal("Failed to generate invoice document", &error),
     }
@@ -1236,7 +1464,10 @@ async fn return_reasons(buyer: Buyer) -> Response {
     .fetch_all(&buyer.portal.db)
     .await;
     match rows {
-        Ok(rows) => all(rows.into_iter().map(|r| tables::RETURN_REASONS.js(r)).collect()),
+        Ok(rows) => all(rows
+            .into_iter()
+            .map(|r| tables::RETURN_REASONS.js(r))
+            .collect()),
         Err(e) => internal("Failed to list return reasons", &e),
     }
 }
@@ -1244,13 +1475,18 @@ async fn return_reasons(buyer: Buyer) -> Response {
 async fn returns(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list returns";
     let db = &buyer.portal.db;
-    let limit = js_limit(query_param(query.as_deref(), "limit").as_deref(), 25.0, 100.0);
+    let limit = js_limit(
+        query_param(query.as_deref(), "limit").as_deref(),
+        25.0,
+        100.0,
+    );
     let run = async {
-        let order_ids: Vec<String> =
-            sqlx::query_scalar("select id from orders where counterparty_id = $1 and deleted_at is null")
-                .bind(&buyer.session.party_id)
-                .fetch_all(db)
-                .await?;
+        let order_ids: Vec<String> = sqlx::query_scalar(
+            "select id from orders where counterparty_id = $1 and deleted_at is null",
+        )
+        .bind(&buyer.session.party_id)
+        .fetch_all(db)
+        .await?;
         if order_ids.is_empty() {
             return Ok(all(Vec::new()));
         }
@@ -1269,7 +1505,11 @@ async fn returns(buyer: Buyer, RawQuery(query): RawQuery) -> Response {
         .fetch_all(db)
         .await?;
         // `cursorPagination(data.length, …)`: the page's own length.
-        Ok::<_, sqlx::Error>(page(rows.into_iter().map(|r| tables::RETURNS.js(r)).collect(), limit, None))
+        Ok::<_, sqlx::Error>(page(
+            rows.into_iter().map(|r| tables::RETURNS.js(r)).collect(),
+            limit,
+            None,
+        ))
     };
     match run.await {
         Ok(response) => response,
@@ -1298,12 +1538,13 @@ async fn return_detail(buyer: Buyer, Path(id): Path<String>) -> Response {
         else {
             return Ok(ApiError::not_found("Return", Some(&id)).into_response());
         };
-        let order: Option<String> =
-            sqlx::query_scalar("select id from orders where id = $1 and counterparty_id = $2 limit 1")
-                .bind(&original)
-                .bind(&buyer.session.party_id)
-                .fetch_optional(db)
-                .await?;
+        let order: Option<String> = sqlx::query_scalar(
+            "select id from orders where id = $1 and counterparty_id = $2 limit 1",
+        )
+        .bind(&original)
+        .bind(&buyer.session.party_id)
+        .fetch_optional(db)
+        .await?;
         if order.is_none() {
             return Ok(ApiError::not_found("Return", Some(&id)).into_response());
         }
@@ -1325,7 +1566,12 @@ struct ReturnBody {
 }
 
 /// `z.number().int().positive()` (`.max(max)` when given): Zod checks each in order.
-pub(crate) fn positive_int(issues: &mut Issues, fields: &Map<String, Value>, key: &str, max: Option<f64>) -> Option<f64> {
+pub(crate) fn positive_int(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    max: Option<f64>,
+) -> Option<f64> {
     let before = issues.count();
     let number = issues
         .number(
@@ -1356,7 +1602,14 @@ pub(crate) fn positive_int(issues: &mut Issues, fields: &Map<String, Value>, key
         if let Some(max) = max
             && value > max
         {
-            issues.number_too_big(key, max, &format!("Number must be less than or equal to {}", crate::js::number_text(max)));
+            issues.number_too_big(
+                key,
+                max,
+                &format!(
+                    "Number must be less than or equal to {}",
+                    crate::js::number_text(max)
+                ),
+            );
         }
     }
     if issues.count() > before {
@@ -1366,30 +1619,74 @@ pub(crate) fn positive_int(issues: &mut Issues, fields: &Map<String, Value>, key
 }
 
 fn read_return(issues: &mut Issues, fields: &Map<String, Value>) -> ReturnBody {
-    let original = issues.text_with(fields, "originalOrderId", Presence::Required, Text::length(Some(1), None));
-    let reason = issues.text_with(fields, "reason", Presence::Optional, Text::length(None, Some(100)));
-    let details = issues.text_with(fields, "reasonDetails", Presence::Optional, Text::length(None, Some(4000)));
-    let items = issues.list(fields, "items", Presence::Required, Some(1), None, |issues, item| {
-        let line = issues.object(item)?;
-        let before = issues.count();
-        issues.text_with(line, "productId", Presence::Optional, Text::default());
-        issues.text_with(line, "productName", Presence::Required, Text::length(Some(1), None));
-        issues.text_with(line, "sku", Presence::Optional, Text::default());
-        positive_int(issues, line, "quantity", None);
-        issues.text_with(line, "reason", Presence::Optional, Text::default());
-        issues.choice(line, "condition", Presence::Optional, &["new", "opened", "damaged", "defective"]);
-        if issues.count() > before {
-            return None;
-        }
-        let mut kept = Map::new();
-        for key in ["productId", "productName", "sku", "quantity", "reason", "condition"] {
-            if let Some(value) = line.get(key) {
-                kept.insert(key.to_owned(), value.clone());
+    let original = issues.text_with(
+        fields,
+        "originalOrderId",
+        Presence::Required,
+        Text::length(Some(1), None),
+    );
+    let reason = issues.text_with(
+        fields,
+        "reason",
+        Presence::Optional,
+        Text::length(None, Some(100)),
+    );
+    let details = issues.text_with(
+        fields,
+        "reasonDetails",
+        Presence::Optional,
+        Text::length(None, Some(4000)),
+    );
+    let items = issues.list(
+        fields,
+        "items",
+        Presence::Required,
+        Some(1),
+        None,
+        |issues, item| {
+            let line = issues.object(item)?;
+            let before = issues.count();
+            issues.text_with(line, "productId", Presence::Optional, Text::default());
+            issues.text_with(
+                line,
+                "productName",
+                Presence::Required,
+                Text::length(Some(1), None),
+            );
+            issues.text_with(line, "sku", Presence::Optional, Text::default());
+            positive_int(issues, line, "quantity", None);
+            issues.text_with(line, "reason", Presence::Optional, Text::default());
+            issues.choice(
+                line,
+                "condition",
+                Presence::Optional,
+                &["new", "opened", "damaged", "defective"],
+            );
+            if issues.count() > before {
+                return None;
             }
-        }
-        Some(kept)
-    });
-    let notes = issues.text_with(fields, "customerNotes", Presence::Optional, Text::length(None, Some(4000)));
+            let mut kept = Map::new();
+            for key in [
+                "productId",
+                "productName",
+                "sku",
+                "quantity",
+                "reason",
+                "condition",
+            ] {
+                if let Some(value) = line.get(key) {
+                    kept.insert(key.to_owned(), value.clone());
+                }
+            }
+            Some(kept)
+        },
+    );
+    let notes = issues.text_with(
+        fields,
+        "customerNotes",
+        Presence::Optional,
+        Text::length(None, Some(4000)),
+    );
     ReturnBody {
         original_order_id: original.into_option().unwrap_or_default(),
         reason: reason.into_option(),
@@ -1407,7 +1704,13 @@ fn return_number() -> String {
     crate::orders::numbered("RMA")
 }
 
-async fn create_return(State(state): State<CommerceState>, buyer: Buyer, headers: HeaderMap, body: Bytes) -> Response {
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
+async fn create_return(
+    State(state): State<CommerceState>,
+    buyer: Buyer,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to create return";
     let body = match validate(&headers, &body, read_return) {
         Ok(body) => body,
@@ -1428,12 +1731,17 @@ async fn create_return(State(state): State<CommerceState>, buyer: Buyer, headers
         let Some(order) = order.map(|o| tables::ORDERS.js(o)) else {
             return Ok(ApiError::not_found("Order", Some(&body.original_order_id)).into_response());
         };
-        let order_id = order.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let items: Vec<(Option<String>, String, i32)> =
-            sqlx::query_as("select product_id, name, quantity from order_items where order_id = $1")
-                .bind(&order_id)
-                .fetch_all(db)
-                .await?;
+        let order_id = order
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let items: Vec<(Option<String>, String, i32)> = sqlx::query_as(
+            "select product_id, name, quantity from order_items where order_id = $1",
+        )
+        .bind(&order_id)
+        .fetch_all(db)
+        .await?;
         // `item.productId || item.name`: the quantity on the order per product.
         let mut allowed: Vec<(String, f64)> = Vec::new();
         for (product_id, name, quantity) in items {
@@ -1444,12 +1752,23 @@ async fn create_return(State(state): State<CommerceState>, buyer: Buyer, headers
             }
         }
         for line in &body.items {
-            let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
-            let key = text("productId").or_else(|| text("productName")).unwrap_or_default();
+            let text = |key: &str| {
+                line.get(key)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+            };
+            let key = text("productId")
+                .or_else(|| text("productName"))
+                .unwrap_or_default();
             let quantity = line.get("quantity").and_then(Value::as_f64).unwrap_or(0.0);
             match allowed.iter().find(|(k, _)| k == key) {
                 Some((_, max)) if quantity <= *max => {}
-                _ => return Ok(ApiError::bad_request("Return items must be a subset of the original order").into_response()),
+                _ => {
+                    return Ok(ApiError::bad_request(
+                        "Return items must be a subset of the original order",
+                    )
+                    .into_response());
+                }
             }
         }
         let person: Option<(Option<String>, Option<String>)> =

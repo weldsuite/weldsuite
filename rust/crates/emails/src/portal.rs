@@ -1,6 +1,6 @@
 //! The customer portals' sign-in mail
 //! (`packages/core/emails/src/templates/portal/sign-in.tsx`): a code, and
-//! for the WeldCommerce order portal a magic link above it.
+//! for the `WeldCommerce` order portal a magic link above it.
 
 use std::collections::BTreeMap;
 
@@ -72,10 +72,7 @@ mod tests {
         let code_only = sign_in(
             EmailLocale::En,
             &brand,
-            &PortalSignIn {
-                url: None,
-                ..props
-            },
+            &PortalSignIn { url: None, ..props },
         )
         .expect("renders");
         assert!(code_only.subject.contains("123456"));

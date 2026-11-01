@@ -298,8 +298,10 @@ impl weldsuite_commerce_domain::rate_limit::RateLimitCounters for BridgedNamespa
         name: &'a str,
         max: u32,
         window_seconds: u64,
-    ) -> BoxFuture<'a, Result<weldsuite_commerce_domain::rate_limit::RateLimitVerdict, weldsuite_ports::PortError>>
-    {
+    ) -> BoxFuture<
+        'a,
+        Result<weldsuite_commerce_domain::rate_limit::RateLimitVerdict, weldsuite_ports::PortError>,
+    > {
         Box::pin(async move {
             #[derive(serde::Deserialize)]
             struct Verdict {
@@ -319,7 +321,10 @@ impl weldsuite_commerce_domain::rate_limit::RateLimitCounters for BridgedNamespa
         })
     }
 
-    fn release<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), weldsuite_ports::PortError>> {
+    fn release<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<(), weldsuite_ports::PortError>> {
         Box::pin(async move {
             self.call_unit(name, "release", json!([]))
                 .await
@@ -335,14 +340,15 @@ impl MailBridges {
         &self,
         ledgers: &HashMap<String, String>,
     ) -> weldsuite_commerce_domain::rate_limit::RequestRateLimiter {
-        weldsuite_commerce_domain::rate_limit::RequestRateLimiter(ledgers.get("PORTAL_RATE_LIMITER").map(
-            |bridge| {
+        weldsuite_commerce_domain::rate_limit::RequestRateLimiter(
+            ledgers.get("PORTAL_RATE_LIMITER").map(|bridge| {
                 Arc::new(BridgedNamespace {
                     bridge: bridge.trim_end_matches('/').to_owned(),
                     binding: "PORTAL_RATE_LIMITER",
                     client: self.client.clone(),
-                }) as Arc<dyn weldsuite_commerce_domain::rate_limit::RateLimitCounters>
-            },
-        ))
+                })
+                    as Arc<dyn weldsuite_commerce_domain::rate_limit::RateLimitCounters>
+            }),
+        )
     }
 }

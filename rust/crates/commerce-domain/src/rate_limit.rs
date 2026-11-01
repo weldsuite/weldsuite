@@ -77,7 +77,9 @@ pub async fn consume_rate_limit(
     window_seconds: u64,
 ) -> RateLimitOutcome {
     let Some(limiter) = limiter else {
-        tracing::error!("[commerce-domain/portal-rate-limit] PORTAL_RATE_LIMITER binding is missing");
+        tracing::error!(
+            "[commerce-domain/portal-rate-limit] PORTAL_RATE_LIMITER binding is missing"
+        );
         return RateLimitOutcome::Unavailable;
     };
     match limiter
@@ -129,7 +131,9 @@ impl RateLimitCounters for CacheRateLimitCounters {
     ) -> BoxFuture<'a, Result<RateLimitVerdict, PortError>> {
         Box::pin(async move {
             if max < 1 || window_seconds < 1 {
-                return Err(PortError::backend("rate limit max and window must be positive"));
+                return Err(PortError::backend(
+                    "rate limit max and window must be positive",
+                ));
             }
             let count = self.cache.increment_boxed(name, 1, None).await?;
             if count == 1 {

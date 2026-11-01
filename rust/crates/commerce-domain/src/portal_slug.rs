@@ -32,7 +32,10 @@ mod tests {
 
     #[test]
     fn slugs_are_normalised_and_checked() {
-        assert_eq!(normalize_portal_slug(Some(" Acme-1 ")), Some("acme-1".to_owned()));
+        assert_eq!(
+            normalize_portal_slug(Some(" Acme-1 ")),
+            Some("acme-1".to_owned())
+        );
         assert_eq!(normalize_portal_slug(Some("%")), None);
         assert_eq!(normalize_portal_slug(Some("a.b")), None);
         assert_eq!(normalize_portal_slug(Some("")), None);
