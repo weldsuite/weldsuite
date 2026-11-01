@@ -49,7 +49,10 @@ pub(crate) fn with_external_ids(transactions: &[Txn]) -> Vec<(Txn, String)> {
                 .collect::<Vec<_>>()
                 .join("|");
             let occurrence = next(&key);
-            (txn.clone(), synthetic_external_id("imp", &parts, occurrence))
+            (
+                txn.clone(),
+                synthetic_external_id("imp", &parts, occurrence),
+            )
         })
         .collect()
 }
@@ -61,7 +64,11 @@ fn duplicate_key(external_id: &str, amount: f64, day: &str) -> String {
 }
 
 /// `findExistingImports(db, bankAccountId, lines)`.
-async fn existing(db: &PgPool, bank_account_id: &str, ids: &[String]) -> Result<HashSet<String>, sqlx::Error> {
+async fn existing(
+    db: &PgPool,
+    bank_account_id: &str,
+    ids: &[String],
+) -> Result<HashSet<String>, sqlx::Error> {
     let mut unique: Vec<String> = Vec::new();
     for id in ids {
         if !unique.contains(id) {
@@ -95,7 +102,11 @@ async fn existing(db: &PgPool, bank_account_id: &str, ids: &[String]) -> Result<
 
 /// `countDuplicates(db, bankAccountId, transactions)`: lines of a file the
 /// account already holds.
-pub(crate) async fn count_duplicates(db: &PgPool, bank_account_id: &str, transactions: &[Txn]) -> Result<usize, sqlx::Error> {
+pub(crate) async fn count_duplicates(
+    db: &PgPool,
+    bank_account_id: &str,
+    transactions: &[Txn],
+) -> Result<usize, sqlx::Error> {
     let lines = with_external_ids(transactions);
     let ids: Vec<String> = lines.iter().map(|(_, id)| id.clone()).collect();
     let known = existing(db, bank_account_id, &ids).await?;
@@ -136,16 +147,26 @@ pub(crate) async fn import_transactions(
         put("date", json!(iso_instant(&txn.date)));
         put(
             "valueDate",
-            txn.value_date.as_deref().filter(|v| !v.is_empty()).map_or(Value::Null, |v| json!(iso_instant(v))),
+            txn.value_date
+                .as_deref()
+                .filter(|v| !v.is_empty())
+                .map_or(Value::Null, |v| json!(iso_instant(v))),
         );
         put("description", json!(txn.description));
         put("amount", json!(to_fixed(txn.amount, 2)));
         put(
             "runningBalance",
-            txn.running_balance.map_or(Value::Null, |b| json!(to_fixed(b, 2))),
+            txn.running_balance
+                .map_or(Value::Null, |b| json!(to_fixed(b, 2))),
         );
-        put("counterpartyName", clip(txn.counterparty_name.as_deref(), 255));
-        put("counterpartyIban", clip(txn.counterparty_iban.as_deref(), 34));
+        put(
+            "counterpartyName",
+            clip(txn.counterparty_name.as_deref(), 255),
+        );
+        put(
+            "counterpartyIban",
+            clip(txn.counterparty_iban.as_deref(), 34),
+        );
         put("counterpartyBic", clip(txn.counterparty_bic.as_deref(), 11));
         put("reference", clip(txn.reference.as_deref(), 255));
         put("transactionCode", clip(txn.transaction_code.as_deref(), 20));

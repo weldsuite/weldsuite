@@ -140,9 +140,10 @@ pub(crate) async fn categorize(
         let percent = weldsuite_books_domain::js::js_number_value(rate.get("rate"));
         let code = text(&entity, "jurisdictionCode").unwrap_or_default();
         let known = jurisdictions::has_adapter(code);
-        let sales_tax_entity = known && jurisdictions::features(Some(code))["salesTax"] == json!(true);
-        let purchase_is_cost = known
-            && jurisdictions::adapter(code).and_then(|a| a.purchase_tax) == Some("cost");
+        let sales_tax_entity =
+            known && jurisdictions::features(Some(code))["salesTax"] == json!(true);
+        let purchase_is_cost =
+            known && jurisdictions::adapter(code).and_then(|a| a.purchase_tax) == Some("cost");
         let at = text(txn, "date").and_then(millis_of).unwrap_or(0);
         let deductible = money_in
             || (!is_kor_active(code, entity.get("jurisdictionSettings"), at) && !purchase_is_cost);
@@ -188,26 +189,37 @@ pub(crate) async fn categorize(
     }
     let net = round_money(gross - tax);
     let tax_line = |debit: bool| {
-        tax_account_id.as_deref().filter(|_| tax > 0.0).map(|account| PostingLine {
-            tax_rate_id: tax_rate_id.map(str::to_owned),
-            tax_amount: Some(tax),
-            ..if debit {
-                line(account, tax, 0.0)
-            } else {
-                line(account, 0.0, tax)
-            }
-        })
+        tax_account_id
+            .as_deref()
+            .filter(|_| tax > 0.0)
+            .map(|account| PostingLine {
+                tax_rate_id: tax_rate_id.map(str::to_owned),
+                tax_amount: Some(tax),
+                ..if debit {
+                    line(account, tax, 0.0)
+                } else {
+                    line(account, 0.0, tax)
+                }
+            })
     };
     let lines: Vec<PostingLine> = if money_in {
-        [Some(line(&ledger_id, gross, 0.0)), Some(line(&category_id, 0.0, net)), tax_line(false)]
-            .into_iter()
-            .flatten()
-            .collect()
+        [
+            Some(line(&ledger_id, gross, 0.0)),
+            Some(line(&category_id, 0.0, net)),
+            tax_line(false),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     } else {
-        [Some(line(&category_id, net, 0.0)), tax_line(true), Some(line(&ledger_id, 0.0, gross))]
-            .into_iter()
-            .flatten()
-            .collect()
+        [
+            Some(line(&category_id, net, 0.0)),
+            tax_line(true),
+            Some(line(&ledger_id, 0.0, gross)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     };
 
     let txn_id = text(txn, "id").unwrap_or_default().to_owned();
@@ -225,7 +237,9 @@ pub(crate) async fn categorize(
             entity_id: entity_id.to_owned(),
             date: text(txn, "date").unwrap_or_default().to_owned(),
             description: description.clone(),
-            reference: text(txn, "reference").filter(|r| !r.is_empty()).map(str::to_owned),
+            reference: text(txn, "reference")
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned),
             source_type: "bank_transaction".to_owned(),
             source_id: Some(txn_id.clone()),
             posting_key: Some(format!("bank_transaction:{txn_id}:categorize:{version}")),

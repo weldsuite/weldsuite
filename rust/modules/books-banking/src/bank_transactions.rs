@@ -29,8 +29,8 @@ use weldsuite_books_domain::js::{
 };
 use weldsuite_books_domain::tables::{BANK_ACCOUNTS, BANK_IMPORT_BATCHES, BANK_TRANSACTIONS};
 use weldsuite_catalogs::entity_events::{
-    BANK_ACCOUNT_UPDATED, BANK_DEPOSIT_UPDATED, BANK_TRANSACTION_CREATED,
-    BANK_TRANSACTION_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED, PAYMENT_UPDATED,
+    BANK_ACCOUNT_UPDATED, BANK_DEPOSIT_UPDATED, BANK_TRANSACTION_CREATED, BANK_TRANSACTION_UPDATED,
+    JOURNAL_ENTRY_CREATED, PAYMENT_CREATED, PAYMENT_UPDATED,
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{
@@ -111,7 +111,10 @@ fn line_event(txn: &Value, status: &str) -> Value {
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 async fn list(caller: Caller) -> Response {
-    reply(list_lines(&caller).await, "Failed to fetch bank transactions")
+    reply(
+        list_lines(&caller).await,
+        "Failed to fetch bank transactions",
+    )
 }
 
 async fn list_lines(caller: &Caller) -> Reply {
@@ -275,7 +278,10 @@ fn read_manual(issues: &mut Issues, body: &Map<String, Value>) -> Option<ManualB
             }
         }
         other => {
-            issues.push_raw(string_or_number_issue(&issues.path_of("amount"), other.as_ref()));
+            issues.push_raw(string_or_number_issue(
+                &issues.path_of("amount"),
+                other.as_ref(),
+            ));
             None
         }
     };
@@ -307,21 +313,37 @@ fn trimmed(value: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn create(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let data = match validate(&headers, &body, read_manual) {
         Ok(Some(data)) => data,
-        Ok(None) => return Refusal::Internal("unread body".to_owned()).respond("Failed to create bank transaction"),
+        Ok(None) => {
+            return Refusal::Internal("unread body".to_owned())
+                .respond("Failed to create bank transaction");
+        }
         Err(refusal) => return refusal.respond("Failed to create bank transaction"),
     };
-    reply(create_line(&caller, &state, data).await, "Failed to create bank transaction")
+    reply(
+        create_line(&caller, &state, data).await,
+        "Failed to create bank transaction",
+    )
 }
 
 #[allow(clippy::too_many_lines)] // mirrors the TypeScript route step by step
 async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> Reply {
-    let Some(bank) = BANK_ACCOUNTS.find_live(&caller.db, &data.bank_account_id).await? else {
+    let Some(bank) = BANK_ACCOUNTS
+        .find_live(&caller.db, &data.bank_account_id)
+        .await?
+    else {
         return Err(Refusal::not_found("Bank account", &data.bank_account_id));
     };
-    if data.category_account_id.is_some() && text(&bank, "ledgerAccountId").is_none_or(str::is_empty) {
+    if data.category_account_id.is_some()
+        && text(&bank, "ledgerAccountId").is_none_or(str::is_empty)
+    {
         return Err(Refusal::bad_request(
             "This bank account is not linked to a ledger account. Edit the bank account and choose a GL account first.",
         ));
@@ -342,7 +364,11 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
         _ => f64::NAN,
     };
     let amount = round_text(number);
-    let previous = js_number(text(&bank, "currentBalance").filter(|b| !b.is_empty()).unwrap_or("0"));
+    let previous = js_number(
+        text(&bank, "currentBalance")
+            .filter(|b| !b.is_empty())
+            .unwrap_or("0"),
+    );
     let running = round_text(previous + js_number(&amount));
     let stamp = now();
     let id = generate_id("bt");
@@ -371,7 +397,10 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
         ("description", json!(trimmed(data.description.as_deref()))),
         ("amount", json!(amount)),
         ("runningBalance", json!(running)),
-        ("counterpartyName", json!(trimmed(data.counterparty_name.as_deref()))),
+        (
+            "counterpartyName",
+            json!(trimmed(data.counterparty_name.as_deref())),
+        ),
         ("counterpartyIban", json!(iban)),
         ("counterpartyBic", json!(bic)),
         ("reference", json!(trimmed(data.reference.as_deref()))),
@@ -399,7 +428,9 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
     let mut journal_entry_id: Option<String> = None;
     if let Some(category) = &data.category_account_id {
         let Some(inserted) = find_transaction(&caller.db, &id).await? else {
-            return Err(Refusal::Internal("Failed to create bank transaction".to_owned()));
+            return Err(Refusal::Internal(
+                "Failed to create bank transaction".to_owned(),
+            ));
         };
         let posted = categorize(&caller.db, &inserted, category, None, None, caller.user())
             .await
@@ -412,7 +443,11 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
         ("bankAccountId", Value::Null, json!(data.bank_account_id)),
         ("date", Value::Null, json!(posted_on)),
         ("amount", Value::Null, json!(amount)),
-        ("description", Value::Null, field(&Value::Object(txn.clone()), "description")),
+        (
+            "description",
+            Value::Null,
+            field(&Value::Object(txn.clone()), "description"),
+        ),
         ("source", Value::Null, json!("manual")),
     ];
     if let Some(entry) = &journal_entry_id {
@@ -430,7 +465,11 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
         },
     )
     .await;
-    let status = if journal_entry_id.is_some() { "reconciled" } else { "unreconciled" };
+    let status = if journal_entry_id.is_some() {
+        "reconciled"
+    } else {
+        "unreconciled"
+    };
     caller.publish(
         state,
         BANK_TRANSACTION_CREATED,
@@ -454,7 +493,10 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
     }
     txn.insert("status".to_owned(), json!(status));
     txn.insert("journalEntryId".to_owned(), json!(journal_entry_id));
-    txn.insert("categoryAccountId".to_owned(), json!(data.category_account_id));
+    txn.insert(
+        "categoryAccountId".to_owned(),
+        json!(data.category_account_id),
+    );
     Ok(created(Value::Object(txn)))
 }
 
@@ -473,7 +515,11 @@ struct FileBody {
 
 /// `importSchema`, or `previewSchema` when `preview`.
 fn read_file_body(issues: &mut Issues, body: &Map<String, Value>, preview: bool) -> FileBody {
-    let maybe = if preview { Presence::Optional } else { Presence::Required };
+    let maybe = if preview {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
     let account = issues.text(body, "bankAccountId", maybe, Some(1), None);
     let content = issues.text(body, "content", Presence::Required, Some(1), None);
     let file_name = issues.text(body, "fileName", maybe, Some(1), None);
@@ -582,15 +628,16 @@ fn error_response(status: StatusCode, code: &str, message: &str, details: &Value
 }
 
 async fn preview(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_file_body(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_file_body(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to read the bank file: unknown error"),
     };
     let result = preview_file(&caller, data).await;
     result.unwrap_or_else(|refusal| match refusal {
-        Refusal::Database(error) => {
-            Refusal::Internal(String::new()).respond(&format!("Failed to read the bank file: {error}"))
-        }
+        Refusal::Database(error) => Refusal::Internal(String::new())
+            .respond(&format!("Failed to read the bank file: {error}")),
         other => other.respond("Failed to read the bank file: unknown error"),
     })
 }
@@ -622,12 +669,19 @@ async fn preview_file(caller: &Caller, data: FileBody) -> Reply {
     let parse = match parse_bank_file(&data.content, data.format.as_deref(), &options) {
         Ok(parse) => parse,
         Err(CsvFormatRequired { proposal, .. }) => {
-            return Ok(ok(json!({ "format": "csv", "needsCsvFormat": true, "proposal": proposal })));
+            return Ok(ok(
+                json!({ "format": "csv", "needsCsvFormat": true, "proposal": proposal }),
+            ));
         }
     };
     let duplicates = match &account {
         Some(account) => Some(
-            count_duplicates(&caller.db, text(account, "id").unwrap_or_default(), &parse.transactions).await?,
+            count_duplicates(
+                &caller.db,
+                text(account, "id").unwrap_or_default(),
+                &parse.transactions,
+            )
+            .await?,
         ),
         None => None,
     };
@@ -650,7 +704,12 @@ async fn preview_file(caller: &Caller, data: FileBody) -> Reply {
     if let Some(accounts) = &parse.accounts {
         out.insert(
             "accounts".to_owned(),
-            Value::Array(accounts.iter().map(crate::parsers::StatementAccount::masked_json).collect()),
+            Value::Array(
+                accounts
+                    .iter()
+                    .map(crate::parsers::StatementAccount::masked_json)
+                    .collect(),
+            ),
         );
     }
     if let Some(currency) = &parse.currency {
@@ -688,16 +747,22 @@ async fn preview_file(caller: &Caller, data: FileBody) -> Reply {
     Ok(ok(Value::Object(out)))
 }
 
-async fn import(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_file_body(issues, body, false)) {
+async fn import(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_file_body(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to import bank file: unknown error"),
     };
     let result = import_file(&caller, &state, data).await;
     result.unwrap_or_else(|refusal| match refusal {
-        Refusal::Database(error) => {
-            Refusal::Internal(String::new()).respond(&format!("Failed to import bank file: {error}"))
-        }
+        Refusal::Database(error) => Refusal::Internal(String::new())
+            .respond(&format!("Failed to import bank file: {error}")),
         other => other.respond("Failed to import bank file: unknown error"),
     })
 }
@@ -747,8 +812,14 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         ("autoReconciledCount", json!(0)),
         ("status", json!("processing")),
         ("dateRange", parse.date_range_json()),
-        ("openingBalance", json!(parse.opening_balance.map(number_text))),
-        ("closingBalance", json!(parse.closing_balance.map(number_text))),
+        (
+            "openingBalance",
+            json!(parse.opening_balance.map(number_text)),
+        ),
+        (
+            "closingBalance",
+            json!(parse.closing_balance.map(number_text)),
+        ),
         (
             "errors",
             if parse.errors.is_empty() {
@@ -765,8 +836,14 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
     }
     BANK_IMPORT_BATCHES.insert_raw(&caller.db, batch).await?;
 
-    let (imported, duplicates) =
-        import_transactions(&caller.db, &entity_id, &account_id, &batch_id, &parse.transactions).await?;
+    let (imported, duplicates) = import_transactions(
+        &caller.db,
+        &entity_id,
+        &account_id,
+        &batch_id,
+        &parse.transactions,
+    )
+    .await?;
     let auto_reconciled = if weldsuite_books_domain::js::truthy(account.get("autoReconcile")) {
         let http = caller.http(state);
         auto_reconcile_batch(&caller.db, http.as_ref(), &account_id, None)
@@ -839,7 +916,11 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
             changes: Some(changes(vec![
                 ("fileName", Value::Null, json!(file_name)),
                 ("format", Value::Null, json!(parse.format)),
-                ("totalTransactions", Value::Null, json!(parse.transactions.len())),
+                (
+                    "totalTransactions",
+                    Value::Null,
+                    json!(parse.transactions.len()),
+                ),
                 ("importedCount", Value::Null, json!(imported)),
                 ("duplicateCount", Value::Null, json!(duplicates)),
                 ("autoReconciledCount", Value::Null, json!(auto_reconciled)),
@@ -866,7 +947,12 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
 
 // ── POST /auto-reconcile ────────────────────────────────────────────────────
 
-async fn auto_reconcile(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn auto_reconcile(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let account_id = match validate(&headers, &body, |issues, body| {
         issues.text(body, "bankAccountId", Presence::Required, Some(1), None)
     }) {
@@ -948,12 +1034,22 @@ async fn suggestions(caller: Caller, Path(id): Path<String>) -> Response {
 async fn find_line(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
     let entity_id = resolve_entity_id(caller).await?;
     let txn = find_transaction(&caller.db, id).await?;
-    Ok(txn.filter(|txn| entity_id.as_deref().is_none_or(|entity| text(txn, "entityId") == Some(entity))))
+    Ok(txn.filter(|txn| {
+        entity_id
+            .as_deref()
+            .is_none_or(|entity| text(txn, "entityId") == Some(entity))
+    }))
 }
 
 /// `recordLinked`: audit trail and events for a line tied to a payment or a
 /// deposit.
-async fn record_linked(caller: &Caller, state: &BooksState, txn: &Value, payment: bool, linked_id: &str) {
+async fn record_linked(
+    caller: &Caller,
+    state: &BooksState,
+    txn: &Value,
+    payment: bool,
+    linked_id: &str,
+) {
     let mut audit = vec![
         ("status", field(txn, "status"), json!("reconciled")),
         (
@@ -980,10 +1076,19 @@ async fn record_linked(caller: &Caller, state: &BooksState, txn: &Value, payment
         },
     )
     .await;
-    caller.publish(state, BANK_TRANSACTION_UPDATED, id, line_event(txn, "reconciled"));
     caller.publish(
         state,
-        if payment { PAYMENT_UPDATED } else { BANK_DEPOSIT_UPDATED },
+        BANK_TRANSACTION_UPDATED,
+        id,
+        line_event(txn, "reconciled"),
+    );
+    caller.publish(
+        state,
+        if payment {
+            PAYMENT_UPDATED
+        } else {
+            BANK_DEPOSIT_UPDATED
+        },
         linked_id,
         json!({ "id": linked_id, "bankTransactionId": id }),
     );
@@ -1070,8 +1175,17 @@ async fn reconcile(
     body: Bytes,
 ) -> Response {
     let data = match validate(&headers, &body, |issues, body| {
-        let kind = issues.choice(body, "type", Presence::Required, &["invoice", "bill", "manual"]);
-        let mut optional = |key: &str| issues.text(body, key, Presence::Optional, None, None).into_option();
+        let kind = issues.choice(
+            body,
+            "type",
+            Presence::Required,
+            &["invoice", "bill", "manual"],
+        );
+        let mut optional = |key: &str| {
+            issues
+                .text(body, key, Presence::Optional, None, None)
+                .into_option()
+        };
         let entity_id = optional("entityId");
         let category_account_id = optional("categoryAccountId");
         let tax_rate_id = optional("taxRateId");
@@ -1094,12 +1208,21 @@ async fn reconcile(
 }
 
 #[allow(clippy::too_many_lines)] // the two kinds of reconcile, as the worker has them
-async fn reconcile_line(caller: &Caller, state: &BooksState, id: &str, data: ReconcileBody) -> Reply {
+async fn reconcile_line(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    data: ReconcileBody,
+) -> Reply {
     let Some(txn) = find_transaction(&caller.db, id).await? else {
         return Err(Refusal::not_found("Transaction", id));
     };
     if data.kind == "manual" {
-        let Some(category) = data.category_account_id.as_deref().filter(|c| !c.is_empty()) else {
+        let Some(category) = data
+            .category_account_id
+            .as_deref()
+            .filter(|c| !c.is_empty())
+        else {
             return Err(Refusal::bad_request(
                 "categoryAccountId is required to categorize a transaction without an invoice or bill",
             ));
@@ -1124,14 +1247,31 @@ async fn reconcile_line(caller: &Caller, state: &BooksState, id: &str, data: Rec
                 action: "reconciled",
                 changes: Some(changes(vec![
                     ("status", field(&txn, "status"), json!("reconciled")),
-                    ("reconciliationType", field(&txn, "reconciliationType"), json!("manual")),
-                    ("categoryAccountId", field(&txn, "categoryAccountId"), json!(category)),
-                    ("journalEntryId", field(&txn, "journalEntryId"), json!(posted.journal_entry_id)),
+                    (
+                        "reconciliationType",
+                        field(&txn, "reconciliationType"),
+                        json!("manual"),
+                    ),
+                    (
+                        "categoryAccountId",
+                        field(&txn, "categoryAccountId"),
+                        json!(category),
+                    ),
+                    (
+                        "journalEntryId",
+                        field(&txn, "journalEntryId"),
+                        json!(posted.journal_entry_id),
+                    ),
                 ])),
             },
         )
         .await;
-        caller.publish(state, BANK_TRANSACTION_UPDATED, id, line_event(&txn, "reconciled"));
+        caller.publish(
+            state,
+            BANK_TRANSACTION_UPDATED,
+            id,
+            line_event(&txn, "reconciled"),
+        );
         caller.publish(
             state,
             JOURNAL_ENTRY_CREATED,
@@ -1164,13 +1304,29 @@ async fn reconcile_line(caller: &Caller, state: &BooksState, id: &str, data: Rec
     .map_err(posting_refusal)?;
     let mut audit = vec![
         ("status", field(&txn, "status"), json!("reconciled")),
-        ("reconciliationType", field(&txn, "reconciliationType"), json!("manual")),
-        ("reconciledPaymentId", field(&txn, "reconciledPaymentId"), json!(matched.id)),
+        (
+            "reconciliationType",
+            field(&txn, "reconciliationType"),
+            json!("manual"),
+        ),
+        (
+            "reconciledPaymentId",
+            field(&txn, "reconciledPaymentId"),
+            json!(matched.id),
+        ),
     ];
     if invoice {
-        audit.push(("reconciledInvoiceId", field(&txn, "reconciledInvoiceId"), json!(document_id)));
+        audit.push((
+            "reconciledInvoiceId",
+            field(&txn, "reconciledInvoiceId"),
+            json!(document_id),
+        ));
     } else {
-        audit.push(("reconciledBillId", field(&txn, "reconciledBillId"), json!(document_id)));
+        audit.push((
+            "reconciledBillId",
+            field(&txn, "reconciledBillId"),
+            json!(document_id),
+        ));
     }
     write_accounting_audit(
         caller,
@@ -1184,14 +1340,22 @@ async fn reconcile_line(caller: &Caller, state: &BooksState, id: &str, data: Rec
         },
     )
     .await;
-    caller.publish(state, BANK_TRANSACTION_UPDATED, id, line_event(&txn, "reconciled"));
+    caller.publish(
+        state,
+        BANK_TRANSACTION_UPDATED,
+        id,
+        line_event(&txn, "reconciled"),
+    );
     let mut payment = Map::new();
     payment.insert("id".to_owned(), json!(matched.id));
     payment.insert(
         "amount".to_owned(),
         json!(number_text(js_number_value(txn.get("amount")).abs())),
     );
-    payment.insert(if invoice { "invoiceId" } else { "billId" }.to_owned(), json!(document_id));
+    payment.insert(
+        if invoice { "invoiceId" } else { "billId" }.to_owned(),
+        json!(document_id),
+    );
     caller.publish(state, PAYMENT_CREATED, &matched.id, Value::Object(payment));
     Ok(ok(json!({
         "id": id,
@@ -1203,7 +1367,11 @@ async fn reconcile_line(caller: &Caller, state: &BooksState, id: &str, data: Rec
 
 // ── POST /:id/unreconcile, POST /:id/exclude ────────────────────────────────
 
-async fn unreconcile_line(caller: Caller, State(state): State<BooksState>, Path(id): Path<String>) -> Response {
+async fn unreconcile_line(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(txn) = find_transaction(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Transaction", &id));
@@ -1221,20 +1389,33 @@ async fn unreconcile_line(caller: Caller, State(state): State<BooksState>, Path(
                 action: "unreconciled",
                 changes: Some(changes(vec![
                     ("status", field(&txn, "status"), json!("unreconciled")),
-                    ("reconciledPaymentId", field(&txn, "reconciledPaymentId"), Value::Null),
+                    (
+                        "reconciledPaymentId",
+                        field(&txn, "reconciledPaymentId"),
+                        Value::Null,
+                    ),
                     ("journalEntryId", field(&txn, "journalEntryId"), Value::Null),
                 ])),
             },
         )
         .await;
-        caller.publish(&state, BANK_TRANSACTION_UPDATED, &id, line_event(&txn, "unreconciled"));
+        caller.publish(
+            &state,
+            BANK_TRANSACTION_UPDATED,
+            &id,
+            line_event(&txn, "unreconciled"),
+        );
         Ok(ok(json!({ "id": id, "status": "unreconciled" })))
     }
     .await;
     reply(result, "Failed to unreconcile transaction")
 }
 
-async fn exclude(caller: Caller, State(state): State<BooksState>, Path(id): Path<String>) -> Response {
+async fn exclude(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(txn) = find_transaction(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Transaction", &id));

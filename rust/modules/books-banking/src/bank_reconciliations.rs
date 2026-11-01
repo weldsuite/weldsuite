@@ -54,7 +54,10 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("banking:read")))
         .route("/", post(start).route_layer(need("banking:create")))
-        .route("/{id}/report", get(report).route_layer(need("banking:read")))
+        .route(
+            "/{id}/report",
+            get(report).route_layer(need("banking:read")),
+        )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route("/{id}", patch(save).route_layer(need("banking:update")))
         .route("/{id}", delete(discard).route_layer(need("banking:update")))
@@ -188,12 +191,18 @@ async fn load_lines(db: &PgPool, rec: &Value, mode: &str) -> Result<Vec<LedgerLi
     Ok(rows
         .into_iter()
         .map(|r| {
-            let number = |v: Option<String>| v.map_or(0.0, |text| weldsuite_kit::validation::js_number(&text));
+            let number = |v: Option<String>| {
+                v.map_or(0.0, |text| weldsuite_kit::validation::js_number(&text))
+            };
             LedgerLine {
                 id: r.0,
                 journal_entry_id: r.1,
                 entry_number: r.2,
-                date: weldsuite_db::js_timestamp(&r.3).unwrap_or(r.3).chars().take(10).collect(),
+                date: weldsuite_db::js_timestamp(&r.3)
+                    .unwrap_or(r.3)
+                    .chars()
+                    .take(10)
+                    .collect(),
                 description: r.4.or(r.5),
                 debit: number(r.6),
                 credit: number(r.7),
@@ -213,12 +222,16 @@ async fn load_lines(db: &PgPool, rec: &Value, mode: &str) -> Result<Vec<LedgerLi
 fn split_netted(lines: Vec<LedgerLine>) -> (Vec<LedgerLine>, Vec<LedgerLine>) {
     let mut entries: Vec<(String, Vec<&LedgerLine>)> = Vec::new();
     for line in &lines {
-        match entries.iter_mut().find(|(id, _)| *id == line.journal_entry_id) {
+        match entries
+            .iter_mut()
+            .find(|(id, _)| *id == line.journal_entry_id)
+        {
             Some((_, group)) => group.push(line),
             None => entries.push((line.journal_entry_id.clone(), vec![line])),
         }
     }
-    let sum = |group: &[&LedgerLine]| round_money(group.iter().fold(0.0, |t, l| t + l.debit - l.credit));
+    let sum =
+        |group: &[&LedgerLine]| round_money(group.iter().fold(0.0, |t, l| t + l.debit - l.credit));
     let mut netted: Vec<String> = Vec::new();
     for (entry, group) in &entries {
         let Some(reversed_by) = group[0].reversed_by_id.as_deref().filter(|r| !r.is_empty()) else {
@@ -241,7 +254,13 @@ fn split_netted(lines: Vec<LedgerLine>) -> (Vec<LedgerLine>, Vec<LedgerLine>) {
 type Documents = Vec<(String, Value)>;
 
 /// A payment's id, type, reference, check number and method.
-type PaymentDocument = (String, Option<String>, Option<String>, Option<String>, Option<String>);
+type PaymentDocument = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents, sqlx::Error> {
     let ids_of = |kind: &str| -> Vec<String> {
@@ -266,7 +285,11 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
         .fetch_all(db)
         .await?;
         for (id, kind, reference, check, method) in rows {
-            let kind = if kind.as_deref() == Some("received") { "payment_received" } else { "payment_sent" };
+            let kind = if kind.as_deref() == Some("received") {
+                "payment_received"
+            } else {
+                "payment_sent"
+            };
             documents.push((
                 format!("payment:{id}"),
                 json!({ "type": kind, "id": id, "number": reference, "checkNumber": check, "method": method }),
@@ -275,10 +298,11 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
     }
     let deposits = ids_of("bank_deposit");
     if !deposits.is_empty() {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as("select id, memo from bank_deposits where id = any($1)")
-            .bind(&deposits)
-            .fetch_all(db)
-            .await?;
+        let rows: Vec<(String, Option<String>)> =
+            sqlx::query_as("select id, memo from bank_deposits where id = any($1)")
+                .bind(&deposits)
+                .fetch_all(db)
+                .await?;
         for (id, memo) in rows {
             documents.push((
                 format!("bank_deposit:{id}"),
@@ -287,14 +311,21 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
         }
     }
     for (kind, sql) in [
-        ("invoice", "select id, invoice_number from invoices where id = any($1)"),
-        ("bill", "select id, bill_number from bills where id = any($1)"),
+        (
+            "invoice",
+            "select id, invoice_number from invoices where id = any($1)",
+        ),
+        (
+            "bill",
+            "select id, bill_number from bills where id = any($1)",
+        ),
     ] {
         let ids = ids_of(kind);
         if ids.is_empty() {
             continue;
         }
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(sql).bind(&ids).fetch_all(db).await?;
+        let rows: Vec<(String, Option<String>)> =
+            sqlx::query_as(sql).bind(&ids).fetch_all(db).await?;
         for (id, number) in rows {
             documents.push((
                 format!("{kind}:{id}"),
@@ -323,7 +354,11 @@ fn document_of(line: &LedgerLine, documents: &Documents) -> Value {
 
 fn line_amount(line: &LedgerLine) -> f64 {
     let inflow = line.debit > 0.0;
-    round_money(if inflow { line.debit - line.credit } else { line.credit - line.debit })
+    round_money(if inflow {
+        line.debit - line.credit
+    } else {
+        line.credit - line.debit
+    })
 }
 
 /// `toView(line, documents, cleared)`.
@@ -356,7 +391,11 @@ impl Totals {
     fn of(lines: &[&LedgerLine]) -> Self {
         Self {
             count: lines.len(),
-            total: round_money(lines.iter().fold(0.0, |t, l| t + (l.debit - l.credit).abs())),
+            total: round_money(
+                lines
+                    .iter()
+                    .fold(0.0, |t, l| t + (l.debit - l.credit).abs()),
+            ),
         }
     }
 
@@ -404,17 +443,23 @@ async fn load_ledger(db: &PgPool, rec: &Value) -> Result<Value, Failure> {
 }
 
 async fn bank_account_name(db: &PgPool, rec: &Value) -> Result<Option<String>, sqlx::Error> {
-    let name: Option<String> = sqlx::query_scalar("select name from bank_accounts where id = $1 limit 1")
-        .bind(text(rec, "bankAccountId"))
-        .fetch_optional(db)
-        .await?;
+    let name: Option<String> =
+        sqlx::query_scalar("select name from bank_accounts where id = $1 limit 1")
+            .bind(text(rec, "bankAccountId"))
+            .fetch_optional(db)
+            .await?;
     Ok(name)
 }
 
 fn cleared_ids(rec: &Value) -> Vec<String> {
     rec.get("clearedLineIds")
         .and_then(Value::as_array)
-        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -434,7 +479,11 @@ async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure>
     } else {
         Vec::new()
     };
-    let (open, netted) = if in_progress { split_netted(raw) } else { (raw, Vec::new()) };
+    let (open, netted) = if in_progress {
+        split_netted(raw)
+    } else {
+        (raw, Vec::new())
+    };
     let refs: Vec<&LedgerLine> = open.iter().collect();
     let documents = load_documents(db, &refs).await?;
     let saved = cleared_ids(rec);
@@ -455,7 +504,10 @@ async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure>
         let sum = |items: &mut dyn Iterator<Item = &Value>| {
             round_money(items.fold(0.0, |t, v| t + v["amount"].as_f64().unwrap_or(0.0)))
         };
-        let cleared: Vec<&Value> = list.iter().filter(|v| v["cleared"] == json!(true)).collect();
+        let cleared: Vec<&Value> = list
+            .iter()
+            .filter(|v| v["cleared"] == json!(true))
+            .collect();
         json!({
             "count": list.len(),
             "total": number_value(sum(&mut list.iter())),
@@ -464,8 +516,16 @@ async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure>
         })
     };
     let totals = json!({ "inflows": part(&inflows), "outflows": part(&outflows) });
-    let cleared_balance = if completed { js_number_value(rec.get("clearedBalance").filter(|v| !v.is_null())) } else { b.cleared };
-    let difference = if completed { js_number_value(rec.get("difference").filter(|v| !v.is_null())) } else { b.difference };
+    let cleared_balance = if completed {
+        js_number_value(rec.get("clearedBalance").filter(|v| !v.is_null()))
+    } else {
+        b.cleared
+    };
+    let difference = if completed {
+        js_number_value(rec.get("difference").filter(|v| !v.is_null()))
+    } else {
+        b.difference
+    };
     let mut out = Map::new();
     out.insert("id".to_owned(), field(rec, "id"));
     out.insert("bankAccountId".to_owned(), field(rec, "bankAccountId"));
@@ -475,12 +535,24 @@ async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure>
         "ledger".to_owned(),
         json!({ "code": field(&ledger, "code"), "name": field(&ledger, "name"), "type": field(&ledger, "type") }),
     );
-    out.insert("accountKind".to_owned(), json!(if liability { "credit_card" } else { "bank" }));
+    out.insert(
+        "accountKind".to_owned(),
+        json!(if liability { "credit_card" } else { "bank" }),
+    );
     out.insert("status".to_owned(), json!(status));
     out.insert("statementDate".to_owned(), field(rec, "statementDate"));
-    out.insert("beginningBalance".to_owned(), json!(to_fixed(b.beginning, 2)));
-    out.insert("statementEndingBalance".to_owned(), json!(to_fixed(b.ending, 2)));
-    out.insert("clearedBalance".to_owned(), json!(to_fixed(cleared_balance, 2)));
+    out.insert(
+        "beginningBalance".to_owned(),
+        json!(to_fixed(b.beginning, 2)),
+    );
+    out.insert(
+        "statementEndingBalance".to_owned(),
+        json!(to_fixed(b.ending, 2)),
+    );
+    out.insert(
+        "clearedBalance".to_owned(),
+        json!(to_fixed(cleared_balance, 2)),
+    );
     out.insert("difference".to_owned(), json!(to_fixed(difference, 2)));
     out.insert(
         "clearedLineIds".to_owned(),
@@ -491,7 +563,13 @@ async fn reconciliation_view(db: &PgPool, rec: &Value) -> Result<Value, Failure>
     out.insert("totals".to_owned(), totals);
     out.insert("nettedLineCount".to_owned(), json!(netted.len()));
     // Keys the started (not yet re-read) reconciliation leaves undefined.
-    for key in ["adjustmentJournalEntryId", "completedAt", "completedBy", "undoneAt", "undoneBy"] {
+    for key in [
+        "adjustmentJournalEntryId",
+        "completedAt",
+        "completedBy",
+        "undoneAt",
+        "undoneBy",
+    ] {
         if let Some(value) = rec.get(key) {
             out.insert(key.to_owned(), value.clone());
         }
@@ -527,7 +605,11 @@ fn group(lines: &[&LedgerLine], documents: &Documents) -> Value {
 
 /// The lines of one direction.
 fn pick<'a>(lines: &[&'a LedgerLine], inflow: bool) -> Vec<&'a LedgerLine> {
-    lines.iter().copied().filter(|l| l.inflow() == inflow).collect()
+    lines
+        .iter()
+        .copied()
+        .filter(|l| l.inflow() == inflow)
+        .collect()
 }
 
 /// `buildReport(db, rec, { ledger, bankAccountName, ticked, uncleared,
@@ -543,7 +625,12 @@ async fn build_report(
 ) -> Result<Value, sqlx::Error> {
     let liability = text(ledger, "type") == Some("liability");
     let (later, _) = split_netted(load_lines(db, rec, "later").await?);
-    let all: Vec<&LedgerLine> = ticked.iter().chain(uncleared).copied().chain(later.iter()).collect();
+    let all: Vec<&LedgerLine> = ticked
+        .iter()
+        .chain(uncleared)
+        .copied()
+        .chain(later.iter())
+        .collect();
     let documents = load_documents(db, &all).await?;
     let b = balances(rec, ticked, liability);
     let sign = if liability { -1.0 } else { 1.0 };
@@ -607,7 +694,16 @@ async fn get_report(db: &PgPool, rec: &Value) -> Result<Value, Failure> {
     let bank_name = bank_account_name(db, rec).await?;
     let ticked: Vec<&LedgerLine> = open.iter().filter(|l| saved.contains(&l.id)).collect();
     let uncleared: Vec<&LedgerLine> = open.iter().filter(|l| !saved.contains(&l.id)).collect();
-    let report = build_report(db, rec, &ledger, bank_name.as_deref(), &ticked, &uncleared, None).await?;
+    let report = build_report(
+        db,
+        rec,
+        &ledger,
+        bank_name.as_deref(),
+        &ticked,
+        &uncleared,
+        None,
+    )
+    .await?;
     let mut out = Map::new();
     out.insert("status".to_owned(), field(rec, "status"));
     out.insert("preview".to_owned(), json!(true));
@@ -718,22 +814,33 @@ fn is_day(value: &str) -> bool {
     b.len() == 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && [0, 1, 2, 3, 5, 6, 8, 9].iter().all(|i| b[*i].is_ascii_digit())
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|i| b[*i].is_ascii_digit())
 }
 
 /// `/^-?\d+(\.\d{1,2})?$/`
 fn is_amount(value: &str) -> bool {
     let body = value.strip_prefix('-').unwrap_or(value);
-    let (whole, fraction) = body.split_once('.').map_or((body, None), |(w, f)| (w, Some(f)));
+    let (whole, fraction) = body
+        .split_once('.')
+        .map_or((body, None), |(w, f)| (w, Some(f)));
     !whole.is_empty()
         && whole.bytes().all(|b| b.is_ascii_digit())
-        && fraction.is_none_or(|f| (1..=2).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()))
+        && fraction
+            .is_none_or(|f| (1..=2).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// `money`: a finite number, or an amount string (`.transform(Number)`).
 /// The union settles after the synchronous checks: its issues are returned
 /// for the end of the body.
-fn money(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence, late: &mut Vec<Value>) -> Option<f64> {
+fn money(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+    late: &mut Vec<Value>,
+) -> Option<f64> {
     match body.get(key) {
         None if presence == Presence::Optional => None,
         Some(Value::Number(n)) => n.as_f64(),
@@ -748,7 +855,10 @@ fn money(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Pr
             None
         }
         other => {
-            late.push(weldsuite_kit::validation::string_or_number_issue(&issues.path_of(key), other).pipe_number_first());
+            late.push(
+                weldsuite_kit::validation::string_or_number_issue(&issues.path_of(key), other)
+                    .pipe_number_first(),
+            );
             None
         }
     }
@@ -769,14 +879,32 @@ impl NumberFirst for Value {
     }
 }
 
-fn day(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence) -> Field<String> {
-    issues.pattern(body, key, presence, None, None, is_day, "Use a YYYY-MM-DD date")
+fn day(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+) -> Field<String> {
+    issues.pattern(
+        body,
+        key,
+        presence,
+        None,
+        None,
+        is_day,
+        "Use a YYYY-MM-DD date",
+    )
 }
 
 fn line_ids(issues: &mut Issues, body: &Map<String, Value>) -> Field<Vec<String>> {
-    issues.list(body, "clearedLineIds", Presence::Optional, None, Some(20_000), |issues, item| {
-        issues.item_text(item, Text::length(Some(1), Some(30)))
-    })
+    issues.list(
+        body,
+        "clearedLineIds",
+        Presence::Optional,
+        None,
+        Some(20_000),
+        |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+    )
 }
 
 fn settle(issues: &mut Issues, late: Vec<Value>) {
@@ -794,13 +922,30 @@ struct StartBody {
     beginning: Option<f64>,
 }
 
-async fn start(caller: Caller, State(state): State<BooksState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn start(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let data = match validate(&headers, &body, |issues, body| {
         let mut late = Vec::new();
         let account = issues.text(body, "bankAccountId", Presence::Required, Some(1), Some(30));
         let date = day(issues, body, "statementDate", Presence::Required);
-        let ending = money(issues, body, "statementEndingBalance", Presence::Required, &mut late);
-        let beginning = money(issues, body, "beginningBalance", Presence::Optional, &mut late);
+        let ending = money(
+            issues,
+            body,
+            "statementEndingBalance",
+            Presence::Required,
+            &mut late,
+        );
+        let beginning = money(
+            issues,
+            body,
+            "beginningBalance",
+            Presence::Optional,
+            &mut late,
+        );
         settle(issues, late);
         Some(StartBody {
             bank_account_id: account.into_option()?,
@@ -810,7 +955,10 @@ async fn start(caller: Caller, State(state): State<BooksState>, headers: HeaderM
         })
     }) {
         Ok(Some(data)) => data,
-        Ok(None) => return Refusal::Internal("unread body".to_owned()).respond("Failed to start the reconciliation"),
+        Ok(None) => {
+            return Refusal::Internal("unread body".to_owned())
+                .respond("Failed to start the reconciliation");
+        }
         Err(refusal) => return refusal.respond("Failed to start the reconciliation"),
     };
     let result = async {
@@ -831,13 +979,24 @@ async fn start(caller: Caller, State(state): State<BooksState>, headers: HeaderM
                 changes: Some(changes(vec![
                     ("bankAccountId", Value::Null, field(&rec, "bankAccountId")),
                     ("statementDate", Value::Null, field(&rec, "statementDate")),
-                    ("statementEndingBalance", Value::Null, field(&rec, "statementEndingBalance")),
+                    (
+                        "statementEndingBalance",
+                        Value::Null,
+                        field(&rec, "statementEndingBalance"),
+                    ),
                 ])),
             },
         )
         .await;
-        caller.publish(&state, BANK_RECONCILIATION_CREATED, text(&rec, "id").unwrap_or_default(), event_data(&rec));
-        let view = reconciliation_view(&caller.db, &rec).await.map_err(user_fixable)?;
+        caller.publish(
+            &state,
+            BANK_RECONCILIATION_CREATED,
+            text(&rec, "id").unwrap_or_default(),
+            event_data(&rec),
+        );
+        let view = reconciliation_view(&caller.db, &rec)
+            .await
+            .map_err(user_fixable)?;
         Ok(created(view))
     }
     .await;
@@ -846,7 +1005,11 @@ async fn start(caller: Caller, State(state): State<BooksState>, headers: HeaderM
 
 /// `startReconciliation(db, args)`: the row written (as the route's object:
 /// no adjustment or completion keys yet).
-async fn start_reconciliation(db: &PgPool, entity_id: &str, data: &StartBody) -> Result<Value, Failure> {
+async fn start_reconciliation(
+    db: &PgPool,
+    entity_id: &str,
+    data: &StartBody,
+) -> Result<Value, Failure> {
     let bank: Option<(String, Option<String>)> = sqlx::query_as(
         "select id, ledger_account_id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
     )
@@ -862,7 +1025,11 @@ async fn start_reconciliation(db: &PgPool, entity_id: &str, data: &StartBody) ->
             "This bank account is not linked to a ledger account. Edit the bank account and choose a GL account first.",
         ));
     };
-    load_ledger(db, &json!({ "entityId": entity_id, "ledgerAccountId": ledger_id })).await?;
+    load_ledger(
+        db,
+        &json!({ "entityId": entity_id, "ledgerAccountId": ledger_id }),
+    )
+    .await?;
     let open: Option<String> = sqlx::query_scalar(
         "select id from bank_reconciliations where bank_account_id = $1 and status = 'in_progress' limit 1",
     )
@@ -871,7 +1038,8 @@ async fn start_reconciliation(db: &PgPool, entity_id: &str, data: &StartBody) ->
     .await?;
     if let Some(open) = open {
         return Err(Failure::Conflict(
-            "A reconciliation is already in progress for this account. Finish or discard it first.".to_owned(),
+            "A reconciliation is already in progress for this account. Finish or discard it first."
+                .to_owned(),
             open,
         ));
     }
@@ -904,7 +1072,10 @@ async fn start_reconciliation(db: &PgPool, entity_id: &str, data: &StartBody) ->
         ("beginningBalance", json!(to_fixed(beginning, 2))),
         ("statementEndingBalance", json!(to_fixed(data.ending, 2))),
         ("clearedBalance", json!(to_fixed(beginning, 2))),
-        ("difference", json!(to_fixed(round_money(data.ending - beginning), 2))),
+        (
+            "difference",
+            json!(to_fixed(round_money(data.ending - beginning), 2)),
+        ),
         ("status", json!("in_progress")),
         ("clearedLineIds", json!([])),
         ("createdAt", json!(stamp)),
@@ -923,7 +1094,9 @@ async fn start_reconciliation(db: &PgPool, entity_id: &str, data: &StartBody) ->
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         let rec = find(&caller, &id).await?;
-        Ok(ok(reconciliation_view(&caller.db, &rec).await.map_err(internal)?))
+        Ok(ok(reconciliation_view(&caller.db, &rec)
+            .await
+            .map_err(internal)?))
     }
     .await;
     reply(result, "Failed to fetch the reconciliation")
@@ -932,7 +1105,9 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 async fn report(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         let rec = find(&caller, &id).await?;
-        Ok(ok(get_report(&caller.db, &rec).await.map_err(user_fixable)?))
+        Ok(ok(get_report(&caller.db, &rec)
+            .await
+            .map_err(user_fixable)?))
     }
     .await;
     reply(result, "Failed to build the reconciliation report")
@@ -957,7 +1132,13 @@ async fn save(
         let mut late = Vec::new();
         let ids = line_ids(issues, body);
         let date = day(issues, body, "statementDate", Presence::Optional);
-        let ending = money(issues, body, "statementEndingBalance", Presence::Optional, &mut late);
+        let ending = money(
+            issues,
+            body,
+            "statementEndingBalance",
+            Presence::Optional,
+            &mut late,
+        );
         settle(issues, late);
         ProgressBody {
             cleared_line_ids: ids.into_option(),
@@ -970,9 +1151,13 @@ async fn save(
     };
     let result = async {
         let rec = find(&caller, &id).await?;
-        let saved = save_progress(&caller.db, &rec, &data).await.map_err(user_fixable)?;
+        let saved = save_progress(&caller.db, &rec, &data)
+            .await
+            .map_err(user_fixable)?;
         caller.publish(&state, BANK_RECONCILIATION_UPDATED, &id, event_data(&saved));
-        Ok(ok(reconciliation_view(&caller.db, &saved).await.map_err(user_fixable)?))
+        Ok(ok(reconciliation_view(&caller.db, &saved)
+            .await
+            .map_err(user_fixable)?))
     }
     .await;
     reply(result, "Failed to save the reconciliation")
@@ -1000,8 +1185,10 @@ async fn save_progress(db: &PgPool, rec: &Value, patch: &ProgressBody) -> Result
     .bind(text(rec, "bankAccountId"))
     .fetch_optional(db)
     .await?;
-    if let (Some(date), Some(last)) = (patch.statement_date.as_deref().filter(|d| !d.is_empty()), &last)
-        && date <= last.as_str()
+    if let (Some(date), Some(last)) = (
+        patch.statement_date.as_deref().filter(|d| !d.is_empty()),
+        &last,
+    ) && date <= last.as_str()
     {
         return Err(posting(format!(
             "The statement date must be after the last reconciled statement ({last})."
@@ -1012,9 +1199,15 @@ async fn save_progress(db: &PgPool, rec: &Value, patch: &ProgressBody) -> Result
         next.insert("statementDate".to_owned(), json!(date));
     }
     if let Some(ending) = patch.ending {
-        next.insert("statementEndingBalance".to_owned(), json!(to_fixed(ending, 2)));
+        next.insert(
+            "statementEndingBalance".to_owned(),
+            json!(to_fixed(ending, 2)),
+        );
     }
-    let ids = patch.cleared_line_ids.clone().unwrap_or_else(|| cleared_ids(rec));
+    let ids = patch
+        .cleared_line_ids
+        .clone()
+        .unwrap_or_else(|| cleared_ids(rec));
     next.insert("clearedLineIds".to_owned(), json!(ids));
     let next = Value::Object(next);
     let (open, _) = split_netted(load_lines(db, &next, "open").await?);
@@ -1034,13 +1227,21 @@ async fn save_progress(db: &PgPool, rec: &Value, patch: &ProgressBody) -> Result
     let stamp = now();
     let mut update = Map::new();
     update.insert("statementDate".to_owned(), field(&next, "statementDate"));
-    update.insert("statementEndingBalance".to_owned(), field(&next, "statementEndingBalance"));
+    update.insert(
+        "statementEndingBalance".to_owned(),
+        field(&next, "statementEndingBalance"),
+    );
     update.insert("clearedLineIds".to_owned(), json!(ids));
     update.insert("clearedBalance".to_owned(), json!(to_fixed(b.cleared, 2)));
     update.insert("difference".to_owned(), json!(to_fixed(b.difference, 2)));
     update.insert("updatedAt".to_owned(), json!(stamp));
     BANK_RECONCILIATIONS
-        .patch_raw(db, text(rec, "id").unwrap_or_default(), BANK_RECONCILIATIONS.values(&update), false)
+        .patch_raw(
+            db,
+            text(rec, "id").unwrap_or_default(),
+            BANK_RECONCILIATIONS.values(&update),
+            false,
+        )
         .await?;
     let mut saved = rec.as_object().cloned().unwrap_or_default();
     saved.extend(update);
@@ -1066,7 +1267,10 @@ async fn complete(
         let adjustment = issues.nested(body, "adjustment", Presence::Optional, |issues, fields| {
             let account = issues.text(fields, "accountId", Presence::Required, Some(1), Some(30));
             let memo = issues.text(fields, "memo", Presence::Optional, None, Some(255));
-            (account.into_option().unwrap_or_default(), memo.into_option())
+            (
+                account.into_option().unwrap_or_default(),
+                memo.into_option(),
+            )
         });
         CompleteBody {
             cleared_line_ids: ids.into_option(),
@@ -1078,9 +1282,10 @@ async fn complete(
     };
     let result = async {
         let rec = find(&caller, &id).await?;
-        let (done, adjustment_entry) = complete_reconciliation(&caller.db, &rec, &data, caller.user())
-            .await
-            .map_err(user_fixable)?;
+        let (done, adjustment_entry) =
+            complete_reconciliation(&caller.db, &rec, &data, caller.user())
+                .await
+                .map_err(user_fixable)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1091,16 +1296,34 @@ async fn complete(
                 action: "completed",
                 changes: Some(changes(vec![
                     ("status", field(&rec, "status"), json!("completed")),
-                    ("clearedBalance", field(&rec, "clearedBalance"), field(&done, "clearedBalance")),
-                    ("adjustmentJournalEntryId", Value::Null, json!(adjustment_entry)),
+                    (
+                        "clearedBalance",
+                        field(&rec, "clearedBalance"),
+                        field(&done, "clearedBalance"),
+                    ),
+                    (
+                        "adjustmentJournalEntryId",
+                        Value::Null,
+                        json!(adjustment_entry),
+                    ),
                 ])),
             },
         )
         .await;
-        caller.publish(&state, BANK_RECONCILIATION_COMPLETED, &id, event_data(&done));
-        let mut view = reconciliation_view(&caller.db, &done).await.map_err(user_fixable)?;
+        caller.publish(
+            &state,
+            BANK_RECONCILIATION_COMPLETED,
+            &id,
+            event_data(&done),
+        );
+        let mut view = reconciliation_view(&caller.db, &done)
+            .await
+            .map_err(user_fixable)?;
         if let Value::Object(map) = &mut view {
-            map.insert("adjustmentJournalEntryId".to_owned(), json!(adjustment_entry));
+            map.insert(
+                "adjustmentJournalEntryId".to_owned(),
+                json!(adjustment_entry),
+            );
         }
         Ok(ok(view))
     }
@@ -1169,14 +1392,24 @@ async fn complete_reconciliation(
     user_id: Option<&str>,
 ) -> Result<(Value, Option<String>), Failure> {
     if text(rec, "status") != Some("in_progress") {
-        return Err(posting("Only a reconciliation in progress can be completed"));
+        return Err(posting(
+            "Only a reconciliation in progress can be completed",
+        ));
     }
     let ledger = load_ledger(db, rec).await?;
     let liability = text(&ledger, "type") == Some("liability");
     let ledger_id = text(&ledger, "id").unwrap_or_default().to_owned();
     let (open, netted) = split_netted(load_lines(db, rec, "open").await?);
-    let ticked_ids = unique(&data.cleared_line_ids.clone().unwrap_or_else(|| cleared_ids(rec)));
-    if let Some(unknown) = ticked_ids.iter().find(|id| !open.iter().any(|l| &l.id == *id)) {
+    let ticked_ids = unique(
+        &data
+            .cleared_line_ids
+            .clone()
+            .unwrap_or_else(|| cleared_ids(rec)),
+    );
+    if let Some(unknown) = ticked_ids
+        .iter()
+        .find(|id| !open.iter().any(|l| &l.id == *id))
+    {
         return Err(posting(format!(
             "Line {unknown} is not open on or before {} (already cleared, not on this account, or dated later)",
             text(rec, "statementDate").unwrap_or_default()
@@ -1187,10 +1420,17 @@ async fn complete_reconciliation(
         .filter_map(|id| open.iter().find(|l| &l.id == id))
         .collect();
     let b = balances(rec, &ticked, liability);
-    let uncleared: Vec<&LedgerLine> = open.iter().filter(|l| !ticked_ids.contains(&l.id)).collect();
+    let uncleared: Vec<&LedgerLine> = open
+        .iter()
+        .filter(|l| !ticked_ids.contains(&l.id))
+        .collect();
     let bank_name = bank_account_name(db, rec).await?;
     let differs = b.difference.abs() >= EPSILON;
-    let Some((account_id, memo)) = data.adjustment.clone().or_else(|| (!differs).then(|| (String::new(), None))) else {
+    let Some((account_id, memo)) = data
+        .adjustment
+        .clone()
+        .or_else(|| (!differs).then(|| (String::new(), None)))
+    else {
         return Err(posting(format!(
             "The difference is {}. It must be 0.00 to finish: tick the lines that cleared, or post the difference to an account.",
             to_fixed(b.difference, 2)
@@ -1205,7 +1445,16 @@ async fn complete_reconciliation(
     let stamp = now();
 
     if !differs {
-        let report = build_report(db, rec, &ledger, bank_name.as_deref(), &ticked, &uncleared, None).await?;
+        let report = build_report(
+            db,
+            rec,
+            &ledger,
+            bank_name.as_deref(),
+            &ticked,
+            &uncleared,
+            None,
+        )
+        .await?;
         let mut tx = db.begin().await?;
         finish(
             &mut tx,
@@ -1226,11 +1475,17 @@ async fn complete_reconciliation(
 
     let accounts = load_entity_accounts(db, text(rec, "entityId").unwrap_or_default()).await?;
     let Some(adjustment_account) = accounts.by_id(Some(&account_id)) else {
-        return Err(posting("The adjustment account does not belong to this accounting entity"));
+        return Err(posting(
+            "The adjustment account does not belong to this accounting entity",
+        ));
     };
-    let adjustment_id = text(adjustment_account, "id").unwrap_or_default().to_owned();
+    let adjustment_id = text(adjustment_account, "id")
+        .unwrap_or_default()
+        .to_owned();
     if adjustment_id == ledger_id {
-        return Err(posting("Post the adjustment to another account than the bank account itself"));
+        return Err(posting(
+            "Post the adjustment to another account than the bank account itself",
+        ));
     }
     let amount = b.difference.abs();
     let raises_ledger_debit = (b.difference > 0.0) != liability;
@@ -1291,7 +1546,8 @@ async fn complete_reconciliation(
     );
     let write: AlsoWrite = Box::new(move |conn, posted| {
         Box::pin(async move {
-            let (rec_id, ledger_id, stamp_ids, ticked_ids, cleared, user, stamp, with_entry) = write_parts;
+            let (rec_id, ledger_id, stamp_ids, ticked_ids, cleared, user, stamp, with_entry) =
+                write_parts;
             finish(
                 conn,
                 &rec_id,
@@ -1364,14 +1620,24 @@ async fn undo(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
                 action: "undone",
                 changes: Some(changes(vec![
                     ("status", field(&rec, "status"), json!("undone")),
-                    ("statementDate", field(&rec, "statementDate"), field(&rec, "statementDate")),
-                    ("adjustmentJournalEntryId", field(&rec, "adjustmentJournalEntryId"), Value::Null),
+                    (
+                        "statementDate",
+                        field(&rec, "statementDate"),
+                        field(&rec, "statementDate"),
+                    ),
+                    (
+                        "adjustmentJournalEntryId",
+                        field(&rec, "adjustmentJournalEntryId"),
+                        Value::Null,
+                    ),
                 ])),
             },
         )
         .await;
         caller.publish(&state, BANK_RECONCILIATION_UNDONE, &id, event_data(&undone));
-        Ok(ok(reconciliation_view(&caller.db, &undone).await.map_err(user_fixable)?))
+        Ok(ok(reconciliation_view(&caller.db, &undone)
+            .await
+            .map_err(user_fixable)?))
     }
     .await;
     reply(result, "Failed to undo the reconciliation")
@@ -1404,7 +1670,11 @@ async fn release(
 
 /// `undoReconciliation(db, rec, { userId })`: only the latest completed one.
 #[allow(clippy::single_match_else)]
-async fn undo_reconciliation(db: &PgPool, rec: &Value, user_id: Option<&str>) -> Result<Value, Failure> {
+async fn undo_reconciliation(
+    db: &PgPool,
+    rec: &Value,
+    user_id: Option<&str>,
+) -> Result<Value, Failure> {
     if text(rec, "status") != Some("completed") {
         return Err(posting("Only a completed reconciliation can be undone"));
     }
@@ -1462,11 +1732,17 @@ async fn undo_reconciliation(db: &PgPool, rec: &Value, user_id: Option<&str>) ->
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn discard(caller: Caller, State(state): State<BooksState>, Path(id): Path<String>) -> Response {
+async fn discard(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     let result: Reply = async {
         let rec = find(&caller, &id).await?;
         if text(&rec, "status") != Some("in_progress") {
-            return Err(Refusal::bad_request("Only a reconciliation in progress can be discarded"));
+            return Err(Refusal::bad_request(
+                "Only a reconciliation in progress can be discarded",
+            ));
         }
         sqlx::query("delete from bank_reconciliations where id = $1 and status = 'in_progress'")
             .bind(&id)
@@ -1480,7 +1756,11 @@ async fn discard(caller: Caller, State(state): State<BooksState>, Path(id): Path
                 entity_type: "bank_reconciliation",
                 entity_id: &id,
                 action: "deleted",
-                changes: Some(changes(vec![("status", field(&rec, "status"), Value::Null)])),
+                changes: Some(changes(vec![(
+                    "status",
+                    field(&rec, "status"),
+                    Value::Null,
+                )])),
             },
         )
         .await;
