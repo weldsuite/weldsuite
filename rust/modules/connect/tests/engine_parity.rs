@@ -10,7 +10,11 @@
 //! `scripts/rust-test-db.ts`) and skips without it. Regenerate the fixtures
 //! with `pnpm rust:connect-engine-fixtures`.
 
-#![allow(clippy::unwrap_used, clippy::too_many_lines, clippy::many_single_char_names)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    clippy::many_single_char_names
+)]
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};

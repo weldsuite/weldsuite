@@ -24,6 +24,7 @@ mod cron;
 mod crypto;
 mod dashboard;
 pub mod engine;
+mod entity_workflows;
 mod executions;
 mod github;
 mod github_app;
@@ -80,6 +81,7 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
+pub use entity_workflows::EntityWorkflowsSubscriber;
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,

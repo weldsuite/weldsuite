@@ -15,7 +15,7 @@
 //!   `max_retries + 1` times, with headers naming the subscriber, the hub
 //!   sequence, the deliveries and the last error.
 //!
-//! The subscribers not ported (analytics, WeldConnect, WeldAgent) have no
+//! The subscribers not ported (analytics, WeldAgent) have no
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
 //!
@@ -43,7 +43,7 @@ use weldsuite_adapters_oss::{
     entity_events_stream_config, run_consumer,
 };
 use weldsuite_db::{PgPool, Workspaces, master_pool};
-use weldsuite_ports::{BatchHandler, DynFileStore, DynRealtimePublisher, Embeddings};
+use weldsuite_ports::{BatchHandler, DynFileStore, DynJobs, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
     AuditSubscriber, RealtimeSubscriber, Routed, SearchSubscriber, Subscriber, Tenants,
@@ -277,6 +277,7 @@ fn handlers(
     realtime: Option<&Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<&Arc<dyn Embeddings>>,
     http: &WebhookHttp,
+    jobs: Option<&Arc<dyn DynJobs>>,
 ) -> Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> {
     let mut out: Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> = Vec::new();
     for id in &config.subscribers {
@@ -288,6 +289,22 @@ fn handlers(
                 Some(master.clone()),
                 http.clone(),
             )),
+            "weldconnect" => {
+                let Some(jobs) = jobs else {
+                    tracing::warn!(
+                        "RESTATE_INGRESS_URL is not set: the weldconnect subscriber does not run"
+                    );
+                    continue;
+                };
+                let runs: Arc<dyn weldsuite_connect::WorkflowRuns> =
+                    Arc::new(weldsuite_connect::JobsWorkflowRuns {
+                        jobs: Arc::clone(jobs),
+                    });
+                Arc::new(weldsuite_connect::EntityWorkflowsSubscriber::new(
+                    Arc::clone(tenants),
+                    Some(runs),
+                ))
+            }
             "realtime" => {
                 let Some(realtime) = realtime else {
                     tracing::warn!("VALKEY_URL is not set: the realtime subscriber does not run");
@@ -428,6 +445,14 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         embeddings,
         http,
     };
+    // Workflow runs the weldconnect subscriber starts go to Restate, where
+    // `serve` runs them.
+    let jobs: Option<Arc<dyn DynJobs>> = config.restate_ingress_url.as_ref().map(|url| {
+        Arc::new(weldsuite_adapters_oss::RestateJobs::new(
+            url,
+            reqwest::Client::new(),
+        )) as Arc<dyn DynJobs>
+    });
     let running = handlers(
         &config,
         &tenants,
@@ -435,6 +460,7 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         services.realtime.as_ref(),
         services.embeddings.as_ref(),
         &services.http,
+        jobs.as_ref(),
     );
     let mail_inbound = match &config.mail_inbound {
         Some(inbound) if config.subscribers.iter().any(|s| s == MAIL_INBOUND) => Some((
