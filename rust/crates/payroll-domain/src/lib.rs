@@ -38,9 +38,12 @@ pub mod documents;
 pub mod js;
 pub mod labels;
 pub mod money;
+pub mod nacha;
 pub mod nl;
 pub mod ordered;
+pub mod payslip_pdf;
 pub mod periods;
+pub mod sepa;
 pub mod types;
 pub mod us;
 

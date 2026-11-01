@@ -143,3 +143,8 @@ pub fn futa_credit_reduction_percent(tax_year: i64, state: Option<&str>) -> f64 
         .copied()
         .unwrap_or(0.0)
 }
+
+/// `FUTA_CREDIT_REDUCTION[taxYear]`: state → percent.
+pub fn futa_credit_reduction_table(tax_year: i64) -> Option<&'static BTreeMap<String, f64>> {
+    DATA.futa_credit_reduction.get(&tax_year.to_string())
+}

@@ -55,6 +55,19 @@ import {
 import { STATE_NAMES } from '../packages/domains/payroll/src/us/states/labels';
 import { STATE_CERTIFICATE_LABELS } from '../packages/domains/payroll/src/us/states/certificate-labels';
 import type { NlFilingData, NlPayslipInput, PayFrequency, UsPayslipInput, UsW4Input } from '../packages/domains/payroll/src/types';
+import { PDFArray, PDFDocument, PDFRawStream, StandardFonts, decodePDFRawStream } from 'pdf-lib';
+import { buildSepaSalaryBatch } from '../packages/domains/payroll/src/sepa';
+import { buildNachaFile } from '../packages/domains/payroll/src/nacha';
+import { renderDocumentPdf, renderPayslipPdf } from '../packages/domains/payroll/src/payslip-pdf';
+import {
+  depositDueDate,
+  form940,
+  form941,
+  formW2,
+  formW3,
+  stateUnemploymentReport,
+  stateWithholdingReport,
+} from '../packages/domains/payroll/src/us/forms';
 import { FEDERAL_2026 } from '../packages/domains/payroll/src/us/federal-2026';
 import { FUTA_CREDIT_REDUCTION, federalRules } from '../packages/domains/payroll/src/us/federal-rules';
 import { SUPPORTED_STATES, stateModule } from '../packages/domains/payroll/src/us/states';
@@ -727,12 +740,211 @@ function randomUsInput(g: Gen): UsPayslipInput {
   write('tests/fixtures/us-federal.json', { withholding, overtime, dates });
 }
 
-if (check) {
-  if (stale.length) {
-    console.error(`Stale payroll fixtures (run \`pnpm rust:payroll-fixtures\`):\n  ${stale.join('\n  ')}`);
-    process.exit(1);
+// ── payment files ───────────────────────────────────────────────────────────
+
+{
+  const g = new Gen(7);
+  const ibans = ['NL91ABNA0417164300', 'nl91 abna 0417 1643 00', 'DE89370400440532013000', 'GB29NWBK60161331926819', 'NL91ABNA0417164301', 'XX00', 'CH9300762011623852957'];
+  const names = ['Anna de Vries', 'Zoë Ørsted & Søn', '', '日本語', 'O’Brien-Smith (Jr.)', '  spaced   name  '];
+  const party = () => ({ name: g.pick(names), iban: g.pick(ibans), ...(g.bool(0.4) ? { bic: g.pick(['ABNANL2A', 'abna nl 2a', 'BAD', '', 'DEUTDEFF500']) } : {}) });
+  const sepa: unknown[] = [];
+  for (let i = 0; i < 150; i += 1) {
+    const input = {
+      messageId: g.pick(['run_abc123-2026-03', '//weird id//', '', 'a'.repeat(50)]),
+      createdAt: g.pick(['2026-03-25T10:00:00.000Z', '2026-03-25', 'not a date']),
+      executionDate: g.pick(['2026-03-25', '2026-06-25', '2027-02-01', '25-03-2026']),
+      debtor: party(),
+      salaries: Array.from({ length: g.int(0, 4) }, () => ({
+        endToEndId: g.pick(['pslp_1', 'pslp_1', 'pslp 2/3', '//', 'ok-id']),
+        creditor: party(),
+        amountCents: g.pick([g.int(1, 900_000), 0, -5, 12.5, 100_000_000_000]),
+        remittance: g.pick(['Salaris maart 2026', 'Net pay & bonus <x>', '']),
+      })),
+      ...(g.bool(0.5) ? { tax: { amountCents: g.pick([g.int(1, 500_000), 0]), betalingskenmerk: g.pick(['9 0012 3456 6603 0030', '1234567890123456', 'x']), ...(g.bool(0.3) ? { creditor: party() } : {}) } } : {}),
+    };
+    sepa.push({ input, output: buildSepaSalaryBatch(input) });
   }
-  console.log('Payroll fixtures are up to date.');
-} else {
-  console.log(`Wrote the payroll tables and vectors to ${path.relative(repo, crateDir)}.`);
+  const routings = ['011000015', '021000021', '121000358', '123456789', '01100001', '311000015', '800000003'];
+  const nacha: unknown[] = [];
+  for (let i = 0; i < 150; i += 1) {
+    const input = {
+      originator: { companyName: g.pick(['Acme Inc.', 'Café Ünïcode LLC', '']), companyId: g.pick(['1234567890', ' 12345 ', '', '12345678901']), odfiRouting: g.pick(routings), odfiName: g.pick(['First Bank', 'Bänk 😀 of America']) },
+      effectiveDate: '2026-03-27',
+      createdAt: g.pick(['2026-03-25T10:05:00.000Z', '2026-03-25']),
+      ...(g.bool(0.5) ? { fileIdModifier: g.pick(['b', 'Z', '1', 'ab', '']) } : {}),
+      ...(g.bool(0.5) ? { entryDescription: g.pick(['PAYROLL MARCH', 'salary', '']) } : {}),
+      credits: Array.from({ length: g.int(0, 4) }, () => ({
+        individualId: g.pick(['E001', 'E002', 'a-very-long-individual-identifier']),
+        individualName: g.pick(['John Smith', 'José Núñez', 'X Æ A-12']),
+        routingNumber: g.pick(routings),
+        accountNumber: g.pick(['123456789', '12-34 56', 'too-long-account-number-123', 'ab_cd']),
+        accountType: g.pick(['checking', 'savings'] as const),
+        amountCents: g.pick([g.int(1, 900_000), 0, -1, 12.5, 10_000_000_000]),
+      })),
+      ...(g.bool(0.4) ? { balancedOffset: { routingNumber: g.pick(routings), accountNumber: g.pick(['987654321', '']), accountType: g.pick(['checking', 'savings'] as const) } } : {}),
+    };
+    nacha.push({ input, output: attempt(() => buildNachaFile(input)) });
+  }
+  write('tests/fixtures/payment-files.json', { sepa, nacha });
 }
+
+// ── US forms ────────────────────────────────────────────────────────────────
+
+{
+  const g = new Gen(8);
+  const employer = (states: string[]) => ({
+    name: 'Acme Inc.',
+    ein: g.pick(['123456789', '12-3456789', null, '1234']),
+    address: ['1 Main St', 'Springfield, IL 62701'],
+    depositSchedule: g.pick(['monthly', 'semiweekly'] as const),
+    states: Object.fromEntries(states.map((s) => [s, { withholdingAccountNumber: g.maybe(`W-${s}`, 0.7), suiAccountNumber: g.maybe(`U-${s}`, 0.7) }])),
+  });
+  const forms: unknown[] = [];
+  for (let i = 0; i < 40; i += 1) {
+    // A small company's year of US payslips from the real engine.
+    const people = Array.from({ length: g.int(1, 4) }, (_, n) => ({
+      employee: { employeeId: `emp_${n}`, name: g.pick(['Zed Last', 'Ann Able', 'Émile Ö', 'bob lower']), ssn: g.pick(['123456789', '123-45-6789', null, '12']), address: ['2 Elm St'] },
+      payslips: [] as Array<Record<string, unknown>>,
+    }));
+    const states = new Set<string>();
+    for (const person of people) {
+      const base = randomUsInput(g);
+      base.us.workState = g.pick(['CA', 'NY', 'TX', 'MA', 'NJ', 'WA']);
+      base.compensation = { payType: 'salary', amount: g.pick([60_000, 250_000, 30_000]), period: 'year', hoursPerWeek: 40 };
+      let ytd: Record<string, number> = {};
+      let start = '2026-01-04';
+      for (let r = 1; r <= 26; r += 1) {
+        const period = usPeriod(g, 'biweekly', start, r);
+        const out = calculatePayslip({ ...base, period, ytd });
+        ytd = out.ytd;
+        start = shiftDate(start, 14);
+        if (out.filingData.kind !== 'us') continue;
+        for (const st of Object.keys(out.filingData.states)) states.add(st);
+        person.payslips.push({ payslipId: `p_${r}`, employeeId: person.employee.employeeId, payDate: period.payDate, filingData: out.filingData, ...(g.bool(0.5) ? { periodStart: period.start, periodEnd: period.end } : {}) });
+      }
+    }
+    const emp = employer([...states]);
+    const all = people.flatMap((p) => p.payslips) as never[];
+    const quarter = g.int(1, 4) as 1 | 2 | 3 | 4;
+    const state = g.pick([...states, 'ZZ']);
+    const options941 = { ...(g.bool(0.3) ? { depositsCents: g.int(0, 5_000_000) } : {}), ...(g.bool(0.3) ? { priorQuarterLine12Cents: g.int(0, 500_000) } : {}) };
+    const options940 = g.bool(0.3) ? { depositsCents: g.int(0, 50_000) } : {};
+    forms.push({
+      employer: emp,
+      people,
+      quarter,
+      state,
+      options941,
+      options940,
+      f941: form941({ employer: emp, taxYear: 2026, quarter, payslips: all, ...options941 }),
+      f940: form940({ employer: emp, taxYear: 2026, payslips: all, ...options940 }),
+      w2: people.map((p) => formW2({ employer: emp, employee: p.employee, taxYear: 2026, payslips: p.payslips as never[] })),
+      w3: formW3({ employer: emp, taxYear: 2026, employees: people as never[] }),
+      withholding: stateWithholdingReport({ employer: emp, state, taxYear: 2026, quarter, employees: people as never[] }),
+      unemployment: stateUnemploymentReport({ employer: emp, state, taxYear: 2026, quarter, employees: people as never[] }),
+    });
+  }
+  const deposits = Array.from({ length: 200 }, () => {
+    const schedule = g.pick(['monthly', 'semiweekly'] as const);
+    const payDate = g.date(2026, 2027);
+    const accumulatedCents = g.maybe(g.pick([0, 9_999_999, 10_000_000]), 0.4);
+    return { schedule, payDate, accumulatedCents, due: depositDueDate(schedule, payDate, accumulatedCents === null ? undefined : { accumulatedCents }) };
+  });
+  write('tests/fixtures/us-forms.json', { forms, deposits });
+}
+
+// ── PDF (async: pdf-lib) ────────────────────────────────────────────────────
+
+/** Each page's decoded content, without pdf-lib's random font-key suffixes. */
+async function pageContents(bytes: Uint8Array): Promise<string[]> {
+  const pdf = await PDFDocument.load(bytes);
+  const out: string[] = [];
+  for (const page of pdf.getPages()) {
+    const contents = page.node.Contents();
+    const refs = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+    let text = '';
+    for (const ref of refs) {
+      const stream = pdf.context.lookup(ref);
+      if (stream instanceof PDFRawStream) text += new TextDecoder('latin1').decode(decodePDFRawStream(stream).decode());
+    }
+    out.push(text.replace(/^\/([A-Za-z-]+?)-\d+ /gm, '/$1 '));
+  }
+  return out;
+}
+
+async function pdfFixtures() {
+  const font = async (name: StandardFonts) => {
+    const pdf = await PDFDocument.create();
+    const f = await pdf.embedFont(name);
+    const chars: Array<[number, number, number]> = [];
+    const set = f.getCharacterSet().sort((a, b) => a - b);
+    for (const cp of set) {
+      const ch = String.fromCodePoint(cp);
+      const code = parseInt(f.encodeText(ch).toString().slice(1, -1), 16);
+      chars.push([cp, code, f.widthOfTextAtSize(ch, 1000)]);
+    }
+    const kern: Record<string, number> = {};
+    for (const [a, , wa] of chars) {
+      for (const [b, , wb] of chars) {
+        const k = f.widthOfTextAtSize(String.fromCodePoint(a) + String.fromCodePoint(b), 1000) - wa - wb;
+        if (k !== 0) kern[`${a},${b}`] = k;
+      }
+    }
+    return { chars, kern };
+  };
+  write('data/helvetica.json', { helvetica: await font(StandardFonts.Helvetica), helveticaBold: await font(StandardFonts.HelveticaBold) });
+
+  const g = new Gen(9);
+  const docs: unknown[] = [];
+  const loon = JSON.parse(readFileSync(path.join(crateDir, 'tests/fixtures/nl-loonaangifte.json'), 'utf8'));
+  const us = JSON.parse(readFileSync(path.join(crateDir, 'tests/fixtures/us-forms.json'), 'utf8'));
+  const documents = [
+    ...loon.annual.map((a: { document: unknown }) => a.document),
+    ...loon.cases.slice(0, 12).flatMap((c: { summaryEn: unknown; summaryNl: unknown }) => [c.summaryEn, c.summaryNl]),
+    ...us.forms.slice(0, 6).flatMap((f: Record<string, { document: unknown }>) => [f.f941.document, f.f940.document, f.w3.document, f.withholding.document, f.unemployment.document]),
+  ];
+  for (const doc of documents) docs.push({ doc, pages: await pageContents(await renderDocumentPdf(doc as never)) });
+  const payslips: unknown[] = [];
+  const nl = JSON.parse(readFileSync(path.join(crateDir, 'tests/fixtures/nl-payslips.json'), 'utf8'));
+  const usSlips = JSON.parse(readFileSync(path.join(crateDir, 'tests/fixtures/us-payslips.json'), 'utf8'));
+  const results = [...nl.slice(0, 30), ...usSlips.slice(0, 30)].filter((c: { output: { lines?: unknown } }) => c.output.lines);
+  for (const [i, c] of results.entries()) {
+    const out = c.output;
+    const lang = g.pick(['en', 'nl'] as const);
+    const view = {
+      country: c.input.country,
+      currency: g.pick([c.input.country === 'NL' ? 'EUR' : 'USD', 'CHF']),
+      number: g.maybe(`2026-${String(i + 1).padStart(4, '0')}`, 0.8),
+      employer: { name: 'Voorbeeld B.V.', legalName: g.pick([null, 'Voorbeeld Holding B.V.', 'Voorbeeld B.V.']), address: ['Herengracht 1', '1015 BA Amsterdam'], taxId: g.maybe({ label: 'Loonheffingennummer', value: '001234560L01' }, 0.6) },
+      employee: { name: g.pick(['Anna de Vries', 'José Ñúñez — 😀', 'A very long employee name that will not fit in the column at all, really']), address: ['Keizersgracht 123B'], employeeNumber: g.maybe('E001', 0.6), jobTitle: g.maybe('Engineer', 0.5), taxIdMasked: g.maybe('***.**.333', 0.5), dateOfBirth: g.maybe('1988-09-12', 0.5) },
+      period: { start: c.input.period.start, end: c.input.period.end, payDate: c.input.period.payDate, periodNumber: c.input.period.periodNumber, taxYear: c.input.period.taxYear },
+      lines: out.lines,
+      totals: { grossCents: out.grossCents, taxableWageCents: out.taxableWageCents, employeeTaxesCents: out.employeeTaxesCents, employeeDeductionsCents: out.employeeDeductionsCents, reimbursementsCents: out.reimbursementsCents, netCents: out.netCents, employerTaxesCents: out.employerTaxesCents, employerCostCents: out.employerCostCents },
+      ytd: g.bool(0.5) ? { totals: { grossCents: out.grossCents * 3, taxableWageCents: 1, employeeTaxesCents: 2, employeeDeductionsCents: 3, reimbursementsCents: 4, netCents: 5, employerTaxesCents: 6, employerCostCents: 7 }, byLine: Object.fromEntries(out.lines.map((l: { section: string; code: string; jurisdiction?: string | null; label?: string | null; amountCents: number }) => [`${l.section}|${l.code}|${l.jurisdiction ?? ''}|${l.label ?? ''}`, l.amountCents * 3])) } : null,
+      nl: c.input.country === 'NL' ? { contractHoursPerWeek: g.pick([40, 32.5, null]), writtenContract: g.bool(), indefiniteContract: g.bool(), onCall: g.bool(), minimumHourlyWageCents: g.pick([1471, null]) } : null,
+      us: c.input.country === 'US' ? { workState: c.input.us.workState } : null,
+      payTo: g.maybe('NL91 **** **** **** 4300', 0.5),
+      correction: g.maybe({ originalNumber: g.maybe('2026-0001', 0.5) }, 0.2),
+      watermark: g.pick([null, 'DRAFT', 'CONCEPT', '  ']),
+    };
+    payslips.push({ view, lang, pages: await pageContents(await renderPayslipPdf(view as never, lang)) });
+  }
+  write('tests/fixtures/pdf.json', { docs, payslips });
+}
+
+pdfFixtures()
+  .then(() => {
+    if (check) {
+      if (stale.length) {
+        console.error(`Stale payroll fixtures (run \`pnpm rust:payroll-fixtures\`):\n  ${stale.join('\n  ')}`);
+        process.exit(1);
+      }
+      console.log('Payroll fixtures are up to date.');
+    } else {
+      console.log(`Wrote the payroll tables and vectors to ${path.relative(repo, crateDir)}.`);
+    }
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

@@ -3,6 +3,7 @@
 pub mod calculate;
 pub mod dates;
 pub mod federal_rules;
+pub mod forms;
 pub mod overtime;
 pub mod states;
 pub mod withholding;
