@@ -14,7 +14,10 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     if !super::mounts("host") {
         return router;
     }
-    router.merge(weldsuite_host::router(host_state(state), &state.permissions))
+    router.merge(weldsuite_host::router(
+        host_state(state),
+        &state.permissions,
+    ))
 }
 
 /// The Realtime Register webhook, ahead of the session. Conformance builds

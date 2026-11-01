@@ -93,26 +93,33 @@ function rtrTransfer(name: string, body: Record<string, unknown>): Response {
   return json({ domainName: name, status: 'pendingfoa', processId: 9001, type: 'IN' });
 }
 
+function rtrUpdate(name: string): Response {
+  if (name.includes('locked-out')) return json({ type: 'InvalidParameter', message: 'Status change refused' }, 400);
+  return name.includes('async') ? json({}, 202, { 'x-process-id': '1002' }) : json({});
+}
+
+function rtrInfo(name: string, url: URL): Response {
+  if (url.searchParams.get('type') !== 'AUTHCODE') return json({ message: 'Not found' }, 404);
+  return name.includes('infocode') ? json({ authcode: 'EPP-FROM-INFO' }) : json({ message: 'Unsupported' }, 404);
+}
+
+/** `domains/{name}[/{action}]`, by method and action. */
+const RTR_DOMAIN_ROUTES: Record<string, (name: string, url: URL, body: Record<string, unknown>) => Response> = {
+  'GET ': (name) => rtrDomain(name),
+  'GET check': (name) => rtrCheck(name),
+  'GET info': (name, url) => rtrInfo(name, url),
+  'POST update': (name) => rtrUpdate(name),
+  'POST transfer': (name, _url, body) => rtrTransfer(name, body),
+};
+
 function realtimeRegister(method: string, path: string, url: URL, body: Record<string, unknown>): Response {
   const segments = path.split('/').map(decodeURIComponent);
   if (segments[0] === 'processes' && method === 'GET') {
     const status = PROCESSES[segments[1]!];
     return status ? json({ id: Number(segments[1]), status }) : json({ message: 'No such process' }, 404);
   }
-  if (segments[0] !== 'domains') return json({ message: 'Not found' }, 404);
-  const name = segments[1]!;
-  const action = segments[2];
-  if (method === 'GET' && action === undefined) return rtrDomain(name);
-  if (method === 'GET' && action === 'check') return rtrCheck(name);
-  if (method === 'GET' && action === 'info' && url.searchParams.get('type') === 'AUTHCODE') {
-    return name.includes('infocode') ? json({ authcode: 'EPP-FROM-INFO' }) : json({ message: 'Unsupported' }, 404);
-  }
-  if (method === 'POST' && action === 'update') {
-    if (name.includes('locked-out')) return json({ type: 'InvalidParameter', message: 'Status change refused' }, 400);
-    return name.includes('async') ? json({}, 202, { 'x-process-id': '1002' }) : json({});
-  }
-  if (method === 'POST' && action === 'transfer') return rtrTransfer(name, body);
-  return json({ message: 'Not found' }, 404);
+  const route = segments[0] === 'domains' ? RTR_DOMAIN_ROUTES[`${method} ${segments[2] ?? ''}`] : undefined;
+  return route ? route(segments[1]!, url, body) : json({ message: 'Not found' }, 404);
 }
 
 /** ADAC: `input` expands the typed name over a TLD set, `check` answers one name. */
@@ -121,7 +128,10 @@ function adac(body: Record<string, unknown>): Response {
   const input = String(data.input ?? '');
   if (input.includes('adacerror')) return json([{ action: 'error', data: 'Rate limited' }]);
   if (input.includes('adacdown')) return json({ message: 'ADAC is down' }, 503);
-  const status = (name: string) => (name.includes('taken') ? 2 : name.includes('broken') ? 4 : 1);
+  const status = (name: string) => {
+    if (name.includes('taken')) return 2;
+    return name.includes('broken') ? 4 : 1;
+  };
   const event = (name: string) => ({
     action: 'domain_status',
     data: {
@@ -151,47 +161,69 @@ const ZONE_RECORDS: Record<string, unknown[]> = {
   ],
 };
 
-function cloudflareZones(method: string, segments: string[], body: Record<string, unknown>, url: URL): Response {
-  const zoneId = segments[1];
-  if (zoneId === undefined) {
-    if (method !== 'POST') return cfError(404, 7003, 'Not found');
-    const name = String(body.name ?? '');
-    if (name.includes('taken')) return cfError(400, 1061, `${name} already exists`);
-    if (name.includes('invalid')) return cfError(400, 1097, 'This domain is not a registered domain');
-    if (name.includes('forbidden')) return cfError(403, 10000, 'Authentication error');
-    if (name.includes('weird')) return cfError(400, 1234, 'Something unexpected');
-    return cf({ id: `cfz_${name.split('.')[0]}`, name, status: 'pending', name_servers: ['ada.ns.cloudflare.com', 'bob.ns.cloudflare.com'] });
-  }
-  if (segments[2] === undefined) {
-    if (method === 'DELETE') return cf({ id: zoneId });
-    if (zoneId === 'cfz_gone') return cfError(404, 1001, 'Invalid zone identifier');
-    if (zoneId === 'cfz_forbidden') return cfError(403, 10000, 'Authentication error');
-    const status = zoneId === 'cfz_active' || zoneId === 'cfz_live' ? 'active' : zoneId === 'cfz_moved' ? 'moved' : 'pending';
-    return cf({ id: zoneId, status, name_servers: ['ada.ns.cloudflare.com', 'bob.ns.cloudflare.com'] });
-  }
-  // dns_records
-  if (zoneId === 'cfz_forbidden') return cfError(403, 10000, 'Authentication error');
-  const recordId = segments[3];
+const NAMESERVERS = ['ada.ns.cloudflare.com', 'bob.ns.cloudflare.com'];
+const ZONE_STATUS: Record<string, string> = { cfz_active: 'active', cfz_live: 'active', cfz_moved: 'moved' };
+const forbidden = () => cfError(403, 10000, 'Authentication error');
+
+/** `POST /zones`: refusals by the domain's name. */
+function createZone(body: Record<string, unknown>): Response {
+  const name = String(body.name ?? '');
+  if (name.includes('taken')) return cfError(400, 1061, `${name} already exists`);
+  if (name.includes('invalid')) return cfError(400, 1097, 'This domain is not a registered domain');
+  if (name.includes('forbidden')) return forbidden();
+  if (name.includes('weird')) return cfError(400, 1234, 'Something unexpected');
+  return cf({ id: `cfz_${name.split('.')[0]}`, name, status: 'pending', name_servers: NAMESERVERS });
+}
+
+/** `GET|DELETE /zones/{id}`. */
+function zone(method: string, zoneId: string): Response {
+  if (method === 'DELETE') return cf({ id: zoneId });
+  if (zoneId === 'cfz_gone') return cfError(404, 1001, 'Invalid zone identifier');
+  if (zoneId === 'cfz_forbidden') return forbidden();
+  return cf({ id: zoneId, status: ZONE_STATUS[zoneId] ?? 'pending', name_servers: NAMESERVERS });
+}
+
+function createRecord(body: Record<string, unknown>): Response {
+  const name = String(body.name ?? '');
+  if (name.includes('dup')) return cfError(400, 81057, 'Record already exists.');
+  if (name.includes('reject')) return cfError(400, 9005, 'Content for A record is invalid.');
+  return cf({ id: 'cfr_created', ...body });
+}
+
+function deleteRecord(recordId: string): Response {
+  if (recordId === 'cfr_gone') return cfError(404, 81044, 'Record does not exist.');
+  if (recordId === 'cfr_stuck') return cfError(400, 1004, 'DNS Validation Error');
+  return cf({ id: recordId });
+}
+
+/** `/zones/{id}/dns_records[/{record}]`. */
+function dnsRecords(
+  method: string,
+  zoneId: string,
+  recordId: string | undefined,
+  body: Record<string, unknown>,
+  url: URL,
+): Response {
+  if (zoneId === 'cfz_forbidden') return forbidden();
   if (method === 'GET' && recordId === undefined) {
     const page = Number(url.searchParams.get('page') ?? '1');
-    return json({ success: true, errors: [], messages: [], result: page === 1 ? (ZONE_RECORDS[zoneId] ?? []) : [], result_info: { page, per_page: 100 } });
+    const result = page === 1 ? (ZONE_RECORDS[zoneId] ?? []) : [];
+    return json({ success: true, errors: [], messages: [], result, result_info: { page, per_page: 100 } });
   }
-  if (method === 'POST') {
-    const name = String(body.name ?? '');
-    if (name.includes('dup')) return cfError(400, 81057, 'Record already exists.');
-    if (name.includes('reject')) return cfError(400, 9005, 'Content for A record is invalid.');
-    return cf({ id: 'cfr_created', ...body });
-  }
+  if (method === 'POST') return createRecord(body);
   if (method === 'PUT') {
     if (String(body.name ?? '').includes('reject')) return cfError(400, 9005, 'Content is invalid.');
     return cf({ id: recordId, ...body });
   }
-  if (method === 'DELETE') {
-    if (recordId === 'cfr_gone') return cfError(404, 81044, 'Record does not exist.');
-    if (recordId === 'cfr_stuck') return cfError(400, 1004, 'DNS Validation Error');
-    return cf({ id: recordId });
-  }
+  if (method === 'DELETE' && recordId !== undefined) return deleteRecord(recordId);
   return cfError(404, 7003, 'Not found');
+}
+
+function cloudflareZones(method: string, segments: string[], body: Record<string, unknown>, url: URL): Response {
+  const zoneId = segments[1];
+  if (zoneId === undefined) return method === 'POST' ? createZone(body) : cfError(404, 7003, 'Not found');
+  if (segments[2] === undefined) return zone(method, zoneId);
+  return dnsRecords(method, zoneId, segments[3], body, url);
 }
 
 function cloudflareRegistrar(method: string, segments: string[]): Response {

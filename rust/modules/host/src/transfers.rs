@@ -53,8 +53,14 @@ where
             "/{id}/complete",
             patch(complete).route_layer(need("transfers:update")),
         )
-        .route("/{id}/sync", patch(sync).route_layer(need("transfers:update")))
-        .route("/{id}/fail", patch(fail).route_layer(need("transfers:update")))
+        .route(
+            "/{id}/sync",
+            patch(sync).route_layer(need("transfers:update")),
+        )
+        .route(
+            "/{id}/fail",
+            patch(fail).route_layer(need("transfers:update")),
+        )
 }
 
 const LIST: ListSql = ListSql {
@@ -79,6 +85,10 @@ const LIST: ListSql = ListSql {
     live: false,
 };
 
+/// How long the webhook's process mapping lives (`expirationTtl`: 14 days).
+#[allow(clippy::duration_suboptimal_units)]
+const MAPPING_TTL: std::time::Duration = std::time::Duration::from_secs(14 * 86_400);
+
 const BY_ID: &str = "select to_jsonb(t) from domain_transfers t where t.id = $1 limit 1";
 
 fn rtr_unconfigured() -> Response {
@@ -100,10 +110,18 @@ fn event_data(row: &Value) -> Value {
 
 async fn list_transfers(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), |issues, q| {
-        let domain_id = issues.text(q, "domainId", Presence::Optional, None, None).into_option();
-        let status = issues.choice(q, "status", Presence::Optional, &STATUSES).into_option();
-        let kind = issues.choice(q, "type", Presence::Optional, &TYPES).into_option();
-        let cursor = issues.text(q, "cursor", Presence::Optional, None, None).into_option();
+        let domain_id = issues
+            .text(q, "domainId", Presence::Optional, None, None)
+            .into_option();
+        let status = issues
+            .choice(q, "status", Presence::Optional, &STATUSES)
+            .into_option();
+        let kind = issues
+            .choice(q, "type", Presence::Optional, &TYPES)
+            .into_option();
+        let cursor = issues
+            .text(q, "cursor", Presence::Optional, None, None)
+            .into_option();
         let limit = limit_param(issues, q, 100.0);
         (domain_id, status, kind, cursor, limit)
     }) {
@@ -157,7 +175,9 @@ struct NewTransfer {
 }
 
 fn read_new(issues: &mut Issues, body: &Map<String, Value>) -> NewTransfer {
-    let domain_id = issues.text(body, "domainId", Presence::Nullish, None, None).into_option();
+    let domain_id = issues
+        .text(body, "domainId", Presence::Nullish, None, None)
+        .into_option();
     let domain_name = issues
         .text(body, "domainName", Presence::Required, Some(1), Some(255))
         .into_option()
@@ -310,6 +330,7 @@ async fn start_incoming(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // the guard, the row, the registrar, the mapping
 async fn create(
     State(state): State<HostState>,
     caller: Caller,
@@ -396,7 +417,8 @@ async fn create(
             }
         }
         let row = one(&caller.db, BY_ID, &id).await?.unwrap_or(Value::Null);
-        if let (Some(external), Some(cache)) = (text(&row, "externalTransferId"), caller.cache(&state))
+        if let (Some(external), Some(cache)) =
+            (text(&row, "externalTransferId"), caller.cache(&state))
             && let Some(org) = caller.clerk_org_id.as_deref()
         {
             // The webhook reads the mapping back; keys in the worker's order.
@@ -410,7 +432,7 @@ async fn create(
                 .put_boxed(
                     &format!("rtr:process:{external}"),
                     &mapping,
-                    Some(std::time::Duration::from_secs(60 * 60 * 24 * 14)),
+                    Some(MAPPING_TTL),
                 )
                 .await
             {
@@ -512,7 +534,11 @@ pub(crate) async fn sync_from_registrar(
     let Some(process_id) = parse_int(external) else {
         return Ok(Some(transfer));
     };
-    match rtr.poll_process(process_id).await.map_err(SyncError::Registrar)? {
+    match rtr
+        .poll_process(process_id)
+        .await
+        .map_err(SyncError::Registrar)?
+    {
         Outcome::Pending => return Ok(Some(transfer)),
         Outcome::Failed => {
             return Ok(fail_transfer(db, id, "Realtime Register process failed").await?);
@@ -554,7 +580,11 @@ pub(crate) async fn sync_from_registrar(
     Ok(complete_transfer(db, id).await?)
 }
 
-async fn complete(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn complete(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     match complete_transfer(&caller.db, &id).await {
         Ok(Some(row)) => {
             caller.publish(&state, DOMAIN_TRANSFER_UPDATED, &id, &event_data(&row));

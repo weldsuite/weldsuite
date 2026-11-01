@@ -13,7 +13,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
-use weldsuite_catalogs::entity_events::{DNS_RECORD_CREATED, DNS_RECORD_DELETED, DNS_RECORD_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    DNS_RECORD_CREATED, DNS_RECORD_DELETED, DNS_RECORD_UPDATED,
+};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data};
@@ -24,10 +26,14 @@ use crate::dns_sync::{SyncResult, add_user_lock, record_locks, remove_user_lock,
 use crate::doh::scan_domain_records;
 use crate::js::{as_text, slice_utf16, text};
 use crate::rows::{any_zone, live_domain, live_zone, live_zone_of_domain, one, zone_records};
-use crate::weldreach::{domain_name_for_zone, duplicates_record, is_managed_record, mark_records, record_managed};
+use crate::weldreach::{
+    domain_name_for_zone, duplicates_record, is_managed_record, mark_records, record_managed,
+};
 use crate::{Caller, HostState, internal, json_response, now, validate, validate_query};
 
-const TYPES: [&str; 10] = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "PTR", "SOA"];
+const TYPES: [&str; 10] = [
+    "A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "PTR", "SOA",
+];
 const IMPORTABLE: [&str; 7] = ["A", "AAAA", "CNAME", "MX", "TXT", "CAA", "SRV"];
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HostState>
@@ -36,7 +42,10 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/by-zone/{zoneId}", get(by_zone).route_layer(need("dns:read")))
+        .route(
+            "/by-zone/{zoneId}",
+            get(by_zone).route_layer(need("dns:read")),
+        )
         .route(
             "/by-domain/{domainId}",
             get(by_domain).route_layer(need("dns:read")),
@@ -93,7 +102,9 @@ enum Ready {
 }
 
 fn readiness(domain: Value, zone: Option<&Value>, token: Option<&str>) -> Ready {
-    let external = zone.and_then(|z| text(z, "externalZoneId")).filter(|e| !e.is_empty());
+    let external = zone
+        .and_then(|z| text(z, "externalZoneId"))
+        .filter(|e| !e.is_empty());
     let cloudflare = zone.and_then(|z| text(z, "provider")) == Some("cloudflare");
     let (Some(zone), Some(external), true) = (zone, external, cloudflare) else {
         return Ready::NoCfZone;
@@ -109,7 +120,11 @@ fn readiness(domain: Value, zone: Option<&Value>, token: Option<&str>) -> Ready 
 }
 
 /// `resolveCloudflareReady(db, domainId, token)`.
-async fn ready_by_domain(db: &PgPool, domain_id: &str, token: Option<&str>) -> Result<Ready, sqlx::Error> {
+async fn ready_by_domain(
+    db: &PgPool,
+    domain_id: &str,
+    token: Option<&str>,
+) -> Result<Ready, sqlx::Error> {
     let Some(domain) = live_domain(db, domain_id).await? else {
         return Ok(Ready::NotFound);
     };
@@ -118,7 +133,11 @@ async fn ready_by_domain(db: &PgPool, domain_id: &str, token: Option<&str>) -> R
 }
 
 /// `resolveCloudflareReadyByZone(db, zoneId, token)`.
-async fn ready_by_zone(db: &PgPool, zone_id: &str, token: Option<&str>) -> Result<Ready, sqlx::Error> {
+async fn ready_by_zone(
+    db: &PgPool,
+    zone_id: &str,
+    token: Option<&str>,
+) -> Result<Ready, sqlx::Error> {
     let Some(zone) = live_zone(db, zone_id).await? else {
         return Ok(Ready::NotFound);
     };
@@ -139,9 +158,7 @@ async fn list_by_zone(
         return Ok(None);
     };
     let mut records = zone_records(&caller.db, zone_id).await?;
-    let summary = |zone: &Value| {
-        json!({ "id": zone["id"], "syncedAt": zone["syncedAt"], "syncError": zone["syncError"] })
-    };
+    let summary = |zone: &Value| json!({ "id": zone["id"], "syncedAt": zone["syncedAt"], "syncError": zone["syncError"] });
     let mut synced = summary(&zone);
     let providers = caller.providers(state);
     let external = text(&zone, "externalZoneId").filter(|e| !e.is_empty());
@@ -150,7 +167,9 @@ async fn list_by_zone(
         && (records.is_empty() || zone["syncedAt"].is_null())
     {
         let dns = providers.dns(token);
-        records = sync_zone(&caller.db, &dns, zone_id, Some(external)).await?.records;
+        records = sync_zone(&caller.db, &dns, zone_id, Some(external))
+            .await?
+            .records;
         if let Some(refreshed) = any_zone(&caller.db, zone_id).await? {
             synced = summary(&refreshed);
         }
@@ -159,7 +178,11 @@ async fn list_by_zone(
     Ok(Some(json!({ "records": records, "zone": synced })))
 }
 
-async fn by_zone(State(state): State<HostState>, caller: Caller, Path(zone_id): Path<String>) -> Response {
+async fn by_zone(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(zone_id): Path<String>,
+) -> Response {
     match list_by_zone(&caller, &state, &zone_id).await {
         Ok(Some(body)) => Data(body).into_response(),
         Ok(None) => ApiError::not_found("DNS zone", Some(&zone_id)).into_response(),
@@ -189,9 +212,15 @@ async fn by_domain(
     result.unwrap_or_else(|error| internal(&error, "Failed to list DNS records"))
 }
 
-async fn flat_list(State(state): State<HostState>, caller: Caller, RawQuery(raw): RawQuery) -> Response {
+async fn flat_list(
+    State(state): State<HostState>,
+    caller: Caller,
+    RawQuery(raw): RawQuery,
+) -> Response {
     let zone_id = match validate_query(raw.as_deref(), |issues, q| {
-        let zone_id = issues.text(q, "zoneId", Presence::Optional, None, None).into_option();
+        let zone_id = issues
+            .text(q, "zoneId", Presence::Optional, None, None)
+            .into_option();
         let _ = issues.choice(q, "type", Presence::Optional, &TYPES);
         let _ = issues.text(q, "cursor", Presence::Optional, None, None);
         let _ = crate::dns_zones::limit_param(issues, q, 200.0);
@@ -220,7 +249,11 @@ async fn sync_body(db: &PgPool, sync: SyncResult) -> Result<Value, sqlx::Error> 
     }))
 }
 
-async fn sync(State(state): State<HostState>, caller: Caller, Path(zone_id): Path<String>) -> Response {
+async fn sync(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(zone_id): Path<String>,
+) -> Response {
     let providers = caller.providers(&state);
     let result: Result<Response, sqlx::Error> = async {
         let (zone_id, external) =
@@ -230,11 +263,14 @@ async fn sync(State(state): State<HostState>, caller: Caller, Path(zone_id): Pat
                 }
                 Ready::NoCfZone => {
                     return Ok(
-                        ApiError::bad_request("This zone is not managed by Cloudflare.").into_response()
+                        ApiError::bad_request("This zone is not managed by Cloudflare.")
+                            .into_response(),
                     );
                 }
                 Ready::Misconfigured => return Ok(unconfigured()),
-                Ready::Ok { zone_id, external, .. } => (zone_id, external),
+                Ready::Ok {
+                    zone_id, external, ..
+                } => (zone_id, external),
             };
         let dns = providers.dns(providers.cf_token.as_deref().unwrap_or_default());
         let sync = sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
@@ -270,10 +306,16 @@ fn importable(domain: &str, record: &Value) -> bool {
     if kind == "TXT" && field("name").to_lowercase() == verify {
         return false;
     }
-    !field("value").to_lowercase().ends_with(".ns.cloudflare.com")
+    !field("value")
+        .to_lowercase()
+        .ends_with(".ns.cloudflare.com")
 }
 
-async fn scan(State(state): State<HostState>, caller: Caller, Path(domain_id): Path<String>) -> Response {
+async fn scan(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(domain_id): Path<String>,
+) -> Response {
     let found = async {
         let Some(domain) = live_domain(&caller.db, &domain_id).await? else {
             return Ok::<_, sqlx::Error>(None);
@@ -321,7 +363,12 @@ fn record_fields(issues: &mut Issues, body: &Map<String, Value>) -> RecordInput 
         .number(body, "ttl", Presence::Optional, int_rules(1.0, 86_400.0))
         .into_option();
     let priority = issues
-        .number(body, "priority", Presence::Optional, int_rules(0.0, 65_535.0))
+        .number(
+            body,
+            "priority",
+            Presence::Optional,
+            int_rules(0.0, 65_535.0),
+        )
         .into_option();
     let comment = issues
         .text(body, "comment", Presence::Optional, None, Some(500))
@@ -352,7 +399,12 @@ fn scanned_record(issues: &mut Issues, item: &Value) -> Option<(Value, RecordInp
     let kind = issues.choice(fields, "type", Presence::Required, &IMPORTABLE);
     let value = issues.text(fields, "value", Presence::Required, Some(1), Some(2048));
     let ttl = issues.number(fields, "ttl", Presence::Optional, int_rules(1.0, 86_400.0));
-    let priority = issues.number(fields, "priority", Presence::Optional, int_rules(0.0, 65_535.0));
+    let priority = issues.number(
+        fields,
+        "priority",
+        Presence::Optional,
+        int_rules(0.0, 65_535.0),
+    );
     let (Field::Set(name), Field::Set(kind), Field::Set(value)) = (name, kind, value) else {
         return None;
     };
@@ -388,7 +440,14 @@ async fn import(
 ) -> Response {
     let records = match validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "records", Presence::Required, Some(1), Some(100), scanned_record)
+            .list(
+                body,
+                "records",
+                Presence::Required,
+                Some(1),
+                Some(100),
+                scanned_record,
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -428,10 +487,9 @@ async fn import(
                 skipped += 1;
                 continue;
             }
-            if reach
-                .as_deref()
-                .is_some_and(|domain| duplicates_record(domain, &input.kind, &input.name, &input.content))
-            {
+            if reach.as_deref().is_some_and(|domain| {
+                duplicates_record(domain, &input.kind, &input.name, &input.content)
+            }) {
                 skipped += 1;
                 continue;
             }
@@ -442,14 +500,21 @@ async fn import(
             }
         }
         sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
-        Ok(Data(json!({ "imported": imported, "skipped": skipped, "failed": failed })).into_response())
+        Ok(
+            Data(json!({ "imported": imported, "skipped": skipped, "failed": failed }))
+                .into_response(),
+        )
     }
     .await;
     result.unwrap_or_else(|error| app_error(&error))
 }
 
 /// The 422 of a provider refusal, with the re-synced records.
-async fn provider_refused(db: &PgPool, sync: SyncResult, message: &str) -> Result<Response, sqlx::Error> {
+async fn provider_refused(
+    db: &PgPool,
+    sync: SyncResult,
+    message: &str,
+) -> Result<Response, sqlx::Error> {
     let records = mark_records(db, sync.records).await?;
     Ok(json_response(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -486,7 +551,9 @@ async fn create(
                     .into_response());
                 }
                 Ready::Misconfigured => return Ok(unconfigured()),
-                Ready::Ok { zone_id, external, .. } => (zone_id, external),
+                Ready::Ok {
+                    zone_id, external, ..
+                } => (zone_id, external),
             };
         if let Some(reach) = domain_name_for_zone(&caller.db, &zone_id).await?
             && duplicates_record(&reach, &input.kind, &input.name, &input.content)
@@ -526,7 +593,13 @@ async fn create(
 
 /// `loadDnsRecordWithZone`: the record and its zone (deleted or not).
 async fn record_with_zone(db: &PgPool, id: &str) -> Result<Option<(Value, Value)>, sqlx::Error> {
-    let Some(record) = one(db, "select to_jsonb(t) from dns_records t where t.id = $1 limit 1", id).await? else {
+    let Some(record) = one(
+        db,
+        "select to_jsonb(t) from dns_records t where t.id = $1 limit 1",
+        id,
+    )
+    .await?
+    else {
         return Ok(None);
     };
     let zone = any_zone(db, text(&record, "zoneId").unwrap_or_default()).await?;
@@ -559,20 +632,26 @@ async fn guard(
     input: Option<&RecordInput>,
 ) -> Result<Result<(Value, Value, String), Response>, sqlx::Error> {
     let Some((record, zone)) = record_with_zone(db, id).await? else {
-        return Ok(Err(ApiError::not_found("DNS record", Some(id)).into_response()));
-    };
-    let external = text(&zone, "externalZoneId").filter(|e| !e.is_empty()).map(str::to_owned);
-    let (Some(external), true) = (external, text(&zone, "provider") == Some("cloudflare")) else {
         return Ok(Err(
-            ApiError::bad_request("This zone is not managed by Cloudflare.").into_response(),
+            ApiError::not_found("DNS record", Some(id)).into_response()
         ));
+    };
+    let external = text(&zone, "externalZoneId")
+        .filter(|e| !e.is_empty())
+        .map(str::to_owned);
+    let (Some(external), true) = (external, text(&zone, "provider") == Some("cloudflare")) else {
+        return Ok(Err(ApiError::bad_request(
+            "This zone is not managed by Cloudflare.",
+        )
+        .into_response()));
     };
     let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
     if let Some(reach) = domain_name_for_zone(db, &zone_id).await? {
         let field = |key: &str| record.get(key).map(as_text).unwrap_or_default();
         let managed = is_managed_record(&reach, &field("type"), &field("name"), &field("value"));
-        let duplicates = input
-            .is_some_and(|input| duplicates_record(&reach, &input.kind, &input.name, &input.content));
+        let duplicates = input.is_some_and(|input| {
+            duplicates_record(&reach, &input.kind, &input.name, &input.content)
+        });
         if managed || duplicates {
             return Ok(Err(record_managed()));
         }
@@ -632,7 +711,11 @@ async fn update(
     result.unwrap_or_else(|error| app_error(&error))
 }
 
-async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let providers = caller.providers(&state);
     let Some(token) = providers.cf_token.clone() else {
         return unconfigured();
@@ -655,7 +738,12 @@ async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<S
         if let Some(message) = refused {
             return provider_refused(&caller.db, sync, &message).await;
         }
-        caller.publish(&state, DNS_RECORD_DELETED, &id, &json!({ "id": id, "zoneId": id }));
+        caller.publish(
+            &state,
+            DNS_RECORD_DELETED,
+            &id,
+            &json!({ "id": id, "zoneId": id }),
+        );
         let records = mark_records(&caller.db, sync.records).await?;
         Ok(Data(json!({ "records": records })).into_response())
     }
@@ -671,8 +759,12 @@ async fn lock(
     body: Bytes,
 ) -> Response {
     let (locked, reason) = match validate(&headers, &body, |issues, body| {
-        let locked = issues.boolean(body, "locked", Presence::Required).into_option();
-        let reason = issues.text(body, "reason", Presence::Optional, None, Some(500)).into_option();
+        let locked = issues
+            .boolean(body, "locked", Presence::Required)
+            .into_option();
+        let reason = issues
+            .text(body, "reason", Presence::Optional, None, Some(500))
+            .into_option();
         (locked.unwrap_or_default(), reason)
     }) {
         Ok(input) => input,
@@ -690,19 +782,25 @@ async fn lock(
         } else {
             remove_user_lock(record.get("metadata"))
         };
-        sqlx::query("update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(&metadata)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        sqlx::query(
+            "update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(&id)
+        .bind(&metadata)
+        .bind(now())
+        .execute(&caller.db)
+        .await?;
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
         let records = zone_records(&caller.db, &zone_id).await?;
-        caller.publish(&state, DNS_RECORD_UPDATED, &id, &json!({ "id": id, "zoneId": zone_id }));
+        caller.publish(
+            &state,
+            DNS_RECORD_UPDATED,
+            &id,
+            &json!({ "id": id, "zoneId": zone_id }),
+        );
         let records = mark_records(&caller.db, records).await?;
         Ok(Data(json!({ "records": records })).into_response())
     }
     .await;
     result.unwrap_or_else(|error| app_error(&error))
 }
-

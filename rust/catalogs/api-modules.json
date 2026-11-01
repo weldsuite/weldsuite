@@ -339,7 +339,7 @@
       "/api/email-forwards",
       "/public/webhooks/realtime-register"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "host-api"
   },
   {

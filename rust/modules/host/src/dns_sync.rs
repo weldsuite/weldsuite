@@ -171,6 +171,7 @@ async fn reconcile(
 }
 
 /// `syncZoneRecordsFromCloudflare(db, apiToken, zone)`.
+#[allow(clippy::too_many_lines)] // list, reconcile, prune, locks
 pub(crate) async fn sync_zone(
     db: &PgPool,
     dns: &Dns,
@@ -221,7 +222,15 @@ pub(crate) async fn sync_zone(
     let (mut added, mut updated) = (0, 0);
     for m in &mapped {
         seen.push(m.external_id.clone());
-        match reconcile(db, zone_id, m, by_external.get(&m.external_id).copied(), &at).await? {
+        match reconcile(
+            db,
+            zone_id,
+            m,
+            by_external.get(&m.external_id).copied(),
+            &at,
+        )
+        .await?
+        {
             "added" => added += 1,
             "updated" => updated += 1,
             _ => {}
@@ -423,7 +432,9 @@ pub(crate) async fn detect_system_locks(
             .cloned()
             .collect();
         let same_set = system.len() == wanted.len()
-            && wanted.iter().all(|e| system.iter().any(|c| same_lock(c, e)));
+            && wanted
+                .iter()
+                .all(|e| system.iter().any(|c| same_lock(c, e)));
         if same_set {
             continue;
         }
@@ -441,12 +452,14 @@ pub(crate) async fn detect_system_locks(
         let mut next = user;
         next.extend(merged);
         let metadata = with_locks(record.get("metadata"), next);
-        sqlx::query("update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1")
-            .bind(text(record, "id"))
-            .bind(&metadata)
-            .bind(now())
-            .execute(db)
-            .await?;
+        sqlx::query(
+            "update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(text(record, "id"))
+        .bind(&metadata)
+        .bind(now())
+        .execute(db)
+        .await?;
     }
     Ok(())
 }

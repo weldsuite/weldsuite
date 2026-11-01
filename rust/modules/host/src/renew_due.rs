@@ -16,7 +16,10 @@ use crate::HostState;
 pub(crate) const KIND: &str = "domain_renew";
 
 pub(crate) async fn mark(State(state): State<HostState>, request: Request, next: Next) -> Response {
-    let read = matches!(*request.method(), Method::GET | Method::HEAD | Method::OPTIONS);
+    let read = matches!(
+        *request.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS
+    );
     let workspace = request
         .extensions()
         .get::<Tenant>()
@@ -32,7 +35,8 @@ pub(crate) async fn mark(State(state): State<HostState>, request: Request, next:
         return response;
     }
     if let (Some(master), Some(workspace)) = (master, workspace) {
-        weldsuite_db::due_index::mark_due(&master, KIND, &workspace, OffsetDateTime::now_utc()).await;
+        weldsuite_db::due_index::mark_due(&master, KIND, &workspace, OffsetDateTime::now_utc())
+            .await;
     }
     response
 }

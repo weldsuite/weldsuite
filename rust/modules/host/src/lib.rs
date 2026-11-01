@@ -148,7 +148,13 @@ pub(crate) struct Caller {
 
 impl Caller {
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
-    pub(crate) fn publish(&self, state: &HostState, event: EventName, entity_id: &str, data: &Value) {
+    pub(crate) fn publish(
+        &self,
+        state: &HostState,
+        event: EventName,
+        entity_id: &str,
+        data: &Value,
+    ) {
         publish_entity_event(&state.events, &self.events, event, entity_id, data);
     }
 

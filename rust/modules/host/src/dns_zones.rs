@@ -64,7 +64,11 @@ const LIST: ListSql = ListSql {
 };
 
 /// `limit: z.coerce.number().int().min(lo).max(hi).optional()`.
-pub(crate) fn limit_param(issues: &mut Issues, query: &Map<String, Value>, max: f64) -> Option<i64> {
+pub(crate) fn limit_param(
+    issues: &mut Issues,
+    query: &Map<String, Value>,
+    max: f64,
+) -> Option<i64> {
     issues
         .whole_number(
             query,
@@ -82,9 +86,15 @@ pub(crate) fn limit_param(issues: &mut Issues, query: &Map<String, Value>, max: 
 
 async fn list_zones(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), |issues, q| {
-        let domain_id = issues.text(q, "domainId", Presence::Optional, None, None).into_option();
-        let status = issues.choice(q, "status", Presence::Optional, &STATUSES).into_option();
-        let cursor = issues.text(q, "cursor", Presence::Optional, None, None).into_option();
+        let domain_id = issues
+            .text(q, "domainId", Presence::Optional, None, None)
+            .into_option();
+        let status = issues
+            .choice(q, "status", Presence::Optional, &STATUSES)
+            .into_option();
+        let cursor = issues
+            .text(q, "cursor", Presence::Optional, None, None)
+            .into_option();
         let limit = limit_param(issues, q, 100.0);
         (domain_id, status, cursor, limit)
     }) {
@@ -137,7 +147,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 
 /// The zone fields of `createDnsZoneSchema` (`partial` for the update's
 /// `.partial()`, which also drops the defaults).
-fn zone_fields(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn zone_fields(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut out = Map::new();
     let required = if partial {
         Presence::Optional
@@ -145,7 +159,8 @@ fn zone_fields(issues: &mut Issues, body: &Map<String, Value>, partial: bool) ->
         Presence::Required
     };
     if !partial
-        && let Field::Set(domain_id) = issues.text(body, "domainId", Presence::Required, Some(1), None)
+        && let Field::Set(domain_id) =
+            issues.text(body, "domainId", Presence::Required, Some(1), None)
     {
         out.insert("domainId".to_owned(), json!(domain_id));
     }
@@ -235,7 +250,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let input = match validate(&headers, &body, |issues, body| zone_fields(issues, body, false)) {
+    let input = match validate(&headers, &body, |issues, body| {
+        zone_fields(issues, body, false)
+    }) {
         Ok(input) => input,
         Err(response) => return *response,
     };
@@ -253,7 +270,12 @@ async fn create(
     .bind(text("provider"))
     .bind(text("externalZoneId"))
     .bind(input.get("externalNameservers").cloned())
-    .bind(input.get("defaultTtl").and_then(Value::as_i64).and_then(|t| i32::try_from(t).ok()))
+    .bind(
+        input
+            .get("defaultTtl")
+            .and_then(Value::as_i64)
+            .and_then(|t| i32::try_from(t).ok()),
+    )
     .execute(&caller.db)
     .await;
     if let Err(error) = inserted {
@@ -276,7 +298,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let patch = match validate(&headers, &body, |issues, body| zone_fields(issues, body, true)) {
+    let patch = match validate(&headers, &body, |issues, body| {
+        zone_fields(issues, body, true)
+    }) {
         Ok(patch) => patch,
         Err(response) => return *response,
     };
@@ -318,13 +342,20 @@ async fn update(
         .bind(set("externalNameservers"))
         .bind(patch.get("externalNameservers").cloned())
         .bind(set("defaultTtl"))
-        .bind(patch.get("defaultTtl").and_then(Value::as_i64).and_then(|t| i32::try_from(t).ok()))
+        .bind(
+            patch
+                .get("defaultTtl")
+                .and_then(Value::as_i64)
+                .and_then(|t| i32::try_from(t).ok()),
+        )
         .bind(set("syncedAt"))
         .bind(synced)
         .bind(now())
         .execute(&caller.db)
         .await?;
-        let row = crate::rows::any_zone(&caller.db, &id).await?.unwrap_or(Value::Null);
+        let row = crate::rows::any_zone(&caller.db, &id)
+            .await?
+            .unwrap_or(Value::Null);
         caller.publish(&state, DNS_ZONE_UPDATED, &id, &event_data(&row));
         Ok(Data(row).into_response())
     }
@@ -332,7 +363,11 @@ async fn update(
     result.unwrap_or_else(|error| internal(&error, "Failed to update DNS zone"))
 }
 
-async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result: Result<Response, sqlx::Error> = async {
         let zone = live_zone(&caller.db, &id).await?;
         if let Some(zone) = &zone

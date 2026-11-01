@@ -162,11 +162,18 @@ pub(crate) fn duplicates_record(domain_name: &str, kind: &str, name: &str, value
 }
 
 /// `markWeldReachRecords`: each record with `managedBy`.
-pub(crate) async fn mark_records(db: &PgPool, records: Vec<Value>) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn mark_records(
+    db: &PgPool,
+    records: Vec<Value>,
+) -> Result<Vec<Value>, sqlx::Error> {
     let Some(first) = records.first() else {
         return Ok(Vec::new());
     };
-    let zone_id = first.get("zoneId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let zone_id = first
+        .get("zoneId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let domain_name = domain_name_for_zone(db, &zone_id).await?;
     Ok(records
         .into_iter()
@@ -178,7 +185,11 @@ pub(crate) async fn mark_records(db: &PgPool, records: Vec<Value>) -> Result<Vec
             if let Value::Object(fields) = &mut record {
                 fields.insert(
                     "managedBy".to_owned(),
-                    if managed { Value::from("weldreach") } else { Value::Null },
+                    if managed {
+                        Value::from("weldreach")
+                    } else {
+                        Value::Null
+                    },
                 );
             }
             record
@@ -191,7 +202,12 @@ fn same_nameservers(a: Option<&Value>, b: Option<&Value>) -> bool {
     let list = |v: Option<&Value>| -> Vec<String> {
         let mut items: Vec<String> = v
             .and_then(Value::as_array)
-            .map(|items| items.iter().map(|i| strip_trailing_dot(&crate::js::as_text(i))).collect())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|i| strip_trailing_dot(&crate::js::as_text(i)))
+                    .collect()
+            })
             .unwrap_or_default();
         items.sort();
         items
@@ -200,7 +216,10 @@ fn same_nameservers(a: Option<&Value>, b: Option<&Value>) -> bool {
 }
 
 /// `changesNameservers(existing, patch)`.
-pub(crate) fn changes_nameservers(existing: &Value, patch: &serde_json::Map<String, Value>) -> bool {
+pub(crate) fn changes_nameservers(
+    existing: &Value,
+    patch: &serde_json::Map<String, Value>,
+) -> bool {
     if let Some(nameservers) = patch.get("nameservers")
         && !same_nameservers(existing.get("nameservers"), Some(nameservers))
     {
@@ -212,14 +231,20 @@ pub(crate) fn changes_nameservers(existing: &Value, patch: &serde_json::Map<Stri
 }
 
 /// `changesZoneRouting(existing, patch)`.
-pub(crate) fn changes_zone_routing(existing: &Value, patch: &serde_json::Map<String, Value>) -> bool {
+pub(crate) fn changes_zone_routing(
+    existing: &Value,
+    patch: &serde_json::Map<String, Value>,
+) -> bool {
     if let Some(provider) = patch.get("provider")
         && Some(provider) != existing.get("provider")
     {
         return true;
     }
     if let Some(external) = patch.get("externalZoneId") {
-        let current = existing.get("externalZoneId").cloned().unwrap_or(Value::Null);
+        let current = existing
+            .get("externalZoneId")
+            .cloned()
+            .unwrap_or(Value::Null);
         if *external != current {
             return true;
         }
@@ -238,20 +263,47 @@ mod tests {
     #[test]
     fn mailpool_records() {
         assert!(is_managed_record("acme.com", "MX", "@", "mx.mailpool.io"));
-        assert!(is_managed_record("acme.com", "TXT", "acme.com", "\"v=spf1 include:x ~all\""));
-        assert!(!is_managed_record("acme.com", "TXT", "acme.com", "google-site-verification=1"));
-        assert!(is_managed_record("acme.com", "TXT", "s1._domainkey", "v=DKIM1"));
-        assert!(!is_managed_record("acme.com", "TXT", "_domainkey", "v=DKIM1"));
+        assert!(is_managed_record(
+            "acme.com",
+            "TXT",
+            "acme.com",
+            "\"v=spf1 include:x ~all\""
+        ));
+        assert!(!is_managed_record(
+            "acme.com",
+            "TXT",
+            "acme.com",
+            "google-site-verification=1"
+        ));
+        assert!(is_managed_record(
+            "acme.com",
+            "TXT",
+            "s1._domainkey",
+            "v=DKIM1"
+        ));
+        assert!(!is_managed_record(
+            "acme.com",
+            "TXT",
+            "_domainkey",
+            "v=DKIM1"
+        ));
         assert!(duplicates_record("acme.com", "txt", "_dmarc", "v=DMARC1"));
         assert!(!duplicates_record("acme.com", "A", "_dmarc", "1.2.3.4"));
     }
 
     #[test]
     fn nameserver_changes() {
-        let existing = json!({ "nameservers": ["NS1.x.com.", "ns2.x.com"], "customNameservers": null });
+        let existing =
+            json!({ "nameservers": ["NS1.x.com.", "ns2.x.com"], "customNameservers": null });
         let same = json!({ "nameservers": ["ns2.x.com", "ns1.x.com"], "customNameservers": false });
-        assert!(!changes_nameservers(&existing, same.as_object().expect("object")));
+        assert!(!changes_nameservers(
+            &existing,
+            same.as_object().expect("object")
+        ));
         let changed = json!({ "customNameservers": true });
-        assert!(changes_nameservers(&existing, changed.as_object().expect("object")));
+        assert!(changes_nameservers(
+            &existing,
+            changed.as_object().expect("object")
+        ));
     }
 }

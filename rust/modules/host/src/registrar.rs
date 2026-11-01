@@ -144,7 +144,8 @@ pub(crate) fn tld_supports_privacy_protect(domain_or_tld: &str) -> bool {
         return true;
     }
     let labels: Vec<&str> = normalized.split('.').filter(|l| !l.is_empty()).collect();
-    !(0..labels.len()).any(|i| PRIVACY_PROTECT_UNSUPPORTED_TLDS.contains(&labels[i..].join(".").as_str()))
+    !(0..labels.len())
+        .any(|i| PRIVACY_PROTECT_UNSUPPORTED_TLDS.contains(&labels[i..].join(".").as_str()))
 }
 
 /// `privacyProtectForDomain`.
@@ -155,9 +156,8 @@ pub(crate) fn privacy_protect_for_domain(domain: &str) -> bool {
 /// `isPrivacyProtectUnsupportedError`.
 fn is_privacy_protect_unsupported(error: &RtrError) -> bool {
     let haystack = format!("{} {}", error.code, error.message).to_lowercase();
-    let privacy = regex::Regex::new(r"privacy\s*protect(ion)?")
-        .map(|re| re.is_match(&haystack))
-        .unwrap_or(false);
+    let privacy =
+        regex::Regex::new(r"privacy\s*protect(ion)?").is_ok_and(|re| re.is_match(&haystack));
     privacy && haystack.contains("not supported")
 }
 
@@ -210,7 +210,10 @@ impl fmt::Debug for RealtimeRegistrar {
 
 impl RealtimeRegistrar {
     /// `null` without an API key and customer handle.
-    pub(crate) fn from_env(value: &dyn Fn(&str) -> Option<String>, http: OutboundHttp) -> Option<Self> {
+    pub(crate) fn from_env(
+        value: &dyn Fn(&str) -> Option<String>,
+        http: OutboundHttp,
+    ) -> Option<Self> {
         let trimmed = |name: &str| {
             value(name)
                 .map(|v| v.trim().to_owned())
@@ -218,8 +221,7 @@ impl RealtimeRegistrar {
         };
         let api_key = trimmed("REALTIME_REGISTER_API_KEY")?;
         let customer = trimmed("REALTIME_REGISTER_CUSTOMER")?;
-        let ote = value("REALTIME_REGISTER_OTE")
-            .is_some_and(|v| v.trim().to_lowercase() == "true");
+        let ote = value("REALTIME_REGISTER_OTE").is_some_and(|v| v.trim().to_lowercase() == "true");
         Some(Self {
             api_key,
             customer,
@@ -303,7 +305,11 @@ impl RealtimeRegistrar {
                 .get("message")
                 .filter(|m| !m.is_null())
                 .map(crate::js::as_text)
-                .or_else(|| data.get("title").filter(|t| !t.is_null()).map(crate::js::as_text))
+                .or_else(|| {
+                    data.get("title")
+                        .filter(|t| !t.is_null())
+                        .map(crate::js::as_text)
+                })
                 .or_else(|| match &data {
                     Value::String(text) if !text.is_empty() => Some(text.clone()),
                     _ => None,
@@ -347,7 +353,10 @@ impl RealtimeRegistrar {
         let sld = search_sld(&cleaned);
         let mut results: Vec<CheckResult> = collapse_adac(&events)?
             .into_iter()
-            .filter(|r| !sld.is_empty() && r.name.trim().to_lowercase().split('.').next() == Some(sld.as_str()))
+            .filter(|r| {
+                !sld.is_empty()
+                    && r.name.trim().to_lowercase().split('.').next() == Some(sld.as_str())
+            })
             .collect();
         let suffixes: Vec<String> = tlds
             .iter()
@@ -398,7 +407,7 @@ impl RealtimeRegistrar {
                 names.push(name);
             }
         }
-        names.truncate(js_slice_end(limit.min(OTE_SEARCH_MAX_NAMES as f64)));
+        names.truncate(js_slice_end(limit).min(OTE_SEARCH_MAX_NAMES));
         Ok(self.check_via_rest(&names).await)
     }
 
@@ -439,7 +448,12 @@ impl RealtimeRegistrar {
     async fn adac_check(&self, name: &str) -> Result<CheckResult, RtrError> {
         let events = self.adac("check", name, None, false).await?;
         collapse_adac(&events)?.into_iter().next().ok_or_else(|| {
-            RtrError::new(502, "ADAC_EMPTY", format!("ADAC returned no status for {name}"), "adac")
+            RtrError::new(
+                502,
+                "ADAC_EMPTY",
+                format!("ADAC returned no status for {name}"),
+                "adac",
+            )
         })
     }
 
@@ -482,7 +496,12 @@ impl RealtimeRegistrar {
             .send(HttpRequest::json("POST", ADAC_ACTION_URL, &body))
             .await
             .map_err(|error| {
-                RtrError::new(0, "NETWORK_ERROR", format!("ADAC network error: {error}"), "adac")
+                RtrError::new(
+                    0,
+                    "NETWORK_ERROR",
+                    format!("ADAC network error: {error}"),
+                    "adac",
+                )
             })?;
         let text = response.text();
         if !response.ok() {
@@ -588,7 +607,8 @@ impl RealtimeRegistrar {
         match self.transfer_once(input).await {
             Ok(result) => Ok(result),
             Err(error)
-                if truthy(input.get("privacyProtect")) && is_privacy_protect_unsupported(&error) =>
+                if truthy(input.get("privacyProtect"))
+                    && is_privacy_protect_unsupported(&error) =>
             {
                 let mut retry = input.clone();
                 retry["privacyProtect"] = json!(false);
@@ -668,7 +688,10 @@ impl RealtimeRegistrar {
         }
         response.insert("privacyProtect".to_owned(), json!(privacy));
         Ok(TransferResult {
-            status: data.get("status").and_then(Value::as_str).map(str::to_owned),
+            status: data
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             process_id,
             privacy_protect: privacy,
             response: Value::Object(response),
@@ -747,7 +770,9 @@ fn map_domain(data: &Value) -> RegisteredDomain {
     let locked = status.iter().any(|s| {
         matches!(
             s.as_str(),
-            "CLIENT_TRANSFER_PROHIBITED" | "SERVER_TRANSFER_PROHIBITED" | "REGISTRAR_TRANSFER_PROHIBITED"
+            "CLIENT_TRANSFER_PROHIBITED"
+                | "SERVER_TRANSFER_PROHIBITED"
+                | "REGISTRAR_TRANSFER_PROHIBITED"
         )
     });
     RegisteredDomain {
@@ -801,6 +826,7 @@ fn parse_adac_events(text: &str) -> Vec<Value> {
 
 /// `collapseAdacResults`: an error event fails; the last non-waiting status
 /// per name wins, in first-seen order.
+#[allow(clippy::float_cmp)] // JavaScript's `===` on the status number
 fn collapse_adac(events: &[Value]) -> Result<Vec<CheckResult>, RtrError> {
     if let Some(error) = events
         .iter()
@@ -897,7 +923,10 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].reason.as_deref(), Some("domain_unavailable"));
         assert!(results[1].premium);
-        assert_eq!(normalize_search(" https://www.Example.com. "), "example.com");
+        assert_eq!(
+            normalize_search(" https://www.Example.com. "),
+            "example.com"
+        );
         assert_eq!(search_sld("weldsuite.com"), "weldsuite");
     }
 }

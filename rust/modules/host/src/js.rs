@@ -131,7 +131,7 @@ pub(crate) fn as_text(value: &Value) -> String {
         Value::Bool(flag) => flag.to_string(),
         Value::Number(number) => number
             .as_f64()
-            .map_or_else(|| number.to_string(), |n| number_text(n)),
+            .map_or_else(|| number.to_string(), number_text),
         Value::Array(items) => items
             .iter()
             .map(|item| {
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(number_of(""), Some(0.0));
         assert_eq!(number_of("10"), Some(10.0));
         assert_eq!(number_of("1a"), None);
-        assert!((round(1299.000_000_000_000_2) - 1299.0).abs() < f64::EPSILON);
+        assert!((round(1_299.000_000_000_000_2) - 1299.0).abs() < f64::EPSILON);
         assert_eq!(number_json(612.0), json!(612));
         assert_eq!(as_text(&json!(["a", null, 2])), "a,,2");
     }

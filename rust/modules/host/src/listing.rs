@@ -85,7 +85,7 @@ pub(crate) async fn list(
             .await?
     };
     let mut rows: Vec<Value> = page.into_iter().map(js_row).collect();
-    let has_more = rows.len() as i64 > limit;
+    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     rows.truncate(usize::try_from(limit).unwrap_or(0));
     let cursor = if has_more {
         rows.last()
@@ -106,8 +106,15 @@ pub(crate) async fn list(
 macro_rules! keyset {
     ($a:literal, $b:literal, $c:literal) => {
         concat!(
-            "($", $a, "::boolean or (t.created_at < $", $b, "::timestamp or (t.created_at = $", $b,
-            "::timestamp and t.id < $", $c, "::text)))"
+            "($",
+            $a,
+            "::boolean or (t.created_at < $",
+            $b,
+            "::timestamp or (t.created_at = $",
+            $b,
+            "::timestamp and t.id < $",
+            $c,
+            "::text)))"
         )
     };
 }

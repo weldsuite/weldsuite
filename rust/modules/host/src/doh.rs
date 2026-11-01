@@ -63,7 +63,10 @@ pub(crate) async fn lookup_record(
     name: &str,
     kind: &str,
 ) -> Result<Vec<Value>, String> {
-    let url = format!("{DOH_ENDPOINT}?name={}&type={kind}", encode_uri_component(name));
+    let url = format!(
+        "{DOH_ENDPOINT}?name={}&type={kind}",
+        encode_uri_component(name)
+    );
     let response = http
         .send(HttpRequest::empty("GET", url).header("accept", "application/dns-json"))
         .await
@@ -81,8 +84,14 @@ pub(crate) async fn lookup_record(
         if answer.get("type").and_then(Value::as_f64) != Some(want) {
             continue;
         }
-        let raw_name = answer.get("name").map(crate::js::as_text).unwrap_or_default();
-        let data = answer.get("data").map(crate::js::as_text).unwrap_or_default();
+        let raw_name = answer
+            .get("name")
+            .map(crate::js::as_text)
+            .unwrap_or_default();
+        let data = answer
+            .get("data")
+            .map(crate::js::as_text)
+            .unwrap_or_default();
         let mut record = Map::new();
         record.insert("name".to_owned(), json!(strip_dot(&raw_name)));
         record.insert("type".to_owned(), json!(kind));
@@ -168,7 +177,11 @@ pub(crate) async fn scan_domain_records(http: &OutboundHttp, domain: &str) -> Ve
             .map(|(name, kind)| lookup_record(http, name, kind)),
     )
     .await;
-    results.into_iter().filter_map(Result::ok).flatten().collect()
+    results
+        .into_iter()
+        .filter_map(Result::ok)
+        .flatten()
+        .collect()
 }
 
 #[cfg(test)]

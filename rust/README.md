@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has sixteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has seventeen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -75,16 +75,29 @@ modules, each with conformance suites that reach every route:
   document (503 until WeldBooks' invoice generator is ported) and
   WooCommerce's app-auth callback, which completes a WeldConnect
   authorisation)
+- **host** (WeldHost: domains, their dashboard, search and availability
+  through Realtime Register's ADAC checker (its REST check on OTE), priced
+  from the master `domain_pricing`, the registrar toggles, sync, auth codes,
+  registration polling and incoming transfers on Realtime Register (and the
+  legacy Cloudflare Registrar for its rows), external domains and their
+  ownership check over DNS over HTTPS, DNS zones and records on Cloudflare's
+  API (behind the `DnsHost` port, so another DNS host can be plugged in),
+  email forwards and Realtime Register's process webhook at
+  `/public/webhooks/realtime-register`; the WeldReach guards read the tenant's
+  `reach_domains`. Buying and renewing a domain is a Stripe charge, so the
+  checkout and renewal routes answer as the worker does without Stripe, and
+  `weldsuite cron domain-auto-renew` does nothing yet. Not ported: the test
+  environment's DNS sandbox (a D1 emulator of Cloudflare's API))
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls, help center custom domains and
-sending the loonaangifte over Digipoort.
+`weldmail.com` addresses, mail AI, chat calls, help center custom domains,
+sending the loonaangifte over Digipoort and buying or renewing domains.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
-host, meet, call, connect, agent, reach, sheets, docs and
+meet, call, connect, agent, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -144,7 +157,9 @@ rust/
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
                         slugs and rate limits),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
-                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
+                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
+                        modules/host (WeldHost: Realtime Register, Cloudflare's zones and
+                        registrar, DNS over HTTPS, the Realtime Register webhook);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -266,7 +281,9 @@ share one origin and the app finds the API through `/config.json`
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
-`workspace-deletion` daily and `workspace-teardown` hourly. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+`workspace-deletion` daily, `workspace-teardown` hourly and
+`domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
+which stays with Global). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -282,6 +299,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
+| `REALTIME_REGISTER_API_KEY`, `REALTIME_REGISTER_CUSTOMER`, `REALTIME_REGISTER_OTE`, `REALTIME_REGISTER_ADAC_API_KEY`, `REALTIME_REGISTER_ADAC_TLD_SET_TOKEN`, `REALTIME_REGISTER_CONTACT_ADMIN`/`_TECH`/`_BILLING`, `REALTIME_REGISTER_WEBHOOK_SECRET` | WeldHost: Realtime Register's API key and customer handle (unset: search, availability, transfers and the registrar toggles answer as the worker does without them), `true` for its OTE, the ADAC key and TLD set for search, the platform contact handles domains are registered on, and the `?token=` of its process webhook (unset: every delivery is refused) |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |

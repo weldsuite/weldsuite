@@ -40,7 +40,7 @@ impl fmt::Display for ZoneError {
 /// A zone as created or read.
 #[derive(Debug, Clone)]
 pub(crate) struct Zone {
-    pub(crate) zone_id: String,
+    pub(crate) id: String,
     pub(crate) nameservers: Vec<String>,
     pub(crate) status: String,
 }
@@ -84,15 +84,20 @@ pub(crate) enum Created {
 /// A DNS hosting provider.
 pub(crate) trait DnsHost: Send + Sync {
     /// `createCloudflareZone`.
-    fn create_zone<'a>(&'a self, account: &'a str, domain: &'a str)
-    -> BoxFuture<'a, Result<Zone, ZoneError>>;
+    fn create_zone<'a>(
+        &'a self,
+        account: &'a str,
+        domain: &'a str,
+    ) -> BoxFuture<'a, Result<Zone, ZoneError>>;
     /// `getCloudflareZone`: `None` when the zone no longer exists.
     fn get_zone<'a>(&'a self, zone_id: &'a str) -> BoxFuture<'a, Result<Option<Zone>, ZoneError>>;
     /// `deleteCloudflareZone`: a failure is logged, never returned.
     fn delete_zone<'a>(&'a self, zone_id: &'a str) -> BoxFuture<'a, ()>;
     /// `listDnsRecordsInZone`: every record, every page.
-    fn list_records<'a>(&'a self, zone_id: &'a str)
-    -> BoxFuture<'a, Result<Vec<DnsRecord>, ZoneError>>;
+    fn list_records<'a>(
+        &'a self,
+        zone_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<DnsRecord>, ZoneError>>;
     /// `createDnsRecordInZone`.
     fn create_record<'a>(
         &'a self,

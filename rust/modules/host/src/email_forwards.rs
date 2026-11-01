@@ -68,14 +68,20 @@ const LIVE: &str =
 
 async fn list_forwards(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), |issues, q| {
-        let domain_id = issues.text(q, "domainId", Presence::Optional, None, None).into_option();
+        let domain_id = issues
+            .text(q, "domainId", Presence::Optional, None, None)
+            .into_option();
         // `z.coerce.boolean()`: `Boolean(value)`.
         let enabled = q.get("enabled").map(|value| match value {
             Value::String(text) => !text.is_empty(),
             _ => true,
         });
-        let status = issues.choice(q, "status", Presence::Optional, &STATUSES).into_option();
-        let cursor = issues.text(q, "cursor", Presence::Optional, None, None).into_option();
+        let status = issues
+            .choice(q, "status", Presence::Optional, &STATUSES)
+            .into_option();
+        let cursor = issues
+            .text(q, "cursor", Presence::Optional, None, None)
+            .into_option();
         let limit = limit_param(issues, q, 100.0);
         (domain_id, enabled, status, cursor, limit)
     }) {
@@ -119,7 +125,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createEmailForwardSchema` (`partial`: its `.omit({ domainId }).partial()`).
-fn forward_fields(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn forward_fields(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut out = Map::new();
     let required = if partial {
         Presence::Optional
@@ -127,7 +137,8 @@ fn forward_fields(issues: &mut Issues, body: &Map<String, Value>, partial: bool)
         Presence::Required
     };
     if !partial
-        && let Field::Set(domain_id) = issues.text(body, "domainId", Presence::Required, Some(1), None)
+        && let Field::Set(domain_id) =
+            issues.text(body, "domainId", Presence::Required, Some(1), None)
     {
         out.insert("domainId".to_owned(), json!(domain_id));
     }
@@ -199,7 +210,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let input = match validate(&headers, &body, |issues, body| forward_fields(issues, body, false)) {
+    let input = match validate(&headers, &body, |issues, body| {
+        forward_fields(issues, body, false)
+    }) {
         Ok(input) => input,
         Err(response) => return *response,
     };
@@ -240,7 +253,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let patch = match validate(&headers, &body, |issues, body| forward_fields(issues, body, true)) {
+    let patch = match validate(&headers, &body, |issues, body| {
+        forward_fields(issues, body, true)
+    }) {
         Ok(patch) => patch,
         Err(response) => return *response,
     };
@@ -281,9 +296,13 @@ async fn update(
         .bind(now())
         .execute(&caller.db)
         .await?;
-        let row = one(&caller.db, "select to_jsonb(t) from email_forwards t where t.id = $1 limit 1", &id)
-            .await?
-            .unwrap_or(Value::Null);
+        let row = one(
+            &caller.db,
+            "select to_jsonb(t) from email_forwards t where t.id = $1 limit 1",
+            &id,
+        )
+        .await?
+        .unwrap_or(Value::Null);
         caller.publish(&state, EMAIL_FORWARD_UPDATED, &id, &event_data(&id, &row));
         Ok(Data(row).into_response())
     }
@@ -291,7 +310,11 @@ async fn update(
     result.unwrap_or_else(|error| internal(&error, "Failed to update email forward"))
 }
 
-async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result: Result<Response, sqlx::Error> = async {
         let Some(existing) = one(&caller.db, LIVE, &id).await? else {
             return Ok(ApiError::not_found("Email forward", Some(&id)).into_response());

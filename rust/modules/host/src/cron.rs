@@ -60,7 +60,8 @@ mod tests {
     #[test]
     fn skips_without_billing() {
         let result = run_domain_auto_renew(&|name| {
-            name.starts_with("REALTIME_REGISTER").then(|| "x".to_owned())
+            name.starts_with("REALTIME_REGISTER")
+                .then(|| "x".to_owned())
         });
         assert_eq!(result, AutoRenewResult::default());
         assert_eq!(result.to_json()["workspacesScanned"], 0);

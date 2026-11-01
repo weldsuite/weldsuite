@@ -252,10 +252,7 @@ fn to_zone_error(error: &ApiError) -> ZoneError {
 
 fn zone_of(result: &Value) -> Zone {
     Zone {
-        zone_id: result
-            .get("id")
-            .map(crate::js::as_text)
-            .unwrap_or_default(),
+        id: result.get("id").map(crate::js::as_text).unwrap_or_default(),
         nameservers: result
             .get("name_servers")
             .and_then(Value::as_array)
@@ -269,7 +266,8 @@ fn zone_of(result: &Value) -> Zone {
 }
 
 static QUOTED_TXT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^("(?:[^"\\]|\\.)*")(?:\s+"(?:[^"\\]|\\.)*")*$"#).expect("the TXT pattern compiles")
+    Regex::new(r#"^("(?:[^"\\]|\\.)*")(?:\s+"(?:[^"\\]|\\.)*")*$"#)
+        .expect("the TXT pattern compiles")
 });
 static TXT_CHUNK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""((?:[^"\\]|\\.)*)""#).expect("the chunk pattern compiles"));
@@ -317,7 +315,9 @@ fn create_params(record: &RecordInput) -> Value {
         body.insert("comment".to_owned(), json!(comment));
     }
     body.insert("type".to_owned(), json!(record.kind));
-    let parts: Vec<&str> = WHITESPACE.split(crate::js::js_trim(&record.content)).collect();
+    let parts: Vec<&str> = WHITESPACE
+        .split(crate::js::js_trim(&record.content))
+        .collect();
     match record.kind.as_str() {
         "SRV" => {
             let mut data = Map::new();
@@ -329,7 +329,10 @@ fn create_params(record: &RecordInput) -> Value {
             );
             data.insert("weight".to_owned(), number_value(parts.get(1).copied()));
             data.insert("port".to_owned(), number_value(parts.get(2).copied()));
-            let target = parts.get(3..).map(|rest| rest.join(" ")).unwrap_or_default();
+            let target = parts
+                .get(3..)
+                .map(|rest| rest.join(" "))
+                .unwrap_or_default();
             if !target.is_empty() {
                 data.insert("target".to_owned(), json!(target));
             }
@@ -341,7 +344,10 @@ fn create_params(record: &RecordInput) -> Value {
             if let Some(tag) = parts.get(1) {
                 data.insert("tag".to_owned(), json!(tag));
             }
-            let value = parts.get(2..).map(|rest| rest.join(" ")).unwrap_or_default();
+            let value = parts
+                .get(2..)
+                .map(|rest| rest.join(" "))
+                .unwrap_or_default();
             let value = value.strip_prefix('"').unwrap_or(&value);
             let value = value.strip_suffix('"').unwrap_or(value);
             if !value.is_empty() {
@@ -616,10 +622,7 @@ impl DnsHost for CloudflareDns {
 /// it is.
 #[derive(Debug, Clone)]
 pub(crate) enum RegistrarError {
-    Api {
-        status: u16,
-        message: String,
-    },
+    Api { status: u16, message: String },
     Connection(String),
 }
 
@@ -701,7 +704,10 @@ impl CloudflareRegistrar {
             .map_err(|e| registrar_error("registrations", e))?;
         let r = &body["result"];
         Ok(Registration {
-            id: r.get("domain_name").map(crate::js::as_text).unwrap_or_default(),
+            id: r
+                .get("domain_name")
+                .map(crate::js::as_text)
+                .unwrap_or_default(),
             status: r.get("status").cloned().unwrap_or(Value::Null),
             expires_at: r
                 .get("expires_at")
@@ -771,7 +777,10 @@ mod tests {
             priority: None,
             comment: None,
         });
-        assert_eq!(srv["data"], json!({ "priority": 10, "weight": 5, "port": 5060, "target": "sip.example.com" }));
+        assert_eq!(
+            srv["data"],
+            json!({ "priority": 10, "weight": 5, "port": 5060, "target": "sip.example.com" })
+        );
         assert_eq!(srv["ttl"], json!(3600));
         let mx = create_params(&RecordInput {
             kind: "MX".to_owned(),
@@ -781,7 +790,10 @@ mod tests {
             priority: None,
             comment: Some(String::new()),
         });
-        assert_eq!(mx, json!({ "name": "@", "ttl": 300, "type": "MX", "content": "mx.example.com", "priority": 0, "proxied": false }));
+        assert_eq!(
+            mx,
+            json!({ "name": "@", "ttl": 300, "type": "MX", "content": "mx.example.com", "priority": 0, "proxied": false })
+        );
     }
 
     #[test]

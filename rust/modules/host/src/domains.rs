@@ -28,11 +28,22 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::cloudflare::RegistrarError;
 use crate::dns_host::ZoneErrorKind;
-use crate::js::{as_text, number_json, parse_float, parse_int, random_uuid_hex, round, text, tld_of};
-use crate::registrar::{CheckResult, OTE_SEARCH_DEFAULT_TLDS, Outcome, RealtimeRegistrar, RtrError, js_slice_end, tld_supports_privacy_protect};
-use crate::rows::{any_domain, any_zone, domain_with_zone, is_external_registrar, is_hidden_unpaid, live_domain, live_zone_of_domain, public_domain};
+use crate::js::{
+    as_text, number_json, parse_float, parse_int, random_uuid_hex, round, text, tld_of,
+};
+use crate::registrar::{
+    CheckResult, OTE_SEARCH_DEFAULT_TLDS, Outcome, RealtimeRegistrar, RtrError, js_slice_end,
+    tld_supports_privacy_protect,
+};
+use crate::rows::{
+    any_domain, any_zone, domain_with_zone, is_external_registrar, is_hidden_unpaid, live_domain,
+    live_zone_of_domain, public_domain,
+};
 use crate::weldreach::{changes_nameservers, connected_domain_ids, domain_in_use, is_domain_used};
-use crate::{Caller, HostState, Providers, error_response, internal, json_response, now, validate, validate_query};
+use crate::{
+    Caller, HostState, Providers, error_response, internal, json_response, now, validate,
+    validate_query,
+};
 
 const STATUSES: [&str; 5] = ["active", "pending", "expired", "suspended", "cancelled"];
 
@@ -42,17 +53,32 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/dashboard", get(dashboard).route_layer(need("domains:read")))
-        .route("/dashboard/chart", get(chart).route_layer(need("domains:read")))
-        .route("/dashboard/recent", get(recent).route_layer(need("domains:read")))
+        .route(
+            "/dashboard",
+            get(dashboard).route_layer(need("domains:read")),
+        )
+        .route(
+            "/dashboard/chart",
+            get(chart).route_layer(need("domains:read")),
+        )
+        .route(
+            "/dashboard/recent",
+            get(recent).route_layer(need("domains:read")),
+        )
         .route("/search", get(search).route_layer(need("domains:read")))
         .route("/check", post(check).route_layer(need("domains:read")))
-        .route("/checkout", post(checkout).route_layer(need("domains:create")))
+        .route(
+            "/checkout",
+            post(checkout).route_layer(need("domains:create")),
+        )
         .route(
             "/checkout/abandon",
             post(abandon).route_layer(need("domains:create")),
         )
-        .route("/external", post(external).route_layer(need("domains:create")))
+        .route(
+            "/external",
+            post(external).route_layer(need("domains:create")),
+        )
         .route("/", get(list).route_layer(need("domains:read")))
         .route("/", post(create).route_layer(need("domains:create")))
         .route("/{id}", get(detail).route_layer(need("domains:read")))
@@ -74,7 +100,10 @@ where
             post(toggle_lock).route_layer(need("domains:update")),
         )
         .route("/{id}/sync", post(sync).route_layer(need("domains:update")))
-        .route("/{id}/renew", post(renew).route_layer(need("domains:update")))
+        .route(
+            "/{id}/renew",
+            post(renew).route_layer(need("domains:update")),
+        )
         .route(
             "/{id}/verify-nameservers",
             post(verify_nameservers).route_layer(need("domains:update")),
@@ -201,6 +230,7 @@ fn domain_event(id: &str, row: &Value) -> Value {
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
+#[allow(clippy::type_complexity)]
 async fn dashboard(caller: Caller) -> Response {
     let stats: Result<(i32, i32, i32, i32, i32, i32, i32), sqlx::Error> = sqlx::query_as(concat!(
         "select count(*)::int,
@@ -245,6 +275,7 @@ fn day_of(stamp: &str) -> Option<String> {
     stamp.get(..10).map(str::to_owned)
 }
 
+#[allow(clippy::type_complexity)]
 async fn chart(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let days = clamp_param(raw.as_deref(), "days", 90, 365);
     let rows: Result<Vec<(Option<String>, Option<String>, Option<String>, String)>, sqlx::Error> =
@@ -330,14 +361,20 @@ struct Pricing {
 
 /// `loadPricingMap`: by normalised TLD, in row order (a later row for the
 /// same TLD wins, keeping the first one's place).
+#[allow(clippy::type_complexity)]
 async fn pricing_map(master: &PgPool) -> Result<Vec<(String, Pricing)>, sqlx::Error> {
-    let rows: Vec<(String, Option<String>, Option<String>, Option<i32>, Option<String>)> =
-        sqlx::query_as(
-            "select tld, currency, registration_price::text, markup_amount, markup_percent::text
+    let rows: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "select tld, currency, registration_price::text, markup_amount, markup_percent::text
              from domain_pricing where is_active = true",
-        )
-        .fetch_all(master)
-        .await?;
+    )
+    .fetch_all(master)
+    .await?;
     let mut map: Vec<(String, Pricing)> = Vec::new();
     for (tld, currency, registration_price, markup_amount, markup_percent) in rows {
         let key = tld.strip_prefix('.').unwrap_or(&tld).to_lowercase();
@@ -377,7 +414,11 @@ fn catalog_markup(cents: f64, pricing: Option<&Pricing>) -> f64 {
 
 /// `applyMarkup(wholesaleCents, pricing, wholesaleCurrency)` for a
 /// registration: `None` without a price.
-fn apply_markup(wholesale: Option<f64>, pricing: Option<&Pricing>, currency: Option<&str>) -> Option<f64> {
+fn apply_markup(
+    wholesale: Option<f64>,
+    pricing: Option<&Pricing>,
+    currency: Option<&str>,
+) -> Option<f64> {
     let pricing_currency = pricing
         .and_then(|p| p.currency.as_deref())
         .map(str::to_lowercase)
@@ -407,7 +448,9 @@ fn transform(result: &CheckResult, map: &[(String, Pricing)]) -> Value {
     out.insert("premium".to_owned(), json!(result.premium));
     out.insert(
         "price".to_owned(),
-        price.filter(|p| p.is_finite()).map_or(Value::Null, number_json),
+        price
+            .filter(|p| p.is_finite())
+            .map_or(Value::Null, number_json),
     );
     out.insert(
         "currency".to_owned(),
@@ -444,16 +487,16 @@ fn ote_search_tlds(map: &[(String, Pricing)]) -> Vec<String> {
 }
 
 /// The 503s of an unconfigured registrar; `Ok` with the client otherwise.
-fn searchable(providers: &Providers) -> Result<RealtimeRegistrar, Response> {
+fn searchable(providers: &Providers) -> Result<RealtimeRegistrar, Box<Response>> {
     let Some(rtr) = providers.rtr.clone() else {
-        return Err(rtr_unconfigured());
+        return Err(Box::new(rtr_unconfigured()));
     };
     if !rtr.can_search() {
-        return Err(error_response(
+        return Err(Box::new(error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "SERVICE_UNAVAILABLE",
             "Realtime Register ADAC is not configured",
-        ));
+        )));
     }
     Ok(rtr)
 }
@@ -462,9 +505,15 @@ fn no_master() -> Failure {
     Failure::Other("no master database".to_owned())
 }
 
-async fn search(State(state): State<HostState>, caller: Caller, RawQuery(raw): RawQuery) -> Response {
+async fn search(
+    State(state): State<HostState>,
+    caller: Caller,
+    RawQuery(raw): RawQuery,
+) -> Response {
     let (q, limit) = match validate_query(raw.as_deref(), |issues, query| {
-        let q = issues.text(query, "q", Presence::Required, Some(2), None).into_option();
+        let q = issues
+            .text(query, "q", Presence::Required, Some(2), None)
+            .into_option();
         let limit = issues
             .number(
                 query,
@@ -486,14 +535,16 @@ async fn search(State(state): State<HostState>, caller: Caller, RawQuery(raw): R
     };
     let rtr = match searchable(&caller.providers(&state)) {
         Ok(rtr) => rtr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let result: Result<Vec<Value>, Failure> = async {
         let master = caller.master(&state).ok_or_else(no_master)?;
         let limit = limit.min(50.0);
         if rtr.is_ote() {
             let map = pricing_map(&master).await?;
-            let results = rtr.search_domains(&q, &ote_search_tlds(&map), limit).await?;
+            let results = rtr
+                .search_domains(&q, &ote_search_tlds(&map), limit)
+                .await?;
             return Ok(results.iter().map(|r| transform(r, &map)).collect());
         }
         let results = rtr.search_domains(&q, &[], 50.0).await?;
@@ -532,9 +583,14 @@ async fn check(
 ) -> Response {
     let domains = match validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "domains", Presence::Required, Some(1), Some(20), |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                body,
+                "domains",
+                Presence::Required,
+                Some(1),
+                Some(20),
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -543,7 +599,7 @@ async fn check(
     };
     let rtr = match searchable(&caller.providers(&state)) {
         Ok(rtr) => rtr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let result: Result<Vec<Value>, Failure> = async {
         let master = caller.master(&state).ok_or_else(no_master)?;
@@ -604,9 +660,14 @@ fn contact(issues: &mut Issues, fields: &Map<String, Value>) {
 fn checkout_fields(issues: &mut Issues, body: &Map<String, Value>) {
     let before = issues.count();
     let domain = issues.text(body, "domain", Presence::Optional, Some(3), None);
-    let domains = issues.list(body, "domains", Presence::Optional, Some(1), Some(10), |issues, item| {
-        issues.item_text(item, Text::length(Some(3), None))
-    });
+    let domains = issues.list(
+        body,
+        "domains",
+        Presence::Optional,
+        Some(1),
+        Some(10),
+        |issues, item| issues.item_text(item, Text::length(Some(3), None)),
+    );
     let _ = issues.nested(body, "contact", Presence::Optional, contact);
     let _ = issues.boolean(body, "autoRenew", Presence::Optional);
     let _ = issues.boolean(body, "privacyProtection", Presence::Optional);
@@ -676,9 +737,14 @@ async fn abandon(
 ) -> Response {
     let ids = match validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "registrationIds", Presence::Required, Some(1), Some(20), |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                body,
+                "registrationIds",
+                Presence::Required,
+                Some(1),
+                Some(20),
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -840,7 +906,11 @@ macro_rules! list_sql {
             listed!(),
             " and ($1::boolean or (t.full_domain like $2 or t.name like $2))",
             " and ($3::boolean or t.status = $4::host_domain_status)",
-            " order by t.", $column, " ", $dir, " limit $5 offset $6"
+            " order by t.",
+            $column,
+            " ",
+            $dir,
+            " limit $5 offset $6"
         )
     };
 }
@@ -883,13 +953,22 @@ fn read_list_query(issues: &mut Issues, q: &Map<String, Value>) -> ListQuery {
         .whole_number(q, "pageSize", Presence::Optional, int(1.0, Some(100.0)))
         .into_option()
         .unwrap_or(20);
-    let search = issues.text(q, "search", Presence::Optional, None, None).into_option();
+    let search = issues
+        .text(q, "search", Presence::Optional, None, None)
+        .into_option();
     let status = issues
         .choice(
             q,
             "status",
             Presence::Optional,
-            &["all", "active", "pending", "expired", "suspended", "cancelled"],
+            &[
+                "all",
+                "active",
+                "pending",
+                "expired",
+                "suspended",
+                "cancelled",
+            ],
         )
         .into_option();
     let sort_by = issues
@@ -915,6 +994,7 @@ fn read_list_query(issues: &mut Issues, q: &Map<String, Value>) -> ListQuery {
     }
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // the page count
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), read_list_query) {
         Ok(query) => query,
@@ -922,7 +1002,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result: Result<Value, sqlx::Error> = async {
         let page_size = query.page_size.min(100);
-        let search = query.search.filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+        let search = query
+            .search
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
         let status = query.status.filter(|s| !s.is_empty() && s != "all");
         let total: i32 = sqlx::query_scalar(concat!(
             "select count(*)::int from domains t where t.deleted_at is null and ",
@@ -936,15 +1019,16 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         .bind(status.clone())
         .fetch_one(&caller.db)
         .await?;
-        let rows: Vec<Value> = sqlx::query_scalar(list_statement(query.sort_by.as_deref(), query.ascending))
-            .bind(search.is_none())
-            .bind(search)
-            .bind(status.is_none())
-            .bind(status)
-            .bind(page_size)
-            .bind((query.page - 1) * page_size)
-            .fetch_all(&caller.db)
-            .await?;
+        let rows: Vec<Value> =
+            sqlx::query_scalar(list_statement(query.sort_by.as_deref(), query.ascending))
+                .bind(search.is_none())
+                .bind(search)
+                .bind(status.is_none())
+                .bind(status)
+                .bind(page_size)
+                .bind((query.page - 1) * page_size)
+                .fetch_all(&caller.db)
+                .await?;
         let (all, active, pending, expired): (i32, i32, i32, i32) = sqlx::query_as(concat!(
             "select count(*)::int,
                count(*) filter (where t.status = 'active')::int,
@@ -1017,7 +1101,9 @@ async fn create(
     let input = match validate(&headers, &body, |issues, body| {
         let mut out = Map::new();
         for (key, max) in [("name", 255), ("tld", 50), ("fullDomain", 255)] {
-            if let Field::Set(value) = issues.text(body, key, Presence::Required, Some(1), Some(max)) {
+            if let Field::Set(value) =
+                issues.text(body, key, Presence::Required, Some(1), Some(max))
+            {
                 out.insert(key.to_owned(), json!(value));
             }
         }
@@ -1026,12 +1112,19 @@ async fn create(
             .into_option()
             .unwrap_or_else(|| "pending".to_owned());
         out.insert("status".to_owned(), json!(status));
-        if let Field::Set(registrar) = issues.text(body, "registrar", Presence::Optional, None, Some(255)) {
+        if let Field::Set(registrar) =
+            issues.text(body, "registrar", Presence::Optional, None, Some(255))
+        {
             out.insert("registrar".to_owned(), json!(registrar));
         }
-        if let Field::Set(nameservers) = issues.list(body, "nameservers", Presence::Optional, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        }) {
+        if let Field::Set(nameservers) = issues.list(
+            body,
+            "nameservers",
+            Presence::Optional,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        ) {
             out.insert("nameservers".to_owned(), json!(nameservers));
         }
         for (key, default) in [
@@ -1040,7 +1133,10 @@ async fn create(
             ("privacyProtection", false),
             ("locked", true),
         ] {
-            let flag = issues.boolean(body, key, Presence::Optional).into_option().unwrap_or(default);
+            let flag = issues
+                .boolean(body, key, Presence::Optional)
+                .into_option()
+                .unwrap_or(default);
             out.insert(key.to_owned(), json!(flag));
         }
         if let Field::Set(notes) = issues.text(body, "notes", Presence::Optional, None, None) {
@@ -1125,13 +1221,19 @@ fn update_fields(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
         };
         let min = matches!(key, "name" | "tld" | "fullDomain").then_some(1);
         let value = match kind {
-            "text" => issues.text(body, key, Presence::Optional, min, max).into_option().map(Value::from),
+            "text" => issues
+                .text(body, key, Presence::Optional, min, max)
+                .into_option()
+                .map(Value::from),
             "nullish" => match issues.text(body, key, Presence::Nullish, None, max) {
                 Field::Set(v) => Some(Value::from(v)),
                 Field::Null => Some(Value::Null),
                 Field::Absent => None,
             },
-            "status" => issues.choice(body, key, Presence::Optional, &STATUSES).into_option().map(Value::from),
+            "status" => issues
+                .choice(body, key, Presence::Optional, &STATUSES)
+                .into_option()
+                .map(Value::from),
             "date" => issues
                 .text_with(
                     body,
@@ -1150,9 +1252,14 @@ fn update_fields(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
                 })
                 .into_option()
                 .map(|items| json!(items)),
-            "bool" => issues.boolean(body, key, Presence::Optional).into_option().map(Value::from),
+            "bool" => issues
+                .boolean(body, key, Presence::Optional)
+                .into_option()
+                .map(Value::from),
             _ => issues
-                .nested(body, key, Presence::Optional, |_, fields| Value::Object(fields.clone()))
+                .nested(body, key, Presence::Optional, |_, fields| {
+                    Value::Object(fields.clone())
+                })
                 .into_option(),
         };
         if let Some(value) = value {
@@ -1164,13 +1271,18 @@ fn update_fields(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
 
 /// `updateDomain(db, id, data)`: every given field, dates through
 /// `new Date()`; `Ok(None)` for no live domain.
-async fn write_update(db: &PgPool, id: &str, data: &Map<String, Value>) -> Result<Option<Value>, Failure> {
+#[allow(clippy::too_many_lines)] // one bind per column
+async fn write_update(
+    db: &PgPool,
+    id: &str,
+    data: &Map<String, Value>,
+) -> Result<Option<Value>, Failure> {
     if live_domain(db, id).await?.is_none() {
         return Ok(None);
     }
     let set = |key: &str| data.contains_key(key);
     let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
-    let date = |key: &str| -> Result<Option<String>, Failure> {
+    let stamp = |key: &str| -> Result<Option<String>, Failure> {
         match data.get(key).and_then(Value::as_str) {
             None => Ok(None),
             Some(raw) => js_date_iso(raw)
@@ -1229,13 +1341,13 @@ async fn write_update(db: &PgPool, id: &str, data: &Map<String, Value>) -> Resul
     .bind(set("registrarStatus"))
     .bind(text("registrarStatus"))
     .bind(set("registrarSyncedAt"))
-    .bind(date("registrarSyncedAt")?)
+    .bind(stamp("registrarSyncedAt")?)
     .bind(set("registeredAt"))
-    .bind(date("registeredAt")?)
+    .bind(stamp("registeredAt")?)
     .bind(set("expiresAt"))
-    .bind(date("expiresAt")?)
+    .bind(stamp("expiresAt")?)
     .bind(set("renewedAt"))
-    .bind(date("renewedAt")?)
+    .bind(stamp("renewedAt")?)
     .bind(set("nameservers"))
     .bind(json_of("nameservers"))
     .bind(set("customNameservers"))
@@ -1257,7 +1369,7 @@ async fn write_update(db: &PgPool, id: &str, data: &Map<String, Value>) -> Resul
     .bind(set("authCode"))
     .bind(text("authCode"))
     .bind(set("authCodeExpiresAt"))
-    .bind(date("authCodeExpiresAt")?)
+    .bind(stamp("authCodeExpiresAt")?)
     .bind(set("registrantContact"))
     .bind(json_of("registrantContact"))
     .bind(set("adminContact"))
@@ -1305,7 +1417,11 @@ async fn update(
     result.unwrap_or_else(|failure| internal(&failure, "Failed to update domain"))
 }
 
-async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result: Result<Response, sqlx::Error> = async {
         if is_domain_used(&caller.db, &id).await? {
             return Ok(domain_in_use());
@@ -1332,7 +1448,10 @@ async fn remove(State(state): State<HostState>, caller: Caller, Path(id): Path<S
 /// `{ enabled }` / `{ locked }`.
 fn flag_body(headers: &HeaderMap, body: &Bytes, key: &str) -> Result<bool, Box<Response>> {
     validate(headers, body, |issues, body| {
-        issues.boolean(body, key, Presence::Required).into_option().unwrap_or_default()
+        issues
+            .boolean(body, key, Presence::Required)
+            .into_option()
+            .unwrap_or_default()
     })
 }
 
@@ -1344,7 +1463,12 @@ fn registered_at(domain: &Value) -> Option<&str> {
 }
 
 /// `update domains t set <column> = $2 … returning to_jsonb(t)`.
-async fn set_flag(db: &PgPool, id: &str, sql: &'static str, value: bool) -> Result<Option<Value>, sqlx::Error> {
+async fn set_flag(
+    db: &PgPool,
+    id: &str,
+    sql: &'static str,
+    value: bool,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(sql)
         .bind(id)
         .bind(value)
@@ -1407,7 +1531,9 @@ async fn toggle_auto_renew(
     .await;
     match result {
         Ok(updated) => toggled(&state, &caller, &id, updated),
-        Err(failure) => registrar_failure("toggle-auto-renew", &failure, "Failed to toggle auto-renew"),
+        Err(failure) => {
+            registrar_failure("toggle-auto-renew", &failure, "Failed to toggle auto-renew")
+        }
     }
 }
 
@@ -1512,7 +1638,9 @@ async fn toggle_lock(
     .await;
     match result {
         Ok(updated) => toggled(&state, &caller, &id, updated),
-        Err(failure) => registrar_failure("toggle-lock", &failure, "Failed to toggle transfer lock"),
+        Err(failure) => {
+            registrar_failure("toggle-lock", &failure, "Failed to toggle transfer lock")
+        }
     }
 }
 
@@ -1531,7 +1659,11 @@ fn date_or_fail(text: &str) -> Result<String, Failure> {
 }
 
 /// `syncDomainStatus`.
-async fn sync_status(db: &PgPool, providers: &Providers, id: &str) -> Result<Option<Value>, Failure> {
+async fn sync_status(
+    db: &PgPool,
+    providers: &Providers,
+    id: &str,
+) -> Result<Option<Value>, Failure> {
     let Some(domain) = live_domain(db, id).await? else {
         return Ok(None);
     };
@@ -1718,6 +1850,7 @@ async fn verify_nameservers(caller: Caller, Path(id): Path<String>) -> Response 
     }
 }
 
+#[allow(clippy::too_many_lines)] // the lookup, the zone and the rollback
 async fn verify_ownership(
     State(state): State<HostState>,
     caller: Caller,
@@ -1762,7 +1895,7 @@ async fn verify_ownership(
                 ));
             }
         };
-        if !records.iter().any(|r| *r == expected) {
+        if !records.contains(&expected) {
             return Ok(json_response(
                 StatusCode::BAD_REQUEST,
                 json!({
@@ -1833,7 +1966,7 @@ async fn verify_ownership(
             .bind(&zone_row_id)
             .bind(&id)
             .bind(&full)
-            .bind(&zone.zone_id)
+            .bind(&zone.id)
             .bind(json!(zone.nameservers))
             .execute(&caller.db)
             .await?;
@@ -1842,7 +1975,7 @@ async fn verify_ownership(
         .await;
         if let Err(error) = persisted {
             tracing::error!(%error, "[domains.service] DB write failed after zone creation, rolling back CF zone");
-            dns.delete_zone(&zone.zone_id).await;
+            dns.delete_zone(&zone.id).await;
             return Ok(ApiError::internal()
                 .with_message("Failed to persist zone. The Cloudflare zone was rolled back.")
                 .into_response());
@@ -1940,7 +2073,7 @@ async fn refresh_zone_status(
         }
         let mut status = domain_status;
         if is_external_registrar(text(&domain, "registrar")) && next == "active" && status == "pending" {
-            status = "active".to_owned();
+            "active".clone_into(&mut status);
             sqlx::query(
                 "update domains set status = 'active', nameservers = $2, updated_at = $3::timestamp where id = $1",
             )
@@ -1962,7 +2095,11 @@ async fn refresh_zone_status(
     result.unwrap_or_else(|error| internal(&error, "Failed to refresh zone status"))
 }
 
-async fn auth_code(State(state): State<HostState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn auth_code(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let providers = caller.providers(&state);
     let result: Result<Response, sqlx::Error> = async {
         if is_domain_used(&caller.db, &id).await? {
@@ -2044,7 +2181,11 @@ fn registration_status_of(row: &Value) -> Value {
         .filter(|m| m.contains_key("error"))
         .map(|m| {
             let error = &m["error"];
-            if error.is_null() { String::new() } else { as_text(error) }
+            if error.is_null() {
+                String::new()
+            } else {
+                as_text(error)
+            }
         })
         .unwrap_or_default();
     json!({
@@ -2153,7 +2294,9 @@ pub(crate) async fn poll_renewal(
     if text(&domain, "registrationStatus") != Some("pending_renewal") {
         return Ok(Some(domain));
     }
-    let raw = domain.get("metadata").and_then(|m| m.get("rtrRenewalProcessId"));
+    let raw = domain
+        .get("metadata")
+        .and_then(|m| m.get("rtrRenewalProcessId"));
     #[allow(clippy::cast_possible_truncation)]
     let process_id = match raw {
         Some(Value::String(text)) => parse_int(text),
@@ -2181,7 +2324,10 @@ pub(crate) async fn poll_renewal(
         Outcome::Pending => Ok(Some(domain)),
         Outcome::Failed => {
             let mut metadata = metadata;
-            metadata.insert("error".to_owned(), json!("Registrar renewal process failed"));
+            metadata.insert(
+                "error".to_owned(),
+                json!("Registrar renewal process failed"),
+            );
             let row: Option<Value> = sqlx::query_scalar(
                 "update domains t set registration_status = 'failed', metadata = $2,
                    updated_at = $3::timestamp where t.id = $1 returning to_jsonb(t)",
@@ -2295,7 +2441,10 @@ async fn complete_registration(
             return Ok(ApiError::not_found("Domain registration", Some(&id)).into_response());
         };
         caller.publish(&state, DOMAIN_UPDATED, &id, &domain_event(&id, &row));
-        Ok(Data(json!({ "success": true, "domainId": id, "domain": public_domain(row) })).into_response())
+        Ok(
+            Data(json!({ "success": true, "domainId": id, "domain": public_domain(row) }))
+                .into_response(),
+        )
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Failed to complete registration"))
@@ -2314,8 +2463,14 @@ mod tests {
             markup_percent: Some("10.00".to_owned()),
         };
         assert_eq!(apply_markup(None, Some(&pricing), None), Some(1429.0));
-        assert_eq!(apply_markup(Some(2000.0), Some(&pricing), Some("eur")), Some(1429.0));
-        assert_eq!(apply_markup(Some(2000.0), Some(&pricing), Some("usd")), Some(2200.0));
+        assert_eq!(
+            apply_markup(Some(2000.0), Some(&pricing), Some("eur")),
+            Some(1429.0)
+        );
+        assert_eq!(
+            apply_markup(Some(2000.0), Some(&pricing), Some("usd")),
+            Some(2200.0)
+        );
         assert_eq!(apply_markup(None, None, None), None);
         assert!(is_fqdn("example.com"));
         assert!(!is_fqdn("-example.com"));

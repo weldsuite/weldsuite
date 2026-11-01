@@ -124,7 +124,9 @@ async fn receive(
     body: Bytes,
 ) -> Response {
     let Some(secret) = env_value(ctx.env.as_ref(), "REALTIME_REGISTER_WEBHOOK_SECRET") else {
-        tracing::error!("[RTR Webhook] Rejected: REALTIME_REGISTER_WEBHOOK_SECRET is not configured");
+        tracing::error!(
+            "[RTR Webhook] Rejected: REALTIME_REGISTER_WEBHOOK_SECRET is not configured"
+        );
         return unauthorized();
     };
     let query = query_values(query.as_deref());
@@ -176,7 +178,17 @@ async fn receive(
     let Ok(mapping) = serde_json::from_str::<Value>(&raw) else {
         return json_response(StatusCode::OK, unmapped);
     };
-    if let Err(error) = sync_mapped(&state, &ctx, &rtr, cache.as_deref(), &mapping, process, &key).await {
+    if let Err(error) = sync_mapped(
+        &state,
+        &ctx,
+        &rtr,
+        cache.as_deref(),
+        &mapping,
+        process,
+        &key,
+    )
+    .await
+    {
         tracing::error!(%error, "[RTR Webhook] tenant update failed");
         return json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -203,15 +215,14 @@ async fn sync_mapped(
         .get("workspaceId")
         .map(crate::js::as_text)
         .unwrap_or_default();
-    let (db, workspace_id) = match &ctx.tenant {
-        Some(tenant) => tenant.clone(),
-        None => {
-            let tenants = state
-                .tenants
-                .as_ref()
-                .ok_or_else(|| "no tenant databases".to_owned())?;
-            tenants(workspace.clone()).await?
-        }
+    let (db, workspace_id) = if let Some(tenant) = &ctx.tenant {
+        tenant.clone()
+    } else {
+        let tenants = state
+            .tenants
+            .as_ref()
+            .ok_or_else(|| "no tenant databases".to_owned())?;
+        tenants(workspace.clone()).await?
     };
     let kind = text(mapping, "kind");
     let domain_id = text(mapping, "domainId").filter(|d| !d.is_empty());
@@ -227,7 +238,10 @@ async fn sync_mapped(
                 .await
                 .map_err(|e| e.to_string())?;
             if let Some(polled) = polled
-                && matches!(text(&polled, "registrationStatus"), Some("renewed" | "failed"))
+                && matches!(
+                    text(&polled, "registrationStatus"),
+                    Some("renewed" | "failed")
+                )
             {
                 let context = EventContext::new(workspace.clone(), "system", EventSource::System);
                 let data = json!({ "id": domain_id, "name": polled["fullDomain"], "status": polled["status"] });
@@ -275,7 +289,10 @@ mod tests {
     #[test]
     fn process_ids_and_tokens() {
         assert_eq!(process_id_of(&json!({ "processId": 42 })), Some(42.0));
-        assert_eq!(process_id_of(&json!({ "data": { "id": "17x" } })), Some(17.0));
+        assert_eq!(
+            process_id_of(&json!({ "data": { "id": "17x" } })),
+            Some(17.0)
+        );
         assert_eq!(process_id_of(&json!({ "data": {} })), None);
         assert!(secret_matches(Some("abc"), "abc"));
         assert!(!secret_matches(Some("abd"), "abc"));

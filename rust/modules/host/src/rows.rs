@@ -15,7 +15,11 @@ pub(crate) async fn one(
 }
 
 /// Every row of a `select to_jsonb(t) …` statement with one parameter.
-pub(crate) async fn all(db: &PgPool, sql: &'static str, id: &str) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn all(
+    db: &PgPool,
+    sql: &'static str,
+    id: &str,
+) -> Result<Vec<Value>, sqlx::Error> {
     let rows: Vec<Value> = sqlx::query_scalar(sql).bind(id).fetch_all(db).await?;
     Ok(rows.into_iter().map(js_row).collect())
 }
@@ -32,7 +36,12 @@ pub(crate) async fn live_domain(db: &PgPool, id: &str) -> Result<Option<Value>, 
 
 /// A domain, deleted or not.
 pub(crate) async fn any_domain(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(db, "select to_jsonb(t) from domains t where t.id = $1 limit 1", id).await
+    one(
+        db,
+        "select to_jsonb(t) from domains t where t.id = $1 limit 1",
+        id,
+    )
+    .await
 }
 
 /// A live zone by id (`getDnsZone`).
@@ -47,7 +56,12 @@ pub(crate) async fn live_zone(db: &PgPool, id: &str) -> Result<Option<Value>, sq
 
 /// A zone, deleted or not.
 pub(crate) async fn any_zone(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(db, "select to_jsonb(t) from dns_zones t where t.id = $1 limit 1", id).await
+    one(
+        db,
+        "select to_jsonb(t) from dns_zones t where t.id = $1 limit 1",
+        id,
+    )
+    .await
 }
 
 /// A domain's live zone (`getDnsZoneByDomain`).
@@ -91,7 +105,8 @@ pub(crate) async fn domain_with_zone(
 }
 
 /// Registrars WeldSuite operates; customers see `WeldSuite` instead.
-const MANAGED_DOMAIN_REGISTRARS: [&str; 4] = ["realtimeregister", "cloudflare", "WeldHost", "WeldSuite"];
+const MANAGED_DOMAIN_REGISTRARS: [&str; 4] =
+    ["realtimeregister", "cloudflare", "WeldHost", "WeldSuite"];
 
 /// `isManagedDomainRegistrar`.
 fn is_managed_registrar(registrar: Option<&str>) -> bool {
@@ -105,7 +120,10 @@ pub(crate) fn is_external_registrar(registrar: Option<&str>) -> bool {
 
 /// `toPublicDomain`: the row with its registrar as customers see it.
 pub(crate) fn public_domain(mut row: Value) -> Value {
-    let registrar = row.get("registrar").and_then(Value::as_str).map(str::to_owned);
+    let registrar = row
+        .get("registrar")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let public = if is_managed_registrar(registrar.as_deref()) {
         "WeldSuite".to_owned()
     } else {
@@ -132,9 +150,18 @@ mod tests {
 
     #[test]
     fn registrars_are_public() {
-        assert_eq!(public_domain(json!({ "registrar": "realtimeregister" }))["registrar"], "WeldSuite");
-        assert_eq!(public_domain(json!({ "registrar": null }))["registrar"], "WeldSuite");
-        assert_eq!(public_domain(json!({ "registrar": "GoDaddy" }))["registrar"], "GoDaddy");
+        assert_eq!(
+            public_domain(json!({ "registrar": "realtimeregister" }))["registrar"],
+            "WeldSuite"
+        );
+        assert_eq!(
+            public_domain(json!({ "registrar": null }))["registrar"],
+            "WeldSuite"
+        );
+        assert_eq!(
+            public_domain(json!({ "registrar": "GoDaddy" }))["registrar"],
+            "GoDaddy"
+        );
         assert!(is_external_registrar(Some("GoDaddy")));
         assert!(!is_external_registrar(Some("cloudflare")));
         assert!(!is_external_registrar(None));
