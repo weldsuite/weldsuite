@@ -56,6 +56,8 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /** WeldConnect's "Generate with AI" (`POST /api/workflows/generate`, Workers AI). */
+  'weldconnect-ai',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
