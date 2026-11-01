@@ -165,7 +165,21 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
   }
 }
 
-/** The calls in a stable order: concurrent calls (`Promise.all`) may go out in any order. */
+/** JSON with every object's keys sorted: the same call, whatever order its body's keys were written in. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner: unknown) =>
+    inner && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : inner,
+  );
+}
+
+/**
+ * The calls in a stable order: concurrent calls (`Promise.all`) may go out in
+ * any order. Sorted on their canonical JSON, so two calls to one URL keep the
+ * same order whether their JSON bodies were written in insertion order
+ * (TypeScript) or with sorted keys (Rust's `serde_json`).
+ */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
-  return [...calls].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return [...calls].sort((a, b) => canonical(a).localeCompare(canonical(b)));
 }

@@ -16,7 +16,9 @@
 //! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`bank_accounts`]: account numbers (sealed, revealed), the ledger account
 //!   behind a bank account; [`bank_matching`]: bank lines matched to
-//!   invoices, bills, payments and deposits.
+//!   invoices, bills, payments and deposits; [`bank_feeds`]: bank connections
+//!   through an aggregator (Plaid, Stripe Financial Connections, Ponto,
+//!   Enable Banking) and their sync.
 //! - [`currency`], [`fx`]: exchange rates.
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
@@ -24,6 +26,7 @@
 pub mod address;
 pub mod bad_debt;
 pub mod bank_accounts;
+pub mod bank_feeds;
 pub mod bank_matching;
 pub mod catch_up;
 pub mod currency;

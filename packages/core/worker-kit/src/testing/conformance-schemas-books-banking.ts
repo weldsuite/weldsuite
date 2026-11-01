@@ -7,24 +7,33 @@
 import {
   autoReconcileResultSchema,
   bankAccountSchema,
+  bankConnectionSchema,
   bankDepositDetailSchema,
   bankDepositSchema,
+  bankFeedInstitutionSchema,
+  bankFeedLinkSessionSchema,
+  bankFeedPendingTransactionSchema,
+  bankFeedProvidersSchema,
   bankLineExcludedSchema,
   bankLineMatchSchema,
   bankTransactionSchema,
   createdBankAccountSchema,
   createdBankDepositSchema,
   createdBankTransactionSchema,
+  completedBankLinkSchema,
   importPreviewSchema,
   importResultSchema,
+  mappedBankFeedAccountsSchema,
   matchSuggestionSchema,
   reconciliationHistorySchema,
   reconciliationReportSchema,
   reconciliationRuleSchema,
   reconciliationViewSchema,
   revealedAccountNumberSchema,
+  syncedBankConnectionSchema,
   undepositedPaymentSchema,
 } from '@weldsuite/app-api-client/schemas/books-banking-responses';
+import { bankConnectionBillingSummarySchema } from '@weldsuite/app-api-client/schemas/bank-connection-billing';
 import type { RouteSchema } from './conformance-schemas';
 
 export const BOOKS_BANKING_ROUTES: RouteSchema[] = [
@@ -69,4 +78,16 @@ export const BOOKS_BANKING_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/reconciliation-rules', envelope: 'single', data: reconciliationRuleSchema },
   { method: 'PATCH', route: '/api/reconciliation-rules/:id', envelope: 'single', data: reconciliationRuleSchema },
   { method: 'PUT', route: '/api/reconciliation-rules/:id', envelope: 'single', data: reconciliationRuleSchema },
+  // bank-connections (bank feeds)
+  { method: 'GET', route: '/api/bank-connections', envelope: 'list', data: bankConnectionSchema },
+  { method: 'GET', route: '/api/bank-connections/providers', envelope: 'single', data: bankFeedProvidersSchema },
+  { method: 'GET', route: '/api/bank-connections/institutions', envelope: 'list', data: bankFeedInstitutionSchema },
+  { method: 'GET', route: '/api/bank-connections/billing', envelope: 'single', data: bankConnectionBillingSummarySchema.nullable() },
+  { method: 'POST', route: '/api/bank-connections/link-session', envelope: 'single', data: bankFeedLinkSessionSchema },
+  { method: 'POST', route: '/api/bank-connections/complete', envelope: 'single', data: completedBankLinkSchema },
+  { method: 'POST', route: '/api/bank-connections/:id/map-accounts', envelope: 'single', data: mappedBankFeedAccountsSchema },
+  { method: 'POST', route: '/api/bank-connections/:id/sync', envelope: 'single', data: syncedBankConnectionSchema },
+  { method: 'POST', route: '/api/bank-connections/:id/disconnect', envelope: 'single', data: bankConnectionSchema },
+  { method: 'GET', route: '/api/bank-connections/:id/pending', envelope: 'list', data: bankFeedPendingTransactionSchema },
+  { method: 'GET', route: '/api/bank-connections/:id', envelope: 'single', data: bankConnectionSchema },
 ];

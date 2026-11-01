@@ -1897,7 +1897,8 @@
         "src/routes/bank-transactions/integration.test.ts",
         "src/routes/bank-transactions/matching.integration.test.ts",
         "src/routes/bank-deposits/bank-deposits.integration.test.ts",
-        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts"
+        "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts",
+        "src/routes/bank-connections/bank-connections.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bank-accounts/",
@@ -1911,6 +1912,7 @@
         "packages/core/bank-feeds/src/",
         "packages/domains/books/src/",
         "packages/clients/app-api-client/src/schemas/books-banking-responses.ts",
+        "packages/clients/app-api-client/src/schemas/bank-connection-billing.ts",
         "packages/clients/core-api-client/src/schemas/bank-transactions.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-books-banking.ts",
         "rust/modules/books-banking/",
