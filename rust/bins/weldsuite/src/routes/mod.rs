@@ -332,7 +332,10 @@ fn call(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("call") {
         return router;
     }
-    router.merge(weldsuite_call::router(call_state(state), &state.permissions))
+    router.merge(weldsuite_call::router(
+        call_state(state),
+        &state.permissions,
+    ))
 }
 
 /// call-api's routes ahead of the session: billing-worker's phone-number
