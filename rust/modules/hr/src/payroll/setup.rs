@@ -46,6 +46,9 @@ where
         .route("/employees/{id}/components", post(create_component).route_layer(prepare()))
         .route("/employees/{id}/tax-elections", get(list_elections).route_layer(read()))
         .route("/employees/{id}/tax-elections", post(create_election).route_layer(prepare()))
+        .route("/employees/{id}/payslips", get(employee_payslips).route_layer(read()))
+        .route("/employees/{id}/annual-statements", get(employee_annual_statements).route_layer(read()))
+        .route("/employees/{id}/annual-statements/{year}", get(employee_annual_statement).route_layer(read()))
         .route("/compensations/{id}", delete(delete_compensation).route_layer(prepare()))
         .route("/components/{id}", patch(update_component).route_layer(prepare()))
         .route("/components/{id}", delete(delete_component).route_layer(prepare()))
@@ -195,4 +198,36 @@ async fn update_component(caller: Caller, Path(id): Path<String>, headers: Heade
 async fn delete_component(caller: Caller, Path(id): Path<String>) -> HrResult {
     svc::delete_component(&caller.db, &id).await?;
     Ok(NoContent.into_response())
+}
+
+async fn employee_payslips(caller: Caller, Path(id): Path<String>) -> HrResult {
+    Ok(Data(Value::Array(super::payslips::list_employee_payslips(&caller.db, &id).await?)).into_response())
+}
+
+async fn employee_annual_statements(caller: Caller, Path(id): Path<String>) -> HrResult {
+    Ok(Data(Value::Array(super::annual::list_annual_statements(&caller.db, &id).await?)).into_response())
+}
+
+/// The statement carries the employee's BSN / SSN: reading it is on record.
+async fn employee_annual_statement(
+    State(state): State<HrState>,
+    caller: Caller,
+    Path((id, year)): Path<(String, String)>,
+    RawQuery(raw): RawQuery,
+) -> HrResult {
+    let year = super::self_service::integer_param(&year);
+    let employer_id = crate::query_param(&crate::query_values(raw.as_deref()), "employerId").filter(|e| !e.is_empty());
+    let (Some(year), Some(employer_id)) = (year, employer_id) else {
+        return Err(crate::HrError::validation("Give the year and ?employerId="));
+    };
+    let deps = super::Deps::of(&state, &caller);
+    let (bytes, file_name) = super::annual::annual_statement_pdf(&caller.db, &id, year, &employer_id, &deps).await?;
+    caller
+        .audit(
+            "payroll.annual_statement_viewed",
+            Some(&id),
+            json!({ "year": year, "employerId": employer_id, "by": "payroll" }),
+        )
+        .await?;
+    Ok(super::file_response(bytes, &file_name, "application/pdf"))
 }

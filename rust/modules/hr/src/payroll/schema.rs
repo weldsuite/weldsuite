@@ -554,3 +554,22 @@ pub(crate) fn str_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 pub(crate) fn has(value: &Value, key: &str) -> bool {
     value.as_object().is_some_and(|o| o.contains_key(key))
 }
+
+/// `zValidator('json', schema.superRefine(refine))`: the refinement runs on
+/// a value that parsed, even with issues (Zod's "dirty").
+pub(crate) fn json_body_refined(
+    headers: &HeaderMap,
+    body: &Bytes,
+    schema: &S,
+    refine: fn(&Value) -> Vec<Value>,
+) -> Result<Value, HrError> {
+    let value = body_of(headers, body)?;
+    let (parsed, mut issues) = parse_partial(schema, &value);
+    if let Some(parsed) = &parsed {
+        issues.extend(refine(parsed));
+    }
+    match parsed {
+        Some(parsed) if issues.is_empty() => Ok(parsed),
+        _ => Err(zod_error(issues)),
+    }
+}
