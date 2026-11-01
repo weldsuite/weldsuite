@@ -105,7 +105,8 @@ describe('GET /api/parcel-analytics', () => {
       { carrierId: 'crr_b', carrierName: 'PostNL', parcelCount: 6, deliveredCount: 1, averageDeliveryTime: 0 },
       { carrierId: 'unknown', carrierName: 'Unknown', parcelCount: 3, deliveredCount: 0, averageDeliveryTime: 0 },
     ]);
-    expect(Object.keys(data)).toEqual(['overview', 'costs', 'carriers', 'timeline']);
+    // The keys, not their order: the Rust backend writes them sorted.
+    expect(Object.keys(data).sort()).toEqual(['carriers', 'costs', 'overview', 'timeline']);
   });
 
   it('answers a seven-day timeline of zeros', async () => {

@@ -327,7 +327,10 @@ describe('the wallet after its transactions', () => {
       description: 'Charge of 3.3',
       createdAt: expect.stringMatching(ISO),
     });
-    expect(Object.keys(txs[0]!)).toEqual(['id', 'type', 'amount', 'balanceBefore', 'balanceAfter', 'description', 'createdAt']);
+    // The keys, not their order: the Rust backend writes them sorted.
+    expect(Object.keys(txs[0]!).sort()).toEqual(
+      ['id', 'type', 'amount', 'balanceBefore', 'balanceAfter', 'description', 'createdAt'].sort(),
+    );
   });
 
   it("GET /with-transactions?userId= reads another user's wallet", async () => {

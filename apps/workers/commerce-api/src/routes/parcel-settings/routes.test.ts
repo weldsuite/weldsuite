@@ -76,14 +76,10 @@ describe('GET / and PUT /api/parcel-settings', () => {
     const { data } = (await res.json()) as { data: Record<string, unknown> };
     // Unset defaultCarrier / defaultServiceType are left out.
     expect(data).toEqual(DEFAULTS);
-    expect(Object.keys(data)).toEqual([
-      'autoGenerateLabels',
-      'autoSendNotifications',
-      'labelFormat',
-      'labelSize',
-      'defaultWeight',
-      'defaultDimensions',
-    ]);
+    // The keys, not their order: the Rust backend writes them sorted.
+    expect(Object.keys(data).sort()).toEqual(
+      ['autoGenerateLabels', 'autoSendNotifications', 'labelFormat', 'labelSize', 'defaultWeight', 'defaultDimensions'].sort(),
+    );
   });
 
   it('PUT / creates the org row, keeps only known keys and publishes updated', async () => {
