@@ -12,6 +12,9 @@
 //!   writes, the credential test) with their retries and error kinds;
 //! - [`crypto`]: field encryption as connectors read it.
 //!
+//! The Picqer push (`publish-picqer.ts`) is connect-api's own and lives in
+//! `weldsuite-connect` on [`clients::Picqer::send`].
+//!
 //! Not yet here (they stay on Global until ported): the sync engine
 //! (`connectors/sync.ts`, `ingest.ts`, the mappers), the Stripe and
 //! Moneybird clients and OAuth flows, WooCommerce's app authorisation,

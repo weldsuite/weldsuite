@@ -72,7 +72,8 @@ modules, each with conformance suites that reach every route:
   routes and the public portal at `/public/commerce-portal`, with the
   sign-in limits on the cache's atomic counters and the sign-in mail as
   system mail; `crates/commerce-domain` holds the portal's tokens, slugs and
-  limits. Not yet: the Stripe Tax and Avalara engines (an order an entity on
+  limits; the sales channels' store clients and field crypto are
+  `crates/connect-domain`'s. Not yet: the Stripe Tax and Avalara engines (an order an entity on
   one of them taxes answers 503, never zero tax), the portal's invoice
   document (503 until WeldBooks' invoice generator is ported) and
   WooCommerce's app-auth callback, which completes a WeldConnect
@@ -188,6 +189,7 @@ rust/
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
+                        the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps),
                         the SLA engine (sla.rs, sla_calendar.rs), the helpdesk workflow engine (`workflow/`:
                         handlers, the desk.conversation-workflow job); tests/fixtures from
                         `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
