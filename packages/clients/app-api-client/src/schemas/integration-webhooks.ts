@@ -11,3 +11,8 @@ export const bankFeedWebhookAckSchema = z.object({
   received: z.literal(true),
   events: z.number().int().nonnegative(),
 });
+
+/** `POST /webhooks/github`: a delivery taken (handled in the background) or ignored. */
+export const githubWebhookAckSchema = z.object({
+  received: z.literal(true),
+});

@@ -2738,6 +2738,18 @@
         "rust/modules/integrations/",
         "rust/crates/books-domain/src/bank_feeds/"
       ]
+    },
+    {
+      "name": "integrations: github",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/github.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }

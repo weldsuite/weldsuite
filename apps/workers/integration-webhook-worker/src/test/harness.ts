@@ -50,7 +50,7 @@ export const WORKER_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
 ];
 
 /** The routes the Rust server serves, as `METHOD path`. */
-export const RUST_ROUTES: ReadonlySet<string> = new Set(['POST /webhooks/bank-feeds/:provider']);
+export const RUST_ROUTES: ReadonlySet<string> = new Set(['POST /webhooks/bank-feeds/:provider', 'POST /webhooks/github']);
 
 function pathOf(input: string): string {
   return /^https?:\/\//.test(input) ? new URL(input).pathname : (input.split('?')[0] ?? input);
@@ -80,6 +80,11 @@ export interface CreateWebhookTestAppOptions {
   env?: Partial<Env> & Record<string, unknown>;
   /** The master database (`createMasterPgliteDb()`), for routes that read it. */
   masterDb?: unknown;
+  /**
+   * The tenant database every workspace opens (`createPgliteDb()`); the test
+   * mocks `getTenantDbForWorkspace` to hand out `conformanceTenantDb(tenantDb)`.
+   */
+  tenantDb?: unknown;
 }
 
 export function createWebhookTestApp(options: CreateWebhookTestAppOptions = {}) {
@@ -127,7 +132,7 @@ export function createWebhookTestApp(options: CreateWebhookTestAppOptions = {}) 
       const method = (init?.method ?? 'GET').toUpperCase();
       if (target && servedByRust(method, input)) {
         await inventory;
-        const tenant = await createPgliteDb();
+        const tenantDb = options.tenantDb ?? (await createPgliteDb()).db;
         return conformanceRequest({
           target,
           ctx: {
@@ -136,7 +141,7 @@ export function createWebhookTestApp(options: CreateWebhookTestAppOptions = {}) 
             workspaceId: 'ws_test',
             clerkOrgId: null,
             sessionId: '',
-            tenantDb: tenant.db,
+            tenantDb: tenantDb as never,
             masterDb: options.masterDb as never,
           },
           env,

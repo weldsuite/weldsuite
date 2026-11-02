@@ -50,7 +50,14 @@ fn tenants(workspaces: &Arc<Workspaces>) -> TenantResolver {
 /// The receivers, before any authentication. Registers the jobs once.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
     register_jobs(state);
-    weldsuite_integrations::public_router(integrations_state(state))
+    let router = weldsuite_integrations::public_router(integrations_state(state));
+    // Conformance builds open the test's tenant database for every workspace.
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
 }
 
 /// `integrations.github-project-sync` and `integrations.github-project-outbound`,
