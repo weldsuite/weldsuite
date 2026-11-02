@@ -6,10 +6,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, portal, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, meet, portal, sign,
 };
 
 #[derive(Deserialize)]
@@ -163,6 +164,27 @@ fn render(case: &Case) -> RenderedEmail {
                 time_zone: opt("timeZone"),
             },
         ),
+        "meet.invitation" => {
+            let ms = |key: &str| {
+                p[key]
+                    .as_str()
+                    .and_then(|t| t.parse::<jiff::Timestamp>().ok())
+                    .map(jiff::Timestamp::as_millisecond)
+            };
+            meet::invitation(
+                locale,
+                &brand,
+                &MeetInvitation {
+                    organizer_name: s(p, "organizerName"),
+                    title: s(p, "title"),
+                    description: opt("description"),
+                    start: ms("startTime"),
+                    end: ms("endTime"),
+                    timezone: opt("timezone"),
+                    join_url: s(p, "joinUrl"),
+                },
+            )
+        }
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
