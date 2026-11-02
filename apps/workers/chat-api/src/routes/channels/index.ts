@@ -77,8 +77,9 @@ const createChannelBodySchema = z.object({
 
 const updateChannelBodySchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
-  description: z.string().optional(),
-  topic: z.string().optional(),
+  // `null` clears the field, as an empty string does.
+  description: z.string().nullable().optional(),
+  topic: z.string().nullable().optional(),
   icon: z.string().max(50).optional(),
   voiceCallsEnabled: z.boolean().optional(),
   videoCallsEnabled: z.boolean().optional(),

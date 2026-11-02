@@ -22,6 +22,7 @@ import { getRecordChatTypeInfo } from '../lib/record-chat-types';
 import { PinnedMessagesBar } from '../components/pinned-messages-bar';
 import { MessageList } from '../components/message-list';
 import { MessageInput } from '../components/message-input';
+import { ArchivedChannelNotice } from '../components/archived-channel-notice';
 // Lazy + dynamic-only: keeps call-overlay.tsx out of this route's chunk so the
 // module is imported the SAME way app-shell imports it (dynamically). A mixed
 // static+dynamic import of the same module lets the CI build fold it into a
@@ -180,7 +181,11 @@ export default function ChannelPage() {
               its tree without removing it), stacked above the next channel
               and above a call started there. */}
           <MessageList key={`list:${channelId}`} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
-          <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
+          {channel.isArchived ? (
+            <ArchivedChannelNotice key={`archived:${channelId}`} channelId={channelId} />
+          ) : (
+            <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
+          )}
         </ChatDropZone>
       )}
     </div>

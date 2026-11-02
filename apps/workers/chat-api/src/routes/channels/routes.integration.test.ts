@@ -157,6 +157,33 @@ describe('/api/channels/:channelId/messages', () => {
     const res = await app(BOB).request(`/api/channels/${publicId}/messages`, json({ content: 'x', parentId: elsewhere }));
     expect(res.status).toBe(400);
   });
+
+  it('POST refuses an archived channel, and sends again once it is unarchived', async () => {
+    const archivedId = await channel('rt-archived', 'public', [[ANN, 'owner'], [BOB, 'member']]);
+    expect((await app(ANN).request(`/api/channels/${archivedId}`, json({ isArchived: true }, 'PATCH'))).status).toBe(200);
+
+    const refused = await app(BOB).request(`/api/channels/${archivedId}/messages`, json({ content: 'still here?' }));
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('This channel is archived');
+    const rows = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.channelId, archivedId));
+    expect(rows).toHaveLength(0);
+
+    expect((await app(ANN).request(`/api/channels/${archivedId}`, json({ isArchived: false }, 'PATCH'))).status).toBe(200);
+    expect((await app(BOB).request(`/api/channels/${archivedId}/messages`, json({ content: 'back' }))).status).toBe(201);
+  });
+});
+
+describe('PATCH /api/channels/:id topic', () => {
+  it('clears the topic and description with null', async () => {
+    const id = await channel('rt-topic', 'public', [[ANN, 'owner']]);
+    expect((await app(ANN).request(`/api/channels/${id}`, json({ topic: 'Launch week', description: 'About' }, 'PATCH'))).status).toBe(200);
+
+    const cleared = await app(ANN).request(`/api/channels/${id}`, json({ topic: null, description: null }, 'PATCH'));
+    expect(cleared.status).toBe(200);
+    const [row] = await db.select().from(schema.chatChannels).where(eq(schema.chatChannels.id, id));
+    expect(row?.topic).toBeNull();
+    expect(row?.description).toBeNull();
+  });
 });
 
 describe('/api/channels/:channelId/members', () => {
