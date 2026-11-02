@@ -40,37 +40,40 @@ async fn the_in_app_notifier_writes_the_row_and_publishes_it() {
     let db = master_pool(&tenant_url, 2).expect("tenant pool");
     let user = generate_id("user");
     let realtime = Arc::new(RecordingRealtime::default());
-    let publisher: Arc<dyn DynRealtimePublisher> = realtime.clone();
-    let notifier = InAppNotifier::new(db.clone(), Some(publisher), "org_reminders");
+    let port: Arc<dyn DynRealtimePublisher> = realtime.clone();
+    let notifier = InAppNotifier::new(db.clone(), Some(port), "org_reminders");
     notifier.send(&user, &notice()).await.expect("sent");
 
-    let row: (String, String, String, String, String, String, String, String, Option<Value>, bool, bool) =
-        sqlx::query_as(
-            "select id, title, category, notification_type, entity_type, entity_id, severity, \
-             actor_type, data, delivered_in_app, is_read from notifications where user_id = $1",
-        )
-        .bind(&user)
-        .fetch_one(&db)
-        .await
-        .expect("notification row");
-    assert!(row.0.starts_with("notif_"));
-    assert_eq!(row.1, "Sales tax return overdue: Texas Comptroller");
-    assert_eq!(row.2, "weldbooks");
-    assert_eq!(row.3, "sales_tax_due");
-    assert_eq!(row.4, "sales_tax_agency");
-    assert_eq!(row.5, "agy_tx");
-    assert_eq!(row.6, "error");
-    assert_eq!(row.7, "system");
-    assert_eq!(row.8, Some(serde_json::json!({ "kind": "sales_tax_due" })));
-    assert!(row.9);
-    assert!(!row.10);
+    let row: Value =
+        sqlx::query_scalar("select to_jsonb(n) from notifications n where n.user_id = $1")
+            .bind(&user)
+            .fetch_one(&db)
+            .await
+            .expect("notification row");
+    let id = row["id"].as_str().expect("id").to_owned();
+    assert!(id.starts_with("notif_"));
+    for (column, value) in [
+        ("title", "Sales tax return overdue: Texas Comptroller"),
+        ("category", "weldbooks"),
+        ("notification_type", "sales_tax_due"),
+        ("entity_type", "sales_tax_agency"),
+        ("entity_id", "agy_tx"),
+        ("action_url", "/weldbooks/sales-tax"),
+        ("severity", "error"),
+        ("actor_type", "system"),
+    ] {
+        assert_eq!(row[column], value, "{column}");
+    }
+    assert_eq!(row["data"], serde_json::json!({ "kind": "sales_tax_due" }));
+    assert_eq!(row["delivered_in_app"], true);
+    assert_eq!(row["is_read"], false);
 
-    let published = realtime.messages();
-    assert_eq!(published.len(), 1);
-    let text = format!("{} {}", published[0].channel, published[0].payload);
+    let messages = realtime.messages();
+    assert_eq!(messages.len(), 1);
+    let text = format!("{} {}", messages[0].channel, messages[0].payload);
     assert!(text.contains("org_reminders"), "{text}");
     assert!(text.contains(&format!("notification.{user}")), "{text}");
-    assert!(text.contains(&row.0), "{text}");
+    assert!(text.contains(&id), "{text}");
 
     // Without a realtime port the row is still saved.
     let quiet = InAppNotifier::new(db.clone(), None, "org_reminders");
