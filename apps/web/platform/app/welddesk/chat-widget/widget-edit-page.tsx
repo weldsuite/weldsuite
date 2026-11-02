@@ -36,7 +36,7 @@ export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProp
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);
-        void navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
+        void navigate({ to: '/settings/apps/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
       }
     } catch {
       toast.error(tw.failedToCreateWidget);
@@ -49,7 +49,7 @@ export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProp
     return (
       <div className="p-6 text-center">
         <p className="text-gray-500 dark:text-muted-foreground mb-4">{tw.widgetNotFound}</p>
-        <Link href="/welddesk/chat-widget">
+        <Link href="/settings/apps/welddesk/chat-widget">
           <Button variant="outline">
             <ChevronLeft className="h-4 w-4 mr-2" />
             {tw.backToWidgets}
@@ -63,7 +63,7 @@ export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProp
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 dark:border-border bg-white dark:bg-black">
         {widgetCount > 1 && (
-          <Link href="/welddesk/chat-widget">
+          <Link href="/settings/apps/welddesk/chat-widget">
             <Button variant="outline" size="sm" className="h-8 w-8 p-0">
               <ChevronLeft className="h-4 w-4" />
             </Button>

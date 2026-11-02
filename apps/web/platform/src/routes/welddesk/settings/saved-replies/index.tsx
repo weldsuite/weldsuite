@@ -1,10 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import SavedRepliesSettingsPage from '@/app/welddesk/settings/saved-replies/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// Saved replies moved out of settings, next to the articles under Knowledge.
 export const Route = createFileRoute('/welddesk/settings/saved-replies/')({
-  component: SavedRepliesSettingsRoute,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/welddesk/saved-replies', search });
+  },
 });
-
-function SavedRepliesSettingsRoute() {
-  return <SavedRepliesSettingsPage />;
-}

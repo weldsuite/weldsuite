@@ -338,7 +338,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
             )}
             <p className="text-xs text-muted-foreground">
               {th.portalTicketTypesHint}{' '}
-              <Link href="/welddesk/settings/ticket-types" className="text-foreground underline underline-offset-2">
+              <Link href="/settings/apps/welddesk/ticket-types" className="text-foreground underline underline-offset-2">
                 {th.portalTicketTypesLink}
               </Link>
             </p>

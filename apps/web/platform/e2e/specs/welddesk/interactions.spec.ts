@@ -51,25 +51,32 @@ test.describe('WeldDesk · knowledge base', () => {
   });
 });
 
-test.describe('WeldDesk · settings sub-pages', () => {
+test.describe('WeldDesk · settings pages (Settings → Apps → WeldDesk)', () => {
   for (const sub of [
-    'integrations/discord',
-    'integrations/email',
-    'integrations/slack',
-    'saved-replies',
+    'chat-widget',
+    'email',
+    'phone',
+    'help-center',
+    'voice-agents',
     'ticket-types',
-    'tickets',
+    'assignment',
   ]) {
-    test(`/welddesk/settings/${sub} renders`, async ({ page }) => {
-      await page.goto(`/welddesk/settings/${sub}`);
+    test(`/settings/apps/welddesk/${sub} renders`, async ({ page }) => {
+      await page.goto(`/settings/apps/welddesk/${sub}`);
       await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
+      await expect(page).toHaveURL(new RegExp(`/settings/apps/welddesk/${sub}$`));
     });
   }
+
+  test('an old WeldDesk settings URL redirects into Settings', async ({ page }) => {
+    await page.goto('/welddesk/settings/ticket-types');
+    await expect(page).toHaveURL(/\/settings\/apps\/welddesk\/ticket-types$/, { timeout: 15_000 });
+  });
 });
 
 test.describe('WeldDesk · saved replies — create button', () => {
   test('"Create Reply" button opens the SavedReplyEditor panel', async ({ page }) => {
-    await page.goto('/welddesk/settings/saved-replies');
+    await page.goto('/welddesk/saved-replies');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     // The page header has a "Create Reply" button (Plus icon + text).

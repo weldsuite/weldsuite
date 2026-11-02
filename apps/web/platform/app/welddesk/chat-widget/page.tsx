@@ -53,7 +53,7 @@ export default function ChatWidgetPage() {
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);
-        navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
+        navigate({ to: '/settings/apps/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
       }
     } catch {
       toast.error(tw.failedToCreateWidget);
@@ -77,7 +77,7 @@ export default function ChatWidgetPage() {
   ], [tw]);
 
   const renderRow = useCallback((widget: Widget) => {
-    const openWidget = () => navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: widget.widgetId } });
+    const openWidget = () => navigate({ to: '/settings/apps/welddesk/chat-widget/$widgetId', params: { widgetId: widget.widgetId } });
     return (
       <div
         key={widget.id}

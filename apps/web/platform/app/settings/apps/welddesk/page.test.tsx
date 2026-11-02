@@ -16,22 +16,30 @@ vi.mock('@/lib/i18n', async () => {
   return { getTranslations: (ns: keyof typeof english) => english[ns] };
 });
 
+const td = en.settings.welddesk;
+
 describe('WeldDesk settings page', () => {
-  it('says the settings live in the WeldDesk app', () => {
+  it('groups the settings into channels, AI and tickets', () => {
     render(<HelpdeskSettingsPage />);
 
-    expect(screen.getByText(en.settings.welddesk.leavingNotice)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: td.sections.channels })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: td.sections.ai })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: td.sections.ticketsRouting })).toBeTruthy();
   });
 
-  it('labels each button as a link into the WeldDesk app', () => {
+  it('links each setting to its page inside Settings', () => {
     render(<HelpdeskSettingsPage />);
 
-    const chat = screen.getByRole('link', { name: `${en.settings.welddesk.openInWeldDesk}: ${en.settings.welddesk.chatWidgetTitle}` });
-    const email = screen.getByRole('link', { name: `${en.settings.welddesk.openInWeldDesk}: ${en.settings.welddesk.emailTitle}` });
-    const help = screen.getByRole('link', { name: `${en.settings.welddesk.openInWeldDesk}: ${en.settings.welddesk.helpCenterTitle}` });
+    const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
 
-    expect(chat.getAttribute('href')).toBe('/welddesk/chat-widget');
-    expect(email.getAttribute('href')).toBe('/welddesk/email');
-    expect(help.getAttribute('href')).toBe('/welddesk/help-center');
+    expect(hrefs).toEqual([
+      '/settings/apps/welddesk/chat-widget',
+      '/settings/apps/welddesk/email',
+      '/settings/apps/welddesk/phone',
+      '/settings/apps/welddesk/help-center',
+      '/settings/apps/welddesk/voice-agents',
+      '/settings/apps/welddesk/ticket-types',
+      '/settings/apps/welddesk/assignment',
+    ]);
   });
 });

@@ -21,10 +21,17 @@ import {
   History,
   Monitor,
   Webhook,
+  MessagesSquare,
+  Mail,
+  BookOpen,
+  Bot,
+  Tags,
+  Shuffle,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
-import type { MenuGroupProps } from '@/components/app-sidebar-layout';
+import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
+import type { TranslationsType } from '@/lib/i18n/types';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useI18n } from '@/lib/i18n/provider';
 import { isRouteOffered } from '@/lib/edition-routes';
@@ -50,6 +57,22 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));
+
+/**
+ * WeldDesk's settings pages, in the order and grouping of its overview page
+ * (`app/settings/apps/welddesk/page.tsx`).
+ */
+function welddeskSettingsSubItems(td: TranslationsType['settings']['welddesk']): MenuItemProps[] {
+  return [
+    { title: td.chatWidgetTitle, href: '/settings/apps/welddesk/chat-widget', icon: MessagesSquare },
+    { title: td.emailTitle, href: '/settings/apps/welddesk/email', icon: Mail },
+    { title: td.phoneTitle, href: '/settings/apps/welddesk/phone', icon: Phone },
+    { title: td.helpCenterTitle, href: '/settings/apps/welddesk/help-center', icon: BookOpen },
+    { title: td.voiceAgentsTitle, href: '/settings/apps/welddesk/voice-agents', icon: Bot },
+    { title: td.ticketTypesTitle, href: '/settings/apps/welddesk/ticket-types', icon: Tags },
+    { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
+  ];
+}
 
 // WeldSuite itself is always shown — it's the platform, not an installable app.
 const WELDSUITE_SETTINGS_ITEM = {
@@ -91,10 +114,14 @@ export function useSettingsSidebarItems(enabled: boolean) {
       WELDSUITE_SETTINGS_ITEM,
       ...APP_SETTINGS_ITEMS
         .filter((item) => installedAppCodes.has(item.appCode))
-        .map(({ appCode, title, href, icon }) => ({
+        .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title: appCode === 'parcel' ? ts.menu.parcel : title,
           href,
           icon,
+          // WeldDesk opens up to its own settings pages while one of them is open.
+          ...(appCode === 'welddesk' && (pathname ?? '').startsWith('/settings/apps/welddesk')
+            ? { subItems: welddeskSettingsSubItems(ts.welddesk) }
+            : {}),
         })),
     ];
 
