@@ -31,12 +31,16 @@ impl ServiceBinding for Stub {
                 "workspace": request.workspace_key,
                 "body": request.body,
             }));
-            let id = request.path.split('/').nth(3).unwrap_or_default().to_owned();
+            let id = request
+                .path
+                .split('/')
+                .nth(3)
+                .unwrap_or_default()
+                .to_owned();
             match self.answers.get(&id) {
-                Some(answer) if answer.get("throws").is_some() => Err(answer["throws"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned()),
+                Some(answer) if answer.get("throws").is_some() => {
+                    Err(answer["throws"].as_str().unwrap_or_default().to_owned())
+                }
                 Some(answer) => Ok(BindingResponse {
                     status: u16::try_from(answer["status"].as_u64().unwrap_or(200)).unwrap_or(200),
                     body: answer.get("body").cloned().unwrap_or(json!({})).to_string(),
@@ -137,9 +141,9 @@ async fn the_sweep_does_what_the_worker_did() {
                      last_error
                    from bank_feed_connection_index order by id"#,
             )
-        .fetch_all(&master)
-        .await
-        .expect("rows");
+            .fetch_all(&master)
+            .await
+            .expect("rows");
         let after: Vec<Value> = rows
             .into_iter()
             .map(|(id, active, next, triggered, error)| {

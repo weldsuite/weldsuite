@@ -20,6 +20,7 @@ pub mod bank_feed_due;
 pub mod bank_feeds;
 pub mod binding;
 pub mod books;
+pub mod github;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,12 +28,14 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::FromRequestParts;
 use http::request::Parts;
-use weldsuite_db::{MasterDb, PgPool};
+use weldsuite_db::{MasterDb, PgPool, Tenant};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::RequestEnv;
 use weldsuite_ports::{DynCache, OutboundHttp, RequestCache};
 
 pub use binding::{BindingRequest, BindingResponse, RequestBooksBinding, ServiceBinding};
+pub use books::TenantResolver;
+pub use github::{RequestGithubProjectSync, WorkflowRuns};
 
 /// The integration workers' handle on the app.
 #[derive(Clone)]
@@ -53,6 +56,10 @@ pub struct IntegrationsState {
     /// `BOOKS_INTERNAL`: WeldBooks' internal bank-connection routes. None
     /// while books is not served, as the worker without the binding.
     pub books: Option<Arc<dyn ServiceBinding>>,
+    /// The workspaces' tenant databases, by Clerk org id or `workspaces.id`.
+    pub tenants: Option<TenantResolver>,
+    /// `GITHUB_PROJECT_SYNC`: the `integrations.github-project-sync` job.
+    pub github_sync: Option<Arc<dyn WorkflowRuns>>,
 }
 
 impl std::fmt::Debug for IntegrationsState {
@@ -76,6 +83,11 @@ pub const ENV_NAMES: &[&str] = &[
     "ENABLE_BANKING_",
     "BANK_FEED_PROVIDERS",
     "BANK_FEED_WEBHOOK_URL",
+    "DATABASE_ENCRYPTION_KEY",
+    "DATABASE_ENCRYPTION_KEY_V2",
+    "GITHUB_WEBHOOK_SECRET",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -98,7 +110,7 @@ pub fn public_router<S>(state: IntegrationsState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    bank_feeds::router(state)
+    bank_feeds::router(state.clone()).merge(github::webhook::router(state))
 }
 
 /// What a public route reads off its request: in conformance builds the
@@ -109,6 +121,9 @@ pub(crate) struct PublicCtx {
     pub(crate) cache: Option<Arc<dyn DynCache>>,
     pub(crate) http: Option<OutboundHttp>,
     pub(crate) books: Option<RequestBooksBinding>,
+    /// The test's tenant database, for every workspace.
+    pub(crate) tenant: Option<PgPool>,
+    pub(crate) github_sync: Option<RequestGithubProjectSync>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
@@ -127,6 +142,8 @@ impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
                 .map(|cache| Arc::clone(&cache.0)),
             http: extensions.get::<OutboundHttp>().cloned(),
             books: extensions.get::<RequestBooksBinding>().cloned(),
+            tenant: extensions.get::<Tenant>().map(|tenant| tenant.db.clone()),
+            github_sync: extensions.get::<RequestGithubProjectSync>().cloned(),
         }))
     }
 }
@@ -164,6 +181,33 @@ impl PublicCtx {
         match &self.books {
             Some(binding) => binding.0.clone(),
             None => state.books.clone(),
+        }
+    }
+
+    /// `GITHUB_PROJECT_SYNC`: the request's (conformance), else the state's.
+    pub(crate) fn github_sync(&self, state: &IntegrationsState) -> Option<Arc<dyn WorkflowRuns>> {
+        match &self.github_sync {
+            Some(runs) => runs.0.clone(),
+            None => state.github_sync.clone(),
+        }
+    }
+
+    /// `getTenantDbForWorkspace(env, reference)`: the test's tenant database
+    /// (conformance), else the workspace's.
+    pub(crate) async fn tenant_db(
+        &self,
+        state: &IntegrationsState,
+        reference: &str,
+    ) -> Result<PgPool, String> {
+        if self.env.is_some() {
+            return self
+                .tenant
+                .clone()
+                .ok_or_else(|| "no tenant database".to_owned());
+        }
+        match &state.tenants {
+            Some(tenants) => tenants(reference.to_owned()).await.map(|tenant| tenant.db),
+            None => Err("no tenant resolver".to_owned()),
         }
     }
 }

@@ -323,9 +323,10 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 assignment: Some(desk_assignment_router()),
             },
         });
-    router.merge(weldsuite_connect::router(
-        connect_state(state),
-        &state.permissions,
+    // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
+    router.merge(integrations::connect_bindings(
+        weldsuite_connect::router(connect_state(state), &state.permissions),
+        state,
     ))
 }
 

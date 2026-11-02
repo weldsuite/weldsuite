@@ -4839,6 +4839,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "jsonwebtoken 11.1.0",
  "serde",
  "serde_json",
  "sha2 0.11.1",

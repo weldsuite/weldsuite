@@ -170,6 +170,13 @@ impl weldsuite_connect::ProjectSyncRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_integrations::WorkflowRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 impl weldsuite_data::EnrichRuns for BridgedWorkflow {
     /// `binding.create(options)`, without an instance id.
     fn create<'a>(&'a self, options: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -291,6 +298,23 @@ impl WorkflowBridges {
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
         })
+    }
+
+    /// The test's `GITHUB_PROJECT_SYNC` as the integration workers start it
+    /// (the App's webhook).
+    pub(crate) fn github_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> weldsuite_integrations::RequestGithubProjectSync {
+        weldsuite_integrations::RequestGithubProjectSync(workflows.get("GITHUB_PROJECT_SYNC").map(
+            |bridge| {
+                Arc::new(BridgedWorkflow {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding: "GITHUB_PROJECT_SYNC",
+                    client: self.client.clone(),
+                }) as Arc<dyn weldsuite_integrations::WorkflowRuns>
+            },
+        ))
     }
 
     /// The test's `CRM_SYNC`, from `{ CRM_SYNC: url }` (same shape as
