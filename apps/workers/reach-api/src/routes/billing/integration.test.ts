@@ -4,7 +4,9 @@
  * token are all checked as billing-worker would see them.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { BILLING_WORKER_PRODUCTION_URL } from '@weldsuite/worker-kit/billing-worker';
@@ -22,6 +24,11 @@ const summary = {
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
+let db: Database;
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+}, 120_000);
 const realFetch = globalThis.fetch;
 
 /** The calls that reached billing-worker (TypeScript's come first in conformance mode). */
@@ -30,7 +37,7 @@ const billingCalls = () =>
 
 function api(keys: string[]) {
   return createTestApp('/api/reach/billing', billingRoutes, {
-    context: { permissions: permissions(...keys), appAccess: approvedAccess() },
+    context: { permissions: permissions(...keys), appAccess: approvedAccess(), tenantDb: db },
     // Production resolves the HTTPS billing-worker URL, the only one the caller's token is forwarded to.
     env: { ENVIRONMENT: 'production' } as never,
   }).request;

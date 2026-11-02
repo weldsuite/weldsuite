@@ -337,7 +337,8 @@ describe('POST /threads/:threadKey/reply', () => {
     });
   });
 
-  it('marks the thread’s replies read', async () => {
+  // A stand-in for `sendFromMailbox` (a module mock): TypeScript only.
+  it.skipIf(conformanceTarget())('marks the thread’s replies read', async () => {
     await post('out-d@getacme.com');
     const rows = await db.select().from(reachMessages).where(eq(reachMessages.threadKey, 'out-d@getacme.com'));
     for (const row of rows.filter((r) => r.direction === 'in')) expect(row.readAt).not.toBeNull();

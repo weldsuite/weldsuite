@@ -6,6 +6,7 @@
 import { createHmac } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
@@ -139,7 +140,8 @@ describe('verified deliveries', () => {
     expect(await mailboxStatus()).toBe('warming');
   });
 
-  it('answers 5xx when our own database fails, so Mailpool retries', async () => {
+  // Fails the tenant lookup through a module mock: TypeScript only.
+  it.skipIf(conformanceTarget())('answers 5xx when our own database fails, so Mailpool retries', async () => {
     openTenantDb.mockRejectedValueOnce(new Error('neon down'));
     const failing = vi.spyOn(console, 'error').mockImplementation(() => {});
 

@@ -323,7 +323,10 @@ describe('CRUD', () => {
     const { data } = await readJson<{ data: ReachProspect }>(res);
     expect(data).toMatchObject({ email: 'new@bigco.io', firstName: 'New', validation: 'valid', source: 'manual' });
     expect(data.id).toMatch(/^rpro_/);
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'reach_prospect', action: 'created', entityId: data.id }));
+    // In conformance mode the response is Rust's: the TypeScript run's event has its own new id.
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'reach_prospect', action: 'created', ...(conformanceTarget() ? {} : { entityId: data.id }) }),
+    );
     expect((await db.select().from(reachProspectLists))[0]?.prospectCount).toBe(1);
 
     expect((await app().request('/api/reach/prospects', asJson('POST', { email: 'new@bigco.io' }))).status).toBe(409);

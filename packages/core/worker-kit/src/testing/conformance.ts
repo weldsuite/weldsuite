@@ -653,6 +653,10 @@ const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 /** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
 const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/** A WeldReach mailbox's inbound token (24 random lower-case letters). */
+const REACH_INBOUND_TOKEN = /^[a-z]{24}$/;
+/** The reply address Mailpool forwards a WeldReach mailbox's mail to. */
+const REACH_REPLY_ADDRESS = /reply\+[a-z]{24}@/g;
 /**
  * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
  * value), on its own or inside a string. New on every run of a write.
@@ -755,6 +759,8 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'url' && W9_LINK.test(value)) return value.replace(W9_LINK, '/w9/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
+  // A WeldReach mailbox's inbound token: 24 random letters, new per run.
+  if (key === 'inboundToken' && REACH_INBOUND_TOKEN.test(value)) return '<inbound-token>';
   return undefined;
 }
 
@@ -789,6 +795,8 @@ function normalizeRandomParts(value: string): string {
     .replace(DESK_ATTACHMENT_ID, '_att_<id>_')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
+    // WeldReach's reply address carries the mailbox's new inbound token.
+    .replace(REACH_REPLY_ADDRESS, 'reply+<inbound-token>@')
     .replace(EPOCH_MS, '<epoch-ms>');
 }
 
