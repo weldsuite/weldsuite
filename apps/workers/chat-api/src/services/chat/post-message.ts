@@ -120,6 +120,9 @@ async function assertChannelAllowsSend(
   if (!flags) {
     throw new ChatFeatureError('Channel not found', 404);
   }
+  if (flags.isArchived) {
+    throw new ChatFeatureError('This channel is archived');
+  }
   if (input.parentId && !flags.threadsEnabled) {
     throw new ChatFeatureError('Threads are disabled in this channel');
   }

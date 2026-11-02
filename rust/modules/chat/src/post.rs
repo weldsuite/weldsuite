@@ -69,14 +69,15 @@ impl From<sqlx::Error> for PostError {
     }
 }
 
-/// `getChannelFeatureFlags`: threads, attachments, reactions, slow mode;
-/// `None` for a missing or deleted channel.
+/// `getChannelFeatureFlags`: threads, attachments, reactions, slow mode,
+/// archived; `None` for a missing or deleted channel.
 pub(crate) async fn channel_feature_flags(
     db: &PgPool,
     channel_id: &str,
-) -> Result<Option<(bool, bool, bool, i32)>, sqlx::Error> {
+) -> Result<Option<(bool, bool, bool, i32, bool)>, sqlx::Error> {
     sqlx::query_as(
-        "select threads_enabled, attachments_enabled, reactions_enabled, slow_mode_seconds
+        "select threads_enabled, attachments_enabled, reactions_enabled, slow_mode_seconds,
+                is_archived
          from chat_channels where id = $1 and deleted_at is null limit 1",
     )
     .bind(channel_id)
@@ -90,11 +91,17 @@ async fn assert_channel_allows_send(
     author: &str,
     input: &PostInput,
 ) -> Result<(), PostError> {
-    let Some((threads, attachments_on, _, slow_mode)) =
+    let Some((threads, attachments_on, _, slow_mode, archived)) =
         channel_feature_flags(db, channel_id).await?
     else {
         return Err(PostError::Feature(404, "Channel not found".to_owned()));
     };
+    if archived {
+        return Err(PostError::Feature(
+            400,
+            "This channel is archived".to_owned(),
+        ));
+    }
     let attachment_count = input.attachments.as_ref().map_or(0, Vec::len);
     if input.parent_id.as_deref().is_some_and(|p| !p.is_empty()) && !threads {
         return Err(PostError::Feature(

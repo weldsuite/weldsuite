@@ -413,7 +413,10 @@ export const sweep = {
       "memberFallback": "Lid"
     },
     "channelPage": {
-      "newMessage": "Nieuw bericht"
+      "archivedNotice": "Dit kanaal is gearchiveerd. Je kunt de berichten lezen, maar niemand kan er nog in posten.",
+      "newMessage": "Nieuw bericht",
+      "unarchive": "Uit archief halen",
+      "unarchiveFailed": "Het kanaal kon niet uit het archief worden gehaald"
     },
     "chatFilters": {
       "removePerson": "{name} verwijderen"

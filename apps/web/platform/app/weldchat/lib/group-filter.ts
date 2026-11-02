@@ -117,7 +117,8 @@ export const DEFAULT_GROUP_FILTER: GroupFilterSettings = {
   sinkInactive: false,
   sinkEmpty: false,
   sinkMuted: false,
-  sinkArchived: false,
+  // An archived channel is read-only; it stays listed but below the live ones.
+  sinkArchived: true,
   collapsedByDefault: false,
   peekActiveWhenCollapsed: true,
   peekMentions: true,

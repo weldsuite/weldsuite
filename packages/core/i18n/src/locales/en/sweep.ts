@@ -413,7 +413,10 @@ export const sweep = {
       "memberFallback": "Member"
     },
     "channelPage": {
-      "newMessage": "New message"
+      "archivedNotice": "This channel is archived. You can read its messages, but nobody can post in it.",
+      "newMessage": "New message",
+      "unarchive": "Unarchive",
+      "unarchiveFailed": "Could not unarchive the channel"
     },
     "chatFilters": {
       "removePerson": "Remove {name}"

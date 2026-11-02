@@ -512,7 +512,7 @@ async fn add_reaction(
         let Some(channel) = crate::pins::live_message_channel(&caller.db, &id).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         };
-        if let Some((_, _, reactions_on, _)) = channel_feature_flags(&caller.db, &channel).await?
+        if let Some((_, _, reactions_on, _, _)) = channel_feature_flags(&caller.db, &channel).await?
             && !reactions_on
         {
             return Err(ChatError::bad_request(
@@ -839,7 +839,7 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
             if !can_access_channel(&caller.db, channel, &caller.user_id, None).await? {
                 return Err(forbidden_channel());
             }
-            if let Some((_, attachments_on, _, _)) =
+            if let Some((_, attachments_on, _, _, _)) =
                 channel_feature_flags(&caller.db, channel).await?
                 && !attachments_on
             {
