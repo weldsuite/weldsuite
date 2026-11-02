@@ -37,6 +37,7 @@ mod crm;
 mod dnscheck;
 mod domains;
 mod effects;
+pub mod inbound;
 mod inbox;
 mod lists;
 mod mailboxes;
