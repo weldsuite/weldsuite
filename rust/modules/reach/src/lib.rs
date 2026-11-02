@@ -47,6 +47,7 @@ pub mod send;
 mod smtp;
 mod suppressions;
 pub mod warmup;
+pub mod warmup_network;
 mod webhook;
 
 use std::sync::Arc;
