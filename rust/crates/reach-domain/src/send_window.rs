@@ -144,7 +144,11 @@ pub fn zoned_midnight(year: i64, month: i64, day: i64, timezone: &str) -> Offset
 /// `parseHHMM(value)`.
 pub fn parse_hhmm(value: &str) -> Option<i64> {
     let (h, m) = value.split_once(':')?;
-    if h.is_empty() || h.len() > 2 || m.len() != 2 || !h.bytes().chain(m.bytes()).all(|b| b.is_ascii_digit()) {
+    if h.is_empty()
+        || h.len() > 2
+        || m.len() != 2
+        || !h.bytes().chain(m.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let (h, m): (i64, i64) = (h.parse().ok()?, m.parse().ok()?);
@@ -154,7 +158,14 @@ pub fn parse_hhmm(value: &str) -> Option<i64> {
 fn window_minutes(schedule: &SendSchedule) -> (i64, i64) {
     let start = parse_hhmm(&schedule.window_start).unwrap_or(9 * 60);
     let parsed_end = parse_hhmm(&schedule.window_end).unwrap_or(17 * 60);
-    (start, if parsed_end <= start { DAY_MINUTES } else { parsed_end })
+    (
+        start,
+        if parsed_end <= start {
+            DAY_MINUTES
+        } else {
+            parsed_end
+        },
+    )
 }
 
 fn send_day_set(schedule: &SendSchedule) -> Vec<i64> {
@@ -183,7 +194,11 @@ fn local_minutes_to_utc(date: (i64, i64, i64), minutes: i64, zone: &TimeZone) ->
 pub fn start_of_zoned_day(at: OffsetDateTime, timezone: &str) -> OffsetDateTime {
     let zone = time_zone(timezone).unwrap_or(TimeZone::UTC);
     let p = zoned_parts_ms(epoch_ms(at), &zone);
-    from_epoch_ms(zoned_time_to_utc_ms((p.year, p.month, p.day), (0, 0, 0), &zone))
+    from_epoch_ms(zoned_time_to_utc_ms(
+        (p.year, p.month, p.day),
+        (0, 0, 0),
+        &zone,
+    ))
 }
 
 /// `startOfNextZonedDay(date, timeZone)`.
@@ -234,7 +249,12 @@ pub fn window_close_of_day_ms(at: i64, schedule: &SendSchedule) -> i64 {
 }
 
 /// `spreadSendTimes(count, from, schedule, maxStepMs)`.
-pub fn spread_send_times(count: usize, from: OffsetDateTime, schedule: &SendSchedule, max_step_ms: i64) -> Vec<OffsetDateTime> {
+pub fn spread_send_times(
+    count: usize,
+    from: OffsetDateTime,
+    schedule: &SendSchedule,
+    max_step_ms: i64,
+) -> Vec<OffsetDateTime> {
     if count == 0 {
         return Vec::new();
     }
@@ -284,7 +304,10 @@ mod tests {
     fn snapping() {
         // Saturday 2026-10-31 12:00 UTC snaps to Monday 09:00 Amsterdam (08:00 UTC).
         let at = utc_ms(2026, 10, 31, 12, 0, 0);
-        assert_eq!(snap_into_window_ms(at, &schedule()), utc_ms(2026, 11, 2, 8, 0, 0));
+        assert_eq!(
+            snap_into_window_ms(at, &schedule()),
+            utc_ms(2026, 11, 2, 8, 0, 0)
+        );
         let inside = utc_ms(2026, 11, 2, 10, 0, 0);
         assert_eq!(snap_into_window_ms(inside, &schedule()), inside);
     }

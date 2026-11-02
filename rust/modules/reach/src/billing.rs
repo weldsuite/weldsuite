@@ -26,7 +26,11 @@ pub(crate) enum BillingError {
     /// `PaymentMethodRequiredError`.
     PaymentMethodRequired,
     /// `ReachBillingError(status, code, message)`.
-    Failed { status: u16, code: Option<String>, message: String },
+    Failed {
+        status: u16,
+        code: Option<String>,
+        message: String,
+    },
 }
 
 impl BillingError {
@@ -38,9 +42,17 @@ impl BillingError {
                 "PAYMENT_METHOD_REQUIRED",
                 "A payment method is required before adding inboxes",
             ),
-            Self::Failed { status, code, message } => {
+            Self::Failed {
+                status,
+                code,
+                message,
+            } => {
                 tracing::error!(status, ?code, %message, "[reach] UPSTREAM_ERROR: billing");
-                ReachError::new(502, "UPSTREAM_ERROR", "Billing service error. Try again in a moment.")
+                ReachError::new(
+                    502,
+                    "UPSTREAM_ERROR",
+                    "Billing service error. Try again in a moment.",
+                )
             }
         }
     }
@@ -55,7 +67,13 @@ fn billing_worker_url(environment: Option<&str>) -> &'static str {
     }
 }
 
-async fn send(caller: &Caller, state: &ReachState, method: &str, path: &str, body: Option<&Value>) -> Result<Value, BillingError> {
+async fn send(
+    caller: &Caller,
+    state: &ReachState,
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<Value, BillingError> {
     if !caller.conformance() {
         // billing-worker without Stripe answers 503 BILLING_NOT_CONFIGURED.
         return Err(BillingError::Failed {
@@ -77,11 +95,16 @@ async fn send(caller: &Caller, state: &ReachState, method: &str, path: &str, bod
         headers,
         body: body.map(|b| b.to_string().into_bytes()),
     };
-    let response = caller.http(state).send(request).await.map_err(|error| BillingError::Failed {
-        status: 502,
-        code: None,
-        message: format!("billing-worker unreachable: {error}"),
-    })?;
+    let response =
+        caller
+            .http(state)
+            .send(request)
+            .await
+            .map_err(|error| BillingError::Failed {
+                status: 502,
+                code: None,
+                message: format!("billing-worker unreachable: {error}"),
+            })?;
     let parsed: Option<Value> = serde_json::from_slice(&response.body).ok();
     let error_code = parsed
         .as_ref()
@@ -96,7 +119,10 @@ async fn send(caller: &Caller, state: &ReachState, method: &str, path: &str, bod
             .as_ref()
             .and_then(|b| b.pointer("/error/message"))
             .and_then(Value::as_str)
-            .map_or_else(|| format!("billing-worker answered {}", response.status), str::to_owned);
+            .map_or_else(
+                || format!("billing-worker answered {}", response.status),
+                str::to_owned,
+            );
         return Err(BillingError::Failed {
             status: response.status,
             code: error_code,
@@ -115,16 +141,29 @@ async fn send(caller: &Caller, state: &ReachState, method: &str, path: &str, bod
 
 /// `GET /status`.
 pub(crate) async fn status(caller: &Caller, state: &ReachState) -> Result<Value, ReachError> {
-    send(caller, state, "GET", "/status", None).await.map_err(BillingError::into_reach)
+    send(caller, state, "GET", "/status", None)
+        .await
+        .map_err(BillingError::into_reach)
 }
 
 /// `POST /setup`.
-pub(crate) async fn setup(caller: &Caller, state: &ReachState, input: &Value) -> Result<Value, ReachError> {
-    send(caller, state, "POST", "/setup", Some(input)).await.map_err(BillingError::into_reach)
+pub(crate) async fn setup(
+    caller: &Caller,
+    state: &ReachState,
+    input: &Value,
+) -> Result<Value, ReachError> {
+    send(caller, state, "POST", "/setup", Some(input))
+        .await
+        .map_err(BillingError::into_reach)
 }
 
 /// `POST /inboxes { delta, mailboxId }`.
-pub(crate) async fn adjust_inboxes(caller: &Caller, state: &ReachState, delta: i64, mailbox_id: &str) -> Result<Value, BillingError> {
+pub(crate) async fn adjust_inboxes(
+    caller: &Caller,
+    state: &ReachState,
+    delta: i64,
+    mailbox_id: &str,
+) -> Result<Value, BillingError> {
     send(
         caller,
         state,
@@ -141,7 +180,11 @@ pub(crate) async fn release_inbox(caller: &Caller, state: &ReachState, mailbox_i
         match adjust_inboxes(caller, state, -1, mailbox_id).await {
             Ok(_) => return true,
             Err(error) if attempt == 2 => {
-                tracing::error!(?error, mailbox_id, "[reach-billing] could not release inbox after 3 attempts");
+                tracing::error!(
+                    ?error,
+                    mailbox_id,
+                    "[reach-billing] could not release inbox after 3 attempts"
+                );
             }
             Err(_) => {}
         }

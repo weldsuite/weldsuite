@@ -19,7 +19,11 @@ pub fn unpaused_status(started_at: Option<&str>, ramp_day: i64) -> &'static str 
     if started_at.is_none() {
         return "waiting";
     }
-    if ramp_day >= WARMUP_MIN_DAYS { "maintaining" } else { "warming" }
+    if ramp_day >= WARMUP_MIN_DAYS {
+        "maintaining"
+    } else {
+        "warming"
+    }
 }
 
 /// `RegisterPoolMailboxInput`.
@@ -63,14 +67,23 @@ impl std::fmt::Display for PoolError {
 }
 
 /// `registerPoolMailbox(master, env, input)`: the pool row id.
-pub async fn register(master: &PgPool, warmup_key: Option<&str>, input: &RegisterInput) -> Result<String, PoolError> {
-    let key = warmup_key.filter(|k| !k.is_empty()).ok_or(PoolError::KeyMissing)?;
+pub async fn register(
+    master: &PgPool,
+    warmup_key: Option<&str>,
+    input: &RegisterInput,
+) -> Result<String, PoolError> {
+    let key = warmup_key
+        .filter(|k| !k.is_empty())
+        .ok_or(PoolError::KeyMissing)?;
     let keyring = warmup_keyring(key);
     let smtp = seal(&keyring, &input.smtp).map_err(PoolError::Sealing)?;
     let imap = seal(&keyring, &input.imap).map_err(PoolError::Sealing)?;
     let email = crate::text::js_trim(&input.email).to_lowercase();
     let domain = domain_of(&email);
-    let timezone = input.timezone.clone().unwrap_or_else(|| "Europe/Amsterdam".to_owned());
+    let timezone = input
+        .timezone
+        .clone()
+        .unwrap_or_else(|| "Europe/Amsterdam".to_owned());
     let at = iso(now());
     let existing: Option<(String, String, Option<String>, i32)> = sqlx::query_as(
         "select id, status, started_at::text, ramp_day from reach_warmup_mailboxes
@@ -160,7 +173,12 @@ pub async fn update_profile(
 }
 
 /// `pausePoolMailbox(master, clerkOrgId, tenantMailboxId, reason)`.
-pub async fn pause(master: &PgPool, clerk_org_id: &str, tenant_mailbox_id: &str, reason: &str) -> ReachResult<()> {
+pub async fn pause(
+    master: &PgPool,
+    clerk_org_id: &str,
+    tenant_mailbox_id: &str,
+    reason: &str,
+) -> ReachResult<()> {
     sqlx::query(
         "update reach_warmup_mailboxes set status = 'paused', paused_reason = $3, updated_at = $4::timestamptz
          where clerk_org_id = $1 and tenant_mailbox_id = $2 and status <> 'removed'",
@@ -175,7 +193,11 @@ pub async fn pause(master: &PgPool, clerk_org_id: &str, tenant_mailbox_id: &str,
 }
 
 /// `resumePoolMailbox(master, clerkOrgId, tenantMailboxId)`: a staff pause stays.
-pub async fn resume(master: &PgPool, clerk_org_id: &str, tenant_mailbox_id: &str) -> ReachResult<()> {
+pub async fn resume(
+    master: &PgPool,
+    clerk_org_id: &str,
+    tenant_mailbox_id: &str,
+) -> ReachResult<()> {
     let row: Option<(String, String, Option<String>, i32, Option<String>)> = sqlx::query_as(
         "select id, status, started_at::text, ramp_day, paused_reason from reach_warmup_mailboxes
          where clerk_org_id = $1 and tenant_mailbox_id = $2 limit 1",
@@ -202,7 +224,11 @@ pub async fn resume(master: &PgPool, clerk_org_id: &str, tenant_mailbox_id: &str
 }
 
 /// `removePoolMailbox(master, clerkOrgId, tenantMailboxId)`.
-pub async fn remove(master: &PgPool, clerk_org_id: &str, tenant_mailbox_id: &str) -> ReachResult<()> {
+pub async fn remove(
+    master: &PgPool,
+    clerk_org_id: &str,
+    tenant_mailbox_id: &str,
+) -> ReachResult<()> {
     let id: Option<String> = sqlx::query_scalar(
         "select id from reach_warmup_mailboxes where clerk_org_id = $1 and tenant_mailbox_id = $2 limit 1",
     )
@@ -252,13 +278,15 @@ pub async fn read_pool(master: &PgPool, clerk_org_id: &str) -> Result<Vec<PoolVi
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(tenant_mailbox_id, status, ramp_day, stats, last_login_error)| PoolView {
-            tenant_mailbox_id,
-            status,
-            ramp_day: i64::from(ramp_day),
-            stats,
-            last_login_error,
-        })
+        .map(
+            |(tenant_mailbox_id, status, ramp_day, stats, last_login_error)| PoolView {
+                tenant_mailbox_id,
+                status,
+                ramp_day: i64::from(ramp_day),
+                stats,
+                last_login_error,
+            },
+        )
         .collect())
 }
 
@@ -272,7 +300,10 @@ pub async fn active_domain_count(master: &PgPool) -> Result<i64, sqlx::Error> {
 }
 
 /// `findWarmupMessageIds(master, messageIds)`.
-pub async fn find_warmup_message_ids(master: &PgPool, message_ids: &[String]) -> ReachResult<Vec<String>> {
+pub async fn find_warmup_message_ids(
+    master: &PgPool,
+    message_ids: &[String],
+) -> ReachResult<Vec<String>> {
     let ids: Vec<String> = crate::unique(
         &message_ids
             .iter()
@@ -283,8 +314,10 @@ pub async fn find_warmup_message_ids(master: &PgPool, message_ids: &[String]) ->
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_scalar("select message_id_header from reach_warmup_messages where message_id_header = any($1)")
-        .bind(&ids)
-        .fetch_all(master)
-        .await?)
+    Ok(sqlx::query_scalar(
+        "select message_id_header from reach_warmup_messages where message_id_header = any($1)",
+    )
+    .bind(&ids)
+    .fetch_all(master)
+    .await?)
 }

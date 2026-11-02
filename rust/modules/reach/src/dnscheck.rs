@@ -19,11 +19,19 @@ impl DnsLookupError {
     /// `mapReachError`: 503 `DNS_CHECK_FAILED`.
     pub(crate) fn into_reach(self) -> ReachError {
         tracing::error!(error = %self.0, "[reach] DNS_CHECK_FAILED");
-        ReachError::new(503, "DNS_CHECK_FAILED", "DNS could not be checked right now. Try again in a moment.")
+        ReachError::new(
+            503,
+            "DNS_CHECK_FAILED",
+            "DNS could not be checked right now. Try again in a moment.",
+        )
     }
 }
 
-async fn safe_lookup(http: &OutboundHttp, name: &str, kind: &str) -> Result<Vec<DnsRecord>, DnsLookupError> {
+async fn safe_lookup(
+    http: &OutboundHttp,
+    name: &str,
+    kind: &str,
+) -> Result<Vec<DnsRecord>, DnsLookupError> {
     lookup_record(http, name, kind)
         .await
         .map_err(|error| DnsLookupError(format!("DNS lookup of {kind} {name} failed: {error}")))
@@ -34,7 +42,10 @@ fn strip_dot(value: &str) -> &str {
 }
 
 /// `checkDomainFootprint(domain)`: (has MX, has a website).
-pub(crate) async fn footprint(http: &OutboundHttp, domain: &str) -> Result<(bool, bool), DnsLookupError> {
+pub(crate) async fn footprint(
+    http: &OutboundHttp,
+    domain: &str,
+) -> Result<(bool, bool), DnsLookupError> {
     let name = strip_dot(&domain.trim().to_lowercase()).to_owned();
     let www = format!("www.{name}");
     // `Promise.all`: every lookup is made, the first failure wins.
@@ -44,7 +55,8 @@ pub(crate) async fn footprint(http: &OutboundHttp, domain: &str) -> Result<(bool
     let www_a = safe_lookup(http, &www, "A").await;
     let www_aaaa = safe_lookup(http, &www, "AAAA").await;
     let (mx, apex_a, apex_aaaa, www_a, www_aaaa) = (mx?, apex_a?, apex_aaaa?, www_a?, www_aaaa?);
-    let website = !apex_a.is_empty() || !apex_aaaa.is_empty() || !www_a.is_empty() || !www_aaaa.is_empty();
+    let website =
+        !apex_a.is_empty() || !apex_aaaa.is_empty() || !www_a.is_empty() || !www_aaaa.is_empty();
     Ok((!mx.is_empty(), website))
 }
 
@@ -89,12 +101,30 @@ fn spf_mechanisms(value: &str) -> Vec<String> {
 }
 
 /// `evaluateMailDns(input)`: `{ spf, dkim, dmarc, mx, checkedAt }`.
-pub(crate) async fn evaluate(http: &OutboundHttp, domain: &str, expected: &[Value], checked_at: &str) -> Result<Value, DnsLookupError> {
+pub(crate) async fn evaluate(
+    http: &OutboundHttp,
+    domain: &str,
+    expected: &[Value],
+    checked_at: &str,
+) -> Result<Value, DnsLookupError> {
     let domain = normalise(domain);
-    let kind = |r: &Value| r.get("type").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let kind = |r: &Value| {
+        r.get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
     let at = |r: &Value| record_name(r.get("key").and_then(Value::as_str), &domain);
-    let value = |r: &Value| r.get("value").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let expected_mx: Vec<&Value> = expected.iter().filter(|r| kind(r) == "MX" && at(r) == domain).collect();
+    let value = |r: &Value| {
+        r.get("value")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let expected_mx: Vec<&Value> = expected
+        .iter()
+        .filter(|r| kind(r) == "MX" && at(r) == domain)
+        .collect();
     let expected_spf = expected
         .iter()
         .find(|r| kind(r) == "TXT" && at(r) == domain && SPF_START.is_match(value(r).trim()));
@@ -115,7 +145,9 @@ pub(crate) async fn evaluate(http: &OutboundHttp, domain: &str, expected: &[Valu
     let mx = if expected_mx.is_empty() {
         live_hosts.iter().any(|h| !h.is_empty())
     } else {
-        expected_mx.iter().all(|r| live_hosts.contains(&normalise(&value(r))))
+        expected_mx
+            .iter()
+            .all(|r| live_hosts.contains(&normalise(&value(r))))
     };
     let live_spf: Vec<&str> = live_apex_txt
         .iter()
@@ -133,10 +165,18 @@ pub(crate) async fn evaluate(http: &OutboundHttp, domain: &str, expected: &[Valu
     let dkim = !expected_dkim.is_empty()
         && expected_dkim.iter().enumerate().all(|(i, record)| {
             let txt = kind(record) == "TXT";
-            let want = if txt { normalise_txt(&value(record)) } else { normalise(&value(record)) };
-            dkim_live[i]
-                .iter()
-                .any(|a| (if txt { normalise_txt(&a.value) } else { normalise(&a.value) }) == want)
+            let want = if txt {
+                normalise_txt(&value(record))
+            } else {
+                normalise(&value(record))
+            };
+            dkim_live[i].iter().any(|a| {
+                (if txt {
+                    normalise_txt(&a.value)
+                } else {
+                    normalise(&a.value)
+                }) == want
+            })
         });
     let dmarc = live_dmarc.iter().any(|r| DMARC.is_match(&r.value));
     Ok(json!({ "spf": spf, "dkim": dkim, "dmarc": dmarc, "mx": mx, "checkedAt": checked_at }))

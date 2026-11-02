@@ -74,7 +74,12 @@ pub async fn build(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
         .rev()
         .map(|back| {
             let day = from_epoch_ms(utc_ms(local.year, local.month, local.day - back, 0, 0, 0));
-            zoned_midnight(i64::from(day.year()), i64::from(u8::from(day.month())), i64::from(day.day()), &tz)
+            zoned_midnight(
+                i64::from(day.year()),
+                i64::from(u8::from(day.month())),
+                i64::from(day.day()),
+                &tz,
+            )
         })
         .collect();
     let series_start = day_starts.first().copied().unwrap_or(today);
@@ -111,10 +116,11 @@ pub async fn build(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
     .bind(iso(window_start))
     .fetch_one(db)
     .await?;
-    let active_campaigns: i64 =
-        sqlx::query_scalar("select count(*) from reach_campaigns where status = 'active' and deleted_at is null")
-            .fetch_one(db)
-            .await?;
+    let active_campaigns: i64 = sqlx::query_scalar(
+        "select count(*) from reach_campaigns where status = 'active' and deleted_at is null",
+    )
+    .fetch_one(db)
+    .await?;
     let mailbox_rows: Vec<(String, i64)> = sqlx::query_as(
         "select status, count(*) from reach_mailboxes where deleted_at is null and status <> 'deleted' group by status",
     )
@@ -126,7 +132,9 @@ pub async fn build(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
     .fetch_one(db)
     .await?;
     let count_on = |rows: &[(Option<String>, i64)], date: &str| {
-        rows.iter().find(|(d, _)| d.as_deref() == Some(date)).map_or(0, |(_, n)| *n)
+        rows.iter()
+            .find(|(d, _)| d.as_deref() == Some(date))
+            .map_or(0, |(_, n)| *n)
     };
     let daily: Vec<(String, i64, i64)> = day_starts
         .iter()

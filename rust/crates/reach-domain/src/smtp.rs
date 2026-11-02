@@ -13,7 +13,9 @@ const CRLF: &str = "\r\n";
 const MAX_LINE_LENGTH: usize = 78;
 const MAX_ENCODED_WORD_BYTES: usize = 42;
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 const RESERVED_HEADERS: &[&str] = &[
     "message-id",
     "date",
@@ -84,7 +86,13 @@ impl SmtpSendResult {
     /// From `sendMail`'s result object (the conformance bridge's answer).
     pub fn from_json(value: &Value) -> Self {
         let flag = |key: &str| value.get(key).and_then(Value::as_bool).unwrap_or(false);
-        let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
         Self {
             ok: flag("ok"),
             response: text("response"),
@@ -100,7 +108,12 @@ impl SmtpSendResult {
 /// How a message leaves: `sendMail(config, envelope, raw)`. An `Err` is an
 /// exception (`send_threw`); SMTP failures are `Ok` results.
 pub trait SmtpTransport: Send + Sync {
-    fn send(&self, config: SmtpConfig, envelope: SmtpEnvelope, raw: String) -> BoxFuture<'_, Result<SmtpSendResult, String>>;
+    fn send(
+        &self,
+        config: SmtpConfig,
+        envelope: SmtpEnvelope,
+        raw: String,
+    ) -> BoxFuture<'_, Result<SmtpSendResult, String>>;
 }
 
 /// `MailAddress`.
@@ -237,7 +250,8 @@ fn needs_encoding(text: &str) -> bool {
         return true;
     }
     // `/=\?.*\?=/`: an `=?` followed later by `?=`.
-    text.find("=?").is_some_and(|start| text[start + 2..].contains("?="))
+    text.find("=?")
+        .is_some_and(|start| text[start + 2..].contains("?="))
 }
 
 fn encode_word(text: &str) -> String {
@@ -345,7 +359,9 @@ fn address_list_chunks(addresses: &[MailAddress]) -> Result<Vec<String>, String>
 }
 
 fn clean_message_id(id: &str) -> String {
-    id.chars().filter(|c| ('\u{21}'..='\u{7e}').contains(c) && *c != '<' && *c != '>').collect()
+    id.chars()
+        .filter(|c| ('\u{21}'..='\u{7e}').contains(c) && *c != '<' && *c != '>')
+        .collect()
 }
 
 fn format_message_id(id: &str) -> Option<String> {
@@ -368,7 +384,11 @@ fn quoted_printable(text: &str) -> String {
     if lines.len() > 1 && lines.last() == Some(&"") {
         lines.pop();
     }
-    lines.iter().map(|l| qp_line(l)).collect::<Vec<_>>().join(CRLF)
+    lines
+        .iter()
+        .map(|l| qp_line(l))
+        .collect::<Vec<_>>()
+        .join(CRLF)
 }
 
 fn qp_line(line: &str) -> String {
@@ -386,7 +406,11 @@ fn qp_line(line: &str) -> String {
             if literal {
                 (byte as char).to_string()
             } else {
-                format!("={}{}", HEX[usize::from(byte >> 4)] as char, HEX[usize::from(byte & 0x0f)] as char)
+                format!(
+                    "={}{}",
+                    HEX[usize::from(byte >> 4)] as char,
+                    HEX[usize::from(byte & 0x0f)] as char
+                )
             }
         })
         .collect();
@@ -408,7 +432,10 @@ fn qp_line(line: &str) -> String {
 pub fn build_mime_message(message: &OutgoingMessage) -> Result<String, String> {
     let mut headers = vec![
         fold_header("Date", &[format_date(message.date)]),
-        fold_header("From", &address_list_chunks(std::slice::from_ref(&message.from))?),
+        fold_header(
+            "From",
+            &address_list_chunks(std::slice::from_ref(&message.from))?,
+        ),
         fold_header(
             "To",
             &if message.to.is_empty() {
@@ -419,16 +446,28 @@ pub fn build_mime_message(message: &OutgoingMessage) -> Result<String, String> {
         ),
     ];
     if let Some(reply_to) = &message.reply_to {
-        headers.push(fold_header("Reply-To", &address_list_chunks(std::slice::from_ref(reply_to))?));
+        headers.push(fold_header(
+            "Reply-To",
+            &address_list_chunks(std::slice::from_ref(reply_to))?,
+        ));
     }
-    headers.push(fold_header("Subject", &unstructured_chunks(&message.subject)));
-    let id = format_message_id(&message.message_id).ok_or("buildMimeMessage: a message id is required")?;
+    headers.push(fold_header(
+        "Subject",
+        &unstructured_chunks(&message.subject),
+    ));
+    let id = format_message_id(&message.message_id)
+        .ok_or("buildMimeMessage: a message id is required")?;
     headers.push(fold_header("Message-ID", &[id]));
     if let Some(in_reply_to) = message.in_reply_to.as_deref().filter(|v| !v.is_empty()) {
-        let id = format_message_id(in_reply_to).ok_or("buildMimeMessage: a message id is required")?;
+        let id =
+            format_message_id(in_reply_to).ok_or("buildMimeMessage: a message id is required")?;
         headers.push(fold_header("In-Reply-To", &[id]));
     }
-    let references: Vec<String> = message.references.iter().filter_map(|r| format_message_id(r)).collect();
+    let references: Vec<String> = message
+        .references
+        .iter()
+        .filter_map(|r| format_message_id(r))
+        .collect();
     if !references.is_empty() {
         headers.push(fold_header("References", &references));
     }
@@ -444,11 +483,17 @@ pub fn build_mime_message(message: &OutgoingMessage) -> Result<String, String> {
         }
     }
     let text_body = quoted_printable(&message.text);
-    let html = message.html.as_deref().filter(|h| !crate::text::js_trim(h).is_empty());
+    let html = message
+        .html
+        .as_deref()
+        .filter(|h| !crate::text::js_trim(h).is_empty());
     let Some(html) = html else {
         headers.push("Content-Type: text/plain; charset=utf-8".to_owned());
         headers.push("Content-Transfer-Encoding: quoted-printable".to_owned());
-        return Ok(format!("{}{CRLF}{CRLF}{text_body}{CRLF}", headers.join(CRLF)));
+        return Ok(format!(
+            "{}{CRLF}{CRLF}{text_body}{CRLF}",
+            headers.join(CRLF)
+        ));
     };
     let html_body = quoted_printable(html);
     let boundary = loop {
@@ -457,8 +502,14 @@ pub fn build_mime_message(message: &OutgoingMessage) -> Result<String, String> {
             break candidate;
         }
     };
-    headers.push(format!("Content-Type: multipart/alternative;{CRLF} boundary=\"{boundary}\""));
-    let part = |kind: &str| format!("Content-Type: {kind}; charset=utf-8{CRLF}Content-Transfer-Encoding: quoted-printable{CRLF}{CRLF}");
+    headers.push(format!(
+        "Content-Type: multipart/alternative;{CRLF} boundary=\"{boundary}\""
+    ));
+    let part = |kind: &str| {
+        format!(
+            "Content-Type: {kind}; charset=utf-8{CRLF}Content-Transfer-Encoding: quoted-printable{CRLF}{CRLF}"
+        )
+    };
     Ok(format!(
         "{}{CRLF}{CRLF}--{boundary}{CRLF}{}{text_body}{CRLF}--{boundary}{CRLF}{}{html_body}{CRLF}--{boundary}--{CRLF}",
         headers.join(CRLF),
@@ -489,14 +540,23 @@ mod tests {
             message_id: "abc@getacme.com".to_owned(),
             in_reply_to: None,
             references: Vec::new(),
-            headers: vec![("List-Unsubscribe".to_owned(), "<mailto:jane@getacme.com?subject=unsubscribe>".to_owned())],
+            headers: vec![(
+                "List-Unsubscribe".to_owned(),
+                "<mailto:jane@getacme.com?subject=unsubscribe>".to_owned(),
+            )],
             date: OffsetDateTime::UNIX_EPOCH,
         })
         .expect("message");
-        assert!(raw.starts_with("Date: Thu, 01 Jan 1970 00:00:00 +0000\r\nFrom: Jane Doe <jane@getacme.com>\r\n"));
+        assert!(raw.starts_with(
+            "Date: Thu, 01 Jan 1970 00:00:00 +0000\r\nFrom: Jane Doe <jane@getacme.com>\r\n"
+        ));
         assert!(raw.contains("Subject: =?UTF-8?B?SMOpbGxv?= there\r\n"));
         assert!(raw.contains("Message-ID: <abc@getacme.com>\r\n"));
         assert!(raw.ends_with("Hi =3D\r\nbye\r\n"));
-        assert!(generate_message_id("jane@GetAcme.com").expect("id").ends_with("@getacme.com"));
+        assert!(
+            generate_message_id("jane@GetAcme.com")
+                .expect("id")
+                .ends_with("@getacme.com")
+        );
     }
 }

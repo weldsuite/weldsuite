@@ -26,7 +26,9 @@ pub struct SuppressionHit {
 pub fn domain_suffixes(domain: &str) -> Vec<String> {
     let lower = domain.to_lowercase();
     let labels: Vec<&str> = lower.split('.').filter(|l| !l.is_empty()).collect();
-    (0..labels.len().saturating_sub(1)).map(|i| labels[i..].join(".")).collect()
+    (0..labels.len().saturating_sub(1))
+        .map(|i| labels[i..].join("."))
+        .collect()
 }
 
 /// `SuppressionIndex`: the rows that can apply to a batch of emails.
@@ -73,11 +75,12 @@ pub async fn load_index(db: &PgPool, emails: &[String]) -> ReachResult<Suppressi
     }
     let mut index = SuppressionIndex::default();
     for chunk in wanted.chunks(LOOKUP_CHUNK) {
-        let rows: Vec<(String, String, String)> =
-            sqlx::query_as("select value, type, reason from reach_suppressions where value = any($1)")
-                .bind(chunk)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "select value, type, reason from reach_suppressions where value = any($1)",
+        )
+        .bind(chunk)
+        .fetch_all(db)
+        .await?;
         for (value, kind, reason) in rows {
             let hit = SuppressionHit {
                 value: value.clone(),
@@ -95,7 +98,8 @@ pub async fn load_index(db: &PgPool, emails: &[String]) -> ReachResult<Suppressi
 }
 
 static DOMAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$").expect("domain")
+    Regex::new(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$")
+        .expect("domain")
 });
 
 /// `normalizeSuppressionValue(raw)`: `(value, type)`.
@@ -105,7 +109,9 @@ pub fn normalize_value(raw: &str) -> Option<(String, &'static str)> {
         return None;
     }
     if let Some(domain) = value.strip_prefix('@') {
-        return DOMAIN_RE.is_match(domain).then(|| (domain.to_owned(), "domain"));
+        return DOMAIN_RE
+            .is_match(domain)
+            .then(|| (domain.to_owned(), "domain"));
     }
     if value.contains('@') {
         return is_valid_email_syntax(&value).then_some((value, "email"));
@@ -182,12 +188,24 @@ fn subdomain_pattern(domain: &str) -> String {
 
 /// `applySuppressionsToProspects(db, entries, reason)`: the campaigns that
 /// lost an enrollment.
-pub async fn apply_to_prospects(db: &PgPool, entries: &[(String, String)], reason: &str) -> ReachResult<Vec<String>> {
+pub async fn apply_to_prospects(
+    db: &PgPool,
+    entries: &[(String, String)],
+    reason: &str,
+) -> ReachResult<Vec<String>> {
     if entries.is_empty() {
         return Ok(Vec::new());
     }
-    let emails: Vec<String> = entries.iter().filter(|(_, k)| k == "email").map(|(v, _)| v.clone()).collect();
-    let domains: Vec<String> = entries.iter().filter(|(_, k)| k == "domain").map(|(v, _)| v.clone()).collect();
+    let emails: Vec<String> = entries
+        .iter()
+        .filter(|(_, k)| k == "email")
+        .map(|(v, _)| v.clone())
+        .collect();
+    let domains: Vec<String> = entries
+        .iter()
+        .filter(|(_, k)| k == "domain")
+        .map(|(v, _)| v.clone())
+        .collect();
     let patterns: Vec<String> = domains.iter().map(|d| subdomain_pattern(d)).collect();
     let at = iso(now());
     sqlx::query(concat!(
@@ -256,7 +274,14 @@ pub async fn release_prospects(db: &PgPool, value: &str, kind: &str) -> ReachRes
     if candidates.is_empty() {
         return Ok(());
     }
-    let index = load_index(db, &candidates.iter().map(|(_, e)| e.clone()).collect::<Vec<_>>()).await?;
+    let index = load_index(
+        db,
+        &candidates
+            .iter()
+            .map(|(_, e)| e.clone())
+            .collect::<Vec<_>>(),
+    )
+    .await?;
     let free: Vec<String> = candidates
         .into_iter()
         .filter(|(_, email)| index.check(email).is_none())
@@ -281,7 +306,8 @@ pub async fn list(db: &PgPool, query: &crate::lists::PageQuery) -> ReachResult<c
         .map(crate::text::js_trim)
         .filter(|s| !s.is_empty())
         .map(|_| crate::lists::like_pattern(query.search.as_deref().unwrap_or_default()));
-    let cursor = crate::lists::cursor_row(db, "reach_suppressions", query.cursor.as_deref()).await?;
+    let cursor =
+        crate::lists::cursor_row(db, "reach_suppressions", query.cursor.as_deref()).await?;
     let rows: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from reach_suppressions t
          where ($1::text is null or t.value ilike $1)
@@ -294,16 +320,29 @@ pub async fn list(db: &PgPool, query: &crate::lists::PageQuery) -> ReachResult<c
     .bind(limit + 1)
     .fetch_all(db)
     .await?;
-    let total: i64 = sqlx::query_scalar("select count(*) from reach_suppressions t where ($1::text is null or t.value ilike $1)")
-        .bind(&search)
-        .fetch_one(db)
-        .await?;
-    Ok(crate::lists::page_result(&js_rows(rows), limit, total, to_dto))
+    let total: i64 = sqlx::query_scalar(
+        "select count(*) from reach_suppressions t where ($1::text is null or t.value ilike $1)",
+    )
+    .bind(&search)
+    .fetch_one(db)
+    .await?;
+    Ok(crate::lists::page_result(
+        &js_rows(rows),
+        limit,
+        total,
+        to_dto,
+    ))
 }
 
 /// `addManualSuppressions(deps, values)`: `(added, skipped)`.
-pub async fn add_manual(db: &PgPool, emit: &dyn EventSink, values: &[String], user_id: &str) -> ReachResult<(usize, usize)> {
-    let (entries, skipped) = add_suppressions(db, values, "manual", Some("manual"), Some(user_id)).await?;
+pub async fn add_manual(
+    db: &PgPool,
+    emit: &dyn EventSink,
+    values: &[String],
+    user_id: &str,
+) -> ReachResult<(usize, usize)> {
+    let (entries, skipped) =
+        add_suppressions(db, values, "manual", Some("manual"), Some(user_id)).await?;
     let campaigns = apply_to_prospects(db, &entries, "manual").await?;
     complete_and_publish(db, emit, &campaigns).await?;
     Ok((entries.len(), skipped))
@@ -350,9 +389,18 @@ mod tests {
 
     #[test]
     fn values_and_suffixes() {
-        assert_eq!(domain_suffixes("a.b.example.com"), vec!["a.b.example.com", "b.example.com", "example.com"]);
-        assert_eq!(normalize_value(" @Example.com "), Some(("example.com".to_owned(), "domain")));
-        assert_eq!(normalize_value("ann@acme.com"), Some(("ann@acme.com".to_owned(), "email")));
+        assert_eq!(
+            domain_suffixes("a.b.example.com"),
+            vec!["a.b.example.com", "b.example.com", "example.com"]
+        );
+        assert_eq!(
+            normalize_value(" @Example.com "),
+            Some(("example.com".to_owned(), "domain"))
+        );
+        assert_eq!(
+            normalize_value("ann@acme.com"),
+            Some(("ann@acme.com".to_owned(), "email"))
+        );
         assert_eq!(normalize_value("not a value"), None);
         assert_eq!(subdomain_pattern("a_b.com"), "%.a\\_b.com");
     }

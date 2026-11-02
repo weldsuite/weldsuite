@@ -210,6 +210,10 @@ struct TestContext {
     /// `c.get('appAccess')` of an on-request app (`context.appAccess`).
     #[serde(default)]
     app_access: Option<Value>,
+    /// The test's `SMTP_SEND` double over HTTP (`smtp-bridge.ts`): WeldReach's
+    /// customer-mailbox SMTP.
+    #[serde(default)]
+    smtp: Option<String>,
     #[serde(default)]
     env: HashMap<String, String>,
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
@@ -312,6 +316,11 @@ impl Pools {
     /// What the test shares with Rust beyond the session: its env, buckets,
     /// KV, session key and outbound bridge.
     fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        if let Some(url) = context.smtp.as_deref().filter(|url| !url.is_empty()) {
+            extensions.insert(weldsuite_reach::RequestSmtp(Arc::new(BridgedSmtp {
+                url: url.trim_end_matches('/').to_owned(),
+            })));
+        }
         extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
             context.env.clone(),
         )));
@@ -518,7 +527,11 @@ fn app_access_of(access: &Value) -> weldsuite_pipeline::AppAccess {
     weldsuite_pipeline::AppAccess {
         workspace_id: text("workspaceId"),
         status: text("status").unwrap_or_else(|| "none".to_owned()),
-        limits: access.get("limits").filter(|l| !l.is_null()).cloned().unwrap_or_else(|| serde_json::json!({})),
+        limits: access
+            .get("limits")
+            .filter(|l| !l.is_null())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
         billing_status: text("billingStatus").unwrap_or_else(|| "none".to_owned()),
         billing_status_at: text("billingStatusAt"),
     }
@@ -747,5 +760,55 @@ mod tests {
             hono_pattern("/api/companies/{id}/notes/{noteId}"),
             "/api/companies/:id/notes/:noteId"
         );
+    }
+}
+
+/// WeldReach's SMTP transport in conformance builds: each submission goes to
+/// the test's `SMTP_SEND` double over the bridge (`smtp-bridge.ts`), which
+/// answers `sendMail`'s result, or 500 when it threw.
+struct BridgedSmtp {
+    url: String,
+}
+
+impl weldsuite_reach::weldsuite_reach_domain::smtp::SmtpTransport for BridgedSmtp {
+    fn send(
+        &self,
+        config: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpConfig,
+        envelope: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpEnvelope,
+        raw: String,
+    ) -> weldsuite_ports::BoxFuture<
+        '_,
+        Result<weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult, String>,
+    > {
+        Box::pin(async move {
+            let body = serde_json::json!({
+                "config": config.to_json(),
+                "envelope": { "from": envelope.from, "to": envelope.to },
+                "raw": raw,
+            });
+            let response = reqwest::Client::new()
+                .post(format!("{}/send", self.url))
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            let ok = response.status().is_success();
+            let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+            let value: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            if ok {
+                Ok(
+                    weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult::from_json(
+                        &value,
+                    ),
+                )
+            } else {
+                Err(value
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("send failed")
+                    .to_owned())
+            }
+        })
     }
 }

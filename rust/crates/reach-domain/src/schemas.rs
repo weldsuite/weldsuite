@@ -231,7 +231,10 @@ static VARIABLE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// `renderReachTemplate(template, values)`: `{{name}}` / `{{name|fallback}}`;
 /// a variable with no value and no fallback stays and is reported.
-pub fn render_template(template: &str, values: &[(String, Option<String>)]) -> (String, Vec<String>) {
+pub fn render_template(
+    template: &str,
+    values: &[(String, Option<String>)],
+) -> (String, Vec<String>) {
     let mut missing: Vec<String> = Vec::new();
     let text = VARIABLE_RE.replace_all(template, |caps: &regex::Captures<'_>| {
         let name = &caps[1];
@@ -264,7 +267,9 @@ mod tests {
     #[test]
     fn limits_fall_back_per_schema() {
         assert_eq!(resolve_limits(None), Limits::default());
-        let limits = resolve_limits(Some(&json!({ "maxDomains": 5, "forceAllowDomains": [" A.com "] })));
+        let limits = resolve_limits(Some(
+            &json!({ "maxDomains": 5, "forceAllowDomains": [" A.com "] }),
+        ));
         assert_eq!(limits.max_domains, 5);
         assert_eq!(limits.force_allow_domains, vec!["a.com".to_owned()]);
         // One bad key: the defaults, every one of them.
@@ -280,7 +285,8 @@ mod tests {
             ("firstName".to_owned(), Some("Ann".to_owned())),
             ("lastName".to_owned(), None),
         ];
-        let (text, missing) = render_template("Hi {{ firstName }} {{lastName}} {{title|there}}", &values);
+        let (text, missing) =
+            render_template("Hi {{ firstName }} {{lastName}} {{title|there}}", &values);
         assert_eq!(text, "Hi Ann {{lastName}} there");
         assert_eq!(missing, vec!["lastName".to_owned()]);
     }

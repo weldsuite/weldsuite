@@ -11,20 +11,14 @@ use regex::Regex;
 pub fn is_js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n'
-            | '\u{0B}'
-            | '\u{0C}'
-            | '\r'
-            | ' '
-            | '\u{A0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200A}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202F}'
-            | '\u{205F}'
-            | '\u{3000}'
-            | '\u{FEFF}'
+        '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
     )
 }
 
@@ -101,7 +95,10 @@ fn decode_entities(input: &str) -> String {
                     Some(hex) => u32::from_str_radix(hex, 16).ok(),
                     None => number.parse::<u32>().ok(),
                 };
-                return match code.filter(|c| *c > 0 && *c < 0x11_0000).and_then(char::from_u32) {
+                return match code
+                    .filter(|c| *c > 0 && *c < 0x11_0000)
+                    .and_then(char::from_u32)
+                {
                     Some(c) => c.to_string(),
                     None => caps[0].to_owned(),
                 };
@@ -220,7 +217,14 @@ pub fn html_to_text(html: &str) -> String {
 }
 
 const ATTRIBUTION_STARTS: &[&str] = &["on ", "op ", "am ", "le ", "el ", "il "];
-const ATTRIBUTION_VERBS: &[&str] = &["wrote", "a écrit", "a ecrit", "escribió", "escribio", "ha scritto"];
+const ATTRIBUTION_VERBS: &[&str] = &[
+    "wrote",
+    "a écrit",
+    "a ecrit",
+    "escribió",
+    "escribio",
+    "ha scritto",
+];
 const ATTRIBUTION_MID_VERBS: &[&str] = &[" schreef ", " schrieb "];
 const SEPARATOR_PHRASES: &[&str] = &[
     "original message",
@@ -235,8 +239,23 @@ const SEPARATOR_PHRASES: &[&str] = &[
 ];
 const HEADER_START_KEYS: &[&str] = &["from", "van", "von", "de", "da"];
 const HEADER_FOLLOW_KEYS: &[&str] = &[
-    "sent", "verzonden", "gesendet", "date", "datum", "envoyé", "envoye", "enviado", "inviato", "to", "aan", "an",
-    "subject", "onderwerp", "betreff", "objet", "cc",
+    "sent",
+    "verzonden",
+    "gesendet",
+    "date",
+    "datum",
+    "envoyé",
+    "envoye",
+    "enviado",
+    "inviato",
+    "to",
+    "aan",
+    "an",
+    "subject",
+    "onderwerp",
+    "betreff",
+    "objet",
+    "cc",
 ];
 const TRAILING_NOISE_PREFIXES: &[&str] = &[
     "sent from my ",
@@ -273,16 +292,26 @@ fn ends_with_attribution(text: &str) -> bool {
         Some(rest) => rest.trim_end_matches(' '),
         None => lower,
     };
-    if ATTRIBUTION_VERBS.iter().any(|verb| without_colon.ends_with(verb)) {
+    if ATTRIBUTION_VERBS
+        .iter()
+        .any(|verb| without_colon.ends_with(verb))
+    {
         return true;
     }
-    lower.ends_with(':') && ATTRIBUTION_MID_VERBS.iter().any(|verb| lower.contains(verb))
+    lower.ends_with(':')
+        && ATTRIBUTION_MID_VERBS
+            .iter()
+            .any(|verb| lower.contains(verb))
 }
 
 fn starts_attribution_line(lines: &[&str], index: usize) -> bool {
     let first = js_trim(lines[index]);
     let lower = first.to_lowercase();
-    if crate::js_len(first) < 8 || !ATTRIBUTION_STARTS.iter().any(|start| lower.starts_with(start)) {
+    if crate::js_len(first) < 8
+        || !ATTRIBUTION_STARTS
+            .iter()
+            .any(|start| lower.starts_with(start))
+    {
         return false;
     }
     let mut joined = first.to_owned();
@@ -342,7 +371,9 @@ fn is_trailing_noise(line: &str) -> bool {
     if lower.starts_with("von meinem ") && lower.contains(" gesendet") {
         return true;
     }
-    TRAILING_NOISE_PREFIXES.iter().any(|prefix| lower.starts_with(prefix))
+    TRAILING_NOISE_PREFIXES
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
 }
 
 fn quote_start(lines: &[&str]) -> usize {
@@ -350,7 +381,10 @@ fn quote_start(lines: &[&str]) -> usize {
         if lines[i] == "-- " {
             return i;
         }
-        if starts_attribution_line(lines, i) || starts_header_block(lines, i) || is_quote_separator(js_trim(lines[i])) {
+        if starts_attribution_line(lines, i)
+            || starts_header_block(lines, i)
+            || is_quote_separator(js_trim(lines[i]))
+        {
             return i;
         }
     }
@@ -378,7 +412,18 @@ pub fn make_snippet(text: &str, max: usize) -> String {
 }
 
 const SUBJECT_PREFIXES: &[&str] = &[
-    "re", "aw", "antw", "antwoord", "sv", "vs", "wg", "fw", "fwd", "doorgestuurd", "ref", "tr",
+    "re",
+    "aw",
+    "antw",
+    "antwoord",
+    "sv",
+    "vs",
+    "wg",
+    "fw",
+    "fwd",
+    "doorgestuurd",
+    "ref",
+    "tr",
 ];
 
 fn without_prefix(subject: &str) -> Option<&str> {

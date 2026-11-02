@@ -45,7 +45,9 @@ pub fn utc_tomorrow(now: OffsetDateTime) -> OffsetDateTime {
 
 /// `getReachUsage(db, now)`.
 pub async fn usage(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
-    let domains: i64 = sqlx::query_scalar("select count(*) from reach_domains").fetch_one(db).await?;
+    let domains: i64 = sqlx::query_scalar("select count(*) from reach_domains")
+        .fetch_one(db)
+        .await?;
     let mailboxes: i64 = sqlx::query_scalar(
         "select count(*) from reach_mailboxes where status <> 'deleted' and deleted_at is null",
     )
@@ -61,7 +63,12 @@ pub async fn usage(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
 }
 
 /// `buildAccessSummary(input)`.
-pub async fn summary(db: &PgPool, status: &str, limits: Option<&Value>, sending_enabled: bool) -> ReachResult<Value> {
+pub async fn summary(
+    db: &PgPool,
+    status: &str,
+    limits: Option<&Value>,
+    sending_enabled: bool,
+) -> ReachResult<Value> {
     let usage = usage(db, crate::now()).await?;
     Ok(json!({
         "status": if status == "none" { "requested" } else { status },

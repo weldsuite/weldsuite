@@ -15,7 +15,12 @@ fn is_positive(label: Option<&str>) -> bool {
 }
 
 /// `bumpCampaignStat(db, campaignId, key, by)`: never below zero.
-pub(crate) async fn bump_campaign_stat(db: &PgPool, campaign_id: Option<&str>, key: &str, by: i64) -> ReachResult<()> {
+pub(crate) async fn bump_campaign_stat(
+    db: &PgPool,
+    campaign_id: Option<&str>,
+    key: &str,
+    by: i64,
+) -> ReachResult<()> {
     let Some(campaign_id) = campaign_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
@@ -38,7 +43,13 @@ pub(crate) async fn bump_campaign_stat(db: &PgPool, campaign_id: Option<&str>, k
 }
 
 /// `transitionEnrollment(db, id, to, reason, from)`.
-pub(crate) async fn transition_enrollment(db: &PgPool, id: &str, to: &str, reason: &str, from: &[&str]) -> ReachResult<bool> {
+pub(crate) async fn transition_enrollment(
+    db: &PgPool,
+    id: &str,
+    to: &str,
+    reason: &str,
+    from: &[&str],
+) -> ReachResult<bool> {
     let from: Vec<String> = from.iter().map(|s| (*s).to_owned()).collect();
     let rows: Vec<String> = sqlx::query_scalar(
         "update reach_enrollments set status = $2, stopped_reason = $3, next_send_at = null, claimed_at = null,
@@ -64,9 +75,14 @@ pub(crate) async fn stop_other_enrollments(
     except: Option<&str>,
     unsubscribed: bool,
 ) -> ReachResult<i64> {
-    let status = if unsubscribed { "unsubscribed" } else { "replied" };
+    let status = if unsubscribed {
+        "unsubscribed"
+    } else {
+        "replied"
+    };
     let domain = company_domain.unwrap_or_default().to_lowercase();
-    let company_wide = scope == "company" && !domain.is_empty() && !is_consumer_email(&format!("x@{domain}"));
+    let company_wide =
+        scope == "company" && !domain.is_empty() && !is_consumer_email(&format!("x@{domain}"));
     let reason = if company_wide {
         "replied_company"
     } else if unsubscribed {
@@ -96,7 +112,12 @@ pub(crate) async fn stop_other_enrollments(
 }
 
 /// `suppressAddress(db, email, reason, source)`.
-pub(crate) async fn suppress_address(db: &PgPool, email: &str, reason: &str, source: Option<&str>) -> ReachResult<()> {
+pub(crate) async fn suppress_address(
+    db: &PgPool,
+    email: &str,
+    reason: &str,
+    source: Option<&str>,
+) -> ReachResult<()> {
     let value = weldsuite_reach_domain::text::js_trim(email).to_lowercase();
     if !value.contains('@') {
         return Ok(());
@@ -168,13 +189,25 @@ pub(crate) async fn apply_unsubscribe(db: &PgPool, target: &Target) -> ReachResu
         }
     }
     if let Some((id, _, domain)) = &target.prospect {
-        stop_other_enrollments(db, id, domain.as_deref(), "prospect", target.enrollment_id.as_deref(), true).await?;
+        stop_other_enrollments(
+            db,
+            id,
+            domain.as_deref(),
+            "prospect",
+            target.enrollment_id.as_deref(),
+            true,
+        )
+        .await?;
     }
     Ok(())
 }
 
 /// `applyLabelEffects(db, target, label)`.
-pub(crate) async fn apply_label_effects(db: &PgPool, target: &Target, label: &str) -> ReachResult<()> {
+pub(crate) async fn apply_label_effects(
+    db: &PgPool,
+    target: &Target,
+    label: &str,
+) -> ReachResult<()> {
     if label == "unsubscribe" {
         apply_unsubscribe(db, target).await?;
     }
@@ -220,12 +253,22 @@ pub(crate) async fn update_message(
     let handled_at = text(&existing, "handledAt").map(str::to_owned);
     match input.handled {
         Some(true) => {
-            patch.insert("handled_at".to_owned(), json!(handled_at.clone().unwrap_or_else(|| at.clone())));
+            patch.insert(
+                "handled_at".to_owned(),
+                json!(handled_at.clone().unwrap_or_else(|| at.clone())),
+            );
             patch.insert(
                 "handled_by".to_owned(),
-                if handled_at.is_some() { json!(text(&existing, "handledBy")) } else { json!(user_id) },
+                if handled_at.is_some() {
+                    json!(text(&existing, "handledBy"))
+                } else {
+                    json!(user_id)
+                },
             );
-            patch.insert("read_at".to_owned(), json!(read_at.clone().unwrap_or_else(|| at.clone())));
+            patch.insert(
+                "read_at".to_owned(),
+                json!(read_at.clone().unwrap_or_else(|| at.clone())),
+            );
         }
         Some(false) => {
             patch.insert("handled_at".to_owned(), Value::Null);
@@ -235,7 +278,10 @@ pub(crate) async fn update_message(
     }
     match input.read {
         Some(true) => {
-            patch.insert("read_at".to_owned(), json!(read_at.clone().unwrap_or_else(|| at.clone())));
+            patch.insert(
+                "read_at".to_owned(),
+                json!(read_at.clone().unwrap_or_else(|| at.clone())),
+            );
         }
         Some(false) if input.handled != Some(true) => {
             patch.insert("read_at".to_owned(), Value::Null);
@@ -273,7 +319,8 @@ pub(crate) async fn update_message(
         return Ok(None);
     };
     if input.read == Some(true)
-        && let (Some(thread_key), Some(received_at)) = (text(&existing, "threadKey"), text(&existing, "receivedAt"))
+        && let (Some(thread_key), Some(received_at)) =
+            (text(&existing, "threadKey"), text(&existing, "receivedAt"))
     {
         sqlx::query(
             "update reach_messages set read_at = $3::timestamptz, updated_at = $3::timestamptz
@@ -286,15 +333,16 @@ pub(crate) async fn update_message(
         .await?;
     }
     if let Some((previous, next)) = &change {
-        let prospect: Option<(String, String, Option<String>)> = match text(&updated, "prospectId") {
-            Some(prospect_id) => {
-                sqlx::query_as("select id, email, company_domain from reach_prospects where id = $1 limit 1")
-                    .bind(prospect_id)
-                    .fetch_optional(db)
-                    .await?
-            }
-            None => None,
-        };
+        let prospect: Option<(String, String, Option<String>)> =
+            match text(&updated, "prospectId") {
+                Some(prospect_id) => sqlx::query_as(
+                    "select id, email, company_domain from reach_prospects where id = $1 limit 1",
+                )
+                .bind(prospect_id)
+                .fetch_optional(db)
+                .await?,
+                None => None,
+            };
         let target = Target {
             message_id: text(&updated, "id").unwrap_or_default().to_owned(),
             sender_email: text(&updated, "fromEmail").unwrap_or_default().to_owned(),

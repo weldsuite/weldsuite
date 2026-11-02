@@ -11,7 +11,10 @@ use weldsuite_kit::generate_id;
 use crate::credentials::open;
 use crate::render::{email_footer, snippet_of};
 use crate::schemas::email_domain;
-use crate::smtp::{MailAddress, OutgoingMessage, SmtpConfig, SmtpEnvelope, SmtpTransport, build_mime_message, generate_message_id};
+use crate::smtp::{
+    MailAddress, OutgoingMessage, SmtpConfig, SmtpEnvelope, SmtpTransport, build_mime_message,
+    generate_message_id,
+};
 use crate::{ReachResult, iso, text};
 
 /// `MAILBOX_NOT_FOUND`, `MAILBOX_NOT_USABLE`, `CREDENTIALS_UNAVAILABLE`.
@@ -108,7 +111,10 @@ async fn finish_message(
 }
 
 /// `sendFromMailbox(deps, input)`.
-pub async fn send_from_mailbox(deps: &OutboundDeps<'_>, input: &SendInput) -> ReachResult<SendResult> {
+pub async fn send_from_mailbox(
+    deps: &OutboundDeps<'_>,
+    input: &SendInput,
+) -> ReachResult<SendResult> {
     let mailbox: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from reach_mailboxes t where t.id = $1 and t.deleted_at is null limit 1",
     )
@@ -118,7 +124,10 @@ pub async fn send_from_mailbox(deps: &OutboundDeps<'_>, input: &SendInput) -> Re
     let Some(mailbox) = mailbox.map(weldsuite_db::js_row) else {
         return Ok(not_sent(MAILBOX_NOT_FOUND));
     };
-    if let Some(problem) = mailbox_problem(text(&mailbox, "status").unwrap_or_default(), input.sent_by.as_deref()) {
+    if let Some(problem) = mailbox_problem(
+        text(&mailbox, "status").unwrap_or_default(),
+        input.sent_by.as_deref(),
+    ) {
         return Ok(not_sent(problem));
     }
     let Some(credentials) = open(deps.keyring, text(&mailbox, "smtpCredentials")) else {
@@ -209,7 +218,8 @@ pub async fn send_from_mailbox(deps: &OutboundDeps<'_>, input: &SendInput) -> Re
         Ok(result) => result,
         Err(error) => {
             let error = format!("send_threw: {error}");
-            let message = finish_message(deps, row, "unknown", None, None, Some(&error), false).await?;
+            let message =
+                finish_message(deps, row, "unknown", None, None, Some(&error), false).await?;
             return Ok(SendResult {
                 ok: false,
                 message: Some(message),
@@ -222,7 +232,16 @@ pub async fn send_from_mailbox(deps: &OutboundDeps<'_>, input: &SendInput) -> Re
     };
     if result.ok {
         let sent_at = (deps.now)();
-        let message = finish_message(deps, row, "sent", Some(sent_at), Some(&result.response), None, true).await?;
+        let message = finish_message(
+            deps,
+            row,
+            "sent",
+            Some(sent_at),
+            Some(&result.response),
+            None,
+            true,
+        )
+        .await?;
         sqlx::query("update reach_mailboxes set last_sent_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
             .bind(text(&mailbox, "id"))
             .bind(iso(sent_at))
@@ -240,7 +259,16 @@ pub async fn send_from_mailbox(deps: &OutboundDeps<'_>, input: &SendInput) -> Re
     let uncertain = result.delivery_uncertain;
     let error = format!("{}: {}", result.stage, result.response);
     let status = if uncertain { "unknown" } else { "failed" };
-    let message = finish_message(deps, row, status, None, Some(&result.response), Some(&error), true).await?;
+    let message = finish_message(
+        deps,
+        row,
+        status,
+        None,
+        Some(&result.response),
+        Some(&error),
+        true,
+    )
+    .await?;
     Ok(SendResult {
         ok: false,
         message: Some(message),

@@ -84,28 +84,56 @@ pub fn like_pattern(term: &str) -> String {
 /// The `(createdAt, id)` a cursor continues after (`cursorCondition`), the
 /// time cut to the millisecond as Drizzle reads it back; `None`
 /// for the first page or an unknown cursor.
-pub async fn cursor_row(db: &PgPool, table: &str, cursor: Option<&str>) -> ReachResult<Option<(String, String)>> {
+pub async fn cursor_row(
+    db: &PgPool,
+    table: &str,
+    cursor: Option<&str>,
+) -> ReachResult<Option<(String, String)>> {
     let Some(cursor) = cursor.filter(|c| !c.is_empty()) else {
         return Ok(None);
     };
     let sql = match table {
-        "reach_campaigns" => "select date_trunc('milliseconds', created_at)::text, id from reach_campaigns where id = $1 limit 1",
-        "reach_prospects" => "select date_trunc('milliseconds', created_at)::text, id from reach_prospects where id = $1 limit 1",
-        "reach_prospect_lists" => "select date_trunc('milliseconds', created_at)::text, id from reach_prospect_lists where id = $1 limit 1",
-        "reach_suppressions" => "select date_trunc('milliseconds', created_at)::text, id from reach_suppressions where id = $1 limit 1",
-        "reach_enrollments" => "select date_trunc('milliseconds', created_at)::text, id from reach_enrollments where id = $1 limit 1",
+        "reach_campaigns" => {
+            "select date_trunc('milliseconds', created_at)::text, id from reach_campaigns where id = $1 limit 1"
+        }
+        "reach_prospects" => {
+            "select date_trunc('milliseconds', created_at)::text, id from reach_prospects where id = $1 limit 1"
+        }
+        "reach_prospect_lists" => {
+            "select date_trunc('milliseconds', created_at)::text, id from reach_prospect_lists where id = $1 limit 1"
+        }
+        "reach_suppressions" => {
+            "select date_trunc('milliseconds', created_at)::text, id from reach_suppressions where id = $1 limit 1"
+        }
+        "reach_enrollments" => {
+            "select date_trunc('milliseconds', created_at)::text, id from reach_enrollments where id = $1 limit 1"
+        }
         _ => return Ok(None),
     };
     Ok(sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?)
 }
 
 /// `pageResult(rows, limit, total, toDto)` over rows fetched with `limit + 1`.
-pub fn page_result(rows: &[Value], limit: i64, total: i64, to_dto: impl Fn(&Value) -> Value) -> Page {
+pub fn page_result(
+    rows: &[Value],
+    limit: i64,
+    total: i64,
+    to_dto: impl Fn(&Value) -> Value,
+) -> Page {
     let limit = usize::try_from(limit).unwrap_or_default();
     let has_more = rows.len() > limit;
-    let data: Vec<Value> = rows.iter().take(limit).collect::<Vec<_>>().into_iter().map(&to_dto).collect();
+    let data: Vec<Value> = rows
+        .iter()
+        .take(limit)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(&to_dto)
+        .collect();
     let cursor = if has_more {
-        rows.get(limit.saturating_sub(1)).and_then(|r| r.get("id")).and_then(Value::as_str).map(str::to_owned)
+        rows.get(limit.saturating_sub(1))
+            .and_then(|r| r.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     } else {
         None
     };
@@ -188,11 +216,12 @@ pub async fn add_to_list(db: &PgPool, list_id: &str, prospect_ids: &[String]) ->
     let unique = crate::unique(prospect_ids);
     let mut added = 0i64;
     for chunk in unique.chunks(500) {
-        let live: Vec<String> =
-            sqlx::query_scalar("select id from reach_prospects where id = any($1) and deleted_at is null")
-                .bind(chunk)
-                .fetch_all(db)
-                .await?;
+        let live: Vec<String> = sqlx::query_scalar(
+            "select id from reach_prospects where id = any($1) and deleted_at is null",
+        )
+        .bind(chunk)
+        .fetch_all(db)
+        .await?;
         if live.is_empty() {
             continue;
         }
@@ -214,7 +243,11 @@ pub async fn add_to_list(db: &PgPool, list_id: &str, prospect_ids: &[String]) ->
 }
 
 /// `removeProspectsFromList(db, listId, prospectIds)`: how many left.
-pub async fn remove_from_list(db: &PgPool, list_id: &str, prospect_ids: &[String]) -> ReachResult<i64> {
+pub async fn remove_from_list(
+    db: &PgPool,
+    list_id: &str,
+    prospect_ids: &[String],
+) -> ReachResult<i64> {
     let unique = crate::unique(prospect_ids);
     let mut removed = 0i64;
     for chunk in unique.chunks(500) {
@@ -246,9 +279,10 @@ pub async fn list_lists(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
     .bind(limit + 1)
     .fetch_all(db)
     .await?;
-    let total: i64 = sqlx::query_scalar("select count(*) from reach_prospect_lists where deleted_at is null")
-        .fetch_one(db)
-        .await?;
+    let total: i64 =
+        sqlx::query_scalar("select count(*) from reach_prospect_lists where deleted_at is null")
+            .fetch_one(db)
+            .await?;
     Ok(page_result(&js_rows(rows), limit, total, to_list))
 }
 

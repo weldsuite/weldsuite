@@ -33,7 +33,11 @@ pub fn inbox_rate(inbox: i64, spam: i64, missing: i64) -> Option<f64> {
 }
 
 /// `warmupGate(input)`: `None` when ready, else the reason.
-pub fn gate(ramp_day: i64, inbox_rate_3d: Option<f64>, has_login_error: bool) -> Option<&'static str> {
+pub fn gate(
+    ramp_day: i64,
+    inbox_rate_3d: Option<f64>,
+    has_login_error: bool,
+) -> Option<&'static str> {
     if has_login_error {
         return Some("login_error");
     }

@@ -38,7 +38,12 @@ impl RenderProspect {
                 .map(|fields| {
                     fields
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), str::to_owned)))
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                v.as_str().map_or_else(|| v.to_string(), str::to_owned),
+                            )
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -66,7 +71,10 @@ fn join_name(first: Option<&str>, last: Option<&str>) -> Option<String> {
 
 /// `buildTemplateValues(prospect, sender)`: custom fields first, so the
 /// built-in names win.
-pub fn template_values(prospect: &RenderProspect, sender: Option<&RenderSender>) -> Vec<(String, Option<String>)> {
+pub fn template_values(
+    prospect: &RenderProspect,
+    sender: Option<&RenderSender>,
+) -> Vec<(String, Option<String>)> {
     let mut values: Vec<(String, Option<String>)> = prospect
         .custom_fields
         .iter()
@@ -77,13 +85,22 @@ pub fn template_values(prospect: &RenderProspect, sender: Option<&RenderSender>)
         ("lastName".to_owned(), prospect.last_name.clone()),
         (
             "fullName".to_owned(),
-            join_name(prospect.first_name.as_deref(), prospect.last_name.as_deref()),
+            join_name(
+                prospect.first_name.as_deref(),
+                prospect.last_name.as_deref(),
+            ),
         ),
         ("email".to_owned(), Some(prospect.email.clone())),
         ("companyName".to_owned(), prospect.company_name.clone()),
         ("title".to_owned(), prospect.title.clone()),
-        ("senderFirstName".to_owned(), sender.map(|s| s.first_name.clone())),
-        ("senderLastName".to_owned(), sender.map(|s| s.last_name.clone())),
+        (
+            "senderFirstName".to_owned(),
+            sender.map(|s| s.first_name.clone()),
+        ),
+        (
+            "senderLastName".to_owned(),
+            sender.map(|s| s.last_name.clone()),
+        ),
         (
             "senderFullName".to_owned(),
             sender.and_then(|s| join_name(Some(&s.first_name), Some(&s.last_name))),
@@ -162,7 +179,9 @@ pub fn email_footer(settings: Option<&Value>) -> String {
             .and_then(Value::as_str)
             .map(js_trim)
     };
-    let opt_out = field("optOutText").filter(|t| !t.is_empty()).unwrap_or(DEFAULT_OPT_OUT_TEXT);
+    let opt_out = field("optOutText")
+        .filter(|t| !t.is_empty())
+        .unwrap_or(DEFAULT_OPT_OUT_TEXT);
     let lines: Vec<&str> = [
         opt_out,
         field("senderCompanyName").unwrap_or_default(),

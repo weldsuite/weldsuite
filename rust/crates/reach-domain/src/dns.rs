@@ -49,7 +49,8 @@ pub fn encode_uri_component(text: &str) -> String {
     out
 }
 
-static TXT_CHUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""((?:[^"\\]|\\.)*)""#).expect("txt"));
+static TXT_CHUNK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""((?:[^"\\]|\\.)*)""#).expect("txt"));
 
 fn parse_txt_data(raw: &str) -> String {
     let chunks: Vec<&str> = TXT_CHUNK.find_iter(raw).map(|m| m.as_str()).collect();
@@ -65,15 +66,25 @@ fn strip_dot(value: &str) -> String {
 
 /// `lookupRecord(name, type)`: the answers of that type; an error for a
 /// failed request or answer.
-pub async fn lookup_record(http: &OutboundHttp, name: &str, kind: &str) -> Result<Vec<DnsRecord>, String> {
-    let url = format!("{DOH_ENDPOINT}?name={}&type={kind}", encode_uri_component(name));
+pub async fn lookup_record(
+    http: &OutboundHttp,
+    name: &str,
+    kind: &str,
+) -> Result<Vec<DnsRecord>, String> {
+    let url = format!(
+        "{DOH_ENDPOINT}?name={}&type={kind}",
+        encode_uri_component(name)
+    );
     let request = HttpRequest {
         method: "GET".to_owned(),
         url,
         headers: vec![("Accept".to_owned(), "application/dns-json".to_owned())],
         body: None,
     };
-    let response = http.send(request).await.map_err(|error| error.to_string())?;
+    let response = http
+        .send(request)
+        .await
+        .map_err(|error| error.to_string())?;
     if !(200..300).contains(&response.status) {
         return Err(format!("DNS lookup failed with status {}", response.status));
     }
@@ -87,23 +98,44 @@ pub async fn lookup_record(http: &OutboundHttp, name: &str, kind: &str) -> Resul
         if answer.get("type").and_then(Value::as_i64) != Some(want) {
             continue;
         }
-        let raw_name = answer.get("name").and_then(Value::as_str).unwrap_or_default();
-        let data = answer.get("data").and_then(Value::as_str).unwrap_or_default();
-        let ttl = answer.get("TTL").and_then(Value::as_i64).unwrap_or_default();
+        let raw_name = answer
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let data = answer
+            .get("data")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let ttl = answer
+            .get("TTL")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
         let name = strip_dot(raw_name);
         let (value, priority) = match kind {
             "TXT" => (parse_txt_data(data), None),
             "MX" => {
-                let mut parts = data.split(crate::text::is_js_space).filter(|p| !p.is_empty());
+                let mut parts = data
+                    .split(crate::text::is_js_space)
+                    .filter(|p| !p.is_empty());
                 let prio = parts.next().unwrap_or_default();
                 let target = parts.next().unwrap_or_default();
-                let priority = prio.parse::<f64>().ok().filter(|p| p.is_finite()).unwrap_or(0.0);
+                let priority = prio
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|p| p.is_finite())
+                    .unwrap_or(0.0);
                 (strip_dot(target), Some(priority))
             }
             "SRV" => {
                 let parts: Vec<&str> = data.split(crate::text::is_js_space).collect();
-                let priority = parts.first().and_then(|p| p.parse::<f64>().ok()).unwrap_or(0.0);
-                (strip_dot(&parts[1.min(parts.len())..].join(" ")), Some(priority))
+                let priority = parts
+                    .first()
+                    .and_then(|p| p.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+                (
+                    strip_dot(&parts[1.min(parts.len())..].join(" ")),
+                    Some(priority),
+                )
             }
             "CNAME" | "NS" => (strip_dot(data), None),
             _ => (data.to_owned(), None),

@@ -29,6 +29,7 @@ mod lists;
 mod mailboxes;
 mod mailpool;
 mod prospects;
+mod smtp;
 mod suppressions;
 mod webhook;
 
@@ -56,11 +57,13 @@ use weldsuite_ports::{BoxFuture, FileStores, OutboundHttp, StorageBuckets};
 use weldsuite_reach_domain::smtp::SmtpTransport;
 use weldsuite_reach_domain::{DuePort, EventSink, ReachError, ReachEvent};
 
+pub use smtp::LettreSmtp;
 pub use weldsuite_reach_domain;
 
 /// A workspace's tenant database by its Clerk org id (the webhook's
 /// `openTenantDb`).
-pub type TenantDatabases = Arc<dyn Fn(String) -> BoxFuture<'static, Result<PgPool, String>> + Send + Sync>;
+pub type TenantDatabases =
+    Arc<dyn Fn(String) -> BoxFuture<'static, Result<PgPool, String>> + Send + Sync>;
 
 /// The SMTP transport a request uses: the test's double in conformance
 /// builds (a request extension), the app's otherwise.
@@ -122,7 +125,10 @@ where
         .nest("/campaigns", campaigns::routes(gate))
         .nest("/suppressions", suppressions::routes(gate))
         .nest("/inbox", inbox::routes(gate))
-        .layer(axum::middleware::from_fn_with_state(access_gate, reach_access))
+        .layer(axum::middleware::from_fn_with_state(
+            access_gate,
+            reach_access,
+        ))
         .with_state(state)
 }
 
@@ -137,7 +143,11 @@ where
 
 /// `appAccessGate('weldreach')`: the master read (cached a minute), unless
 /// the request already carries the access (conformance hands the test's in).
-async fn reach_access(State(gate): State<Option<Arc<AppAccessGate>>>, request: Request, next: Next) -> Response {
+async fn reach_access(
+    State(gate): State<Option<Arc<AppAccessGate>>>,
+    request: Request,
+    next: Next,
+) -> Response {
     if request.extensions().get::<AppAccess>().is_some() {
         return next.run(request).await;
     }
@@ -190,21 +200,36 @@ impl Caller {
     pub(crate) fn http(&self, state: &ReachState) -> OutboundHttp {
         self.http
             .clone()
-            .or_else(|| if self.env.is_some() { None } else { state.http.clone() })
+            .or_else(|| {
+                if self.env.is_some() {
+                    None
+                } else {
+                    state.http.clone()
+                }
+            })
             .unwrap_or_else(unreachable_http)
     }
 
     pub(crate) fn keyring(&self, state: &ReachState) -> Keyring {
         match &self.env {
             Some(env) => Keyring {
-                v1: env.get("DATABASE_ENCRYPTION_KEY").filter(|k| !k.is_empty()).map(str::to_owned),
-                v2: env.get("DATABASE_ENCRYPTION_KEY_V2").filter(|k| !k.is_empty()).map(str::to_owned),
+                v1: env
+                    .get("DATABASE_ENCRYPTION_KEY")
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_owned),
+                v2: env
+                    .get("DATABASE_ENCRYPTION_KEY_V2")
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_owned),
             },
             None => state.keyring.clone(),
         }
     }
 
-    pub(crate) fn storage(&self, state: &ReachState) -> Option<Arc<dyn weldsuite_ports::DynFileStore>> {
+    pub(crate) fn storage(
+        &self,
+        state: &ReachState,
+    ) -> Option<Arc<dyn weldsuite_ports::DynFileStore>> {
         match &self.buckets {
             Some(buckets) => buckets.public.clone(),
             None if self.env.is_some() => None,
@@ -223,7 +248,11 @@ impl Caller {
     /// `(await c.get('flags')?.isOn('weldreach-sending')) ?? true`.
     pub(crate) async fn sending_enabled(&self) -> bool {
         match &self.flags {
-            Some(flags) => flags.is_on(weldsuite_catalogs::flags::WELDREACH_SENDING).await,
+            Some(flags) => {
+                flags
+                    .is_on(weldsuite_catalogs::flags::WELDREACH_SENDING)
+                    .await
+            }
             None => true,
         }
     }
@@ -268,10 +297,11 @@ pub(crate) fn unreachable_http() -> OutboundHttp {
         fn send(
             &self,
             _request: weldsuite_ports::HttpRequest,
-        ) -> BoxFuture<'_, Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>> {
-            Box::pin(std::future::ready(Err(weldsuite_ports::PortError::backend(
-                "no outbound HTTP client",
-            ))))
+        ) -> BoxFuture<'_, Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>>
+        {
+            Box::pin(std::future::ready(Err(
+                weldsuite_ports::PortError::backend("no outbound HTTP client"),
+            )))
         }
     }
     OutboundHttp(Arc::new(Unreachable))
@@ -302,14 +332,22 @@ pub(crate) struct Due {
 
 impl DuePort for Due {
     fn due(&self, at: OffsetDateTime) -> BoxFuture<'_, ()> {
-        Box::pin(weldsuite_db::due_index::mark_due(&self.master, self.kind, &self.workspace_id, at))
+        Box::pin(weldsuite_db::due_index::mark_due(
+            &self.master,
+            self.kind,
+            &self.workspace_id,
+            at,
+        ))
     }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Caller {
     type Rejection = ApiError;
 
-    fn from_request_parts(parts: &mut Parts, _state: &S) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let extensions = &parts.extensions;
         let caller = if let (Some(auth), Some(tenant), Some(permissions)) = (
             extensions.get::<AuthContext>(),
@@ -332,10 +370,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 env: extensions.get::<RequestEnv>().cloned(),
                 master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
                 http: extensions.get::<OutboundHttp>().cloned(),
-                buckets: extensions
-                    .get::<StorageBuckets>()
-                    .cloned()
-                    .or_else(|| extensions.get::<FileStores>().cloned().map(StorageBuckets::from)),
+                buckets: extensions.get::<StorageBuckets>().cloned().or_else(|| {
+                    extensions
+                        .get::<FileStores>()
+                        .cloned()
+                        .map(StorageBuckets::from)
+                }),
                 smtp: extensions.get::<RequestSmtp>().cloned(),
                 authorization: parts
                     .headers
@@ -353,7 +393,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 
 /// A [`ReachError`] as the route answers it (`reachErrorHandler`).
 pub(crate) fn error_response(error: &ReachError) -> Response {
-    let status = http::StatusCode::from_u16(error.status).unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+    let status =
+        http::StatusCode::from_u16(error.status).unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
     let mut api = ApiError::new(status, error.code.clone(), error.message.clone());
     if let Some(details) = &error.details {
         api = api.with_details(details.clone());
@@ -372,7 +413,9 @@ pub(crate) fn validate<T>(
     body: &Bytes,
     read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
 ) -> Result<T, Response> {
-    let content_type = headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok());
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
     let body = json_body(content_type, body).map_err(IntoResponse::into_response)?;
     let mut issues = Issues::default();
     let value = issues.object(&body).map(|fields| read(&mut issues, fields));
@@ -402,7 +445,9 @@ pub(crate) fn access_of(caller: &Caller) -> Result<&AppAccess, ReachError> {
 }
 
 /// `accountContextOf(c)`: the access with a workspace, else 403.
-pub(crate) fn account_workspace(caller: &Caller) -> Result<(String, weldsuite_reach_domain::schemas::Limits), ReachError> {
+pub(crate) fn account_workspace(
+    caller: &Caller,
+) -> Result<(String, weldsuite_reach_domain::schemas::Limits), ReachError> {
     let access = access_of(caller)?;
     let Some(workspace_id) = access.workspace_id.clone() else {
         return Err(ReachError::new(
@@ -411,7 +456,10 @@ pub(crate) fn account_workspace(caller: &Caller) -> Result<(String, weldsuite_re
             "This workspace is not set up for WeldReach.",
         ));
     };
-    Ok((workspace_id, weldsuite_reach_domain::schemas::resolve_limits(Some(&access.limits))))
+    Ok((
+        workspace_id,
+        weldsuite_reach_domain::schemas::resolve_limits(Some(&access.limits)),
+    ))
 }
 
 /// `resolveWeldReachLimits(c.get('appAccess')?.limits)`.

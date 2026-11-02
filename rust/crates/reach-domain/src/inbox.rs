@@ -88,10 +88,28 @@ async fn summarize(db: &PgPool, latest_rows: &[Value]) -> ReachResult<Vec<Value>
     if latest_rows.is_empty() {
         return Ok(Vec::new());
     }
-    let thread_keys: Vec<String> = latest_rows.iter().filter_map(|r| text(r, "threadKey").map(str::to_owned)).collect();
-    let prospect_ids = crate::unique(&latest_rows.iter().filter_map(|r| text(r, "prospectId").map(str::to_owned)).collect::<Vec<_>>());
-    let campaign_ids = crate::unique(&latest_rows.iter().filter_map(|r| text(r, "campaignId").map(str::to_owned)).collect::<Vec<_>>());
-    let mailbox_ids = crate::unique(&latest_rows.iter().filter_map(|r| text(r, "mailboxId").map(str::to_owned)).collect::<Vec<_>>());
+    let thread_keys: Vec<String> = latest_rows
+        .iter()
+        .filter_map(|r| text(r, "threadKey").map(str::to_owned))
+        .collect();
+    let prospect_ids = crate::unique(
+        &latest_rows
+            .iter()
+            .filter_map(|r| text(r, "prospectId").map(str::to_owned))
+            .collect::<Vec<_>>(),
+    );
+    let campaign_ids = crate::unique(
+        &latest_rows
+            .iter()
+            .filter_map(|r| text(r, "campaignId").map(str::to_owned))
+            .collect::<Vec<_>>(),
+    );
+    let mailbox_ids = crate::unique(
+        &latest_rows
+            .iter()
+            .filter_map(|r| text(r, "mailboxId").map(str::to_owned))
+            .collect::<Vec<_>>(),
+    );
     let counts: Vec<(Option<String>, i64)> =
         sqlx::query_as("select thread_key, count(*) from reach_messages where thread_key = any($1) group by thread_key")
             .bind(&thread_keys)
@@ -115,10 +133,11 @@ async fn summarize(db: &PgPool, latest_rows: &[Value]) -> ReachResult<Vec<Value>
             .fetch_all(db)
             .await?
     };
-    let mailboxes: Vec<(String, String)> = sqlx::query_as("select id, email from reach_mailboxes where id = any($1)")
-        .bind(&mailbox_ids)
-        .fetch_all(db)
-        .await?;
+    let mailboxes: Vec<(String, String)> =
+        sqlx::query_as("select id, email from reach_mailboxes where id = any($1)")
+            .bind(&mailbox_ids)
+            .fetch_all(db)
+            .await?;
     Ok(latest_rows
         .iter()
         .map(|row| {
@@ -192,14 +211,19 @@ pub async fn list_threads(db: &PgPool, filter: &InboxFilter) -> ReachResult<Thre
     .bind(limit + 1)
     .fetch_all(db)
     .await?;
-    let total: i64 = sqlx::query_scalar(concat!("select count(*) from ", latest_inbound!(), " where", inbox_filters!()))
-        .bind(&filter.label)
-        .bind(&filter.kind)
-        .bind(&filter.campaign_id)
-        .bind(&filter.mailbox_id)
-        .bind(&state)
-        .fetch_one(db)
-        .await?;
+    let total: i64 = sqlx::query_scalar(concat!(
+        "select count(*) from ",
+        latest_inbound!(),
+        " where",
+        inbox_filters!()
+    ))
+    .bind(&filter.label)
+    .bind(&filter.kind)
+    .bind(&filter.campaign_id)
+    .bind(&filter.mailbox_id)
+    .bind(&state)
+    .fetch_one(db)
+    .await?;
     let limit_usize = usize::try_from(limit).unwrap_or_default();
     let has_more = rows.len() > limit_usize;
     let page_ids: Vec<String> = rows.into_iter().take(limit_usize).map(|(id,)| id).collect();
@@ -215,12 +239,21 @@ pub async fn list_threads(db: &PgPool, filter: &InboxFilter) -> ReachResult<Thre
     };
     let ordered: Vec<Value> = page_ids
         .iter()
-        .filter_map(|id| messages.iter().find(|m| text(m, "id") == Some(id.as_str())).cloned())
+        .filter_map(|id| {
+            messages
+                .iter()
+                .find(|m| text(m, "id") == Some(id.as_str()))
+                .cloned()
+        })
         .collect();
     let cursor = if has_more {
         ordered.last().and_then(|last| {
             let received = text(last, "receivedAt").and_then(crate::parse_iso)?;
-            Some(format!("{}_{}", crate::epoch_ms(received), text(last, "id").unwrap_or_default()))
+            Some(format!(
+                "{}_{}",
+                crate::epoch_ms(received),
+                text(last, "id").unwrap_or_default()
+            ))
         })
     } else {
         None
@@ -235,11 +268,13 @@ pub async fn list_threads(db: &PgPool, filter: &InboxFilter) -> ReachResult<Thre
 
 /// `countUnreadThreads(db)`.
 pub async fn count_unread(db: &PgPool) -> ReachResult<i64> {
-    Ok(
-        sqlx::query_scalar(concat!("select count(*) from ", latest_inbound!(), " where latest.read_at is null"))
-            .fetch_one(db)
-            .await?,
-    )
+    Ok(sqlx::query_scalar(concat!(
+        "select count(*) from ",
+        latest_inbound!(),
+        " where latest.read_at is null"
+    ))
+    .fetch_one(db)
+    .await?)
 }
 
 /// `ThreadContext`.
@@ -269,15 +304,34 @@ pub async fn load_thread(db: &PgPool, thread_key: &str) -> ReachResult<Option<Th
         .fetch_all(db)
         .await?,
     );
-    let Some(latest) = messages.iter().rev().find(|m| text(m, "direction") == Some("in")).cloned() else {
+    let Some(latest) = messages
+        .iter()
+        .rev()
+        .find(|m| text(m, "direction") == Some("in"))
+        .cloned()
+    else {
         return Ok(None);
     };
     let prospect = match text(&latest, "prospectId") {
-        Some(id) => one(db, "select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1", id).await?,
+        Some(id) => {
+            one(
+                db,
+                "select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1",
+                id,
+            )
+            .await?
+        }
         None => None,
     };
     let campaign = match text(&latest, "campaignId") {
-        Some(id) => one(db, "select to_jsonb(t) from reach_campaigns t where t.id = $1 limit 1", id).await?,
+        Some(id) => {
+            one(
+                db,
+                "select to_jsonb(t) from reach_campaigns t where t.id = $1 limit 1",
+                id,
+            )
+            .await?
+        }
         None => None,
     };
     let mailbox = one(
@@ -324,7 +378,11 @@ async fn inbound_body(storage: Option<&dyn ReplyStorage>, row: &Value) -> Value 
         Ok(Some(bytes)) => match extract_message_text(&bytes) {
             Ok(body) => {
                 let text = strip_quoted_history(&body);
-                if text.is_empty() { snippet } else { json!(text) }
+                if text.is_empty() {
+                    snippet
+                } else {
+                    json!(text)
+                }
             }
             Err(error) => {
                 tracing::error!(%error, "[reach-inbox] reading a stored message failed");
@@ -340,14 +398,26 @@ async fn inbound_body(storage: Option<&dyn ReplyStorage>, row: &Value) -> Value 
 }
 
 /// `getThread(db, env, threadKey)`: (summary, messages).
-pub async fn get_thread(db: &PgPool, storage: Option<&dyn ReplyStorage>, thread_key: &str) -> ReachResult<Option<(Value, Vec<Value>)>> {
+pub async fn get_thread(
+    db: &PgPool,
+    storage: Option<&dyn ReplyStorage>,
+    thread_key: &str,
+) -> ReachResult<Option<(Value, Vec<Value>)>> {
     let Some(thread) = load_thread(db, thread_key).await? else {
         return Ok(None);
     };
-    let Some(summary) = summarize(db, std::slice::from_ref(&thread.latest_inbound)).await?.into_iter().next() else {
+    let Some(summary) = summarize(db, std::slice::from_ref(&thread.latest_inbound))
+        .await?
+        .into_iter()
+        .next()
+    else {
         return Ok(None);
     };
-    let inbound: Vec<&Value> = thread.messages.iter().filter(|m| text(m, "direction") == Some("in")).collect();
+    let inbound: Vec<&Value> = thread
+        .messages
+        .iter()
+        .filter(|m| text(m, "direction") == Some("in"))
+        .collect();
     let recent: Vec<&str> = inbound
         .iter()
         .skip(inbound.len().saturating_sub(MAX_BODIES))
@@ -361,7 +431,11 @@ pub async fn get_thread(db: &PgPool, storage: Option<&dyn ReplyStorage>, thread_
             } else {
                 field(row, "snippet")
             };
-            let body = if body.is_null() { field(row, "snippet") } else { body };
+            let body = if body.is_null() {
+                field(row, "snippet")
+            } else {
+                body
+            };
             messages.push(to_message_dto(row, Some(body)));
         } else {
             messages.push(to_message_dto(row, None));
@@ -414,10 +488,14 @@ pub async fn send_reply(
     user_id: &str,
 ) -> ReachResult<Value> {
     if let Err(reason) = may_send(access, (deps.now)()) {
-        return Err(ReachError::forbidden(format!("Sending is not available for this workspace ({reason})")));
+        return Err(ReachError::forbidden(format!(
+            "Sending is not available for this workspace ({reason})"
+        )));
     }
     if !sending_enabled.await {
-        return Err(ReachError::unavailable("Sending is paused. Try again later."));
+        return Err(ReachError::unavailable(
+            "Sending is paused. Try again later.",
+        ));
     }
     let db = deps.db;
     let Some(thread) = load_thread(db, thread_key).await? else {
@@ -429,17 +507,28 @@ pub async fn send_reply(
         .rev()
         .find(|m| text(m, "direction") == Some("in") && text(m, "kind") == Some("reply"))
     else {
-        return Err(ReachError::conflict("This thread has no reply to answer").with_details(json!({ "reason": "NO_REPLY" })));
+        return Err(ReachError::conflict("This thread has no reply to answer")
+            .with_details(json!({ "reason": "NO_REPLY" })));
     };
-    let to = text(answered, "fromEmail").unwrap_or_default().to_lowercase();
-    if load_index(db, std::slice::from_ref(&to)).await?.check(&to).is_some() {
-        return Err(
-            ReachError::conflict("This address is on the suppression list; it cannot be emailed")
-                .with_details(json!({ "reason": "SUPPRESSED" })),
-        );
+    let to = text(answered, "fromEmail")
+        .unwrap_or_default()
+        .to_lowercase();
+    if load_index(db, std::slice::from_ref(&to))
+        .await?
+        .check(&to)
+        .is_some()
+    {
+        return Err(ReachError::conflict(
+            "This address is on the suppression list; it cannot be emailed",
+        )
+        .with_details(json!({ "reason": "SUPPRESSED" })));
     }
-    let subject_source = text(answered, "subject")
-        .or_else(|| thread.messages.iter().find_map(|m| text(m, "subject").filter(|s| !s.is_empty())));
+    let subject_source = text(answered, "subject").or_else(|| {
+        thread
+            .messages
+            .iter()
+            .find_map(|m| text(m, "subject").filter(|s| !s.is_empty()))
+    });
     let input = SendInput {
         mailbox_id: text(answered, "mailboxId").unwrap_or_default().to_owned(),
         to_name: recipient_name(thread.prospect.as_ref(), &to),

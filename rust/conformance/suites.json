@@ -2233,7 +2233,8 @@
         "src/routes/inbox/inbox.test.ts",
         "src/routes/domains/conformance.test.ts",
         "src/routes/mailboxes/conformance.test.ts",
-        "src/routes/public-webhooks/integration.test.ts"
+        "src/routes/public-webhooks/integration.test.ts",
+        "src/routes/inbox/reply.conformance.test.ts"
       ],
       "paths": [
         "apps/workers/reach-api/src/",

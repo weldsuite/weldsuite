@@ -39,7 +39,9 @@ const LABELS: &[&str] = &[
 ];
 const KINDS: &[&str] = &["reply", "auto_reply", "bounce"];
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     let read = || gate.require([perm::REACH_INBOX_READ]);
     let update = || gate.require([perm::REACH_INBOX_UPDATE]);
     Router::new()
@@ -50,22 +52,68 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q
             "/threads/{thread_key}/reply",
             post(reply).route_layer(gate.require([perm::REACH_INBOX_REPLY])),
         )
-        .route("/messages/{id}", axum::routing::patch(update_one).route_layer(update()))
-        .route("/threads/{thread_key}/add-to-crm", post(add_to_crm).route_layer(update()))
+        .route(
+            "/messages/{id}",
+            axum::routing::patch(update_one).route_layer(update()),
+        )
+        .route(
+            "/threads/{thread_key}/add-to-crm",
+            post(add_to_crm).route_layer(update()),
+        )
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let filter = match validate_query(query.as_deref(), |issues, q| InboxFilter {
-        label: issues.choice(q, "label", Presence::Optional, LABELS).into_option(),
-        kind: issues.choice(q, "kind", Presence::Optional, KINDS).into_option(),
-        campaign_id: issues.text_with(q, "campaignId", Presence::Optional, Text::length(None, Some(30))).into_option(),
-        mailbox_id: issues.text_with(q, "mailboxId", Presence::Optional, Text::length(None, Some(30))).into_option(),
-        state: issues
-            .choice(q, "state", Presence::Optional, &["unread", "open", "handled", "all"])
+        label: issues
+            .choice(q, "label", Presence::Optional, LABELS)
             .into_option(),
-        cursor: issues.text_with(q, "cursor", Presence::Optional, Text::length(None, Some(100))).into_option(),
+        kind: issues
+            .choice(q, "kind", Presence::Optional, KINDS)
+            .into_option(),
+        campaign_id: issues
+            .text_with(
+                q,
+                "campaignId",
+                Presence::Optional,
+                Text::length(None, Some(30)),
+            )
+            .into_option(),
+        mailbox_id: issues
+            .text_with(
+                q,
+                "mailboxId",
+                Presence::Optional,
+                Text::length(None, Some(30)),
+            )
+            .into_option(),
+        state: issues
+            .choice(
+                q,
+                "state",
+                Presence::Optional,
+                &["unread", "open", "handled", "all"],
+            )
+            .into_option(),
+        cursor: issues
+            .text_with(
+                q,
+                "cursor",
+                Presence::Optional,
+                Text::length(None, Some(100)),
+            )
+            .into_option(),
         limit: issues
-            .whole_number(q, "limit", Presence::Optional, Number { coerce: true, int: true, min: Some(1.0), max: Some(100.0) })
+            .whole_number(
+                q,
+                "limit",
+                Presence::Optional,
+                Number {
+                    coerce: true,
+                    int: true,
+                    min: Some(1.0),
+                    max: Some(100.0),
+                },
+            )
             .into_option(),
     }) {
         Ok(filter) => filter,
@@ -74,7 +122,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     respond(inbox::list_threads(&caller.db, &filter).await.map(|page| {
         List::new(
             page.threads,
-            Pagination::new(u64::try_from(page.total_count).unwrap_or_default(), page.has_more, page.cursor),
+            Pagination::new(
+                u64::try_from(page.total_count).unwrap_or_default(),
+                page.has_more,
+                page.cursor,
+            ),
         )
         .into_response()
     }))
@@ -104,11 +156,21 @@ impl ReplyStorage for Bucket {
     }
 }
 
-async fn thread(State(state): State<ReachState>, caller: Caller, Path(thread_key): Path<String>) -> Response {
+async fn thread(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(thread_key): Path<String>,
+) -> Response {
     let bucket = caller.storage(&state).map(Bucket);
     respond(
         async {
-            match inbox::get_thread(&caller.db, bucket.as_ref().map(|b| b as &dyn ReplyStorage), &thread_key).await? {
+            match inbox::get_thread(
+                &caller.db,
+                bucket.as_ref().map(|b| b as &dyn ReplyStorage),
+                &thread_key,
+            )
+            .await?
+            {
                 Some((summary, messages)) => Ok(Data(json!({
                     "threadKey": thread_key,
                     "summary": summary,
@@ -127,15 +189,31 @@ async fn thread(State(state): State<ReachState>, caller: Caller, Path(thread_key
 struct NoTransport;
 
 impl SmtpTransport for NoTransport {
-    fn send(&self, _config: SmtpConfig, _envelope: SmtpEnvelope, _raw: String) -> BoxFuture<'_, Result<SmtpSendResult, String>> {
+    fn send(
+        &self,
+        _config: SmtpConfig,
+        _envelope: SmtpEnvelope,
+        _raw: String,
+    ) -> BoxFuture<'_, Result<SmtpSendResult, String>> {
         Box::pin(std::future::ready(Err("no SMTP transport".to_owned())))
     }
 }
 
-async fn reply(State(state): State<ReachState>, caller: Caller, Path(thread_key): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn reply(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(thread_key): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let text_body = match validate(&headers, &body, |issues, body| {
         issues
-            .text_with(body, "body", Presence::Required, Text::trimmed(Some(1), Some(20_000)))
+            .text_with(
+                body,
+                "body",
+                Presence::Required,
+                Text::trimmed(Some(1), Some(20_000)),
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -175,18 +253,32 @@ async fn reply(State(state): State<ReachState>, caller: Caller, Path(thread_key)
     )
 }
 
-async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| MessageInput {
-        label: issues.choice(body, "label", Presence::Optional, LABELS).into_option(),
-        read: issues.boolean(body, "read", Presence::Optional).into_option(),
-        handled: issues.boolean(body, "handled", Presence::Optional).into_option(),
+        label: issues
+            .choice(body, "label", Presence::Optional, LABELS)
+            .into_option(),
+        read: issues
+            .boolean(body, "read", Presence::Optional)
+            .into_option(),
+        handled: issues
+            .boolean(body, "handled", Presence::Optional)
+            .into_option(),
     }) {
         Ok(input) => input,
         Err(response) => return response,
     };
     respond(
         async {
-            let Some((message, change)) = update_message(&caller.db, &id, &input, &caller.user_id).await? else {
+            let Some((message, change)) =
+                update_message(&caller.db, &id, &input, &caller.user_id).await?
+            else {
                 return Ok(ApiError::not_found("Message", Some(&id)).into_response());
             };
             if let Some((previous, next)) = change {
@@ -209,13 +301,40 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
     )
 }
 
-async fn add_to_crm(State(state): State<ReachState>, caller: Caller, Path(thread_key): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn add_to_crm(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(thread_key): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let opportunity = match validate(&headers, &body, |issues, body| {
         issues
             .nested(body, "opportunity", Presence::Optional, |issues, o| {
-                let pipeline = issues.text_with(o, "pipelineId", Presence::Required, Text::length(Some(1), Some(30))).into_option();
-                let stage = issues.text_with(o, "stageId", Presence::Required, Text::length(Some(1), Some(30))).into_option();
-                let name = issues.text_with(o, "name", Presence::Optional, Text::trimmed(Some(1), Some(200))).into_option();
+                let pipeline = issues
+                    .text_with(
+                        o,
+                        "pipelineId",
+                        Presence::Required,
+                        Text::length(Some(1), Some(30)),
+                    )
+                    .into_option();
+                let stage = issues
+                    .text_with(
+                        o,
+                        "stageId",
+                        Presence::Required,
+                        Text::length(Some(1), Some(30)),
+                    )
+                    .into_option();
+                let name = issues
+                    .text_with(
+                        o,
+                        "name",
+                        Presence::Optional,
+                        Text::trimmed(Some(1), Some(200)),
+                    )
+                    .into_option();
                 Some(OpportunityInput {
                     pipeline_id: pipeline?,
                     stage_id: stage?,
@@ -245,9 +364,10 @@ async fn add_to_crm(State(state): State<ReachState>, caller: Caller, Path(thread
             )
             .await
             {
-                Ok((person_id, opportunity_id)) => {
-                    Ok(Data(json!({ "personId": person_id, "opportunityId": opportunity_id })).into_response())
-                }
+                Ok((person_id, opportunity_id)) => Ok(Data(
+                    json!({ "personId": person_id, "opportunityId": opportunity_id }),
+                )
+                .into_response()),
                 Err(HandoffError::Refused(code, message)) => Ok(ApiError::bad_request(message)
                     .with_details(json!({ "reason": code }))
                     .into_response()),

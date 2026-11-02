@@ -365,12 +365,20 @@ fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
         events: state.infra.events.clone(),
         master: (!conformance).then(|| master.clone()),
         http: if conformance { None } else { shared_outbound() },
-        files: if conformance { None } else { file_stores(state) },
-        keyring: weldsuite_db::Keyring {
-            v1: std::env::var("DATABASE_ENCRYPTION_KEY").ok().filter(|k| !k.is_empty()),
-            v2: std::env::var("DATABASE_ENCRYPTION_KEY_V2").ok().filter(|k| !k.is_empty()),
+        files: if conformance {
+            None
+        } else {
+            file_stores(state)
         },
-        smtp: None,
+        keyring: weldsuite_db::Keyring {
+            v1: std::env::var("DATABASE_ENCRYPTION_KEY")
+                .ok()
+                .filter(|k| !k.is_empty()),
+            v2: std::env::var("DATABASE_ENCRYPTION_KEY_V2")
+                .ok()
+                .filter(|k| !k.is_empty()),
+        },
+        smtp: Some(Arc::new(weldsuite_reach::LettreSmtp)),
         access_gate: (!conformance).then(|| {
             Arc::new(weldsuite_pipeline::AppAccessGate::new(
                 master,

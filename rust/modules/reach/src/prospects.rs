@@ -19,28 +19,51 @@ use weldsuite_reach_domain::prospects::{self, ImportRow, ProspectDeps, ProspectU
 
 use crate::{Caller, ReachState, limits_of, respond, validate};
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     let read = || gate.require([perm::REACH_PROSPECTS_READ]);
     let create = || gate.require([perm::REACH_PROSPECTS_CREATE]);
     Router::new()
-        .route("/", get(list).route_layer(read()).merge(post(create_one).route_layer(create())))
+        .route(
+            "/",
+            get(list)
+                .route_layer(read())
+                .merge(post(create_one).route_layer(create())),
+        )
         .route(
             "/{id}",
             get(read_one)
                 .route_layer(read())
-                .merge(axum::routing::patch(update_one).route_layer(gate.require([perm::REACH_PROSPECTS_UPDATE])))
-                .merge(axum::routing::delete(delete_one).route_layer(gate.require([perm::REACH_PROSPECTS_DELETE]))),
+                .merge(
+                    axum::routing::patch(update_one)
+                        .route_layer(gate.require([perm::REACH_PROSPECTS_UPDATE])),
+                )
+                .merge(
+                    axum::routing::delete(delete_one)
+                        .route_layer(gate.require([perm::REACH_PROSPECTS_DELETE])),
+                ),
         )
         .route("/import", post(import).route_layer(create()))
-        .route("/import-crm-list", post(import_crm_list).route_layer(create()))
-        .route("/import-welddata", post(import_welddata).route_layer(create()))
+        .route(
+            "/import-crm-list",
+            post(import_crm_list).route_layer(create()),
+        )
+        .route(
+            "/import-welddata",
+            post(import_welddata).route_layer(create()),
+        )
 }
 
 /// A page as the list envelope.
 pub(crate) fn page_response(page: Page) -> Response {
     List::new(
         page.data,
-        Pagination::new(u64::try_from(page.total_count).unwrap_or_default(), page.has_more, page.cursor),
+        Pagination::new(
+            u64::try_from(page.total_count).unwrap_or_default(),
+            page.has_more,
+            page.cursor,
+        ),
     )
     .into_response()
 }
@@ -54,37 +77,73 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 }
 
 async fn read_one(caller: Caller, Path(id): Path<String>) -> Response {
-    respond(prospects::get(&caller.db, &id).await.map(|p| Data(p).into_response()))
+    respond(
+        prospects::get(&caller.db, &id)
+            .await
+            .map(|p| Data(p).into_response()),
+    )
 }
 
 /// `customFields`: `z.record(z.string().max(64), z.string().max(2000))`
 /// refined to at most 50 keys. The refinement's issue is kept for last, as
 /// `safeParseAsync` settles it after the synchronous checks.
-fn custom_fields(issues: &mut Issues, body: &Map<String, Value>, refine: &mut Vec<String>) -> Option<Map<String, Value>> {
+fn custom_fields(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    refine: &mut Vec<String>,
+) -> Option<Map<String, Value>> {
     issues
-        .nested(body, "customFields", Presence::Optional, |issues, fields| {
-            let mut out = Map::new();
-            for key in fields.keys() {
-                if weldsuite_reach_domain::js_len(key) > 64 {
-                    issues.string_too_big(key, 64, "String must contain at most 64 character(s)");
+        .nested(
+            body,
+            "customFields",
+            Presence::Optional,
+            |issues, fields| {
+                let mut out = Map::new();
+                for key in fields.keys() {
+                    if weldsuite_reach_domain::js_len(key) > 64 {
+                        issues.string_too_big(
+                            key,
+                            64,
+                            "String must contain at most 64 character(s)",
+                        );
+                    }
+                    if let Some(text) = issues
+                        .text_with(
+                            fields,
+                            key,
+                            Presence::Required,
+                            Text::length(None, Some(2000)),
+                        )
+                        .into_option()
+                    {
+                        out.insert(key.clone(), Value::String(text));
+                    }
                 }
-                if let Some(text) = issues.text_with(fields, key, Presence::Required, Text::length(None, Some(2000))).into_option() {
-                    out.insert(key.clone(), Value::String(text));
+                if fields.len() > 50 {
+                    refine.push("customFields".to_owned());
                 }
-            }
-            if fields.len() > 50 {
-                refine.push("customFields".to_owned());
-            }
-            out
-        })
+                out
+            },
+        )
         .into_option()
 }
 
 /// The shape of a prospect row (`reachProspectInputSchema`); `email_rules`
 /// differ for import rows.
-fn prospect_row(issues: &mut Issues, body: &Map<String, Value>, email_rules: Text, refine: &mut Vec<String>) -> ImportRow {
-    let email = issues.text_with(body, "email", Presence::Required, email_rules).into_option();
-    let opt = |issues: &mut Issues, key: &str, rules: Text| issues.text_with(body, key, Presence::Optional, rules).into_option();
+fn prospect_row(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    email_rules: Text,
+    refine: &mut Vec<String>,
+) -> ImportRow {
+    let email = issues
+        .text_with(body, "email", Presence::Required, email_rules)
+        .into_option();
+    let opt = |issues: &mut Issues, key: &str, rules: Text| {
+        issues
+            .text_with(body, key, Presence::Optional, rules)
+            .into_option()
+    };
     let first_name = opt(issues, "firstName", Text::trimmed(None, Some(100)));
     let last_name = opt(issues, "lastName", Text::trimmed(None, Some(100)));
     let company_name = opt(issues, "companyName", Text::trimmed(None, Some(200)));
@@ -117,11 +176,23 @@ fn finish_refinements(issues: &mut Issues, refine: &[String]) {
     }
 }
 
-async fn create_one(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn create_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
         let mut refine = Vec::new();
         let row = prospect_row(issues, body, EMAIL_RULES, &mut refine);
-        let list_id = issues.text_with(body, "listId", Presence::Optional, Text::length(Some(1), Some(30))).into_option();
+        let list_id = issues
+            .text_with(
+                body,
+                "listId",
+                Presence::Optional,
+                Text::length(Some(1), Some(30)),
+            )
+            .into_option();
         finish_refinements(issues, &refine);
         (row, list_id)
     }) {
@@ -145,10 +216,20 @@ async fn create_one(State(state): State<ReachState>, caller: Caller, headers: He
     )
 }
 
-async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
         let mut refine = Vec::new();
-        let opt = |issues: &mut Issues, key: &str, rules: Text| issues.text_with(body, key, Presence::Optional, rules).into_option();
+        let opt = |issues: &mut Issues, key: &str, rules: Text| {
+            issues
+                .text_with(body, key, Presence::Optional, rules)
+                .into_option()
+        };
         let update = ProspectUpdate {
             first_name: opt(issues, "firstName", Text::trimmed(None, Some(100))),
             last_name: opt(issues, "lastName", Text::trimmed(None, Some(100))),
@@ -171,7 +252,11 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
     )
 }
 
-async fn delete_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn delete_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let sink = caller.sink(&state);
     respond(
         prospects::delete(&caller.db, &sink, &id)
@@ -180,28 +265,67 @@ async fn delete_one(State(state): State<ReachState>, caller: Caller, Path(id): P
     )
 }
 
-async fn import(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn import(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
         let mut refine: Vec<String> = Vec::new();
         let rows = issues
-            .list(body, "rows", Presence::Required, Some(1), Some(5000), |issues, item| {
-                let fields = issues.object(item)?.clone();
-                let mut item_refine = Vec::new();
-                let row = prospect_row(
-                    issues,
-                    &fields,
-                    Text { trim: true, lowercase: true, format: None, min: None, max: Some(320) },
-                    &mut item_refine,
-                );
-                for key in item_refine {
-                    issues.custom(&key, "At most 50 custom fields");
-                }
-                Some(row)
-            })
+            .list(
+                body,
+                "rows",
+                Presence::Required,
+                Some(1),
+                Some(5000),
+                |issues, item| {
+                    let fields = issues.object(item)?.clone();
+                    let mut item_refine = Vec::new();
+                    let row = prospect_row(
+                        issues,
+                        &fields,
+                        Text {
+                            trim: true,
+                            lowercase: true,
+                            format: None,
+                            min: None,
+                            max: Some(320),
+                        },
+                        &mut item_refine,
+                    );
+                    for key in item_refine {
+                        issues.custom(&key, "At most 50 custom fields");
+                    }
+                    Some(row)
+                },
+            )
             .into_option();
-        let list_id = issues.text_with(body, "listId", Presence::Optional, Text::length(None, Some(30))).into_option();
-        let list_name = issues.text_with(body, "listName", Presence::Optional, Text::trimmed(Some(1), Some(200))).into_option();
-        let source_ref = issues.text_with(body, "sourceRef", Presence::Optional, Text::length(None, Some(255))).into_option();
+        let list_id = issues
+            .text_with(
+                body,
+                "listId",
+                Presence::Optional,
+                Text::length(None, Some(30)),
+            )
+            .into_option();
+        let list_name = issues
+            .text_with(
+                body,
+                "listName",
+                Presence::Optional,
+                Text::trimmed(Some(1), Some(200)),
+            )
+            .into_option();
+        let source_ref = issues
+            .text_with(
+                body,
+                "sourceRef",
+                Presence::Optional,
+                Text::length(None, Some(255)),
+            )
+            .into_option();
         refine.clear();
         (rows.unwrap_or_default(), list_id, list_name, source_ref)
     }) {
@@ -219,9 +343,15 @@ async fn import(State(state): State<ReachState>, caller: Caller, headers: Header
         http: Some(&http),
     };
     respond(
-        prospects::import_rows(&deps, &input.0, input.1.as_deref(), input.2.as_deref(), input.3.as_deref())
-            .await
-            .map(|r| Data(r).into_response()),
+        prospects::import_rows(
+            &deps,
+            &input.0,
+            input.1.as_deref(),
+            input.2.as_deref(),
+            input.3.as_deref(),
+        )
+        .await
+        .map(|r| Data(r).into_response()),
     )
 }
 
@@ -235,8 +365,22 @@ async fn import_source(
     id_key: &str,
 ) -> Response {
     let input = match validate(headers, body, |issues, body| {
-        let id = issues.text_with(body, id_key, Presence::Required, Text::length(Some(1), Some(30))).into_option();
-        let name = issues.text_with(body, "listName", Presence::Optional, Text::trimmed(Some(1), Some(200))).into_option();
+        let id = issues
+            .text_with(
+                body,
+                id_key,
+                Presence::Required,
+                Text::length(Some(1), Some(30)),
+            )
+            .into_option();
+        let name = issues
+            .text_with(
+                body,
+                "listName",
+                Presence::Optional,
+                Text::trimmed(Some(1), Some(200)),
+            )
+            .into_option();
         (id, name)
     }) {
         Ok((Some(id), name)) => (id, name),
@@ -244,7 +388,8 @@ async fn import_source(
         Err(response) => return response,
     };
     let allowed = if source == "crm_list" {
-        caller.permissions.has_any(&[perm::LISTS_READ]) && caller.permissions.has_any(&[perm::PEOPLE_READ])
+        caller.permissions.has_any(&[perm::LISTS_READ])
+            && caller.permissions.has_any(&[perm::PEOPLE_READ])
     } else {
         caller.permissions.has_any(&[perm::LISTS_READ])
     };
@@ -273,10 +418,28 @@ async fn import_source(
     )
 }
 
-async fn import_crm_list(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn import_crm_list(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     import_source(&state, &caller, &headers, &body, "crm_list", "crmListId").await
 }
 
-async fn import_welddata(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    import_source(&state, &caller, &headers, &body, "welddata", "welddataListId").await
+async fn import_welddata(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    import_source(
+        &state,
+        &caller,
+        &headers,
+        &body,
+        "welddata",
+        "welddataListId",
+    )
+    .await
 }

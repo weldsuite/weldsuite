@@ -8,7 +8,9 @@ use weldsuite_catalogs::entity_events::{COMPANY_CREATED, OPPORTUNITY_CREATED, PE
 use weldsuite_crm_domain::DomainError;
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::schemas::{email_domain, is_consumer_email};
-use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, iso, js_slice, now, text};
+use weldsuite_reach_domain::{
+    EventSink, ReachError, ReachEvent, ReachResult, iso, js_slice, now, text,
+};
 
 /// The prospect side of a hand-off (`CrmProspect`).
 pub(crate) struct CrmProspect {
@@ -59,18 +61,24 @@ fn crm_failure(error: DomainError) -> HandoffError {
 
 /// `isValidWorkspaceMember(db, userId)`.
 async fn is_member(db: &PgPool, user_id: &str) -> ReachResult<bool> {
-    let row: Option<String> =
-        sqlx::query_scalar("select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<String> = sqlx::query_scalar(
+        "select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?;
     Ok(row.is_some())
 }
 
 /// `resolveCrmOwner(db, campaign)`: the owner, else the creator, if a member.
-pub(crate) async fn resolve_owner(db: &PgPool, campaign: Option<&Value>) -> ReachResult<Option<String>> {
+pub(crate) async fn resolve_owner(
+    db: &PgPool,
+    campaign: Option<&Value>,
+) -> ReachResult<Option<String>> {
     for key in ["ownerId", "createdBy"] {
-        if let Some(candidate) = campaign.and_then(|c| text(c, key)).filter(|c| !c.is_empty())
+        if let Some(candidate) = campaign
+            .and_then(|c| text(c, key))
+            .filter(|c| !c.is_empty())
             && is_member(db, candidate).await?
         {
             return Ok(Some(candidate.to_owned()));
@@ -89,15 +97,18 @@ fn host_of(website: Option<&str>) -> String {
         Some(at)
             if at > 0
                 && trimmed[..at].starts_with(|c: char| c.is_ascii_lowercase())
-                && trimmed[..at]
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-')) =>
+                && trimmed[..at].chars().all(|c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-')
+                }) =>
         {
             &trimmed[at + 3..]
         }
         _ => trimmed.as_str(),
     };
-    let host = without_scheme.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
     host.strip_prefix("www.").unwrap_or(host).to_owned()
 }
 
@@ -110,7 +121,11 @@ fn title_case_domain_name(domain: &str) -> String {
     }
 }
 
-async fn find_company(db: &PgPool, domain: &str, name: Option<&str>) -> ReachResult<Option<(String, String)>> {
+async fn find_company(
+    db: &PgPool,
+    domain: &str,
+    name: Option<&str>,
+) -> ReachResult<Option<(String, String)>> {
     if !domain.is_empty() && !is_consumer_email(&format!("x@{domain}")) {
         let candidates: Vec<(String, String, Option<String>)> = sqlx::query_as(
             "select id, name, website from companies where deleted_at is null and lower(website) like $1 limit 25",
@@ -118,11 +133,17 @@ async fn find_company(db: &PgPool, domain: &str, name: Option<&str>) -> ReachRes
         .bind(format!("%{domain}%"))
         .fetch_all(db)
         .await?;
-        if let Some((id, name, _)) = candidates.into_iter().find(|(_, _, w)| host_of(w.as_deref()) == domain) {
+        if let Some((id, name, _)) = candidates
+            .into_iter()
+            .find(|(_, _, w)| host_of(w.as_deref()) == domain)
+        {
             return Ok(Some((id, name)));
         }
     }
-    if let Some(name) = name.map(weldsuite_reach_domain::text::js_trim).filter(|n| !n.is_empty()) {
+    if let Some(name) = name
+        .map(weldsuite_reach_domain::text::js_trim)
+        .filter(|n| !n.is_empty())
+    {
         let found: Option<(String, String)> = sqlx::query_as(
             "select id, name from companies where deleted_at is null and lower(name) = $1 limit 1",
         )
@@ -184,14 +205,23 @@ async fn ensure_company(
         return Ok(None);
     }
     if prospect.company_name.as_deref().is_none_or(str::is_empty) && consumer {
-        let person = [prospect.first_name.as_deref(), prospect.last_name.as_deref()]
-            .into_iter()
-            .flatten()
-            .filter(|p| !p.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let name = if person.is_empty() { prospect.email.clone() } else { person };
-        return create_company_row(db, sink, &name, None, owner).await.map(Some);
+        let person = [
+            prospect.first_name.as_deref(),
+            prospect.last_name.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+        let name = if person.is_empty() {
+            prospect.email.clone()
+        } else {
+            person
+        };
+        return create_company_row(db, sink, &name, None, owner)
+            .await
+            .map(Some);
     }
     let name = prospect
         .company_name
@@ -199,9 +229,15 @@ async fn ensure_company(
         .map(weldsuite_reach_domain::text::js_trim)
         .filter(|n| !n.is_empty())
         .map_or_else(|| title_case_domain_name(&domain), str::to_owned);
-    create_company_row(db, sink, &name, (!consumer).then_some(domain.as_str()), owner)
-        .await
-        .map(Some)
+    create_company_row(
+        db,
+        sink,
+        &name,
+        (!consumer).then_some(domain.as_str()),
+        owner,
+    )
+    .await
+    .map(Some)
 }
 
 async fn link_person_to_company(db: &PgPool, person_id: &str, company_id: &str) -> ReachResult<()> {
@@ -211,7 +247,8 @@ async fn link_person_to_company(db: &PgPool, person_id: &str, company_id: &str) 
     .bind(person_id)
     .fetch_all(db)
     .await?;
-    let active: Vec<&(String, Option<bool>, Option<String>)> = links.iter().filter(|l| l.2.is_none()).collect();
+    let active: Vec<&(String, Option<bool>, Option<String>)> =
+        links.iter().filter(|l| l.2.is_none()).collect();
     if active.iter().any(|l| l.0 == company_id) {
         return Ok(());
     }
@@ -291,7 +328,9 @@ async fn ensure_person(
             ));
             Ok((id, true))
         }
-        Err(DomainError::DuplicateEmail { existing_person_id, .. }) => Ok((existing_person_id, false)),
+        Err(DomainError::DuplicateEmail {
+            existing_person_id, ..
+        }) => Ok((existing_person_id, false)),
         Err(error) => Err(crm_failure(error)),
     }
 }
@@ -358,9 +397,16 @@ pub(crate) async fn add_thread_to_crm(
                 .await
                 .map_err(crm_failure)?;
             let Some(stage) = stage else {
-                return Err(HandoffError::Refused("UNKNOWN_STAGE", "Unknown pipeline stage"));
+                return Err(HandoffError::Refused(
+                    "UNKNOWN_STAGE",
+                    "Unknown pipeline stage",
+                ));
             };
-            if stage.pipeline.as_deref().is_some_and(|p| !p.is_empty() && p != input.pipeline_id) {
+            if stage
+                .pipeline
+                .as_deref()
+                .is_some_and(|p| !p.is_empty() && p != input.pipeline_id)
+            {
                 return Err(HandoffError::Refused(
                     "STAGE_PIPELINE_MISMATCH",
                     "The stage does not belong to that pipeline",
@@ -381,42 +427,80 @@ pub(crate) async fn add_thread_to_crm(
             title: None,
         },
     };
-    let (person_id, company_id) =
-        ensure_contact(db, sink, Some(acting_user), &prospect, campaign, opportunity.is_some()).await?;
+    let (person_id, company_id) = ensure_contact(
+        db,
+        sink,
+        Some(acting_user),
+        &prospect,
+        campaign,
+        opportunity.is_some(),
+    )
+    .await?;
     let (Some(input), Some(stage)) = (opportunity, stage) else {
         return Ok((person_id, None));
     };
     let Some(company_id) = company_id else {
-        return Err(HandoffError::Refused("NO_COMPANY", "An opportunity needs a company"));
+        return Err(HandoffError::Refused(
+            "NO_COMPANY",
+            "An opportunity needs a company",
+        ));
     };
-    let owner = resolve_owner(db, campaign).await?.unwrap_or_else(|| acting_user.to_owned());
-    let person_name = [prospect.first_name.as_deref(), prospect.last_name.as_deref()]
-        .into_iter()
-        .flatten()
-        .filter(|p| !p.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-    let person_name = if person_name.is_empty() { prospect.email.clone() } else { person_name };
+    let owner = resolve_owner(db, campaign)
+        .await?
+        .unwrap_or_else(|| acting_user.to_owned());
+    let person_name = [
+        prospect.first_name.as_deref(),
+        prospect.last_name.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|p| !p.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
+    let person_name = if person_name.is_empty() {
+        prospect.email.clone()
+    } else {
+        person_name
+    };
     let suffix = campaign
         .and_then(|c| text(c, "name"))
         .map(|name| format!(" ({name})"))
         .unwrap_or_default();
-    let default_name = format!("{}{suffix}", prospect.company_name.clone().unwrap_or(person_name));
+    let default_name = format!(
+        "{}{suffix}",
+        prospect.company_name.clone().unwrap_or(person_name)
+    );
     let mut fields = Map::new();
-    fields.insert("name".to_owned(), json!(js_slice(input.name.as_deref().unwrap_or(&default_name), 255)));
+    fields.insert(
+        "name".to_owned(),
+        json!(js_slice(
+            input.name.as_deref().unwrap_or(&default_name),
+            255
+        )),
+    );
     fields.insert("customerId".to_owned(), json!(company_id));
     fields.insert("primaryContactId".to_owned(), json!(person_id));
     fields.insert("stage".to_owned(), json!(stage.id));
     fields.insert("stageId".to_owned(), json!(stage.id));
     fields.insert(
         "pipeline".to_owned(),
-        json!(stage.pipeline.clone().unwrap_or_else(|| input.pipeline_id.clone())),
+        json!(
+            stage
+                .pipeline
+                .clone()
+                .unwrap_or_else(|| input.pipeline_id.clone())
+        ),
     );
     fields.insert("leadSource".to_owned(), json!("weldreach"));
     fields.insert("ownerId".to_owned(), json!(owner));
-    let created = weldsuite_crm_domain::opportunities::create_opportunity(db, &fields, Some(acting_user))
-        .await
-        .map_err(crm_failure)?;
-    sink.emit(ReachEvent::new(OPPORTUNITY_CREATED, &created.id, created.event_data.clone()));
+    let created =
+        weldsuite_crm_domain::opportunities::create_opportunity(db, &fields, Some(acting_user))
+            .await
+            .map_err(crm_failure)?;
+    sink.emit(ReachEvent::new(
+        OPPORTUNITY_CREATED,
+        &created.id,
+        created.event_data.clone(),
+    ));
     Ok((person_id, Some(created.id)))
 }

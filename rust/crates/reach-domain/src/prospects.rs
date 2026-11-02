@@ -5,20 +5,34 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{REACH_PROSPECT_CREATED, REACH_PROSPECT_DELETED, REACH_PROSPECT_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    REACH_PROSPECT_CREATED, REACH_PROSPECT_DELETED, REACH_PROSPECT_UPDATED,
+};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
 
 use crate::campaigns::complete_and_publish;
-use crate::lists::{Page, PageQuery, add_to_list, create_list, cursor_row, find_list, like_pattern, page_result, parse_limit, recount_list};
+use crate::lists::{
+    Page, PageQuery, add_to_list, create_list, cursor_row, find_list, like_pattern, page_result,
+    parse_limit, recount_list,
+};
 use crate::schemas::email_domain;
 use crate::suppressions::load_index;
 use crate::text::js_trim;
 use crate::validation::validate_emails;
-use crate::{EventSink, ReachError, ReachEvent, ReachResult, field, iso, js_rows, js_slice, now, text};
+use crate::{
+    EventSink, ReachError, ReachEvent, ReachResult, field, iso, js_rows, js_slice, now, text,
+};
 
 const CHUNK: usize = 500;
-const VALIDATIONS: &[&str] = &["valid", "role", "consumer", "no_mx", "invalid", "suppressed"];
+const VALIDATIONS: &[&str] = &[
+    "valid",
+    "role",
+    "consumer",
+    "no_mx",
+    "invalid",
+    "suppressed",
+];
 
 /// `MAX_SOURCE_LIST_ROWS`.
 pub const MAX_SOURCE_LIST_ROWS: i64 = 10_000;
@@ -78,7 +92,10 @@ pub struct ImportOutcome {
 }
 
 fn blank_to_null(value: Option<&str>) -> Option<String> {
-    value.map(js_trim).filter(|t| !t.is_empty()).map(str::to_owned)
+    value
+        .map(js_trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
 }
 
 fn clip(value: Option<String>, max: usize) -> Option<String> {
@@ -138,10 +155,11 @@ pub async fn import_prospects(
     }
     let mut existing: HashSet<String> = HashSet::new();
     for chunk in emails.chunks(CHUNK) {
-        let found: Vec<String> = sqlx::query_scalar("select email from reach_prospects where email = any($1)")
-            .bind(chunk)
-            .fetch_all(db)
-            .await?;
+        let found: Vec<String> =
+            sqlx::query_scalar("select email from reach_prospects where email = any($1)")
+                .bind(chunk)
+                .fetch_all(db)
+                .await?;
         existing.extend(found);
     }
     let suppressed = load_index(db, &emails).await?;
@@ -233,11 +251,12 @@ pub async fn soft_delete(db: &PgPool, id: &str) -> ReachResult<Option<Vec<String
     if row.is_none() {
         return Ok(None);
     }
-    let lists: Vec<String> =
-        sqlx::query_scalar("delete from reach_prospect_list_members where prospect_id = $1 returning list_id")
-            .bind(id)
-            .fetch_all(db)
-            .await?;
+    let lists: Vec<String> = sqlx::query_scalar(
+        "delete from reach_prospect_list_members where prospect_id = $1 returning list_id",
+    )
+    .bind(id)
+    .fetch_all(db)
+    .await?;
     for list_id in crate::unique(&lists) {
         recount_list(db, &list_id).await?;
     }
@@ -287,7 +306,10 @@ fn split_name(full: Option<&str>) -> (Option<String>, Option<String>) {
     }
 }
 
-async fn current_company_names(db: &PgPool, person_ids: &[String]) -> ReachResult<Vec<(String, String)>> {
+async fn current_company_names(
+    db: &PgPool,
+    person_ids: &[String],
+) -> ReachResult<Vec<(String, String)>> {
     let links: Vec<(String, String, Option<bool>)> = sqlx::query_as(
         "select person_id, company_id, is_primary from person_companies where person_id = any($1) and ended_at is null",
     )
@@ -298,10 +320,12 @@ async fn current_company_names(db: &PgPool, person_ids: &[String]) -> ReachResul
     let names: Vec<(String, String)> = if company_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, display_name from companies where id = any($1) and deleted_at is null")
-            .bind(&company_ids)
-            .fetch_all(db)
-            .await?
+        sqlx::query_as(
+            "select id, display_name from companies where id = any($1) and deleted_at is null",
+        )
+        .bind(&company_ids)
+        .fetch_all(db)
+        .await?
     };
     let mut ranked = links;
     ranked.sort_by_key(|l| std::cmp::Reverse(i32::from(l.2.unwrap_or(false))));
@@ -318,7 +342,10 @@ async fn current_company_names(db: &PgPool, person_ids: &[String]) -> ReachResul
 }
 
 /// `loadCrmListRows(db, crmListId)`: (list name, rows).
-pub async fn load_crm_list_rows(db: &PgPool, crm_list_id: &str) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
+pub async fn load_crm_list_rows(
+    db: &PgPool,
+    crm_list_id: &str,
+) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
     let list: Option<(String, String, String)> =
         sqlx::query_as("select name, kind::text, type::text from lists where id = $1 and deleted_at is null limit 1")
             .bind(crm_list_id)
@@ -333,24 +360,31 @@ pub async fn load_crm_list_rows(db: &PgPool, crm_list_id: &str) -> ReachResult<R
     if kind_type != "static" {
         return Ok(Err(SourceListError::SmartList));
     }
-    let members: Vec<String> = sqlx::query_scalar("select entity_id from list_members where list_id = $1 limit $2")
-        .bind(crm_list_id)
-        .bind(MAX_SOURCE_LIST_ROWS + 1)
-        .fetch_all(db)
-        .await?;
+    let members: Vec<String> =
+        sqlx::query_scalar("select entity_id from list_members where list_id = $1 limit $2")
+            .bind(crm_list_id)
+            .bind(MAX_SOURCE_LIST_ROWS + 1)
+            .fetch_all(db)
+            .await?;
     if i64::try_from(members.len()).unwrap_or_default() > MAX_SOURCE_LIST_ROWS {
         return Ok(Err(SourceListError::TooLarge));
     }
     let mut rows = Vec::new();
     for chunk in members.chunks(CHUNK) {
-        let persons: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as(
-                "select id, email, first_name, last_name, display_name, title from people
+        let persons: Vec<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            "select id, email, first_name, last_name, display_name, title from people
                  where id = any($1) and deleted_at is null",
-            )
-            .bind(chunk)
-            .fetch_all(db)
-            .await?;
+        )
+        .bind(chunk)
+        .fetch_all(db)
+        .await?;
         let company_of = current_company_names(db, chunk).await?;
         for (id, email, first, last, display, title) in persons {
             let Some(email) = email.filter(|e| !e.is_empty()) else {
@@ -358,7 +392,10 @@ pub async fn load_crm_list_rows(db: &PgPool, crm_list_id: &str) -> ReachResult<R
             };
             let (fallback_first, fallback_last) = split_name(display.as_deref());
             rows.push(ImportRow {
-                company_name: company_of.iter().find(|(p, _)| *p == id).map(|(_, n)| n.clone()),
+                company_name: company_of
+                    .iter()
+                    .find(|(p, _)| *p == id)
+                    .map(|(_, n)| n.clone()),
                 person_id: Some(id),
                 email: Some(email),
                 first_name: first.or(fallback_first),
@@ -373,12 +410,16 @@ pub async fn load_crm_list_rows(db: &PgPool, crm_list_id: &str) -> ReachResult<R
 }
 
 /// `loadWeldDataListRows(db, listId)`: (list name, rows).
-pub async fn load_welddata_list_rows(db: &PgPool, list_id: &str) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
-    let list: Option<(String, String)> =
-        sqlx::query_as("select name, kind::text from welddata_lists where id = $1 and deleted_at is null limit 1")
-            .bind(list_id)
-            .fetch_optional(db)
-            .await?;
+pub async fn load_welddata_list_rows(
+    db: &PgPool,
+    list_id: &str,
+) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
+    let list: Option<(String, String)> = sqlx::query_as(
+        "select name, kind::text from welddata_lists where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(list_id)
+    .fetch_optional(db)
+    .await?;
     let Some((name, kind)) = list else {
         return Ok(Err(SourceListError::NotFound));
     };
@@ -436,7 +477,11 @@ pub struct ProspectDeps<'a> {
     pub http: Option<&'a OutboundHttp>,
 }
 
-fn emit_prospect(emit: &dyn EventSink, event: weldsuite_catalogs::entity_events::EventName, row: &Value) {
+fn emit_prospect(
+    emit: &dyn EventSink,
+    event: weldsuite_catalogs::entity_events::EventName,
+    row: &Value,
+) {
     let id = crate::text_or_empty(row, "id").to_owned();
     emit.emit(ReachEvent::new(event, id, row.clone()));
 }
@@ -500,7 +545,11 @@ pub async fn get(db: &PgPool, id: &str) -> ReachResult<Value> {
 }
 
 /// `createProspect(deps, input)`.
-pub async fn create(deps: &ProspectDeps<'_>, row: ImportRow, list_id: Option<&str>) -> ReachResult<Value> {
+pub async fn create(
+    deps: &ProspectDeps<'_>,
+    row: ImportRow,
+    list_id: Option<&str>,
+) -> ReachResult<Value> {
     let db = deps.db;
     let email = row.email.clone().unwrap_or_default();
     let existing: Option<Option<String>> =
@@ -509,7 +558,9 @@ pub async fn create(deps: &ProspectDeps<'_>, row: ImportRow, list_id: Option<&st
             .fetch_optional(db)
             .await?;
     if matches!(existing, Some(None)) {
-        return Err(ReachError::conflict("A prospect with this email already exists"));
+        return Err(ReachError::conflict(
+            "A prospect with this email already exists",
+        ));
     }
     if let Some(list_id) = list_id
         && find_list(db, list_id).await?.is_none()
@@ -534,10 +585,11 @@ pub async fn create(deps: &ProspectDeps<'_>, row: ImportRow, list_id: Option<&st
     if let Some(list_id) = list_id {
         add_to_list(db, list_id, std::slice::from_ref(&stored.id)).await?;
     }
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1")
-        .bind(&stored.id)
-        .fetch_optional(db)
-        .await?;
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1")
+            .bind(&stored.id)
+            .fetch_optional(db)
+            .await?;
     let Some(row) = row.map(weldsuite_db::js_row) else {
         return Err(ReachError::internal("Failed to create the prospect"));
     };
@@ -558,7 +610,12 @@ pub struct ProspectUpdate {
 }
 
 /// `updateProspect(deps, id, input)`.
-pub async fn update(db: &PgPool, emit: &dyn EventSink, id: &str, input: ProspectUpdate) -> ReachResult<Value> {
+pub async fn update(
+    db: &PgPool,
+    emit: &dyn EventSink,
+    id: &str,
+    input: ProspectUpdate,
+) -> ReachResult<Value> {
     let row: Option<Value> = sqlx::query_scalar(
         "update reach_prospects set
              first_name = case when $2 then $3 else first_name end,
@@ -599,7 +656,11 @@ pub async fn delete(db: &PgPool, emit: &dyn EventSink, id: &str) -> ReachResult<
         return Err(ReachError::not_found("Prospect", Some(id)));
     };
     complete_and_publish(db, emit, &campaigns).await?;
-    emit.emit(ReachEvent::new(REACH_PROSPECT_DELETED, id, json!({ "id": id })));
+    emit.emit(ReachEvent::new(
+        REACH_PROSPECT_DELETED,
+        id,
+        json!({ "id": id }),
+    ));
     Ok(())
 }
 
@@ -618,13 +679,18 @@ async fn resolve_import_list(
         return Ok(Some(list_id.to_owned()));
     }
     if let Some(name) = list_name.filter(|n| !n.is_empty()) {
-        let created = create_list(deps.db, name, None, source, source_ref, Some(deps.user_id)).await?;
+        let created =
+            create_list(deps.db, name, None, source, source_ref, Some(deps.user_id)).await?;
         return Ok(text(&created, "id").map(str::to_owned));
     }
     Ok(None)
 }
 
-async fn finish_import(deps: &ProspectDeps<'_>, outcome: ImportOutcome, list_id: Option<String>) -> ReachResult<Value> {
+async fn finish_import(
+    deps: &ProspectDeps<'_>,
+    outcome: ImportOutcome,
+    list_id: Option<String>,
+) -> ReachResult<Value> {
     if let Some(list_id) = &list_id {
         let ids: Vec<String> = outcome.stored.iter().map(|s| s.id.clone()).collect();
         add_to_list(deps.db, list_id, &ids).await?;
@@ -637,10 +703,11 @@ async fn finish_import(deps: &ProspectDeps<'_>, outcome: ImportOutcome, list_id:
         .map(|s| s.id.clone())
         .collect();
     if !fresh.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = any($1)")
-            .bind(&fresh)
-            .fetch_all(deps.db)
-            .await?;
+        let rows: Vec<Value> =
+            sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = any($1)")
+                .bind(&fresh)
+                .fetch_all(deps.db)
+                .await?;
         for row in js_rows(rows) {
             emit_prospect(deps.emit, REACH_PROSPECT_CREATED, &row);
         }
@@ -691,13 +758,21 @@ pub async fn import_source_list(
     list_name: Option<&str>,
 ) -> ReachResult<Value> {
     let (loaded, label) = if source == "crm_list" {
-        (load_crm_list_rows(deps.db, source_list_id).await?, "CRM list")
+        (
+            load_crm_list_rows(deps.db, source_list_id).await?,
+            "CRM list",
+        )
     } else {
-        (load_welddata_list_rows(deps.db, source_list_id).await?, "WeldData list")
+        (
+            load_welddata_list_rows(deps.db, source_list_id).await?,
+            "WeldData list",
+        )
     };
     let (name, rows) = match loaded {
         Ok(found) => found,
-        Err(SourceListError::NotFound) => return Err(ReachError::not_found(label, Some(source_list_id))),
+        Err(SourceListError::NotFound) => {
+            return Err(ReachError::not_found(label, Some(source_list_id)));
+        }
         Err(error) => return Err(ReachError::bad_request(error.message())),
     };
     let target = list_name.map_or(name, str::to_owned);

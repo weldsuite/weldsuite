@@ -47,7 +47,10 @@ pub async fn list(db: &PgPool) -> ReachResult<Vec<Value>> {
             .fetch_all(db)
             .await?,
     );
-    let ids: Vec<String> = rows.iter().filter_map(|r| text(r, "id").map(str::to_owned)).collect();
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| text(r, "id").map(str::to_owned))
+        .collect();
     let counts = mailbox_counts(db, &ids).await?;
     Ok(rows
         .iter()
@@ -57,10 +60,11 @@ pub async fn list(db: &PgPool) -> ReachResult<Vec<Value>> {
 
 /// `requireDomain(db, id)`.
 pub async fn require(db: &PgPool, id: &str) -> ReachResult<Value> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
     row.map(weldsuite_db::js_row)
         .ok_or_else(|| ReachError::not_found("Domain", Some(id)))
 }

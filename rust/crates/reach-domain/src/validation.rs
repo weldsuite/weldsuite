@@ -36,7 +36,11 @@ pub fn is_valid_email_syntax(email: &str) -> bool {
 }
 
 /// `classifyLocally(email, ctx)`: the verdict that needs no network.
-pub fn classify_locally(email: &str, allow_consumer: bool, suppressed: &SuppressionIndex) -> Option<&'static str> {
+pub fn classify_locally(
+    email: &str,
+    allow_consumer: bool,
+    suppressed: &SuppressionIndex,
+) -> Option<&'static str> {
     if !is_valid_email_syntax(email) {
         return Some("invalid");
     }
@@ -80,10 +84,11 @@ pub async fn validate_emails(
     }
     let mut mx_by_domain: HashMap<String, Option<bool>> = HashMap::new();
     if let Some(http) = http {
-        let domains: Vec<String> = crate::unique(&need_mx.iter().map(|e| email_domain(e)).collect::<Vec<_>>())
-            .into_iter()
-            .take(MAX_MX_LOOKUPS_PER_RUN)
-            .collect();
+        let domains: Vec<String> =
+            crate::unique(&need_mx.iter().map(|e| email_domain(e)).collect::<Vec<_>>())
+                .into_iter()
+                .take(MAX_MX_LOOKUPS_PER_RUN)
+                .collect();
         let results: Vec<(String, Option<bool>)> = futures_util::stream::iter(domains)
             .map(|domain| async move {
                 let found = mx_lookup(http, &domain).await;

@@ -13,7 +13,9 @@ use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{REACH_DOMAIN_CONNECTED, REACH_DOMAIN_DISCONNECTED, REACH_DOMAIN_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    REACH_DOMAIN_CONNECTED, REACH_DOMAIN_DISCONNECTED, REACH_DOMAIN_UPDATED,
+};
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Data, List, NoContent, Pagination, generate_id};
@@ -26,7 +28,9 @@ use crate::dnscheck::{DnsLookupError, evaluate, footprint};
 use crate::mailpool::{Mailpool, id_text, not_configured, upstream};
 use crate::{Caller, ReachState, account_workspace, respond, validate};
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     let read = || gate.require([perm::REACH_MAILBOXES_READ]);
     Router::new()
         .route(
@@ -38,9 +42,10 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q
         .route("/candidates", get(candidates).route_layer(read()))
         .route(
             "/{id}",
-            get(read_one)
-                .route_layer(read())
-                .merge(axum::routing::delete(disconnect).route_layer(gate.require([perm::REACH_MAILBOXES_DELETE]))),
+            get(read_one).route_layer(read()).merge(
+                axum::routing::delete(disconnect)
+                    .route_layer(gate.require([perm::REACH_MAILBOXES_DELETE])),
+            ),
         )
         .route(
             "/{id}/refresh-dns",
@@ -55,7 +60,12 @@ fn listed(items: Vec<Value>) -> Response {
 
 /// `createMailpoolClient(c.env)`, or 503 without the key.
 pub(crate) fn mailpool_of(caller: &Caller, state: &ReachState) -> ReachResult<Mailpool> {
-    Mailpool::new(caller.env("MAILPOOL_API_KEY"), caller.env("MAILPOOL_API_URL"), caller.http(state)).ok_or_else(not_configured)
+    Mailpool::new(
+        caller.env("MAILPOOL_API_KEY"),
+        caller.env("MAILPOOL_API_URL"),
+        caller.http(state),
+    )
+    .ok_or_else(not_configured)
 }
 
 async fn list(caller: Caller) -> Response {
@@ -63,7 +73,11 @@ async fn list(caller: Caller) -> Response {
 }
 
 async fn read_one(caller: Caller, Path(id): Path<String>) -> Response {
-    respond(domains::get(&caller.db, &id).await.map(|d| Data(d).into_response()))
+    respond(
+        domains::get(&caller.db, &id)
+            .await
+            .map(|d| Data(d).into_response()),
+    )
 }
 
 /// The guard inputs (`GuardContext`).
@@ -142,19 +156,27 @@ fn ineligible_error(reason: &str) -> ReachError {
     let message = match reason {
         "already_connected" => "This domain is already connected.",
         "not_active" => "This domain is not active in WeldHost yet.",
-        "not_on_cloudflare" => "This domain is not managed on WeldHost nameservers. Point its nameservers to WeldHost first.",
+        "not_on_cloudflare" => {
+            "This domain is not managed on WeldHost nameservers. Point its nameservers to WeldHost first."
+        }
         "limit_reached" => "The domain limit for this workspace is reached.",
         "has_mx" => {
             "This domain already has email set up (MX records). Connecting it would replace that. Use a separate domain for outreach."
         }
-        _ => "This domain already serves a website. Connecting it would break the site. Use a separate domain for outreach.",
+        _ => {
+            "This domain already serves a website. Connecting it would break the site. Use a separate domain for outreach."
+        }
     };
     let code = if reason == "already_connected" {
         "DOMAIN_ALREADY_CONNECTED"
     } else {
         "DOMAIN_NOT_ELIGIBLE"
     };
-    let status = if reason == "already_connected" { 409 } else { 422 };
+    let status = if reason == "already_connected" {
+        409
+    } else {
+        422
+    };
     ReachError::new(status, code, message).with_details(json!({ "reason": reason }))
 }
 
@@ -187,10 +209,20 @@ async fn candidates(State(state): State<ReachState>, caller: Caller) -> Response
     )
 }
 
-async fn connect(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn connect(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let host_domain_id = match validate(&headers, &body, |issues, body| {
         issues
-            .text_with(body, "hostDomainId", Presence::Required, Text::length(Some(1), Some(30)))
+            .text_with(
+                body,
+                "hostDomainId",
+                Presence::Required,
+                Text::length(Some(1), Some(30)),
+            )
             .into_option()
     }) {
         Ok(Some(id)) => id,
@@ -202,10 +234,21 @@ async fn connect(State(state): State<ReachState>, caller: Caller, headers: Heade
             let (workspace_id, limits) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
             let mailpool = mailpool_of(&caller, &state)?;
-            let row = connect_domain(&caller, &state, &master, &mailpool, &workspace_id, &limits, &host_domain_id).await?;
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_DOMAIN_CONNECTED, text(&row, "id").unwrap_or_default(), row.clone()));
+            let row = connect_domain(
+                &caller,
+                &state,
+                &master,
+                &mailpool,
+                &workspace_id,
+                &limits,
+                &host_domain_id,
+            )
+            .await?;
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_DOMAIN_CONNECTED,
+                text(&row, "id").unwrap_or_default(),
+                row.clone(),
+            ));
             Ok((StatusCode::CREATED, Data(domains::to_dto(&row, 0))).into_response())
         }
         .await,
@@ -224,11 +267,12 @@ async fn connect_domain(
 ) -> ReachResult<Value> {
     let db = &caller.db;
     let now = caller.now();
-    let host: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from domains t where t.id = $1 and t.deleted_at is null limit 1")
-            .bind(host_domain_id)
-            .fetch_optional(db)
-            .await?;
+    let host: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from domains t where t.id = $1 and t.deleted_at is null limit 1",
+    )
+    .bind(host_domain_id)
+    .fetch_optional(db)
+    .await?;
     let Some(host) = host.map(weldsuite_db::js_row) else {
         return Err(ReachError::new(
             404,
@@ -262,7 +306,9 @@ async fn connect_domain(
                 .to_lowercase()
                 == name
         });
-        let reason = skip.and_then(|s| text(s, "reason")).filter(|r| !r.is_empty());
+        let reason = skip
+            .and_then(|s| text(s, "reason"))
+            .filter(|r| !r.is_empty());
         let detail = reason.map_or_else(|| ".".to_owned(), |r| format!(": {r}"));
         return Err(ReachError::new(
             422,
@@ -320,12 +366,22 @@ async fn connect_domain(
     .await;
     match routed {
         Ok(rows) if rows.is_empty() => {
-            sqlx::query("delete from reach_domains where id = $1").bind(&domain_id).execute(db).await?;
-            Err(ReachError::new(409, "DOMAIN_IN_USE", "This domain is connected in another workspace."))
+            sqlx::query("delete from reach_domains where id = $1")
+                .bind(&domain_id)
+                .execute(db)
+                .await?;
+            Err(ReachError::new(
+                409,
+                "DOMAIN_IN_USE",
+                "This domain is connected in another workspace.",
+            ))
         }
         Ok(_) => Ok(row),
         Err(error) => {
-            sqlx::query("delete from reach_domains where id = $1").bind(&domain_id).execute(db).await?;
+            sqlx::query("delete from reach_domains where id = $1")
+                .bind(&domain_id)
+                .execute(db)
+                .await?;
             drop_from_mailpool(mailpool, &mailpool_domain_id).await;
             Err(error.into())
         }
@@ -334,7 +390,11 @@ async fn connect_domain(
 
 async fn drop_from_mailpool(mailpool: &Mailpool, mailpool_domain_id: &str) {
     if let Err(error) = mailpool.delete_domain(mailpool_domain_id).await {
-        tracing::error!(?error, mailpool_domain_id, "[reach-domains] rollback: could not delete Mailpool domain");
+        tracing::error!(
+            ?error,
+            mailpool_domain_id,
+            "[reach-domains] rollback: could not delete Mailpool domain"
+        );
     }
 }
 
@@ -343,7 +403,9 @@ fn dmarc_policy_of(records: &[Value]) -> Option<String> {
     let key_re = regex::Regex::new(r"(?i)(^|\.)_dmarc(\.|$)").ok()?;
     let policy_re = regex::Regex::new(r"(?i)(?:^|;)\s*p=(none|quarantine|reject)").ok()?;
     records.iter().find_map(|record| {
-        if text(record, "type") != Some("TXT") || !key_re.is_match(text(record, "key").unwrap_or_default()) {
+        if text(record, "type") != Some("TXT")
+            || !key_re.is_match(text(record, "key").unwrap_or_default())
+        {
             return None;
         }
         policy_re
@@ -352,7 +414,11 @@ fn dmarc_policy_of(records: &[Value]) -> Option<String> {
     })
 }
 
-async fn refresh_dns(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn refresh_dns(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     respond(
         async {
             account_workspace(&caller)?;
@@ -410,7 +476,11 @@ async fn refresh_dns(State(state): State<ReachState>, caller: Caller, Path(id): 
     )
 }
 
-async fn disconnect(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn disconnect(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     respond(
         async {
             let (workspace_id, _) = account_workspace(&caller)?;

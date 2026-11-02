@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has sixteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has seventeen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -75,6 +75,20 @@ modules, each with conformance suites that reach every route:
   document (503 until WeldBooks' invoice generator is ported) and
   WooCommerce's app-auth callback, which completes a WeldConnect
   authorisation)
+- **reach** (WeldReach, cold-email outreach: access, settings, domains
+  connected to Mailpool through its Cloudflare integration with the DNS
+  guards over DNS-over-HTTPS, mailboxes provisioned at Mailpool and entered
+  in the warmup pool, prospects and their imports, lists, campaigns,
+  suppressions, the overview, the reply inbox with answers sent from the
+  customer's own mailbox over SMTP (lettre), the CRM hand-off, and
+  Mailpool's webhook at `/public/reach/webhooks/mailpool`, all behind the
+  `weldreach` app-access gate; the shared logic is `crates/reach-domain`.
+  The inbox subscription is Global's billing-worker (Stripe): here every
+  billing call answers as billing-worker without Stripe does, so
+  `/billing` and adding a mailbox answer 502 `UPSTREAM_ERROR`. Not yet: the
+  send sweep and its queue consumer, the hourly warmup sweep and the daily
+  Mailpool slot reconciliation, the inbound reply path (Cloudflare Email
+  Routing on Global) and the warmup network (`reach-warmup-worker`))
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -84,7 +98,7 @@ desktop sign-in, analytics, search reindex, company logos, mail domains, free
 sending the loonaangifte over Digipoort and WeldBooks document OCR.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
-host, meet, call, connect, agent, reach, sheets, docs and
+host, meet, call, connect, agent, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -143,6 +157,8 @@ rust/
                         modules/data (WeldData, and the welddata-enrich job),
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
                         slugs and rate limits),
+                        modules/reach (WeldReach, with crates/reach-domain: campaigns, prospects,
+                        the inbox, the send window, the warmup pool, MIME),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
                         core is split over
@@ -281,6 +297,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
+| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`) |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |

@@ -4901,6 +4901,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "lettre",
  "regex",
  "serde",
  "serde_json",

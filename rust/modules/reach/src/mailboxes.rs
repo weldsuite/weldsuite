@@ -14,7 +14,9 @@ use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{REACH_MAILBOX_CREATED, REACH_MAILBOX_DELETED, REACH_MAILBOX_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    REACH_MAILBOX_CREATED, REACH_MAILBOX_DELETED, REACH_MAILBOX_UPDATED,
+};
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{Data, List, NoContent, Pagination, generate_id, random_string};
@@ -30,7 +32,9 @@ use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, int
 use crate::account::get_or_create_settings;
 use crate::billing::{BillingError, adjust_inboxes, release_inbox};
 use crate::domains::mailpool_of;
-use crate::mailpool::{Mailpool, MailpoolError, id_text, imap_credentials_of, smtp_credentials_of, upstream};
+use crate::mailpool::{
+    Mailpool, MailpoolError, id_text, imap_credentials_of, smtp_credentials_of, upstream,
+};
 use crate::{Caller, ReachState, account_workspace, respond, validate, validate_query};
 
 const STATUSES: &[&str] = &[
@@ -51,7 +55,9 @@ pub(crate) mod pause_reasons {
     pub(crate) const DOMAIN_ERROR: &str = "domain_error";
 }
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     let read = || gate.require([perm::REACH_MAILBOXES_READ]);
     let update = || gate.require([perm::REACH_MAILBOXES_UPDATE]);
     Router::new()
@@ -66,7 +72,10 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q
             get(read_one)
                 .route_layer(read())
                 .merge(axum::routing::patch(update_one).route_layer(update()))
-                .merge(axum::routing::delete(delete_one).route_layer(gate.require([perm::REACH_MAILBOXES_DELETE]))),
+                .merge(
+                    axum::routing::delete(delete_one)
+                        .route_layer(gate.require([perm::REACH_MAILBOXES_DELETE])),
+                ),
         )
         .route("/{id}/pause", post(pause).route_layer(update()))
         .route("/{id}/resume", post(resume).route_layer(update()))
@@ -80,12 +89,23 @@ fn source<'a>(caller: &'a Caller, master: Option<&'a PgPool>) -> WarmupSource<'a
     }
 }
 
-async fn list(State(state): State<ReachState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn list(
+    State(state): State<ReachState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     let filter = match validate_query(query.as_deref(), |issues, q| {
         let domain = issues
-            .text_with(q, "domainId", Presence::Optional, Text::length(Some(1), Some(30)))
+            .text_with(
+                q,
+                "domainId",
+                Presence::Optional,
+                Text::length(Some(1), Some(30)),
+            )
             .into_option();
-        let status = issues.choice(q, "status", Presence::Optional, STATUSES).into_option();
+        let status = issues
+            .choice(q, "status", Presence::Optional, STATUSES)
+            .into_option();
         (domain, status)
     }) {
         Ok(filter) => filter,
@@ -93,22 +113,39 @@ async fn list(State(state): State<ReachState>, caller: Caller, RawQuery(query): 
     };
     let master = caller.master(&state);
     respond(
-        weldsuite_reach_domain::mailboxes::list(&caller.db, &source(&caller, master.as_ref()), filter.0.as_deref(), filter.1.as_deref())
-            .await
-            .map(|items| {
-                let n = items.len() as u64;
-                List::new(items, Pagination::new(n, false, None)).into_response()
-            }),
+        weldsuite_reach_domain::mailboxes::list(
+            &caller.db,
+            &source(&caller, master.as_ref()),
+            filter.0.as_deref(),
+            filter.1.as_deref(),
+        )
+        .await
+        .map(|items| {
+            let n = items.len() as u64;
+            List::new(items, Pagination::new(n, false, None)).into_response()
+        }),
     )
 }
 
-async fn read_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn read_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let master = caller.master(&state);
     respond(
         async {
-            match weldsuite_reach_domain::mailboxes::get(&caller.db, &source(&caller, master.as_ref()), &id).await? {
+            match weldsuite_reach_domain::mailboxes::get(
+                &caller.db,
+                &source(&caller, master.as_ref()),
+                &id,
+            )
+            .await?
+            {
                 Some(mailbox) => Ok(Data(mailbox).into_response()),
-                None => Ok(weldsuite_kit::ApiError::not_found("Mailbox", Some(&id)).into_response()),
+                None => {
+                    Ok(weldsuite_kit::ApiError::not_found("Mailbox", Some(&id)).into_response())
+                }
             }
         }
         .await,
@@ -117,7 +154,11 @@ async fn read_one(State(state): State<ReachState>, caller: Caller, Path(id): Pat
 
 /// `resumeStatusFor(mailbox)`.
 pub(crate) fn resume_status_for(mailbox: &Value) -> &'static str {
-    match gate(int(mailbox, "warmupDay"), mailbox.get("warmupInboxRate").and_then(Value::as_f64), false) {
+    match gate(
+        int(mailbox, "warmupDay"),
+        mailbox.get("warmupInboxRate").and_then(Value::as_f64),
+        false,
+    ) {
         None => "active",
         Some(_) => "warming",
     }
@@ -131,8 +172,13 @@ async fn require_mailbox(db: &PgPool, id: &str) -> ReachResult<Value> {
     .bind(id)
     .fetch_optional(db)
     .await?;
-    row.map(weldsuite_db::js_row)
-        .ok_or_else(|| ReachError::new(404, "NOT_FOUND", format!("Mailbox with ID '{id}' not found")))
+    row.map(weldsuite_db::js_row).ok_or_else(|| {
+        ReachError::new(
+            404,
+            "NOT_FOUND",
+            format!("Mailbox with ID '{id}' not found"),
+        )
+    })
 }
 
 /// What the pool registration needs (`PoolRegistrationDeps`).
@@ -199,27 +245,70 @@ fn local_part_ok(text: &str) -> bool {
     match bytes {
         [] => false,
         [one] => edge(*one),
-        [first, middle @ .., last] => edge(*first) && edge(*last) && middle.iter().all(|b| inner(*b)),
+        [first, middle @ .., last] => {
+            edge(*first) && edge(*last) && middle.iter().all(|b| inner(*b))
+        }
     }
 }
 
-async fn create(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
-        let domain_id = issues.text_with(body, "domainId", Presence::Required, Text::length(Some(1), Some(30))).into_option();
+        let domain_id = issues
+            .text_with(
+                body,
+                "domainId",
+                Presence::Required,
+                Text::length(Some(1), Some(30)),
+            )
+            .into_option();
         let local_part = issues
             .pattern_with(
                 body,
                 "localPart",
                 Presence::Required,
-                Text { trim: true, lowercase: true, format: None, min: Some(1), max: Some(64) },
+                Text {
+                    trim: true,
+                    lowercase: true,
+                    format: None,
+                    min: Some(1),
+                    max: Some(64),
+                },
                 local_part_ok,
                 "Letters, digits, dots, dashes and underscores only",
             )
             .into_option();
-        let first_name = issues.text_with(body, "firstName", Presence::Required, Text::trimmed(Some(1), Some(100))).into_option();
-        let last_name = issues.text_with(body, "lastName", Presence::Required, Text::trimmed(Some(1), Some(100))).into_option();
-        let signature = issues.text_with(body, "signature", Presence::Optional, Text::length(None, Some(2000))).into_option();
-        let kind = issues.choice(body, "type", Presence::Required, &["google", "shared"]).into_option();
+        let first_name = issues
+            .text_with(
+                body,
+                "firstName",
+                Presence::Required,
+                Text::trimmed(Some(1), Some(100)),
+            )
+            .into_option();
+        let last_name = issues
+            .text_with(
+                body,
+                "lastName",
+                Presence::Required,
+                Text::trimmed(Some(1), Some(100)),
+            )
+            .into_option();
+        let signature = issues
+            .text_with(
+                body,
+                "signature",
+                Presence::Optional,
+                Text::length(None, Some(2000)),
+            )
+            .into_option();
+        let kind = issues
+            .choice(body, "type", Presence::Required, &["google", "shared"])
+            .into_option();
         Some(CreateInput {
             domain_id: domain_id?,
             local_part: local_part?,
@@ -240,13 +329,30 @@ async fn create(State(state): State<ReachState>, caller: Caller, headers: Header
             let mailpool = mailpool_of(&caller, &state)?;
             let settings = get_or_create_settings(&caller.db).await?;
             let billing_status = crate::access_of(&caller)?.billing_status.clone();
-            let row = create_mailbox(&caller, &state, &master, &mailpool, &workspace_id, &limits, &settings, &billing_status, &input).await?;
+            let row = create_mailbox(
+                &caller,
+                &state,
+                &master,
+                &mailpool,
+                &workspace_id,
+                &limits,
+                &settings,
+                &billing_status,
+                &input,
+            )
+            .await?;
             let row_safe = without_credentials(&row);
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_MAILBOX_CREATED, text(&row, "id").unwrap_or_default(), row_safe));
-            let dto = weldsuite_reach_domain::mailboxes::get(&caller.db, &source(&caller, Some(&master)), text(&row, "id").unwrap_or_default())
-                .await?;
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_MAILBOX_CREATED,
+                text(&row, "id").unwrap_or_default(),
+                row_safe,
+            ));
+            let dto = weldsuite_reach_domain::mailboxes::get(
+                &caller.db,
+                &source(&caller, Some(&master)),
+                text(&row, "id").unwrap_or_default(),
+            )
+            .await?;
             Ok((StatusCode::CREATED, Data(dto)).into_response())
         }
         .await,
@@ -277,7 +383,11 @@ async fn create_mailbox(
     let db = &caller.db;
     let now = caller.now();
     let Some(inbound_domain) = caller.env("REACH_INBOUND_DOMAIN") else {
-        return Err(ReachError::new(503, "INBOUND_NOT_CONFIGURED", "Reply routing is not configured for this environment."));
+        return Err(ReachError::new(
+            503,
+            "INBOUND_NOT_CONFIGURED",
+            "Reply routing is not configured for this environment.",
+        ));
     };
     let warmup_key = caller.env("WELDREACH_WARMUP_KEY");
     if warmup_key.is_none() {
@@ -288,10 +398,11 @@ async fn create_mailbox(
         ));
     }
     // 1. Checks.
-    let domain: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-        .bind(&input.domain_id)
-        .fetch_optional(db)
-        .await?;
+    let domain: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
+            .bind(&input.domain_id)
+            .fetch_optional(db)
+            .await?;
     let Some(domain) = domain.map(weldsuite_db::js_row) else {
         return Err(ReachError::new(
             404,
@@ -315,8 +426,12 @@ async fn create_mailbox(
     .fetch_one(db)
     .await?;
     if existing >= limits.max_mailboxes {
-        return Err(ReachError::new(403, "MAILBOX_LIMIT_REACHED", "The mailbox limit for this workspace is reached.")
-            .with_details(json!({ "limit": limits.max_mailboxes, "current": existing })));
+        return Err(ReachError::new(
+            403,
+            "MAILBOX_LIMIT_REACHED",
+            "The mailbox limit for this workspace is reached.",
+        )
+        .with_details(json!({ "limit": limits.max_mailboxes, "current": existing })));
     }
     if billing_status == "canceled" && existing > 0 {
         return Err(ReachError::new(
@@ -325,13 +440,22 @@ async fn create_mailbox(
             "The inbox subscription was cancelled. Contact support to restart billing before adding mailboxes.",
         ));
     }
-    let email = format!("{}@{}", input.local_part, text(&domain, "name").unwrap_or_default());
-    let taken: Option<String> = sqlx::query_scalar("select id from reach_mailboxes where email = $1 limit 1")
-        .bind(&email)
-        .fetch_optional(db)
-        .await?;
+    let email = format!(
+        "{}@{}",
+        input.local_part,
+        text(&domain, "name").unwrap_or_default()
+    );
+    let taken: Option<String> =
+        sqlx::query_scalar("select id from reach_mailboxes where email = $1 limit 1")
+            .bind(&email)
+            .fetch_optional(db)
+            .await?;
     if taken.is_some() {
-        return Err(ReachError::new(409, "MAILBOX_EXISTS", format!("{email} already exists. Choose another name.")));
+        return Err(ReachError::new(
+            409,
+            "MAILBOX_EXISTS",
+            format!("{email} already exists. Choose another name."),
+        ));
     }
     let mailbox_id = generate_id("rmbx");
     let inbound_token = random_string(24, "abcdefghijklmnopqrstuvwxyz");
@@ -361,7 +485,17 @@ async fn create_mailbox(
     match result {
         Ok(row) => Ok(row),
         Err(error) => {
-            rollback(caller, state, master, mailpool, workspace_id, &mailbox_id, &email, &undo).await;
+            rollback(
+                caller,
+                state,
+                master,
+                mailpool,
+                workspace_id,
+                &mailbox_id,
+                &email,
+                &undo,
+            )
+            .await;
             Err(error)
         }
     }
@@ -387,7 +521,9 @@ async fn provision(
 ) -> ReachResult<Value> {
     let db = &caller.db;
     // 3. A slot.
-    ensure_slot_available(mailpool, &input.kind).await.map_err(|e| upstream(&e))?;
+    ensure_slot_available(mailpool, &input.kind)
+        .await
+        .map_err(|e| upstream(&e))?;
     // 4. The mailbox.
     let mut body = Map::new();
     body.insert("email".to_owned(), json!(email));
@@ -425,7 +561,8 @@ async fn provision(
     // 5. Our own records.
     let smtp = smtp_credentials_of(&created);
     let imap = imap_credentials_of(&created);
-    let logins = (text(&created, "status") == Some("active") && smtp.is_some() && imap.is_some()).then(|| (smtp.clone(), imap.clone()));
+    let logins = (text(&created, "status") == Some("active") && smtp.is_some() && imap.is_some())
+        .then(|| (smtp.clone(), imap.clone()));
     let sealed = |c: &Option<MailServerCredentials>| -> ReachResult<Option<String>> {
         c.as_ref()
             .map(|c| seal(keyring, c).map_err(|e| ReachError::unexpected(&e)))
@@ -462,7 +599,11 @@ async fn provision(
     let row = match row {
         Ok(row) => weldsuite_db::js_row(row),
         Err(error) if weldsuite_db::is_unique_violation(&error) => {
-            return Err(ReachError::new(409, "MAILBOX_EXISTS", format!("{email} already exists. Choose another name.")));
+            return Err(ReachError::new(
+                409,
+                "MAILBOX_EXISTS",
+                format!("{email} already exists. Choose another name."),
+            ));
         }
         Err(error) => return Err(error.into()),
     };
@@ -476,7 +617,14 @@ async fn provision(
             clerk_org_id: &caller.clerk_org_id,
             workspace_id,
         };
-        register_in_pool(&deps, &row, smtp, imap, text(settings, "defaultTimezone").map(str::to_owned)).await?;
+        register_in_pool(
+            &deps,
+            &row,
+            smtp,
+            imap,
+            text(settings, "defaultTimezone").map(str::to_owned),
+        )
+        .await?;
     }
     sqlx::query(
         "insert into reach_routes (id, kind, external_id, workspace_id, clerk_org_id, tenant_entity_id, mailbox_type, status)
@@ -493,12 +641,21 @@ async fn provision(
     .execute(master)
     .await?;
     undo.routes = true;
-    weldsuite_db::due_index::mark_due(master, "reach_warmup", &caller.workspace_id, utc_tomorrow(now)).await;
+    weldsuite_db::due_index::mark_due(
+        master,
+        "reach_warmup",
+        &caller.workspace_id,
+        utc_tomorrow(now),
+    )
+    .await;
     Ok(row)
 }
 
 /// `ensureSlotAvailable(client, type)`.
-pub(crate) async fn ensure_slot_available(mailpool: &Mailpool, kind: &str) -> Result<(), MailpoolError> {
+pub(crate) async fn ensure_slot_available(
+    mailpool: &Mailpool,
+    kind: &str,
+) -> Result<(), MailpoolError> {
     let (mailboxes, slots) = mailpool.get_slots().await?;
     let Some(total) = slots.get(kind).and_then(Value::as_f64) else {
         return Ok(());
@@ -574,17 +731,52 @@ struct UpdateInput {
     daily_cap: Option<i64>,
 }
 
-async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| UpdateInput {
-        first_name: issues.text_with(body, "firstName", Presence::Optional, Text::trimmed(Some(1), Some(100))).into_option(),
-        last_name: issues.text_with(body, "lastName", Presence::Optional, Text::trimmed(Some(1), Some(100))).into_option(),
-        signature: match issues.text_with(body, "signature", Presence::Nullish, Text::length(None, Some(2000))) {
+        first_name: issues
+            .text_with(
+                body,
+                "firstName",
+                Presence::Optional,
+                Text::trimmed(Some(1), Some(100)),
+            )
+            .into_option(),
+        last_name: issues
+            .text_with(
+                body,
+                "lastName",
+                Presence::Optional,
+                Text::trimmed(Some(1), Some(100)),
+            )
+            .into_option(),
+        signature: match issues.text_with(
+            body,
+            "signature",
+            Presence::Nullish,
+            Text::length(None, Some(2000)),
+        ) {
             weldsuite_kit::validation::Field::Set(s) => Some(Some(s)),
             weldsuite_kit::validation::Field::Null => Some(None),
             weldsuite_kit::validation::Field::Absent => None,
         },
         daily_cap: issues
-            .whole_number(body, "dailyCap", Presence::Optional, Number { coerce: false, int: true, min: Some(1.0), max: Some(50.0) })
+            .whole_number(
+                body,
+                "dailyCap",
+                Presence::Optional,
+                Number {
+                    coerce: false,
+                    int: true,
+                    min: Some(1.0),
+                    max: Some(50.0),
+                },
+            )
             .into_option(),
     }) {
         Ok(input) => input,
@@ -598,7 +790,11 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
             let db = &caller.db;
             let row = require_mailbox(db, &id).await?;
             if text(&row, "status") == Some("deleting") {
-                return Err(ReachError::new(409, "MAILBOX_DELETING", "The mailbox is being deleted."));
+                return Err(ReachError::new(
+                    409,
+                    "MAILBOX_DELETING",
+                    "The mailbox is being deleted.",
+                ));
             }
             let mut remote = Map::new();
             if let Some(first) = &input.first_name
@@ -635,7 +831,9 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
                 )
                 .await?;
             }
-            let ramp = input.daily_cap.filter(|cap| int(&row, "rampCurrent") > *cap);
+            let ramp = input
+                .daily_cap
+                .filter(|cap| int(&row, "rampCurrent") > *cap);
             let updated: Option<Value> = sqlx::query_scalar(
                 "update reach_mailboxes set updated_at = $2::timestamptz,
                      first_name = coalesce($3, first_name), last_name = coalesce($4, last_name),
@@ -654,10 +852,14 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
             .fetch_optional(db)
             .await?;
             let row = updated.map_or(row, weldsuite_db::js_row);
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_MAILBOX_UPDATED, &id, without_credentials(&row)));
-            let dto = weldsuite_reach_domain::mailboxes::get(db, &source(&caller, Some(&master)), &id).await?;
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_MAILBOX_UPDATED,
+                &id,
+                without_credentials(&row),
+            ));
+            let dto =
+                weldsuite_reach_domain::mailboxes::get(db, &source(&caller, Some(&master)), &id)
+                    .await?;
             Ok(Data(dto).into_response())
         }
         .await,
@@ -665,14 +867,24 @@ async fn update_one(State(state): State<ReachState>, caller: Caller, Path(id): P
 }
 
 /// `pauseMailbox(deps, id)`.
-pub(crate) async fn pause_mailbox(db: &PgPool, master: &PgPool, clerk_org_id: &str, id: &str, at: &str) -> ReachResult<Value> {
+pub(crate) async fn pause_mailbox(
+    db: &PgPool,
+    master: &PgPool,
+    clerk_org_id: &str,
+    id: &str,
+    at: &str,
+) -> ReachResult<Value> {
     let row = require_mailbox(db, id).await?;
     let status = text(&row, "status").unwrap_or_default();
     if status == "paused" {
         return Ok(row);
     }
     if status != "warming" && status != "active" {
-        return Err(ReachError::new(409, "MAILBOX_NOT_PAUSABLE", format!("A {status} mailbox cannot be paused.")));
+        return Err(ReachError::new(
+            409,
+            "MAILBOX_NOT_PAUSABLE",
+            format!("A {status} mailbox cannot be paused."),
+        ));
     }
     warmup_pool::pause(master, clerk_org_id, id, pause_reasons::USER).await?;
     let updated: Option<Value> = sqlx::query_scalar(
@@ -686,23 +898,45 @@ pub(crate) async fn pause_mailbox(db: &PgPool, master: &PgPool, clerk_org_id: &s
     Ok(updated.map_or(row, weldsuite_db::js_row))
 }
 
-async fn pause(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn pause(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     respond(
         async {
             account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let row = pause_mailbox(&caller.db, &master, &caller.clerk_org_id, &id, &iso(caller.now())).await?;
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_MAILBOX_UPDATED, text(&row, "id").unwrap_or(&id), without_credentials(&row)));
-            let dto = weldsuite_reach_domain::mailboxes::get(&caller.db, &source(&caller, Some(&master)), &id).await?;
+            let row = pause_mailbox(
+                &caller.db,
+                &master,
+                &caller.clerk_org_id,
+                &id,
+                &iso(caller.now()),
+            )
+            .await?;
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_MAILBOX_UPDATED,
+                text(&row, "id").unwrap_or(&id),
+                without_credentials(&row),
+            ));
+            let dto = weldsuite_reach_domain::mailboxes::get(
+                &caller.db,
+                &source(&caller, Some(&master)),
+                &id,
+            )
+            .await?;
             Ok(Data(dto).into_response())
         }
         .await,
     )
 }
 
-async fn resume(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn resume(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     respond(
         async {
             account_workspace(&caller)?;
@@ -750,7 +984,11 @@ async fn resume(State(state): State<ReachState>, caller: Caller, Path(id): Path<
     )
 }
 
-async fn delete_one(State(state): State<ReachState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn delete_one(
+    State(state): State<ReachState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     respond(
         async {
             let (workspace_id, _) = account_workspace(&caller)?;

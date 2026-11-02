@@ -18,7 +18,9 @@ use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{EventName, REACH_DOMAIN_UPDATED, REACH_MAILBOX_SUSPENDED, REACH_MAILBOX_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    EventName, REACH_DOMAIN_UPDATED, REACH_MAILBOX_SUSPENDED, REACH_MAILBOX_UPDATED,
+};
 use weldsuite_db::{MasterDb, Tenant};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::{ApiError, RequestEnv};
@@ -223,7 +225,11 @@ fn parse_message(body: &Value) -> Option<(String, Value)> {
     let map = body.as_object()?;
     let event = ["event", "type", "eventType", "name"]
         .iter()
-        .find_map(|key| map.get(*key).and_then(Value::as_str).filter(|s| !s.is_empty()))?
+        .find_map(|key| {
+            map.get(*key)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })?
         .to_owned();
     let data = ["data", "payload", "body", "object"]
         .iter()
@@ -242,7 +248,12 @@ fn mailpool_id_of(data: &Value) -> Option<String> {
 }
 
 fn remote_status_of(data: &Value) -> Option<&'static str> {
-    match data.get("status").and_then(Value::as_str).map(str::to_lowercase).as_deref() {
+    match data
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::to_lowercase)
+        .as_deref()
+    {
         Some("active") => Some("active"),
         Some("pending") => Some("pending"),
         Some("inactive") => Some("inactive"),
@@ -256,7 +267,10 @@ fn error_of(data: &Value) -> (Option<i64>, Option<String>) {
     };
     (
         error.get("code").and_then(Value::as_f64).map(|c| c as i64),
-        error.get("message").and_then(Value::as_str).map(str::to_owned),
+        error
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     )
 }
 
@@ -294,11 +308,17 @@ impl Deps {
     /// `publishEntityEventRaw({ workspaceId: clerkOrgId, userId: 'mailpool', source: 'system' })`.
     fn emit(&self, clerk_org_id: &str, event: EventName, entity_id: &str, data: Value) {
         let context = EventContext::new(clerk_org_id, "mailpool", EventSource::System);
-        self.state.events.publish(&context, EntityEvent::new(event, entity_id, data));
+        self.state
+            .events
+            .publish(&context, EntityEvent::new(event, entity_id, data));
     }
 }
 
-async fn mailpool(State(state): State<ReachState>, headers: HeaderMap, request: Request) -> Response {
+async fn mailpool(
+    State(state): State<ReachState>,
+    headers: HeaderMap,
+    request: Request,
+) -> Response {
     let (parts, body) = request.into_parts();
     let env = parts.extensions.get::<RequestEnv>().cloned();
     let Some(secret) = env_value(env.as_ref(), "MAILPOOL_WEBHOOK_SECRET") else {
@@ -313,17 +333,31 @@ async fn mailpool(State(state): State<ReachState>, headers: HeaderMap, request: 
     };
     let signature = headers.get("x-signature").and_then(|v| v.to_str().ok());
     if !verify(&secret, signature, &payload) {
-        return ApiError::new(http::StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Invalid signature.").into_response();
+        return ApiError::new(
+            http::StatusCode::UNAUTHORIZED,
+            "UNAUTHORIZED",
+            "Invalid signature.",
+        )
+        .into_response();
     }
     let body: Value = serde_json::from_slice(&raw).unwrap_or(Value::Null);
     let Some((event, data)) = parse_message(&body) else {
-        return axum::Json(json!({ "data": { "handled": false, "reason": "unrecognised_payload" } })).into_response();
+        return axum::Json(
+            json!({ "data": { "handled": false, "reason": "unrecognised_payload" } }),
+        )
+        .into_response();
     };
     let master = parts
         .extensions
         .get::<MasterDb>()
         .map(|m| m.0.clone())
-        .or_else(|| if env.is_some() { None } else { state.master.clone() });
+        .or_else(|| {
+            if env.is_some() {
+                None
+            } else {
+                state.master.clone()
+            }
+        });
     let Some(master) = master else {
         tracing::error!("[reach-webhook] no master database");
         return ApiError::internal().into_response();
@@ -332,7 +366,13 @@ async fn mailpool(State(state): State<ReachState>, headers: HeaderMap, request: 
         .extensions
         .get::<OutboundHttp>()
         .cloned()
-        .or_else(|| if env.is_some() { None } else { state.http.clone() })
+        .or_else(|| {
+            if env.is_some() {
+                None
+            } else {
+                state.http.clone()
+            }
+        })
         .unwrap_or_else(crate::unreachable_http);
     let mailpool = Mailpool::new(
         env_value(env.as_ref(), "MAILPOOL_API_KEY"),
@@ -374,7 +414,11 @@ async fn handle(deps: &Deps, event: &str, data: &Value) -> Result<Value, String>
 }
 
 /// An active route of `kind` for the Mailpool id: (workspace id, clerk org id, tenant entity id).
-async fn find_route(master: &PgPool, kind: &str, external_id: &str) -> ReachResult<Option<(String, String, String)>> {
+async fn find_route(
+    master: &PgPool,
+    kind: &str,
+    external_id: &str,
+) -> ReachResult<Option<(String, String, String)>> {
     Ok(sqlx::query_as(
         "select workspace_id, clerk_org_id, tenant_entity_id from reach_routes
          where kind = $1 and external_id = $2 and status = 'active' limit 1",
@@ -385,7 +429,12 @@ async fn find_route(master: &PgPool, kind: &str, external_id: &str) -> ReachResu
     .await?)
 }
 
-async fn update_mailbox(db: &PgPool, id: &str, patch: Value, at: &str) -> ReachResult<Option<Value>> {
+async fn update_mailbox(
+    db: &PgPool,
+    id: &str,
+    patch: Value,
+    at: &str,
+) -> ReachResult<Option<Value>> {
     let row: Option<Value> = sqlx::query_scalar(
         "update reach_mailboxes m set
              status = case when $2::jsonb ? 'status' then $2::jsonb->>'status' else m.status end,
@@ -407,10 +456,11 @@ async fn update_mailbox(db: &PgPool, id: &str, patch: Value, at: &str) -> ReachR
 }
 
 async fn load_mailbox(db: &PgPool, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_mailboxes t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from reach_mailboxes t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
     Ok(row.map(weldsuite_db::js_row))
 }
 
@@ -420,22 +470,41 @@ async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
     let Some(mailpool_id) = mailpool_id_of(data) else {
         return Ok(ignored("no_id"));
     };
-    let Some((workspace_id, clerk_org_id, entity_id)) = find_route(&deps.master, "mailpool_mailbox", &mailpool_id).await? else {
+    let Some((workspace_id, clerk_org_id, entity_id)) =
+        find_route(&deps.master, "mailpool_mailbox", &mailpool_id).await?
+    else {
         return Ok(ignored("unknown_id"));
     };
-    let db = deps.open_tenant(&clerk_org_id).await.map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
-    let Some(mailbox) = load_mailbox(&db, &entity_id).await?.filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted"))) else {
+    let db = deps
+        .open_tenant(&clerk_org_id)
+        .await
+        .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    let Some(mailbox) = load_mailbox(&db, &entity_id)
+        .await?
+        .filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted")))
+    else {
         return Ok(ignored("mailbox_gone"));
     };
-    let at = iso(weldsuite_reach_domain::now_or(deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW"))));
+    let at = iso(weldsuite_reach_domain::now_or(
+        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
+    ));
     match remote_status_of(data) {
         Some("inactive") => suspend_inactive(deps, &db, &clerk_org_id, &mailbox, data, &at).await,
-        Some("active") => apply_active(deps, &db, &clerk_org_id, &workspace_id, &mailbox, data, &at).await,
+        Some("active") => {
+            apply_active(deps, &db, &clerk_org_id, &workspace_id, &mailbox, data, &at).await
+        }
         _ => Ok(handled(false)),
     }
 }
 
-async fn suspend_inactive(deps: &Deps, db: &PgPool, clerk_org_id: &str, mailbox: &Value, data: &Value, at: &str) -> ReachResult<Value> {
+async fn suspend_inactive(
+    deps: &Deps,
+    db: &PgPool,
+    clerk_org_id: &str,
+    mailbox: &Value,
+    data: &Value,
+    at: &str,
+) -> ReachResult<Value> {
     let (code, message) = error_of(data);
     let status = if code.is_some_and(|c| CONFIGURATION_ERROR_CODES.contains(&c)) {
         "error"
@@ -449,7 +518,9 @@ async fn suspend_inactive(deps: &Deps, db: &PgPool, clerk_org_id: &str, mailbox:
             "Suspended by the mailbox provider.".to_owned()
         }
     });
-    if text(mailbox, "status") == Some(status) && text(mailbox, "lastError") == Some(reason.as_str()) {
+    if text(mailbox, "status") == Some(status)
+        && text(mailbox, "lastError") == Some(reason.as_str())
+    {
         return Ok(handled(false));
     }
     let id = text(mailbox, "id").unwrap_or_default();
@@ -460,7 +531,12 @@ async fn suspend_inactive(deps: &Deps, db: &PgPool, clerk_org_id: &str, mailbox:
         "lastError": reason,
     });
     if let Some(updated) = update_mailbox(db, id, patch, at).await? {
-        deps.emit(clerk_org_id, REACH_MAILBOX_SUSPENDED, id, without_credentials(&updated));
+        deps.emit(
+            clerk_org_id,
+            REACH_MAILBOX_SUSPENDED,
+            id,
+            without_credentials(&updated),
+        );
     }
     Ok(handled(true))
 }
@@ -473,10 +549,16 @@ async fn with_logins(deps: &Deps, remote: &Value) -> Value {
     let Some(mailpool) = &deps.mailpool else {
         return remote.clone();
     };
-    match mailpool.get_mailbox(&crate::mailpool::id_text(remote)).await {
+    match mailpool
+        .get_mailbox(&crate::mailpool::id_text(remote))
+        .await
+    {
         Ok(found) => found,
         Err(error) => {
-            tracing::warn!(?error, "[reach-webhook] could not read the mailbox for its logins; the daily pass retries");
+            tracing::warn!(
+                ?error,
+                "[reach-webhook] could not read the mailbox for its logins; the daily pass retries"
+            );
             remote.clone()
         }
     }
@@ -503,8 +585,10 @@ async fn apply_active(
     let keyring = deps.keyring();
     if status == "provisioning" {
         let remote = with_logins(deps, data).await;
-        let smtp = smtp_credentials_of(&remote).or_else(|| open(&keyring, text(mailbox, "smtpCredentials")));
-        let imap = imap_credentials_of(&remote).or_else(|| open(&keyring, text(mailbox, "imapCredentials")));
+        let smtp = smtp_credentials_of(&remote)
+            .or_else(|| open(&keyring, text(mailbox, "smtpCredentials")));
+        let imap = imap_credentials_of(&remote)
+            .or_else(|| open(&keyring, text(mailbox, "imapCredentials")));
         let (Some(smtp), Some(imap)) = (smtp, imap) else {
             return Ok(handled(false));
         };
@@ -516,18 +600,26 @@ async fn apply_active(
             "pausedReason": null,
             "lastError": null,
         });
-        let seal_with = |c| seal(&keyring, c).map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e));
+        let seal_with =
+            |c| seal(&keyring, c).map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e));
         if text(mailbox, "smtpCredentials").is_none() {
             patch["smtpCredentials"] = json!(seal_with(&smtp)?);
         }
         if text(mailbox, "imapCredentials").is_none() {
             patch["imapCredentials"] = json!(seal_with(&imap)?);
         }
-        let warmed = update_mailbox(db, id, patch, at).await?.unwrap_or_else(|| mailbox.clone());
+        let warmed = update_mailbox(db, id, patch, at)
+            .await?
+            .unwrap_or_else(|| mailbox.clone());
         if text(&warmed, "status") == text(mailbox, "status") {
             return Ok(handled(false));
         }
-        deps.emit(clerk_org_id, REACH_MAILBOX_UPDATED, id, without_credentials(&warmed));
+        deps.emit(
+            clerk_org_id,
+            REACH_MAILBOX_UPDATED,
+            id,
+            without_credentials(&warmed),
+        );
         return Ok(handled(true));
     }
     if status == "error" && text(mailbox, "pausedReason") == Some("login_failed") {
@@ -537,7 +629,12 @@ async fn apply_active(
         warmup_pool::resume(&deps.master, clerk_org_id, id).await?;
         let patch = json!({ "status": resume_status_for(mailbox), "pausedReason": null, "lastError": null });
         if let Some(restored) = update_mailbox(db, id, patch, at).await? {
-            deps.emit(clerk_org_id, REACH_MAILBOX_UPDATED, id, without_credentials(&restored));
+            deps.emit(
+                clerk_org_id,
+                REACH_MAILBOX_UPDATED,
+                id,
+                without_credentials(&restored),
+            );
         }
         return Ok(handled(true));
     }
@@ -549,7 +646,8 @@ async fn apply_active(
         if let Some(imap) = &imap {
             register_in_pool(&pool, mailbox, smtp.clone(), imap.clone(), None).await?;
         }
-        let seal_with = |c| seal(&keyring, c).map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e));
+        let seal_with =
+            |c| seal(&keyring, c).map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e));
         let mut patch = json!({ "smtpCredentials": seal_with(&smtp)? });
         if let Some(imap) = &imap {
             patch["imapCredentials"] = json!(seal_with(imap)?);
@@ -564,14 +662,24 @@ async fn on_mailbox_deleted(deps: &Deps, data: &Value) -> ReachResult<Value> {
     let Some(mailpool_id) = mailpool_id_of(data) else {
         return Ok(ignored("no_id"));
     };
-    let Some((_, clerk_org_id, entity_id)) = find_route(&deps.master, "mailpool_mailbox", &mailpool_id).await? else {
+    let Some((_, clerk_org_id, entity_id)) =
+        find_route(&deps.master, "mailpool_mailbox", &mailpool_id).await?
+    else {
         return Ok(ignored("unknown_id"));
     };
-    let db = deps.open_tenant(&clerk_org_id).await.map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
-    let Some(mailbox) = load_mailbox(&db, &entity_id).await?.filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted"))) else {
+    let db = deps
+        .open_tenant(&clerk_org_id)
+        .await
+        .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    let Some(mailbox) = load_mailbox(&db, &entity_id)
+        .await?
+        .filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted")))
+    else {
         return Ok(ignored("mailbox_gone"));
     };
-    let at = iso(weldsuite_reach_domain::now_or(deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW"))));
+    let at = iso(weldsuite_reach_domain::now_or(
+        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
+    ));
     let id = text(&mailbox, "id").unwrap_or_default();
     warmup_pool::pause(&deps.master, &clerk_org_id, id, pause_reasons::SUSPENDED).await?;
     let patch = json!({
@@ -580,7 +688,12 @@ async fn on_mailbox_deleted(deps: &Deps, data: &Value) -> ReachResult<Value> {
         "lastError": "The mailbox was deleted at the mailbox provider. Delete it here to stop billing.",
     });
     if let Some(updated) = update_mailbox(&db, id, patch, &at).await? {
-        deps.emit(&clerk_org_id, REACH_MAILBOX_SUSPENDED, id, without_credentials(&updated));
+        deps.emit(
+            &clerk_org_id,
+            REACH_MAILBOX_SUSPENDED,
+            id,
+            without_credentials(&updated),
+        );
     }
     Ok(handled(true))
 }
@@ -589,21 +702,32 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
     let Some(mailpool_id) = mailpool_id_of(data) else {
         return Ok(ignored("no_id"));
     };
-    let Some((_, clerk_org_id, entity_id)) = find_route(&deps.master, "mailpool_domain", &mailpool_id).await? else {
+    let Some((_, clerk_org_id, entity_id)) =
+        find_route(&deps.master, "mailpool_domain", &mailpool_id).await?
+    else {
         return Ok(ignored("unknown_id"));
     };
-    let db = deps.open_tenant(&clerk_org_id).await.map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
-    let domain: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-        .bind(&entity_id)
-        .fetch_optional(&db)
-        .await?;
-    let Some(domain) = domain.map(weldsuite_db::js_row).filter(|d| text(d, "status") != Some("disconnecting")) else {
+    let db = deps
+        .open_tenant(&clerk_org_id)
+        .await
+        .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    let domain: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
+            .bind(&entity_id)
+            .fetch_optional(&db)
+            .await?;
+    let Some(domain) = domain
+        .map(weldsuite_db::js_row)
+        .filter(|d| text(d, "status") != Some("disconnecting"))
+    else {
         return Ok(ignored("domain_gone"));
     };
     let Some(remote) = remote_status_of(data) else {
         return Ok(handled(false));
     };
-    let at = iso(weldsuite_reach_domain::now_or(deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW"))));
+    let at = iso(weldsuite_reach_domain::now_or(
+        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
+    ));
     let status = match remote {
         "active" => "active",
         "pending" => "connecting",
@@ -614,7 +738,9 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
             .1
             .unwrap_or_else(|| "The mailbox provider disabled this domain.".to_owned())
     });
-    if text(&domain, "status") == Some(status) && text(&domain, "lastError").map(str::to_owned) == last_error {
+    if text(&domain, "status") == Some(status)
+        && text(&domain, "lastError").map(str::to_owned) == last_error
+    {
         return Ok(handled(false));
     }
     let domain_id = text(&domain, "id").unwrap_or_default().to_owned();
@@ -639,10 +765,21 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .fetch_all(&db)
         .await?;
         for id in live {
-            warmup_pool::pause(&deps.master, &clerk_org_id, &id, pause_reasons::DOMAIN_ERROR).await?;
+            warmup_pool::pause(
+                &deps.master,
+                &clerk_org_id,
+                &id,
+                pause_reasons::DOMAIN_ERROR,
+            )
+            .await?;
             let patch = json!({ "status": "paused", "pausedReason": "domain_error" });
             if let Some(paused) = update_mailbox(&db, &id, patch, &at).await? {
-                deps.emit(&clerk_org_id, REACH_MAILBOX_UPDATED, &id, without_credentials(&paused));
+                deps.emit(
+                    &clerk_org_id,
+                    REACH_MAILBOX_UPDATED,
+                    &id,
+                    without_credentials(&paused),
+                );
             }
         }
     } else if status == "active" && text(&domain, "status") == Some("error") {
@@ -660,7 +797,12 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
             warmup_pool::resume(&deps.master, &clerk_org_id, id).await?;
             let patch = json!({ "status": resume_status_for(&mailbox), "pausedReason": null });
             if let Some(resumed) = update_mailbox(&db, id, patch, &at).await? {
-                deps.emit(&clerk_org_id, REACH_MAILBOX_UPDATED, id, without_credentials(&resumed));
+                deps.emit(
+                    &clerk_org_id,
+                    REACH_MAILBOX_UPDATED,
+                    id,
+                    without_credentials(&resumed),
+                );
             }
         }
     }

@@ -21,7 +21,9 @@ use weldsuite_reach_domain::suppressions;
 use crate::prospects::page_response;
 use crate::{Caller, ReachState, respond, validate};
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     let update = || gate.require([perm::REACH_SETTINGS_UPDATE]);
     Router::new()
         .route(
@@ -41,21 +43,33 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     )
 }
 
-async fn add(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn add(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let values = match validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "values", Presence::Required, Some(1), Some(10_000), |issues, item| {
-                issues.item_text(
-                    item,
-                    Text {
-                        trim: true,
-                        lowercase: true,
-                        format: None,
-                        min: Some(3),
-                        max: Some(320),
-                    },
-                )
-            })
+            .list(
+                body,
+                "values",
+                Presence::Required,
+                Some(1),
+                Some(10_000),
+                |issues, item| {
+                    issues.item_text(
+                        item,
+                        Text {
+                            trim: true,
+                            lowercase: true,
+                            format: None,
+                            min: Some(3),
+                            max: Some(320),
+                        },
+                    )
+                },
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -66,10 +80,20 @@ async fn add(State(state): State<ReachState>, caller: Caller, headers: HeaderMap
     respond(
         suppressions::add_manual(&caller.db, &sink, &values, &caller.user_id)
             .await
-            .map(|(added, skipped)| (StatusCode::CREATED, Data(json!({ "added": added, "skipped": skipped }))).into_response()),
+            .map(|(added, skipped)| {
+                (
+                    StatusCode::CREATED,
+                    Data(json!({ "added": added, "skipped": skipped })),
+                )
+                    .into_response()
+            }),
     )
 }
 
 async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
-    respond(suppressions::remove(&caller.db, &id).await.map(|()| NoContent.into_response()))
+    respond(
+        suppressions::remove(&caller.db, &id)
+            .await
+            .map(|()| NoContent.into_response()),
+    )
 }

@@ -18,7 +18,9 @@ use weldsuite_reach_domain::{ReachError, ReachResult, field, iso, now};
 
 use crate::{Caller, ReachState, billing, respond, validate};
 
-pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q>>) -> Router<ReachState> {
+pub(crate) fn routes<Q: PermissionQueries + 'static>(
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<ReachState> {
     Router::new()
         .route(
             "/access",
@@ -34,14 +36,23 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(gate: &Arc<PermissionGate<Q
             "/settings",
             get(read_settings)
                 .route_layer(gate.require([perm::REACH_SETTINGS_READ]))
-                .merge(axum::routing::patch(update_settings).route_layer(gate.require([perm::REACH_SETTINGS_UPDATE]))),
+                .merge(
+                    axum::routing::patch(update_settings)
+                        .route_layer(gate.require([perm::REACH_SETTINGS_UPDATE])),
+                ),
         )
-        .route("/billing", get(billing_status).route_layer(gate.require([perm::REACH_SETTINGS_READ])))
+        .route(
+            "/billing",
+            get(billing_status).route_layer(gate.require([perm::REACH_SETTINGS_READ])),
+        )
         .route(
             "/billing/setup",
             post(billing_setup).route_layer(gate.require([perm::REACH_MAILBOXES_CREATE])),
         )
-        .route("/overview", get(overview).route_layer(gate.require([perm::REACH_CAMPAIGNS_READ])))
+        .route(
+            "/overview",
+            get(overview).route_layer(gate.require([perm::REACH_CAMPAIGNS_READ])),
+        )
 }
 
 /// `GET /access`.
@@ -50,8 +61,13 @@ async fn access(caller: Caller) -> Response {
         async {
             let access = crate::access_of(&caller)?;
             let sending = caller.sending_enabled().await;
-            let summary =
-                weldsuite_reach_domain::access::summary(&caller.db, &access.status, Some(&access.limits), sending).await?;
+            let summary = weldsuite_reach_domain::access::summary(
+                &caller.db,
+                &access.status,
+                Some(&access.limits),
+                sending,
+            )
+            .await?;
             Ok(Data(summary).into_response())
         }
         .await,
@@ -105,17 +121,33 @@ pub(crate) fn is_hhmm(text: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.len() == 5
         && bytes[2] == b':'
-        && matches!((bytes[0], bytes[1]), (b'0' | b'1', b'0'..=b'9') | (b'2', b'0'..=b'3'))
+        && matches!(
+            (bytes[0], bytes[1]),
+            (b'0' | b'1', b'0'..=b'9') | (b'2', b'0'..=b'3')
+        )
         && (b'0'..=b'5').contains(&bytes[3])
         && bytes[4].is_ascii_digit()
 }
 
 /// `z.array(z.number().int().min(1).max(7)).min(1).max(7)` (`weekdays`).
-pub(crate) fn weekdays(issues: &mut Issues, fields: &Map<String, Value>, key: &str, presence: Presence) -> Option<Vec<i64>> {
+pub(crate) fn weekdays(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+) -> Option<Vec<i64>> {
     issues
         .list(fields, key, presence, Some(1), Some(7), |issues, item| {
             issues
-                .item_number(item, Number { coerce: false, int: true, min: Some(1.0), max: Some(7.0) })
+                .item_number(
+                    item,
+                    Number {
+                        coerce: false,
+                        int: true,
+                        min: Some(1.0),
+                        max: Some(7.0),
+                    },
+                )
                 .map(|n| n as i64)
         })
         .into_option()
@@ -129,8 +161,16 @@ struct SettingsInput {
 
 fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInput {
     let mut fields: Vec<(&'static str, Value)> = Vec::new();
-    let text = |issues: &mut Issues, key: &str, rules: Text| issues.text_with(body, key, Presence::Optional, rules).into_option();
-    if let Some(v) = text(issues, "senderCompanyName", Text::trimmed(Some(1), Some(200))) {
+    let text = |issues: &mut Issues, key: &str, rules: Text| {
+        issues
+            .text_with(body, key, Presence::Optional, rules)
+            .into_option()
+    };
+    if let Some(v) = text(
+        issues,
+        "senderCompanyName",
+        Text::trimmed(Some(1), Some(200)),
+    ) {
         fields.push(("sender_company_name", json!(v)));
     }
     if let Some(v) = text(issues, "senderAddress", Text::trimmed(Some(1), Some(1000))) {
@@ -145,9 +185,20 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
     if let Some(v) = weekdays(issues, body, "defaultSendDays", Presence::Optional) {
         fields.push(("default_send_days", json!(v)));
     }
-    for (key, column) in [("defaultWindowStart", "default_window_start"), ("defaultWindowEnd", "default_window_end")] {
+    for (key, column) in [
+        ("defaultWindowStart", "default_window_start"),
+        ("defaultWindowEnd", "default_window_end"),
+    ] {
         if let Some(v) = issues
-            .pattern(body, key, Presence::Optional, None, None, is_hhmm, "Use HH:MM")
+            .pattern(
+                body,
+                key,
+                Presence::Optional,
+                None,
+                None,
+                is_hhmm,
+                "Use HH:MM",
+            )
             .into_option()
         {
             fields.push((column, json!(v)));
@@ -158,19 +209,31 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
             body,
             "defaultMailboxDailyCap",
             Presence::Optional,
-            Number { coerce: false, int: true, min: Some(1.0), max: Some(50.0) },
+            Number {
+                coerce: false,
+                int: true,
+                min: Some(1.0),
+                max: Some(50.0),
+            },
         )
         .into_option()
     {
         fields.push(("default_mailbox_daily_cap", json!(v)));
     }
     if let Some(v) = issues
-        .choice(body, "stopOnReplyScope", Presence::Optional, &["prospect", "company"])
+        .choice(
+            body,
+            "stopOnReplyScope",
+            Presence::Optional,
+            &["prospect", "company"],
+        )
         .into_option()
     {
         fields.push(("stop_on_reply_scope", json!(v)));
     }
-    let complete_onboarding = issues.boolean(body, "completeOnboarding", Presence::Optional).into_option();
+    let complete_onboarding = issues
+        .boolean(body, "completeOnboarding", Presence::Optional)
+        .into_option();
     SettingsInput {
         fields,
         complete_onboarding,
@@ -228,13 +291,34 @@ async fn billing_status(State(state): State<ReachState>, caller: Caller) -> Resp
     )
 }
 
-async fn billing_setup(State(state): State<ReachState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn billing_setup(
+    State(state): State<ReachState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
         let success = issues
-            .text_with(body, "successUrl", Presence::Required, Text { format: Some(Format::Url), ..Text::default() })
+            .text_with(
+                body,
+                "successUrl",
+                Presence::Required,
+                Text {
+                    format: Some(Format::Url),
+                    ..Text::default()
+                },
+            )
             .into_option();
         let cancel = issues
-            .text_with(body, "cancelUrl", Presence::Required, Text { format: Some(Format::Url), ..Text::default() })
+            .text_with(
+                body,
+                "cancelUrl",
+                Presence::Required,
+                Text {
+                    format: Some(Format::Url),
+                    ..Text::default()
+                },
+            )
             .into_option();
         json!({ "successUrl": success, "cancelUrl": cancel })
     }) {

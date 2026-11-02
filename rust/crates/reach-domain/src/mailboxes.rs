@@ -19,18 +19,27 @@ pub fn without_credentials(row: &Value) -> Value {
 }
 
 fn has_login_error(pool: &PoolView) -> bool {
-    pool.last_login_error.as_deref().is_some_and(|e| !e.is_empty())
+    pool.last_login_error
+        .as_deref()
+        .is_some_and(|e| !e.is_empty())
 }
 
 /// `warmupBlockerOf(mailbox, pool, poolDomains)`.
-pub fn warmup_blocker(mailbox: &Value, pool: Option<&PoolView>, pool_domains: Option<i64>) -> Option<&'static str> {
+pub fn warmup_blocker(
+    mailbox: &Value,
+    pool: Option<&PoolView>,
+    pool_domains: Option<i64>,
+) -> Option<&'static str> {
     if text(mailbox, "status") != Some("warming") {
         return None;
     }
     let (ramp_day, rate, login_error) = match pool {
         Some(pool) => (
             pool.ramp_day,
-            pool.stats.as_ref().and_then(|s| s.get("inboxRate3d")).and_then(Value::as_f64),
+            pool.stats
+                .as_ref()
+                .and_then(|s| s.get("inboxRate3d"))
+                .and_then(Value::as_f64),
             has_login_error(pool),
         ),
         None => (
@@ -47,7 +56,14 @@ pub fn warmup_blocker(mailbox: &Value, pool: Option<&PoolView>, pool_domains: Op
 }
 
 /// `toMailboxDto(row, domainName, sentToday, warmup)`.
-pub fn to_dto(row: &Value, domain_name: &str, sent_today: i64, sent7d: i64, rescues7d: i64, blocker: Option<&str>) -> Value {
+pub fn to_dto(
+    row: &Value,
+    domain_name: &str,
+    sent_today: i64,
+    sent7d: i64,
+    rescues7d: i64,
+    blocker: Option<&str>,
+) -> Value {
     json!({
         "id": field(row, "id"),
         "domainId": field(row, "domainId"),
@@ -74,7 +90,11 @@ pub fn to_dto(row: &Value, domain_name: &str, sent_today: i64, sent7d: i64, resc
     })
 }
 
-async fn sent_today_by_mailbox(db: &PgPool, ids: &[String], now: OffsetDateTime) -> ReachResult<Vec<(String, i64)>> {
+async fn sent_today_by_mailbox(
+    db: &PgPool,
+    ids: &[String],
+    now: OffsetDateTime,
+) -> ReachResult<Vec<(String, i64)>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -147,7 +167,12 @@ fn dto_of(row: &Value, sent: &[(String, i64)], views: &(Vec<PoolView>, Option<i6
 }
 
 /// `listMailboxes(deps, filter)`.
-pub async fn list(db: &PgPool, source: &WarmupSource<'_>, domain_id: Option<&str>, status: Option<&str>) -> ReachResult<Vec<Value>> {
+pub async fn list(
+    db: &PgPool,
+    source: &WarmupSource<'_>,
+    domain_id: Option<&str>,
+    status: Option<&str>,
+) -> ReachResult<Vec<Value>> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(m) || jsonb_build_object('domain_name', d.name) from reach_mailboxes m
          left join reach_domains d on m.domain_id = d.id
@@ -160,8 +185,14 @@ pub async fn list(db: &PgPool, source: &WarmupSource<'_>, domain_id: Option<&str
     .bind(domain_id)
     .fetch_all(db)
     .await?;
-    let rows: Vec<Value> = crate::js_rows(rows).iter().map(without_credentials).collect();
-    let ids: Vec<String> = rows.iter().filter_map(|r| text(r, "id").map(str::to_owned)).collect();
+    let rows: Vec<Value> = crate::js_rows(rows)
+        .iter()
+        .map(without_credentials)
+        .collect();
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| text(r, "id").map(str::to_owned))
+        .collect();
     let sent = sent_today_by_mailbox(db, &ids, crate::now()).await?;
     let views = warmup_views(source, &rows).await;
     Ok(rows.iter().map(|row| dto_of(row, &sent, &views)).collect())

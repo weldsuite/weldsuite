@@ -58,7 +58,10 @@ pub fn skip_reason(
     if !allow_consumer && is_consumer_email(email) {
         return Some("consumer");
     }
-    if matches!(text(prospect, "validation"), Some("invalid" | "role" | "no_mx")) {
+    if matches!(
+        text(prospect, "validation"),
+        Some("invalid" | "role" | "no_mx")
+    ) {
         return Some("invalid");
     }
     if enrolled_elsewhere {
@@ -67,11 +70,18 @@ pub fn skip_reason(
     None
 }
 
-async fn load_candidates(db: &PgPool, prospect_ids: &[String], list_id: Option<&str>) -> ReachResult<Vec<Value>> {
+async fn load_candidates(
+    db: &PgPool,
+    prospect_ids: &[String],
+    list_id: Option<&str>,
+) -> ReachResult<Vec<Value>> {
     let mut by_id: Vec<Value> = Vec::new();
     let mut put = |row: Value| {
         let id = text(&row, "id").map(str::to_owned);
-        match by_id.iter_mut().find(|r| text(r, "id").map(str::to_owned) == id) {
+        match by_id
+            .iter_mut()
+            .find(|r| text(r, "id").map(str::to_owned) == id)
+        {
             Some(slot) => *slot = row,
             None => by_id.push(row),
         }
@@ -115,14 +125,18 @@ pub async fn add_prospects_to_campaign(
 ) -> ReachResult<(Value, Vec<String>)> {
     let candidates = load_candidates(db, prospect_ids, list_id).await?;
     let mut skipped: Vec<(&'static str, i64)> = Vec::new();
-    let mut bump = |reason: &'static str, by: i64| match skipped.iter_mut().find(|(r, _)| *r == reason) {
-        Some(entry) => entry.1 += by,
-        None => skipped.push((reason, by)),
-    };
+    let mut bump =
+        |reason: &'static str, by: i64| match skipped.iter_mut().find(|(r, _)| *r == reason) {
+            Some(entry) => entry.1 += by,
+            None => skipped.push((reason, by)),
+        };
     if candidates.is_empty() {
         return Ok((json!({ "added": 0, "skipped": [] }), Vec::new()));
     }
-    let ids: Vec<String> = candidates.iter().filter_map(|c| text(c, "id").map(str::to_owned)).collect();
+    let ids: Vec<String> = candidates
+        .iter()
+        .filter_map(|c| text(c, "id").map(str::to_owned))
+        .collect();
     let mut here: HashSet<String> = HashSet::new();
     let mut elsewhere: HashSet<String> = HashSet::new();
     for chunk in ids.chunks(CHUNK) {
@@ -142,7 +156,10 @@ pub async fn add_prospects_to_campaign(
             }
         }
     }
-    let emails: Vec<String> = candidates.iter().map(|c| crate::text_or_empty(c, "email").to_owned()).collect();
+    let emails: Vec<String> = candidates
+        .iter()
+        .map(|c| crate::text_or_empty(c, "email").to_owned())
+        .collect();
     let suppressed = load_index(db, &emails).await?;
     let mut eligible: Vec<String> = Vec::new();
     for prospect in &candidates {
@@ -182,7 +199,10 @@ pub async fn add_prospects_to_campaign(
         .into_iter()
         .map(|(reason, count)| json!({ "reason": reason, "count": count }))
         .collect();
-    Ok((json!({ "added": added_ids.len(), "skipped": skipped }), added_ids))
+    Ok((
+        json!({ "added": added_ids.len(), "skipped": skipped }),
+        added_ids,
+    ))
 }
 
 /// `toEnrollment(row, prospect, mailboxEmail)`.
@@ -238,7 +258,11 @@ pub async fn list_campaign_enrollments(
 }
 
 /// `countCampaignEnrollments(db, campaignId, status)`.
-pub async fn count_campaign_enrollments(db: &PgPool, campaign_id: &str, status: Option<&str>) -> ReachResult<i64> {
+pub async fn count_campaign_enrollments(
+    db: &PgPool,
+    campaign_id: &str,
+    status: Option<&str>,
+) -> ReachResult<i64> {
     Ok(sqlx::query_scalar(
         "select count(*) from reach_enrollments where campaign_id = $1 and ($2::text is null or status = $2)",
     )
@@ -249,13 +273,18 @@ pub async fn count_campaign_enrollments(db: &PgPool, campaign_id: &str, status: 
 }
 
 /// `removeEnrollment(db, campaignId, enrollmentId)`.
-pub async fn remove_enrollment(db: &PgPool, campaign_id: &str, enrollment_id: &str) -> ReachResult<bool> {
-    let row: Option<String> =
-        sqlx::query_scalar("delete from reach_enrollments where id = $1 and campaign_id = $2 returning id")
-            .bind(enrollment_id)
-            .bind(campaign_id)
-            .fetch_optional(db)
-            .await?;
+pub async fn remove_enrollment(
+    db: &PgPool,
+    campaign_id: &str,
+    enrollment_id: &str,
+) -> ReachResult<bool> {
+    let row: Option<String> = sqlx::query_scalar(
+        "delete from reach_enrollments where id = $1 and campaign_id = $2 returning id",
+    )
+    .bind(enrollment_id)
+    .bind(campaign_id)
+    .fetch_optional(db)
+    .await?;
     Ok(row.is_some())
 }
 

@@ -56,6 +56,7 @@ import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
 import { sameBody } from './conformance-binary';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
+import { smtpUrl } from './smtp-bridge';
 import {
   type WorkflowCall,
   recordTypeScriptWorkflowCalls,
@@ -996,6 +997,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     realtime: (await realtimeUrl(env)) ?? null,
     // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
     sendEmail: await sendEmailUrl(env),
+    // Customer-mailbox SMTP through its `SMTP_SEND` double (./smtp-bridge.ts).
+    smtp: (await smtpUrl(env)) ?? null,
     ledgers: await ledgerUrls(env),
     // Its Workflow bindings (runs started and woken).
     workflows: await workflowUrls(env),
