@@ -126,6 +126,12 @@ templates).
    both backends made are compared as a side effect (method, URL, body). A
    stub answers both runs, so it must answer by URL and method
    (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
+   A multipart body is recorded as `<body>` on both sides (its boundary is
+   drawn per run). Values in an outbound body that differ by construction go
+   in the route's `outbound` entry of `conformance-volatile.ts`: masked (a
+   token signed with the current second), or `decode: 'base64-json'` (a
+   base64 JSON value carrying new ids, compared decoded; WeldCall's Telnyx
+   `client_state`).
 6. Routes that write the master database: put `masterDb` (from
    `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
    return `conformanceMasterDb(masterDb)` (from

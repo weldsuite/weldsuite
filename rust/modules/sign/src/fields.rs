@@ -184,17 +184,21 @@ async fn replace_fields(
     }
 
     if !fields.is_empty() {
-        // One statement, as Drizzle's multi-row insert.
+        // One statement, as Drizzle's multi-row insert. Fields are listed by
+        // `created_at`, so new ones are a millisecond apart in the order sent
+        // (as `replaceFields` stamps them); a kept field keeps its own.
         sqlx::query(
             "insert into sign_fields
-                 (id, envelope_id, document_id, recipient_id, type, page, x, y, width, height,
-                  required, label)
-             select u.id, $2, u.document_id, u.recipient_id, u.type, u.page, u.x, u.y, u.width,
+                 (id, created_at, envelope_id, document_id, recipient_id, type, page, x, y,
+                  width, height, required, label)
+             select u.id, $13::timestamptz + (u.n - 1) * interval '1 millisecond', $2,
+                    u.document_id, u.recipient_id, u.type, u.page, u.x, u.y, u.width,
                     u.height, u.required, u.label
              from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::varchar[], $6::int[],
                          $7::float8[], $8::float8[], $9::float8[], $10::float8[], $11::bool[],
-                         $12::varchar[])
-                  as u(id, document_id, recipient_id, type, page, x, y, width, height, required, label)
+                         $12::varchar[]) with ordinality
+                  as u(id, document_id, recipient_id, type, page, x, y, width, height, required,
+                       label, n)
              on conflict (id) do update set
                  document_id = excluded.document_id,
                  recipient_id = excluded.recipient_id,
@@ -210,8 +214,18 @@ async fn replace_fields(
         )
         .bind(&ids)
         .bind(envelope_id)
-        .bind(fields.iter().map(|f| f.document_id.clone()).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.recipient_id.clone()).collect::<Vec<_>>())
+        .bind(
+            fields
+                .iter()
+                .map(|f| f.document_id.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            fields
+                .iter()
+                .map(|f| f.recipient_id.clone())
+                .collect::<Vec<_>>(),
+        )
         .bind(fields.iter().map(|f| f.kind.clone()).collect::<Vec<_>>())
         .bind(
             fields

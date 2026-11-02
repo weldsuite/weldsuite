@@ -48,6 +48,11 @@ pub struct BooksState {
     /// Outbound HTTP to third parties (ECB rates, VIES, tax and bank-feed
     /// providers). A request's own (conformance) wins.
     pub http: Option<OutboundHttp>,
+    /// Ponto's client, with the client certificate Ponto requires (mTLS;
+    /// `PONTO_MTLS_CERT` and `PONTO_MTLS_KEY`). Without one Ponto is called
+    /// through [`BooksState::http`], as the worker does without its
+    /// `PONTO_CERT` binding.
+    pub ponto_http: Option<OutboundHttp>,
     /// The workspace cache (`WORKSPACE_CACHE`). A request's (conformance) wins.
     pub cache: Option<Arc<dyn DynCache>>,
     /// In-app notifications (`REALTIME`), when configured.
@@ -86,6 +91,7 @@ impl BooksState {
             files: None,
             master: None,
             http: None,
+            ponto_http: None,
             cache: None,
             realtime: None,
             jobs: None,
@@ -221,6 +227,17 @@ impl Caller {
         if sender.send(event).is_err() {
             tracing::error!("books: the event outbox closed early");
         }
+    }
+
+    /// `Date.now()` as the request sees it: the test's faked clock in
+    /// conformance (`CONFORMANCE_NOW`, which only the harness sets, in the
+    /// request's env), else the real one.
+    pub fn now_ms(&self) -> i64 {
+        self.env
+            .as_ref()
+            .and_then(|env| env.get("CONFORMANCE_NOW"))
+            .and_then(crate::js::millis_of)
+            .unwrap_or_else(now_ms)
     }
 
     /// A value of `c.env`: the request's (conformance), else the process's.

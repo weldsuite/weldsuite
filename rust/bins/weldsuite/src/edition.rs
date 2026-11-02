@@ -80,6 +80,43 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // on Workers AI through the Cloudflare AI Gateway; the Rust backend has
     // no AI port yet.
     "weldconnect-ai",
+    // WeldHR payroll: sending the loonaangifte over Digipoort needs the
+    // worker's PKIoverheid client certificate binding. The return is filed
+    // by hand and marked as filed (`POST …/filings/:id/submit` answers
+    // DIGIPOORT_NOT_CONFIGURED, as the worker without the binding does).
+    "payroll-digipoort",
+    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`)
+    // reads the file with a model on Workers AI; the route keeps its refusals
+    // and answers 503 where it would call the model.
+    "books-ocr",
+    // WeldCall: buying a phone number and submitting a number port are Stripe
+    // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
+    // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
+    "phone-number-purchase",
+    // WeldBooks VAT: sending the BTW-aangifte and the Opgaaf ICP to Digipoort
+    // needs the worker's PKIoverheid client certificate binding. Without it
+    // the worker builds the envelope and answers a simulated submission, as
+    // Rust always does (`POST /api/vat-returns/:id/file`,
+    // `/api/icp-declarations/:id/file`); the platform hides filing and the
+    // status check, and the XBRL download is filed by hand.
+    "vat-digipoort",
+    // WeldHost: buying and renewing domains charge through Stripe, which
+    // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
+    // "Stripe is not configured", as the worker without the key does).
+    // Managing, transferring and external domains stay available.
+    "domain-purchase",
+    // WeldMeet transcripts and summaries: Whisper and the summary model run in
+    // the worker's MEETING_AI Workflow, and the video provider's own
+    // transcript and summary are RealtimeKit's. `POST …/recording/transcribe`
+    // and `…/summarize` answer 503 as the worker without the binding does,
+    // and the AI options of a live meeting need RealtimeKit.
+    "meet-transcription",
+    // WeldMeet recordings: RealtimeKit's recorder uploads the file and the
+    // worker's MEETING_RECORDING_COPY Workflow copies it into the private
+    // MEETING_RECORDINGS bucket. On LiveKit that would be an Egress into the
+    // files store, which isn't built: access, streaming and deletes answer
+    // 503 "Recording storage is not configured".
+    "meet-recordings",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

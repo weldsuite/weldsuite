@@ -34,6 +34,7 @@ import {
 } from '../../../../packages/domains/books/src/jurisdictions/us/tax-lines';
 import { FORM_1099_BOXES, FORM_1099_OMIT } from '../../../../packages/domains/books/src/jurisdictions/us/form-1099';
 import { US_STATES, US_TERRITORIES } from '../../../../packages/domains/books/src/jurisdictions/us/states';
+import { NEXUS_RULES } from '../../../../packages/domains/books/src/jurisdictions/us/nexus-thresholds';
 import {
   BR_ENTITY_TYPES,
   BR_TAX_REGIMES,
@@ -164,6 +165,7 @@ const out = {
     stateCodes: US_STATES.map((s) => s.code),
     states: US_STATES,
     territoryCodes: US_TERRITORIES.map((t) => t.code),
+    nexusRules: NEXUS_RULES,
   },
   br: {
     entityTypes: BR_ENTITY_TYPES,

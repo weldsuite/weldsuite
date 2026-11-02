@@ -532,6 +532,12 @@ cron:
       schedule: "*/15 * * * *"
       # Kill a run that hangs before the next one is due.
       activeDeadlineSeconds: 840
+    # WeldDesk: SLA warnings and breaches on inbox conversations, for the
+    # workspaces the due index lists.
+    desk-sla-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.
@@ -539,6 +545,12 @@ cron:
       enabled: false
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
+    # rates, in every workspace that used books (the books due index).
+    books-sweep:
+      enabled: true
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:
@@ -556,6 +568,13 @@ cron:
     workspace-teardown:
       enabled: false
       schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldHost's daily domain auto-renew sweep. Renewals are charged through
+    # Stripe, which stays with Global (feature domain-purchase), so for now it
+    # only reports that billing is missing; off until a billing provider exists.
+    domain-auto-renew:
+      enabled: false
+      schedule: "0 4 * * *"
       activeDeadlineSeconds: 3000
   resources:
     requests:

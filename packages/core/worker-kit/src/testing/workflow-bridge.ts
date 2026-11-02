@@ -28,10 +28,14 @@ import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow bindings the bridge serves. */
 export const WORKFLOW_BINDINGS = [
-  'GITHUB_PROJECT_SYNC',
   'EXECUTE_SEQUENCE',
   'SEND_SCHEDULED_EMAIL',
   'WELDDATA_ENRICH',
+  // WeldMeet: the recording copy, the meeting AI and the legacy backfill.
+  'MEETING_RECORDING_COPY',
+  'MEETING_AI',
+  'MEETING_RECORDING_BACKFILL',
+  'GITHUB_PROJECT_SYNC',
   'EXECUTE_WORKFLOW',
   // WeldConnect's CRM sync (connect-api's /api/integrations), hosted by integration-webhook-worker.
   'CRM_SYNC',

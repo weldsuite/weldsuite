@@ -20,7 +20,10 @@ const state = vi.hoisted(() => ({
 vi.mock('@/hooks/queries/use-drive-queries', () => ({
   useDriveFiles: (params: Record<string, unknown>) => {
     state.calls.push(params);
-    const files = params.folderId ? state.folderFiles : state.files;
+    // As app-api answers: a folder's files, only the top level for `folderId: ''`, else everything.
+    let files = state.files;
+    if (params.folderId) files = state.folderFiles;
+    else if (params.folderId === '') files = state.files.filter((f) => !(f as UnifiedFile).folderId);
     return {
       data: state.isLoading || state.isError ? undefined : { success: true, data: files, pagination: { hasMore: state.hasMore } },
       isLoading: state.isLoading,
@@ -196,6 +199,8 @@ describe('Drive file picker', () => {
     renderPicker();
 
     await user.click(screen.getByRole('tab', { name: tp.tabs.myDrive }));
+    // The top level is asked of the server, not filtered from the newest files.
+    expect(state.calls).toContainEqual(expect.objectContaining({ type: 'pdf', folderId: '' }));
     expect(screen.getByRole('checkbox', { name: 'Root.pdf' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Nested.pdf' })).toBeNull();
 

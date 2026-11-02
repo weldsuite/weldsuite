@@ -46,6 +46,64 @@ pub fn zip5_of(address: Option<&Value>) -> Option<String> {
     ok.then(|| chars[..5].iter().collect())
 }
 
+/// Which address a jurisdiction level is taxed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Side {
+    Origin,
+    Destination,
+}
+
+/// `SourcingDecision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcingDecision {
+    /// `origin` | `modified_origin` | `destination`.
+    pub sourcing: &'static str,
+    /// The ship-to state: the state whose tax applies.
+    pub taxing_state: String,
+    pub interstate: bool,
+    /// The address of each level, in `Level::ALL` order (state, county,
+    /// city, district).
+    pub level_source: [Side; 4],
+}
+
+/// `decideSourcing({ shipFrom, shipTo, direction })`: interstate sales are
+/// destination-sourced everywhere; an intrastate sale follows the state's
+/// rule (`origin`, California's `modified_origin` with district taxes at the
+/// buyer); use tax is always taxed at the delivery address. `None` when the
+/// ship-to has no state.
+pub fn decide_sourcing(
+    ship_from: Option<&Value>,
+    ship_to: Option<&Value>,
+    use_tax: bool,
+) -> Option<SourcingDecision> {
+    let taxing_state = state_code_of(ship_to)?;
+    let from_state = state_code_of(ship_from);
+    let interstate = from_state.as_deref() != Some(taxing_state.as_str());
+    let destination = SourcingDecision {
+        sourcing: "destination",
+        taxing_state: taxing_state.clone(),
+        interstate,
+        level_source: [Side::Destination; 4],
+    };
+    if use_tax || interstate {
+        return Some(destination);
+    }
+    let rule = us::state(Some(&taxing_state)).and_then(|s| s["intrastateSourcing"].as_str());
+    Some(match rule {
+        Some("origin") => SourcingDecision {
+            sourcing: "origin",
+            level_source: [Side::Origin; 4],
+            ..destination
+        },
+        Some("modified_origin") => SourcingDecision {
+            sourcing: "modified_origin",
+            level_source: [Side::Origin, Side::Origin, Side::Origin, Side::Destination],
+            ..destination
+        },
+        _ => destination,
+    })
+}
+
 /// `pickShipTo(...candidates)` (books-api `services/sales-tax/document-tax.ts`):
 /// the first address with a state, else the first address at all.
 pub fn pick_ship_to(candidates: &[Option<&Value>]) -> Option<Value> {

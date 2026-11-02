@@ -6,8 +6,9 @@
 //! under `rust/modules/` and is mounted at its path prefix.
 
 mod access_requests;
-mod books;
+pub(crate) mod books;
 mod feature_flags;
+mod host;
 mod me;
 
 use std::sync::{Arc, OnceLock};
@@ -104,13 +105,18 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = connect(router, state);
     let router = ads(router, state);
     let router = social(router, state);
+    let router = call(router, state);
+    let router = meet(router, state);
+    let router = reach(router, state);
     let router = data(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
     let router = desk(router, state);
     let router = flow(router, state);
+    let router = hr(router, state);
     let router = stash(router, state);
     let router = books::api(router, state);
+    let router = host::api(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -496,6 +502,130 @@ fn social(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// WeldCall (`weldsuite-call`): call-api's `/api/calls`,
+/// `/api/call-intelligence`, `/api/desk/phone`, `/api/porting` and
+/// `/api/telephony`.
+fn call(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("call") {
+        return router;
+    }
+    router.merge(weldsuite_call::router(
+        call_state(state),
+        &state.permissions,
+    ))
+}
+
+/// call-api's routes ahead of the session: billing-worker's phone-number
+/// fulfilment (`/api/internal/telephony`) and the Telnyx webhook
+/// (`/public/webhooks/telnyx`). Conformance builds open the test's tenant
+/// database for every workspace.
+fn call_public(state: &AppState) -> Router<AppState> {
+    if !mounts("call") {
+        return Router::new();
+    }
+    let router = weldsuite_call::public_router(call_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldCall's handle on the app: events, the master database, Telnyx over
+/// the shared HTTP client, the `STORAGE` bucket, realtime and the
+/// workspaces' tenant databases. Conformance builds take the test's per
+/// request.
+fn call_state(state: &AppState) -> weldsuite_call::CallState {
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_call::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    weldsuite_call::CallState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance { None } else { shared_outbound() },
+        storage: if conformance {
+            None
+        } else {
+            state.infra.public_files.clone()
+        },
+        realtime: state.infra.realtime.clone(),
+        tenants: Some(tenants),
+    }
+}
+
+/// WeldReach (`weldsuite-reach`): reach-api's `/api/reach/*`, behind the
+/// `weldreach` app-access gate.
+fn reach(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("reach") {
+        return router;
+    }
+    router.nest(
+        "/reach",
+        weldsuite_reach::router(reach_state(state), &state.permissions),
+    )
+}
+
+/// Mailpool's webhook (`/public/reach/webhooks/mailpool`), ahead of the
+/// session; served with the reach module. Conformance builds open the
+/// test's tenant database for every workspace.
+fn reach_public(state: &AppState) -> Router<AppState> {
+    if !mounts("reach") {
+        return Router::new();
+    }
+    let router = weldsuite_reach::public_router(reach_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldReach's handle on the app: events, the master database (app access,
+/// routes, the warmup pool, the due index), Mailpool and DNS-over-HTTPS,
+/// the files (raw replies), the field keys and the workspaces' tenant
+/// databases. Conformance builds take the test's per request.
+fn reach_state(state: &AppState) -> weldsuite_reach::ReachState {
+    let conformance = cfg!(feature = "conformance");
+    let master = state.workspaces.master().clone();
+    weldsuite_reach::ReachState {
+        events: state.infra.events.clone(),
+        master: (!conformance).then(|| master.clone()),
+        http: if conformance { None } else { shared_outbound() },
+        files: if conformance {
+            None
+        } else {
+            file_stores(state)
+        },
+        keyring: weldsuite_db::Keyring {
+            v1: std::env::var("DATABASE_ENCRYPTION_KEY")
+                .ok()
+                .filter(|k| !k.is_empty()),
+            v2: std::env::var("DATABASE_ENCRYPTION_KEY_V2")
+                .ok()
+                .filter(|k| !k.is_empty()),
+        },
+        smtp: Some(Arc::new(weldsuite_reach::LettreSmtp)),
+        access_gate: (!conformance).then(|| {
+            Arc::new(weldsuite_pipeline::AppAccessGate::new(
+                master,
+                weldsuite_reach::weldsuite_reach_domain::schemas::WELDREACH_APP_CODE,
+            ))
+        }),
+        tenants: Some(tenant_databases(state)),
+    }
+}
+
 /// WeldData (`weldsuite-data`): data-api's `/api/welddata`,
 /// `/api/enrich-fields` and `/api/enrichments`, and the
 /// `data.welddata-enrich` job its column runs start.
@@ -623,6 +753,106 @@ fn social_state(state: &AppState) -> weldsuite_social::SocialState {
             .clone()
         },
         tenants: Some(tenants),
+    }
+}
+
+/// WeldMeet (`weldsuite-meet`): meet-api's `/api/meetings`,
+/// `/api/meeting-sessions`, `/api/meeting-messages`, `/api/meeting-waitlist`
+/// and `/api/transcriptions`.
+fn meet(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("meet") {
+        return router;
+    }
+    router.merge(weldsuite_meet::router(
+        meet_state(state),
+        &state.permissions,
+    ))
+}
+
+/// The video provider's webhooks (`/api/webhooks/cloudflare-realtime`,
+/// `/api/webhooks/livekit`) and the tokenized recording stream
+/// (`/public/meeting-recordings`), ahead of the session; served with the
+/// meet module. Conformance builds open the test's tenant database (or its
+/// databases by workspace) for every workspace.
+fn meet_public(state: &AppState) -> Router<AppState> {
+    if !mounts("meet") {
+        return Router::new();
+    }
+    let router = weldsuite_meet::public_router(meet_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::meet_public,
+    ));
+    router
+}
+
+/// WeldMeet's handle on the app: events, the cache (webhook mappings,
+/// recording tokens), the master database (credits, the AI price list), the
+/// realtime publisher, the video provider (`VIDEO_PROVIDER`, `LIVEKIT_*`,
+/// `CF_REALTIME_*`: `weldsuite_video_rooms::from_env`), invitation mail,
+/// the public bucket (avatars) and the workspaces' tenant databases. The
+/// Kubernetes editions have no recordings bucket and none of the worker's
+/// Workflows (recordings and transcripts are unavailable features there).
+/// Conformance builds take the test's KV, master database, fetch stub,
+/// buckets and Workflow fakes per request.
+fn meet_state(state: &AppState) -> weldsuite_meet::MeetState {
+    static VIDEO: OnceLock<Arc<dyn weldsuite_video_rooms::DynVideoRooms>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    let http = shared_outbound();
+    let video = (!conformance).then(|| {
+        Arc::clone(VIDEO.get_or_init(|| {
+            weldsuite_video_rooms::from_env(
+                |name| std::env::var(name).ok(),
+                http.clone()
+                    .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
+            )
+        }))
+    });
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_meet::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let livekit = match (
+        std::env::var("LIVEKIT_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty()),
+        std::env::var("LIVEKIT_API_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(api_key), Some(api_secret)) => Some(weldsuite_meet::LiveKitKeys {
+            api_key,
+            api_secret,
+        }),
+        _ => None,
+    };
+    weldsuite_meet::MeetState {
+        events: state.infra.events.clone(),
+        // Without Valkey, recording tokens and webhook mappings live in this
+        // process (one replica's worth).
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        realtime: state.infra.realtime.clone(),
+        video,
+        http: if conformance { None } else { http },
+        outbound: deployment_outbound(state),
+        files: if conformance {
+            None
+        } else {
+            file_stores(state)
+        },
+        recordings: None,
+        workflows: weldsuite_meet::MeetWorkflows::default(),
+        tenants: Some(tenants),
+        livekit,
     }
 }
 
@@ -945,6 +1175,55 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
     }
 }
 
+/// WeldHR (`weldsuite-hr`): hr-api's `/api/weldhr`, payroll included,
+/// once the module is marked ported (always in conformance builds).
+fn hr(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("hr") {
+        return router;
+    }
+    router.nest(
+        "/weldhr",
+        weldsuite_hr::router(hr_state(state), &state.permissions),
+    )
+}
+
+/// WeldHR's handle on the app: events, realtime, files, system mail, push,
+/// the master database, and WeldBooks for an approved pay run's journal
+/// (books-api's `BOOKS_INTERNAL`): in process, on the workspace's own
+/// database. Conformance builds take the test's stub per request, and none
+/// when the test binds none (the journal is skipped, as the worker does
+/// without the binding).
+fn hr_state(state: &AppState) -> weldsuite_hr::HrState {
+    weldsuite_hr::HrState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        // Conformance builds use only the bucket a test shares (`STORAGE`).
+        files: file_stores(state).filter(|_| !cfg!(feature = "conformance")),
+        // Payroll mail (payslip ready, bank details changed). Conformance builds
+        // send none: the worker sends it as raw MIME over the test's `SEND_EMAIL`,
+        // which the payroll suites leave unbound (weldsuite-emails' render cases
+        // check the templates).
+        mail: state
+            .infra
+            .mail
+            .clone()
+            .filter(|_| !cfg!(feature = "conformance")),
+        // Expo push. Conformance builds take the test's bridge per request.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+        // Conformance builds: the test's master database per request.
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
+        books: (!cfg!(feature = "conformance")).then(|| {
+            Arc::new(weldsuite_hr::InProcessBooks) as Arc<dyn weldsuite_hr::BooksInternal>
+        }),
+    }
+}
+
 /// A workspace's tenant database for WeldFlow's jobs.
 fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
     let workspaces = Arc::clone(&state.workspaces);
@@ -1051,7 +1330,11 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
         .merge(social_public(state))
+        .merge(call_public(state))
+        .merge(meet_public(state))
+        .merge(reach_public(state))
         .merge(books::public(state))
+        .merge(host::public(state))
         .merge(commerce_public(state))
         .merge(connect_public(state));
     if mounts("mail") {

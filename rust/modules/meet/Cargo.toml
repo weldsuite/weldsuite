@@ -1,0 +1,40 @@
+[package]
+name = "weldsuite-meet"
+description = "WeldMeet (meetings, sessions, recordings, transcripts, waitlist, meeting chat, the video provider's webhooks): meet-api's routes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-emails = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+weldsuite-video-rooms = { workspace = true }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+base64 = { workspace = true }
+bytes = { workspace = true }
+getrandom = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["macros", "sync"] }
+tracing = { workspace = true }
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

@@ -58,6 +58,20 @@ export const EDITION_FEATURES = [
   'helpcenter-custom-domains',
   /** WeldConnect's "Generate with AI" (`POST /api/workflows/generate`, Workers AI). */
   'weldconnect-ai',
+  /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
+  'payroll-digipoort',
+  /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */
+  'books-ocr',
+  /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
+  'phone-number-purchase',
+  /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
+  'vat-digipoort',
+  /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
+  'domain-purchase',
+  /** WeldMeet transcripts and AI summaries (the MEETING_AI Workflow and RealtimeKit's own AI). */
+  'meet-transcription',
+  /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
+  'meet-recordings',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

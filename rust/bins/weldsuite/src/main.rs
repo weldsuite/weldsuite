@@ -9,6 +9,8 @@ mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
 #[cfg(feature = "conformance")]
+mod conformance_books;
+#[cfg(feature = "conformance")]
 mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_kv;
@@ -50,7 +52,8 @@ commands:
   consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge, workflow-schedules
+             calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
+             workflow-schedules
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit

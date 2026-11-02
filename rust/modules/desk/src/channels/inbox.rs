@@ -96,6 +96,25 @@ fn schema_missing(error: &sqlx::Error) -> bool {
 
 // ── GET / ─────────────────────────────────────────────────────────────────────
 
+/// `queryBoolean` (`listConversationsQuerySchema`): `"true"` / `"false"` read
+/// as booleans, then `z.boolean()`, so `?unassigned=false` is no filter at
+/// all and any other value is refused. False when absent.
+fn query_boolean(issues: &mut Issues, values: &Map<String, Value>, key: &str) -> bool {
+    let mut flag = Map::new();
+    if let Some(value) = values.get(key) {
+        let value = match value {
+            Value::String(s) if s == "true" => Value::Bool(true),
+            Value::String(s) if s == "false" => Value::Bool(false),
+            other => other.clone(),
+        };
+        flag.insert(key.to_owned(), value);
+    }
+    issues
+        .boolean(&flag, key, Presence::Optional)
+        .into_option()
+        .unwrap_or(false)
+}
+
 async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
     let query = match read_query(query.as_deref(), |issues, values| {
         let text = |issues: &mut Issues, key: &str, rules: Text| {
@@ -107,11 +126,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
             .choice(values, "state", Presence::Optional, &["open", "closed"])
             .into_option();
         let assignee_id = text(issues, "assigneeId", Text::length(None, Some(255)));
-        // `z.coerce.boolean()`: `Boolean(value)`.
-        let unassigned = values.get("unassigned").is_some_and(|v| match v {
-            Value::String(s) => !s.is_empty(),
-            _ => true,
-        });
+        let unassigned = query_boolean(issues, values, "unassigned");
         let channel = issues
             .choice(values, "channel", Presence::Optional, CHANNELS)
             .into_option();
@@ -340,6 +355,7 @@ async fn update_attributes(
                 .into_response();
         }
     };
+    crate::mark_sla_due(&state, caller, updated.sla_check_at);
     // Other agents' open threads take the field values from the hub event.
     let mut conversation = updated.conversation;
     if let Some(object) = conversation.as_object_mut() {
@@ -832,7 +848,7 @@ async fn reply(
         }
     }
     let caller = &ctx.caller;
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         &caller.db,
         Append {
             conversation_id: &id,
@@ -847,7 +863,10 @@ async fn reply(
     )
     .await;
     let (conversation, message) = match appended {
-        Ok(done) => done,
+        Ok(done) => {
+            crate::mark_sla_due(&state, caller, done.sla_check_at);
+            done.pair()
+        }
         Err(AppendError::NotFound) => {
             return ApiError::not_found("Conversation", Some(&id)).into_response();
         }
@@ -1153,6 +1172,7 @@ fn manage_schema(issues: &mut Issues, body: &Map<String, Value>) -> Option<Actio
     }
 }
 
+#[allow(clippy::too_many_lines)] // the TypeScript route, step by step
 async fn manage(
     State(state): State<DeskState>,
     ctx: Ctx,
@@ -1192,7 +1212,7 @@ async fn manage(
             .flatten()
             .map_or(Value::Null, Value::String),
     );
-    let appended = webchat::append_desk_message(
+    let appended = webchat::append(
         &caller.db,
         Append {
             conversation_id: &id,
@@ -1207,7 +1227,10 @@ async fn manage(
     )
     .await;
     let (conversation, message) = match appended {
-        Ok(done) => done,
+        Ok(done) => {
+            crate::mark_sla_due(&state, caller, done.sla_check_at);
+            done.pair()
+        }
         Err(AppendError::NotFound) => {
             return ApiError::not_found("Conversation", Some(&id)).into_response();
         }

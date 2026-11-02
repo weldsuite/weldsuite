@@ -21,17 +21,21 @@
 //! | `CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET` | `RealtimeKit` |
 
 mod livekit;
+mod livekit_webhook;
 mod realtimekit;
 
 use std::fmt::Write as _;
 use std::sync::Arc;
 
 pub use livekit::{LiveKit, LiveKitConfig};
-pub use realtimekit::{RealtimeKit, RealtimeKitConfig};
+pub use livekit_webhook::{WebhookRejected, verify_livekit_webhook};
+pub use realtimekit::{
+    GUEST_PRESET, GUEST_WAITING_PRESET, HOST_PRESET, MEMBER_PRESET, RealtimeKit, RealtimeKitConfig,
+};
 use weldsuite_ports::OutboundHttp;
 pub use weldsuite_ports::video_rooms::{
-    DynVideoRooms, JoinToken, NewParticipant, RoomParticipant, UnconfiguredVideoRooms, VideoError,
-    VideoRoomsProvider,
+    DynVideoRooms, JoinToken, NewParticipant, RoomOptions, RoomParticipant, UnconfiguredVideoRooms,
+    VideoError, VideoRoomsProvider, WebhookRegistration, WebhookUpserted,
 };
 
 /// The provider the environment configures, sending through `http`.
@@ -67,6 +71,24 @@ fn random_hex(bytes: usize) -> String {
         let _ = write!(out, "{b:02x}");
         out
     })
+}
+
+/// A query value as the SDK writes it (`encodeURIComponent`).
+fn encode_query_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let keep = byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            );
+        if keep {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
 }
 
 /// A path segment as the SDK's `encodeURIPath` writes it: RFC 3986 `pchar`s

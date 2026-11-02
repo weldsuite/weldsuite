@@ -339,7 +339,7 @@
       "/api/email-forwards",
       "/public/webhooks/realtime-register"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "host-api"
   },
   {
@@ -378,7 +378,7 @@
       "/api/webhooks/cloudflare-realtime",
       "/public/meeting-recordings"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "meet-api"
   },
   {
@@ -428,7 +428,7 @@
       "/api/telephony",
       "/public/webhooks/telnyx"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "call-api"
   },
   {
@@ -520,7 +520,7 @@
     "prefixes": [
       "/api/weldhr"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "hr-api"
   },
   {
@@ -583,7 +583,7 @@
       "/api/reach",
       "/public/reach"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "reach-api"
   },
   {

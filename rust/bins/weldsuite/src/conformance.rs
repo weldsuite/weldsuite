@@ -207,6 +207,13 @@ struct TestContext {
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
+    /// `c.get('appAccess')` of an on-request app (`context.appAccess`).
+    #[serde(default)]
+    app_access: Option<Value>,
+    /// The test's `SMTP_SEND` double over HTTP (`smtp-bridge.ts`): WeldReach's
+    /// customer-mailbox SMTP.
+    #[serde(default)]
+    smtp: Option<String>,
     #[serde(default)]
     env: HashMap<String, String>,
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
@@ -236,6 +243,10 @@ struct TestContext {
     /// (`requestHeaders`), for a route that keeps the request's headers.
     #[serde(default)]
     request_headers: Option<Vec<String>>,
+    /// Its service bindings over HTTP (`{ BOOKS_INTERNAL: url }`,
+    /// `conformance_books`).
+    #[serde(default)]
+    services: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -280,6 +291,8 @@ pub(crate) struct Pools {
     mail: crate::conformance_mail::MailBridges,
     /// The test's Workflow bindings.
     workflows: crate::conformance_workflows::WorkflowBridges,
+    /// The test's books-api binding (WeldHR's pay run journal).
+    books: crate::conformance_books::BooksBridges,
 }
 
 impl Pools {
@@ -307,6 +320,11 @@ impl Pools {
     /// What the test shares with Rust beyond the session: its env, buckets,
     /// KV, session key and outbound bridge.
     fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        if let Some(url) = context.smtp.as_deref().filter(|url| !url.is_empty()) {
+            extensions.insert(weldsuite_reach::RequestSmtp(Arc::new(BridgedSmtp {
+                url: url.trim_end_matches('/').to_owned(),
+            })));
+        }
         extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
             context.env.clone(),
         )));
@@ -343,6 +361,11 @@ impl Pools {
         extensions.insert(weldsuite_mail::scheduled::RequestScheduledRuns(
             self.workflows.scheduled_runs(&context.workflows),
         ));
+        // WeldHR's pay run journal goes to the test's `BOOKS_INTERNAL`, or
+        // nowhere (the journal is skipped, as without the binding).
+        if let Some(books) = self.books.request_books(&context.services) {
+            extensions.insert(books);
+        }
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
@@ -363,6 +386,14 @@ impl Pools {
         if let Some(names) = &context.request_headers {
             extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
         }
+        // WeldMeet: the test's `MEETING_RECORDINGS` bucket and its three
+        // Workflow bindings, or none, as the worker runs without them.
+        extensions.insert(weldsuite_meet::RequestRecordings(
+            self.buckets.meeting_recordings(&context.files),
+        ));
+        extensions.insert(weldsuite_meet::RequestMeetWorkflows(
+            self.workflows.meet_workflows(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
@@ -485,6 +516,9 @@ pub(crate) async fn auth(
             },
         ));
     }
+    if let Some(access) = context.app_access.as_ref().filter(|a| a.is_object()) {
+        extensions.insert(app_access_of(access));
+    }
     extensions.insert(Tenant {
         workspace_id: context.workspace_id,
         clerk_org_id: context.clerk_org_id,
@@ -513,6 +547,22 @@ async fn run_reporting_route(request: Request, next: Next) -> Response {
         response.headers_mut().insert(ROUTE_HEADER, value);
     }
     response
+}
+
+/// The test's `appAccess` as the app-access gate would set it.
+fn app_access_of(access: &Value) -> weldsuite_pipeline::AppAccess {
+    let text = |key: &str| access.get(key).and_then(Value::as_str).map(str::to_owned);
+    weldsuite_pipeline::AppAccess {
+        workspace_id: text("workspaceId"),
+        status: text("status").unwrap_or_else(|| "none".to_owned()),
+        limits: access
+            .get("limits")
+            .filter(|l| !l.is_null())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        billing_status: text("billingStatus").unwrap_or_else(|| "none".to_owned()),
+        billing_status_at: text("billingStatusAt"),
+    }
 }
 
 /// Middleware for the routes that run before authentication (the upload
@@ -554,6 +604,44 @@ pub(crate) async fn public_tenant(
     next: Next,
 ) -> Response {
     if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
+}
+
+/// Middleware for WeldMeet's public routes (the video provider's webhooks,
+/// the recording stream): what [`public_tenant`] inserts, and the test's
+/// other workspaces' tenant databases (`context.tenantDbs`, the backfill's
+/// per-workspace lookups) when it names any. Runs inside [`public`].
+pub(crate) async fn meet_public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        let mut tenants = HashMap::new();
+        for (reference, url) in &context.tenant_database_urls {
+            match pools.get(url) {
+                Ok(pool) => {
+                    tenants.insert(reference.clone(), pool);
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        request
+            .extensions_mut()
+            .insert(weldsuite_meet::RequestTenants(Arc::new(tenants)));
         match pools.get(&context.database_url) {
             Ok(db) => {
                 request.extensions_mut().insert(Tenant {
@@ -725,6 +813,98 @@ pub(crate) async fn calendar_replan_sweep(
     let result =
         weldsuite_calendar::run_replan_sweep(&master, &tenants, Some(cache.as_ref()), now).await;
     axum::Json(json!(result)).into_response()
+}
+
+/// `POST /__conformance/cron/desk-sla-sweep`: one tick of the WeldDesk SLA
+/// sweep against the test's databases, as `runSlaSweep(env, now)` runs it
+/// there. Every workspace opens the test's tenant database, with the Clerk
+/// org id the test maps it to. The test's env has no mail or realtime
+/// binding, so neither has the sweep here.
+pub(crate) async fn desk_sla_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_desk::sla_sweep::SlaTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::sla_sweep::SweepServices {
+        events: state.infra.events.clone(),
+        realtime: None,
+        mail: None,
+    };
+    let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
+/// WeldReach's SMTP transport in conformance builds: each submission goes to
+/// the test's `SMTP_SEND` double over the bridge (`smtp-bridge.ts`), which
+/// answers `sendMail`'s result, or 500 when it threw.
+struct BridgedSmtp {
+    url: String,
+}
+
+impl weldsuite_reach::weldsuite_reach_domain::smtp::SmtpTransport for BridgedSmtp {
+    fn send(
+        &self,
+        config: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpConfig,
+        envelope: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpEnvelope,
+        raw: String,
+    ) -> weldsuite_ports::BoxFuture<
+        '_,
+        Result<weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult, String>,
+    > {
+        Box::pin(async move {
+            let body = serde_json::json!({
+                "config": config.to_json(),
+                "envelope": { "from": envelope.from, "to": envelope.to },
+                "raw": raw,
+            });
+            let response = reqwest::Client::new()
+                .post(format!("{}/send", self.url))
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            let ok = response.status().is_success();
+            let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+            let value: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            if ok {
+                Ok(
+                    weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult::from_json(
+                        &value,
+                    ),
+                )
+            } else {
+                Err(value
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("send failed")
+                    .to_owned())
+            }
+        })
+    }
 }
 
 #[cfg(test)]

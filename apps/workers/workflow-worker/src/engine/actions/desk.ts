@@ -7,14 +7,15 @@
  * conversation is auto-assigned like any other.
  *
  * This worker has no entity-event queue, so workflow writes never start
- * workflows again; the inbox still moves live through WorkspaceHub.
+ * workflows again; the inbox still moves live through WorkspaceHub, and the
+ * visitor's widget through the conversation's room.
  */
 
 import { eq } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
-import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
 import {
   addDeskConversationMessageFromApi,
+  autoAssignDeskConversationFromApi,
   openDeskApiConversation,
   updateDeskConversationFromApi,
   DeskReplyChannelError,
@@ -40,6 +41,8 @@ function inboxDeps(ctx: ActionContext): DeskInboxDeps {
     emit: async (event) => {
       await realtime?.publish(ctx.tenant.workspaceId, event.entityType, event.action, event.data, 'system');
     },
+    // The widget listens on the conversation's room, not the WorkspaceHub.
+    publishRoom: realtime ? (conversationId, payload) => realtime.conversationPublish(conversationId, payload) : undefined,
   };
 }
 
@@ -121,20 +124,9 @@ export async function assignDeskConversation(
     return { success: true, conversationId, assigneeId: conversation.assigneeId };
   }
   // Any other strategy hands it out by the inbox's own assignment rules.
-  const deps = inboxDeps(ctx);
-  const assigned = await autoAssignDeskConversation(ctx.db, {
-    generateId,
-    conversationId,
-    pick: deskAssignmentRouterPicker(deps.env.HELPDESK_WORKFLOW, deps.clerkOrgId),
-  });
+  const assigned = await autoAssignDeskConversationFromApi(inboxDeps(ctx), conversationId);
   if (!assigned) return { success: false, error: 'No available teammate (or it is already assigned)' };
-  await deps.emit({
-    entityType: 'desk_conversation',
-    action: 'assigned',
-    entityId: conversationId,
-    data: assigned.conversation as unknown as Record<string, unknown>,
-  });
-  return { success: true, conversationId, assigneeId: assigned.conversation.assigneeId };
+  return { success: true, conversationId, assigneeId: assigned.assigneeId };
 }
 
 const CLOSING = new Set(['closed', 'resolved', 'close']);

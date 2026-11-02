@@ -49,12 +49,17 @@ export async function replaceFields(db: Database, envelopeId: string, fields: Si
   // fields (once): ids are table-wide keys, so anything else gets a new one.
   const existing = new Set((await listFields(db, envelopeId)).map((f) => f.id));
   const seen = new Set<string>();
-  const rows = fields.map((field) => {
+  // Fields are listed by `createdAt`. One statement would stamp them all
+  // alike and leave their order to the table, so new ones are a millisecond
+  // apart, in the order sent. A kept field keeps its own.
+  const now = Date.now();
+  const rows = fields.map((field, index) => {
     const keep = !!field.id && existing.has(field.id) && !seen.has(field.id);
     const id = keep ? field.id! : generateId('sgf');
     seen.add(id);
     return {
       id,
+      createdAt: new Date(now + index),
       envelopeId,
       documentId: field.documentId,
       recipientId: field.recipientId,

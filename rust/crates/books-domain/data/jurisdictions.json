@@ -13278,6 +13278,1325 @@
    "MP",
    "PR",
    "VI"
+  ],
+  "nexusRules": [
+   {
+    "stateCode": "AL",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 250000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Remote sellers may opt into the Simplified Sellers Use Tax flat 8% program."
+   },
+   {
+    "stateCode": "AK",
+    "effectiveFrom": "2018-06-21",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "effective_date"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2024/11/alaska-removes-economic-nexus-transaction-threshold.html",
+    "notes": "Alaska Remote Seller Sales Tax Commission member municipalities only (local tax). Start date of the rule is not in the research. The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "AK",
+    "effectiveFrom": "2025-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2024/11/alaska-removes-economic-nexus-transaction-threshold.html",
+    "notes": "Transaction test removed on 1 January 2025. Local tax only, per adopting municipality."
+   },
+   {
+    "stateCode": "AZ",
+    "effectiveFrom": "2019-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 200000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Stepped down: $200,000 (2019), $150,000 (2020), $100,000 (2021 onwards)."
+   },
+   {
+    "stateCode": "AZ",
+    "effectiveFrom": "2020-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 150000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "AZ",
+    "effectiveFrom": "2021-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "AR",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "CA",
+    "effectiveFrom": "2019-04-01",
+    "hasSalesTax": true,
+    "salesThreshold": 500000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Gross sales of tangible personal property delivered into California."
+   },
+   {
+    "stateCode": "CO",
+    "effectiveFrom": "2018-12-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Enforced from 1 June 2019. The 200-transaction test was removed in 2019."
+   },
+   {
+    "stateCode": "CT",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "and",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "ct_october_september",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Both tests must be met in the 12 months ending 30 September. Rule started 1 December 2018; $100,000 applies since 1 July 2019."
+   },
+   {
+    "stateCode": "DC",
+    "effectiveFrom": "2019-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "FL",
+    "effectiveFrom": "2021-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "previous_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Taxable remote sales."
+   },
+   {
+    "stateCode": "GA",
+    "effectiveFrom": "2020-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Rule started 1 January 2019; $100,000 applies since 1 January 2020."
+   },
+   {
+    "stateCode": "HI",
+    "effectiveFrom": "2018-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "General excise tax, a tax on the seller."
+   },
+   {
+    "stateCode": "ID",
+    "effectiveFrom": "2019-06-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "IL",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://tax.illinois.gov/research/publications/bulletins/fy-2026-12.html",
+    "testedQuarterly": true,
+    "notes": "Gross receipts (retail) of the preceding 12 months, reviewed quarterly. The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "IL",
+    "effectiveFrom": "2026-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://tax.illinois.gov/research/publications/bulletins/fy-2026-12.html",
+    "testedQuarterly": true,
+    "notes": "Transaction test removed on 1 January 2026 (P.A. 104-0006). Destination sales with insufficient location data are taxed at 15%."
+   },
+   {
+    "stateCode": "IN",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "IN",
+    "effectiveFrom": "2024-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 January 2024."
+   },
+   {
+    "stateCode": "IA",
+    "effectiveFrom": "2019-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "The 200-transaction test was removed in 2019."
+   },
+   {
+    "stateCode": "KS",
+    "effectiveFrom": "2021-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "KY",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2026/04/kentucky-removes-transaction-threshold-taxes-data-brokering-services.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "KY",
+    "effectiveFrom": "2026-08-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2026/04/kentucky-removes-transaction-threshold-taxes-data-brokering-services.html",
+    "notes": "Transaction test removed on 1 August 2026 (HB 757)."
+   },
+   {
+    "stateCode": "LA",
+    "effectiveFrom": "2020-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Remote sellers can file with the Louisiana Sales and Use Tax Commission for Remote Sellers. The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "LA",
+    "effectiveFrom": "2023-08-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 August 2023."
+   },
+   {
+    "stateCode": "ME",
+    "effectiveFrom": "2018-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "ME",
+    "effectiveFrom": "2022-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 January 2022."
+   },
+   {
+    "stateCode": "MD",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "MA",
+    "effectiveFrom": "2019-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Marketplace sales are excluded when the facilitator collects. Replaced the $500,000 and 100-transaction rule of October 2017."
+   },
+   {
+    "stateCode": "MI",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "MN",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "testedQuarterly": true,
+    "notes": "The 12 months ending the last day of the most recent completed quarter; the transaction test counts retail sales."
+   },
+   {
+    "stateCode": "MS",
+    "effectiveFrom": "2018-09-01",
+    "hasSalesTax": true,
+    "salesThreshold": 250000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gt",
+    "base": "gross",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "More than $250,000 in the prior 12 months."
+   },
+   {
+    "stateCode": "MO",
+    "effectiveFrom": "2023-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "testedQuarterly": true,
+    "notes": "The previous 12 months, tested quarterly. Last state to adopt economic nexus."
+   },
+   {
+    "stateCode": "NE",
+    "effectiveFrom": "2019-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "effective_date"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Table lists 1 January / 1 April 2019; the earlier date is used."
+   },
+   {
+    "stateCode": "NV",
+    "effectiveFrom": "2018-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "NJ",
+    "effectiveFrom": "2018-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://legiscan.com/NJ/research/S711/2026",
+    "notes": "Bill S711 to remove the transaction test is pending (not enacted as of the research). Add a new version when it is."
+   },
+   {
+    "stateCode": "NM",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "previous_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Taxable gross receipts."
+   },
+   {
+    "stateCode": "NY",
+    "effectiveFrom": "2019-06-24",
+    "hasSalesTax": true,
+    "salesThreshold": 500000,
+    "transactionThreshold": 100,
+    "test": "and",
+    "comparison": "gt",
+    "base": "gross",
+    "window": "rolling_four_quarters",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "window"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "quarterFirstMonth": 3,
+    "notes": "More than $500,000 and more than 100 sales in the immediately preceding four sales tax quarters (Mar-May, Jun-Aug, Sep-Nov, Dec-Feb; the quarter months are not spelled out in the research)."
+   },
+   {
+    "stateCode": "NC",
+    "effectiveFrom": "2018-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "NC",
+    "effectiveFrom": "2024-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 July 2024."
+   },
+   {
+    "stateCode": "NC",
+    "effectiveFrom": "2026-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "days_after",
+     "days": 60
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "The Sales Tax Institute reports that collection starts 60 days after crossing since July 2026; not confirmed with the department of revenue."
+   },
+   {
+    "stateCode": "ND",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "The 200-transaction test was removed for periods after 2018."
+   },
+   {
+    "stateCode": "OH",
+    "effectiveFrom": "2019-08-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Replaced the $500,000 rule of January 2018."
+   },
+   {
+    "stateCode": "OK",
+    "effectiveFrom": "2019-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "taxable",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "PA",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Gross sales through all channels."
+   },
+   {
+    "stateCode": "RI",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "SC",
+    "effectiveFrom": "2018-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "SD",
+    "effectiveFrom": "2018-11-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "SD",
+    "effectiveFrom": "2023-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 July 2023."
+   },
+   {
+    "stateCode": "TN",
+    "effectiveFrom": "2020-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Rule started 1 October 2019; $100,000 applies since 1 October 2020."
+   },
+   {
+    "stateCode": "TX",
+    "effectiveFrom": "2019-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 500000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "rolling_12_months",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Gross revenue of the preceding 12 calendar months."
+   },
+   {
+    "stateCode": "UT",
+    "effectiveFrom": "2019-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "UT",
+    "effectiveFrom": "2025-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Transaction test removed on 1 July 2025."
+   },
+   {
+    "stateCode": "VT",
+    "effectiveFrom": "2018-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "rolling_four_quarters",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "quarterFirstMonth": 1,
+    "notes": "The prior four calendar quarters."
+   },
+   {
+    "stateCode": "VA",
+    "effectiveFrom": "2019-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "retail",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "WA",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Gross income as defined for the business and occupation tax. The 200-transaction test was removed in 2019."
+   },
+   {
+    "stateCode": "WV",
+    "effectiveFrom": "2019-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide"
+   },
+   {
+    "stateCode": "WI",
+    "effectiveFrom": "2018-10-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "WI",
+    "effectiveFrom": "2021-02-20",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": true,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 20 February 2021."
+   },
+   {
+    "stateCode": "WY",
+    "effectiveFrom": "2019-02-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "The 200-transaction test applied until it was removed (see the next version)."
+   },
+   {
+    "stateCode": "WY",
+    "effectiveFrom": "2024-07-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "marketplace"
+    ],
+    "sourceUrl": "https://www.avalara.com/blog/en/north-america/2025/06/states-eliminating-economic-nexus-transaction-thresholds.html",
+    "notes": "Transaction test removed on 1 July 2024."
+   },
+   {
+    "stateCode": "PR",
+    "effectiveFrom": "2021-01-01",
+    "hasSalesTax": true,
+    "salesThreshold": 100000,
+    "transactionThreshold": 200,
+    "test": "or",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [
+     "collection_start",
+     "window"
+    ],
+    "sourceUrl": "https://www.salestaxinstitute.com/resources/economic-nexus-state-guide",
+    "notes": "Puerto Rico is its own sales tax jurisdiction (IVU). The research lists the seller's fiscal year as the window; calendar years are used until the seller's year is known."
+   },
+   {
+    "stateCode": "DE",
+    "effectiveFrom": "2018-06-21",
+    "hasSalesTax": false,
+    "salesThreshold": null,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [],
+    "sourceUrl": "https://taxfoundation.org/data/all/state/2026-sales-tax-rates-midyear/",
+    "notes": "No sales tax. The seller pays a gross receipts tax that is not collected from customers."
+   },
+   {
+    "stateCode": "MT",
+    "effectiveFrom": "2018-06-21",
+    "hasSalesTax": false,
+    "salesThreshold": null,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [],
+    "sourceUrl": "https://taxfoundation.org/data/all/state/2026-sales-tax-rates-midyear/",
+    "notes": "No general sales tax (resort-area and lodging taxes exist)."
+   },
+   {
+    "stateCode": "NH",
+    "effectiveFrom": "2018-06-21",
+    "hasSalesTax": false,
+    "salesThreshold": null,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [],
+    "sourceUrl": "https://taxfoundation.org/data/all/state/2026-sales-tax-rates-midyear/",
+    "notes": "No general sales tax; a meals and rooms tax applies to prepared meals, rentals and lodging."
+   },
+   {
+    "stateCode": "OR",
+    "effectiveFrom": "2018-06-21",
+    "hasSalesTax": false,
+    "salesThreshold": null,
+    "transactionThreshold": null,
+    "test": "none",
+    "comparison": "gte",
+    "base": "gross",
+    "window": "previous_or_current_calendar_year",
+    "marketplaceSalesCount": false,
+    "collectionStart": {
+     "kind": "next_transaction"
+    },
+    "unverified": [],
+    "sourceUrl": "https://taxfoundation.org/data/all/state/2026-sales-tax-rates-midyear/",
+    "notes": "No sales tax. The Corporate Activity Tax is a gross receipts tax on the seller."
+   }
   ]
  },
  "br": {

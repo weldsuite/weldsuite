@@ -113,23 +113,39 @@ pub(crate) enum CodeCheck {
     Failed { locked: bool, attempts_left: i64 },
 }
 
-/// `checkCode`: compare the answer's hash with the expected one, then let
-/// the link's counter settle it, so a right code sent while the link is
-/// locked is still refused. A pass clears the count and the emailed code.
+/// `checkCode`: count the answer first, then compare its hash with the
+/// expected one, so a right code sent while the link is locked is still
+/// refused and a burst of answers sent at once gets no more than five
+/// comparisons between them. A pass clears the count and the emailed code.
 pub(crate) async fn check_code(
     cache: &dyn DynCache,
     token_hash: &str,
     expected: Option<&str>,
     answer_hash: &str,
 ) -> SignResult<CodeCheck> {
-    let matched = expected.is_some_and(|expected| expected == answer_hash);
+    const LOCKED: CodeCheck = CodeCheck::Failed {
+        locked: true,
+        attempts_left: 0,
+    };
+    // Already locked: refuse without restarting the window.
     if tries(cache, token_hash).await? >= MAX_TRIES {
-        return Ok(CodeCheck::Failed {
-            locked: true,
-            attempts_left: 0,
-        });
+        return Ok(LOCKED);
     }
-    if matched {
+    // Each answer restarts the window, as `AttemptCounter` does. The count
+    // is taken before the comparison, so answers racing past the check
+    // above are refused here once five have been counted.
+    let next = cache
+        .increment_boxed(
+            &attempts_key(token_hash),
+            1,
+            Some(Duration::from_secs(LOCK_SECONDS)),
+        )
+        .await
+        .map_err(failed)?;
+    if next > MAX_TRIES {
+        return Ok(LOCKED);
+    }
+    if expected.is_some_and(|expected| expected == answer_hash) {
         cache
             .delete_boxed(&attempts_key(token_hash))
             .await
@@ -140,15 +156,6 @@ pub(crate) async fn check_code(
             .map_err(failed)?;
         return Ok(CodeCheck::Passed);
     }
-    // Each wrong answer restarts the window, as `AttemptCounter` does.
-    let next = cache
-        .increment_boxed(
-            &attempts_key(token_hash),
-            1,
-            Some(Duration::from_secs(LOCK_SECONDS)),
-        )
-        .await
-        .map_err(failed)?;
     Ok(CodeCheck::Failed {
         locked: next >= MAX_TRIES,
         attempts_left: (MAX_TRIES - next).max(0),

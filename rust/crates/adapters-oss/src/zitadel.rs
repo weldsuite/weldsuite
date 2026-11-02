@@ -164,6 +164,12 @@ impl ZitadelIdentity {
         org: Option<&str>,
         body: Option<Value>,
     ) -> IdentityResult<Value> {
+        // Ids from callers land in the path, and the request carries the
+        // instance token: a `..` or an encoded `/` would reach another
+        // endpoint. Every segment is a plain id, key or name.
+        if !safe_path(path) {
+            return Err(not_found());
+        }
         let mut request = self
             .client
             .request(method, format!("{}{path}", self.options.api_url))
@@ -1312,8 +1318,29 @@ fn clerk_role(key: &str) -> String {
 
 fn split_invitation_id(id: &str) -> IdentityResult<(&str, &str)> {
     id.split_once(':')
-        .filter(|(user, grant)| !user.is_empty() && !grant.is_empty())
+        .filter(|(user, grant)| is_id(user) && is_id(grant))
         .ok_or_else(not_found)
+}
+
+/// A Zitadel id: `[0-9A-Za-z_-]+`.
+fn is_id(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+}
+
+/// `/a/b.c/d`: segments of `[0-9A-Za-z_.-]`, none empty, `.` or `..`, so
+/// nothing in the path can be decoded or resolved into another endpoint.
+fn safe_path(path: &str) -> bool {
+    path.strip_prefix('/').is_some_and(|rest| {
+        rest.split('/').all(|segment| {
+            !matches!(segment, "" | "." | "..")
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        })
+    })
 }
 
 fn results(value: &Value) -> &[Value] {
@@ -1445,6 +1472,14 @@ mod tests {
         assert_eq!(split_invitation_id("1:2").expect("ok"), ("1", "2"));
         assert!(split_invitation_id("12").is_err());
         assert!(split_invitation_id(":2").is_err());
+        assert!(split_invitation_id("1:..%2F..%2Fv2%2Fusers%2F9").is_err());
+        assert!(split_invitation_id("1/../2:3").is_err());
+        assert!(safe_path("/management/v1/metadata/weldsuite.slug"));
+        assert!(safe_path("/v2/users/123/grants"));
+        assert!(!safe_path("/v2/users/1/../../9"));
+        assert!(!safe_path("/v2/users/%2e%2e/9"));
+        assert!(!safe_path("/v2/users//9"));
+        assert!(!safe_path("v2/users"));
         assert_eq!(millis("1970-01-01T00:00:01.5Z"), Some(1500));
     }
 
