@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-one
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-two
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -159,6 +159,18 @@ modules, each with conformance suites that reach every route:
   integration workers' bank feed endpoints are `books_domain::bank_feeds`,
   for when those workers are ported. Not ported: document OCR (Workers AI)
   and filing through Digipoort, both in `unavailableFeatures`)
+  The inbox subscription is Global's billing-worker (Stripe): here every
+  billing call answers as billing-worker without Stripe does, so
+  `/billing` and adding a mailbox answer 502 `UPSTREAM_ERROR`. Not yet: the
+  send sweep and its queue consumer, the hourly warmup sweep and the daily
+  Mailpool slot reconciliation, the inbound reply path (Cloudflare Email
+  Routing on Global) and the warmup network (`reach-warmup-worker`))
+- **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
+  snapshot, version history with restore). Live editing runs in the
+  collab-rooms service, the workers' own `DocRoom` on Node beside this
+  server (`rust/docs/collab-rooms.md`, the chart's `collabRooms`): the
+  server calls each room over HTTP on the pod that holds it and proxies the
+  room sockets (`/api/docs/connect`); the engine stays TypeScript
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -199,7 +211,7 @@ renewing domains, WeldMeet transcripts and summaries and recordings, and
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
-connect, agent, sheets, docs and
+connect, agent, sheets and
 panel, and the edge workers (`external-api`, `mcp-server`, the rest of the
 integration workers, above).
 
@@ -278,7 +290,10 @@ rust/
                         -tax, with crates/books-domain (everything two areas or another module
                         share: tables, the posting engine, currency and FX, jurisdictions, the
                         sales tax engines, the invoice layouts, bank feeds, payroll posting;
-                        commerce and hr use it; plan in modules/books/PORTING.md);
+                        commerce and hr use it; plan in modules/books/PORTING.md),
+                        modules/docs (WeldDocs; its rooms through the CollabRooms port and
+                        the collab-rooms service, apps/tools/collab-rooms);
+
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -287,7 +302,8 @@ rust/
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
-  deploy/helm/weldsuite the Helm chart
+  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs' and WeldSheets' rooms, apps/tools/collab-rooms)
+  docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
@@ -384,6 +400,7 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
+docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs' and WeldSheets' rooms (Node, docs/collab-rooms.md)
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
@@ -454,6 +471,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
+| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: the session, live snapshot, version save and restore routes answer 503 |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
@@ -608,8 +626,9 @@ wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
-Not there yet in the realtime gateway: the whiteboard and document rooms
-(Flow's REST routes are ported, its collaborative rooms are not), and the
+Not there yet in the realtime gateway: the whiteboard rooms (Flow's REST
+routes are ported, its collaborative rooms are not; WeldDocs' document rooms
+run in the collab-rooms service, `docs/collab-rooms.md`), and the
 support side of support rooms
 (WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
 docs have the design).

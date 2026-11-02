@@ -3809,6 +3809,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
+ "futures-util",
  "http",
  "http-body-util",
  "opentelemetry",
@@ -3820,6 +3821,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tower-http 0.7.1",
  "tracing",
@@ -3855,6 +3857,7 @@ dependencies = [
  "weldsuite-desk",
  "weldsuite-desk-domain",
  "weldsuite-desk-widget",
+ "weldsuite-docs",
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-flow",
@@ -4705,6 +4708,27 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-notifications",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-docs"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "flate2",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 

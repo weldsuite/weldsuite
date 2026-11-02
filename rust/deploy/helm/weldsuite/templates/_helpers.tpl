@@ -181,6 +181,10 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.collabRooms.enabled }}
+- name: COLLAB_ROOMS_URLS
+  value: {{ include "weldsuite.collabRooms.urls" . | quote }}
+{{- end }}
 {{- with .Values.config.mail.from }}
 - name: SYSTEM_EMAIL_FROM
   value: {{ . | quote }}
@@ -261,6 +265,34 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/version: {{ .Values.signPortal.image.tag | default .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- define "weldsuite.collabRooms.fullname" -}}
+{{- printf "%s-collab-rooms" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.collabRooms.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: collab-rooms
+{{- end }}
+
+{{- define "weldsuite.collabRooms.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.collabRooms.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.collabRooms.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Every collab-rooms pod's URL, comma separated: the server routes rooms over them. */ -}}
+{{- define "weldsuite.collabRooms.urls" -}}
+{{- $svc := include "weldsuite.collabRooms.fullname" . -}}
+{{- $urls := list -}}
+{{- range $i := until (int .Values.collabRooms.replicaCount) -}}
+{{- $urls = append $urls (printf "http://%s-%d.%s.%s.svc:8090" $svc $i $svc $.Release.Namespace) -}}
+{{- end -}}
+{{- join "," $urls -}}
 {{- end }}
 
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}

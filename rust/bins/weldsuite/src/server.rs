@@ -54,6 +54,10 @@ pub(crate) struct AppState {
     pub(crate) sign_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
     pub(crate) sign_portal_secret: Option<Arc<str>>,
+    /// WeldDocs and WeldSheets' rooms (`COLLAB_ROOMS_URLS`).
+    pub(crate) collab: Option<Arc<weldsuite_adapters_oss::collab::HttpCollabRooms>>,
+    /// `COLLAB_ROOMS_SECRET`, which the collab-rooms pods send to `/internal/collab`.
+    pub(crate) collab_secret: Option<Arc<str>>,
     /// `MAIL_INBOUND_SECRET`, Haraka's key for the `RCPT TO` check.
     pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
@@ -488,6 +492,8 @@ mod tests {
             sign_session_secret: None,
             sign_portal_url: None,
             sign_portal_secret: None,
+            collab: None,
+            collab_secret: None,
             mail_inbound_secret: None,
             files_public_url: None,
             widget_token_secret: None,

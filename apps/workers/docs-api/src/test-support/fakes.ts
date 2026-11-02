@@ -6,6 +6,7 @@
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/collab';
 import type { DocPresence, DocSnapshot, Op } from '@weldsuite/docs-engine';
 import type { Database } from '@weldsuite/worker-kit';
+import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import type { Admission, DocRoom, LiveSnapshot, RestoreOutcome, RestoreRequest, RoomMeta, SavedVersion } from '../room/doc-room';
 import { insertVersion, versionKeyFor } from '../services/versions';
 
@@ -149,7 +150,8 @@ export function fakeRoomNamespace(db?: () => Database) {
         restores.push({ name: id.name, request });
         if (state.missingVersion) return { ok: false, reason: 'missing_version' };
         if (!db) throw new Error('fakeRoomNamespace needs a database for restores');
-        await insertVersion(db(), {
+        // Both backends call this in conformance mode, the TypeScript side on its copy of the database.
+        await insertVersion(conformanceTenantDb(db()), {
           id: request.autoVersionId,
           docId: request.doc.docId,
           revision: state.revision,
@@ -158,8 +160,8 @@ export function fakeRoomNamespace(db?: () => Database) {
           size: state.liveJson.length,
           createdById: request.userId,
         });
-        state.revision++;
-        return { ok: true, revision: state.revision };
+        // Answered by name and method, never by call order: both backends call it in conformance mode.
+        return { ok: true, revision: state.revision + 1 };
       },
     }),
   };

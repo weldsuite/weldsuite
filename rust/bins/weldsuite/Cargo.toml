@@ -52,6 +52,7 @@ weldsuite-host = { workspace = true }
 weldsuite-hr = { workspace = true }
 weldsuite-integrations = { workspace = true }
 weldsuite-know = { workspace = true }
+weldsuite-docs = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
@@ -69,9 +70,10 @@ weldsuite-ports = { workspace = true }
 weldsuite-subscribers = { workspace = true }
 weldsuite-video-rooms = { workspace = true }
 async-nats = { workspace = true }
-axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
+axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio", "ws"] }
 base64 = { workspace = true, optional = true }
 form_urlencoded = { workspace = true, optional = true }
+futures-util = { workspace = true, features = ["sink"] }
 http = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -82,6 +84,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true, features = ["fs", "trace"] }
 tracing = { workspace = true }

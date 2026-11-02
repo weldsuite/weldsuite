@@ -410,6 +410,52 @@ pub fn file_visible(index: &DriveAccessIndex, file: &DriveFileRef) -> bool {
     }
 }
 
+/// `visibleFilesCondition` as values to bind: `None` for an admin (no
+/// condition). A file is visible when it is a module's file, the caller
+/// uploaded it, it is shared with them, it sits in a folder whose chain grants
+/// them a role, or it is not restricted and sits in My Drive or in a folder
+/// whose chain leaves its files open. On `files f`:
+///
+/// ```sql
+/// (f.entity_type is not null
+///  or ($user::text is not null and f.uploaded_by_id = $user)
+///  or f.id = any($shares) or f.folder_id = any($granted)
+///  or (f.general_access <> 'restricted' and (f.folder_id is null or f.folder_id = any($open))))
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VisibleFiles {
+    pub user_id: Option<String>,
+    pub file_share_ids: Vec<String>,
+    /// Folders whose chain grants the caller a role.
+    pub granted_folder_ids: Vec<String>,
+    /// Folders whose chain leaves their files open to the workspace.
+    pub open_folder_ids: Vec<String>,
+}
+
+/// The bind values of `visibleFilesCondition(index)`; `None` for an admin.
+pub fn visible_files(index: &DriveAccessIndex) -> Option<VisibleFiles> {
+    if index.caller.is_admin {
+        return None;
+    }
+    let mut granted_folder_ids = Vec::new();
+    let mut open_folder_ids = Vec::new();
+    for id in index.folders.keys() {
+        let chain = container_chain(index, Some(id));
+        if chain.grant.is_some() {
+            granted_folder_ids.push(id.clone());
+        }
+        if chain.general != DriveGeneralAccess::Restricted {
+            open_folder_ids.push(id.clone());
+        }
+    }
+    Some(VisibleFiles {
+        user_id: index.caller.user_id.clone().filter(|id| !id.is_empty()),
+        file_share_ids: index.file_shares.keys().cloned().collect(),
+        granted_folder_ids,
+        open_folder_ids,
+    })
+}
+
 /// The ids of the folders the caller may see, by id (the TypeScript returns
 /// them in the database's row order, which is unspecified).
 pub fn visible_folder_ids(index: &DriveAccessIndex) -> Vec<String> {

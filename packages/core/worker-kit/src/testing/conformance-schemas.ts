@@ -525,6 +525,8 @@ import { DATA_ROUTES } from './conformance-schemas-data';
 import { CONNECT_ROUTES } from './conformance-schemas-connect';
 import { CONNECT_ACTION_ROUTES } from './conformance-schemas-connect-actions';
 import { CONNECT_INTEGRATION_ROUTES } from './conformance-schemas-connect-integrations';
+import { DOCS_ROUTES } from './conformance-schemas-docs';
+import { SHEETS_ROUTES } from './conformance-schemas-sheets';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
@@ -1388,6 +1390,8 @@ const ROUTES: RouteSchema[] = [
   ...CONNECT_ROUTES,
   ...CONNECT_ACTION_ROUTES,
   ...CONNECT_INTEGRATION_ROUTES,
+  ...DOCS_ROUTES,
+  ...SHEETS_ROUTES,
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,

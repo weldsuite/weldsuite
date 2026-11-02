@@ -11,6 +11,7 @@
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 #   docker build -t weldsuite-haraka:dev rust/deploy/haraka
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
@@ -23,6 +24,7 @@ cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
 portal_image="${PORTAL_IMAGE:-weldsuite-sign-portal:dev}"
 haraka_image="${HARAKA_IMAGE:-weldsuite-haraka:dev}"
+rooms_image="${ROOMS_IMAGE:-weldsuite-collab-rooms:dev}"
 work="$(mktemp -d)"
 forwards=()
 
@@ -37,7 +39,7 @@ if ! kind get clusters | grep -qx "$cluster"; then
   kind create cluster --name "$cluster" --wait 120s
 fi
 kubectl config use-context "kind-$cluster" >/dev/null
-kind load docker-image "$image" "$portal_image" "$haraka_image" --name "$cluster"
+kind load docker-image "$image" "$portal_image" "$haraka_image" "$rooms_image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
@@ -58,6 +60,8 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 node "$here/s3-bucket.mjs" http://127.0.0.1:18900 weldsuite-mail weldsuite weldsuite-kind
+# The private bucket: files, and WeldDocs' checkpoints and rooms.
+node "$here/s3-bucket.mjs" http://127.0.0.1:18900 weldsuite-private weldsuite weldsuite-kind
 kill "$s3_forward" 2>/dev/null || true
 # How many migrations a database's bookkeeping table records.
 recorded() {
@@ -75,6 +79,8 @@ helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set-string signPortal.image.tag="${portal_image##*:}" \
   --set mailInbound.haraka.image.repository="${haraka_image%:*}" \
   --set-string mailInbound.haraka.image.tag="${haraka_image##*:}" \
+  --set collabRooms.image.repository="${rooms_image%:*}" \
+  --set-string collabRooms.image.tag="${rooms_image##*:}" \
   --wait --timeout 300s
 master_migrations="$(recorded master drizzle)"
 echo "ok   install: the migration Job applied $master_migrations master migrations"
@@ -222,6 +228,23 @@ header x-frame-options DENY
 check POST /api/session 404 "" '{"token":"smoke-unknown-link-token-0001"}'
 contains '"NOT_FOUND"'
 base=http://127.0.0.1:18080
+
+# ── WeldDocs' rooms (rust/docs/collab-rooms.md) ─────────────────────────────
+# A document through the server's routes; its session asks the collab-rooms
+# pod that holds the room for a ticket, and the socket opens through the
+# server's proxy to that pod.
+kubectl rollout status statefulset/weldsuite-collab-rooms --timeout=120s
+field() { node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(process.argv[2].split(".").reduce((o,k)=>o[k],v))' "$work/body" "$1"; }
+check POST /api/docs 201 auth '{"name":"Smoke doc"}'
+doc_id="$(field data.id)"
+check POST "/api/docs/$doc_id/session" 200 auth
+contains '"mode":"edit"'
+ticket="$(field data.ticket)"
+upgrade="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: c21va2Utd2Vic29ja2V0LWtleQ==' "$base/api/docs/connect?ticket=$ticket" || true)"
+if [ "$upgrade" = "101" ]; then echo "ok   GET /api/docs/connect 101 (the room's socket, proxied)"; else echo "FAIL GET /api/docs/connect: $upgrade, expected 101" >&2; failed=1; fi
+check GET "/api/docs/$doc_id/snapshot" 200 auth
+contains '"revision":0'
 
 # ── Inbound mail (ADR MAIL-010) ─────────────────────────────────────────────
 # Over SMTP to Haraka: RCPT TO asks the server (the registry knows

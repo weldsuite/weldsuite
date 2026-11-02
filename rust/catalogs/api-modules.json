@@ -622,7 +622,7 @@
     "prefixes": [
       "/api/docs"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "docs-api"
   },
   {

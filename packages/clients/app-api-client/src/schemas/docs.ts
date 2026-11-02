@@ -148,3 +148,48 @@ export interface DocRestoreResult {
   /** The document as it was just before the restore, saved as an automatic version. */
   autoVersion: DocVersion;
 }
+
+// ---------------------------------------------------------------- responses
+// Zod twins of the response interfaces above, for the conformance harness
+// (packages/core/worker-kit/src/testing/conformance-schemas-docs.ts).
+
+export const docSummarySchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  name: z.string(),
+  folderId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  createdById: z.string().nullable(),
+  updatedById: z.string().nullable(),
+  revision: z.number().int(),
+  role: z.enum(['owner', 'editor', 'viewer']),
+  canEdit: z.boolean(),
+}) satisfies z.ZodType<DocSummary>;
+
+export const docSessionSchema = z.object({
+  ticket: z.string(),
+  canEdit: z.boolean(),
+  mode: z.enum(['edit', 'comment', 'view']),
+  color: z.string(),
+}) satisfies z.ZodType<DocSession>;
+
+export const docSnapshotResponseSchema = z.object({
+  revision: z.number().int(),
+  snapshot: docSnapshot,
+}) satisfies z.ZodType<DocSnapshotResponse>;
+
+export const docVersionSchema = z.object({
+  id: z.string(),
+  docId: z.string(),
+  revision: z.number().int(),
+  name: z.string().nullable(),
+  size: z.number().int(),
+  createdAt: z.string(),
+  createdById: z.string().nullable(),
+}) satisfies z.ZodType<DocVersion>;
+
+export const docRestoreResultSchema = z.object({
+  revision: z.number().int(),
+  autoVersion: docVersionSchema,
+}) satisfies z.ZodType<DocRestoreResult>;

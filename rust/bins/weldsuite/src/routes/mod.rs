@@ -74,6 +74,16 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = core_team(router, state);
     let router = core_platform(router, state);
     let router = core_apps(router, state);
+    let router = if mounts("docs") {
+        let docs = weldsuite_docs::DocsState {
+            events: state.infra.events.clone(),
+            files: file_stores(state),
+            collab: crate::collab::rooms(state),
+        };
+        router.nest("/docs", weldsuite_docs::router(docs, &state.permissions))
+    } else {
+        router
+    };
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
@@ -1342,6 +1352,11 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(connect_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));
+    let router = if mounts("docs") || mounts("sheets") {
+        router.merge(crate::collab::public(state))
+    } else {
+        router
+    };
     if mounts("mail") {
         router
             .nest(

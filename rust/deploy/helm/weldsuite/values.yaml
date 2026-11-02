@@ -361,6 +361,33 @@ signPortal:
             pathType: Prefix
     tls: []
 
+# WeldDocs' and WeldSheets' live editing (rust/docs/collab-rooms.md): the
+# workers' DocRoom and SheetRoom on Node, in a StatefulSet. The server serves
+# the REST routes and proxies the room sockets (/api/docs/connect,
+# /api/sheets/connect) to the pod that holds each room, so the ingress needs
+# no extra path. Needs config.files (the rooms' storage and checkpoints are
+# in the private bucket) and COLLAB_ROOMS_SECRET in the Secret. Off: the
+# documents and sheets are listed and managed, but opening one answers 503.
+collabRooms:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-collab-rooms
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Rooms are spread over the pods by id. Changing it restarts every pod
+  # (they flush their rooms on SIGTERM) and the server, which routes by it.
+  replicaCount: 1
+  # V8's heap: an open spreadsheet is held whole in memory.
+  heapMegabytes: 1536
+  terminationGracePeriodSeconds: 60
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
+
 resources:
   requests:
     cpu: 100m

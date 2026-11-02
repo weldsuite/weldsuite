@@ -5,6 +5,7 @@
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
 
+mod collab;
 mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
@@ -176,6 +177,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
+        collab: (!config.collab_rooms_urls.is_empty()).then(|| {
+            Arc::new(weldsuite_adapters_oss::collab::HttpCollabRooms::new(
+                config.collab_rooms_urls.clone(),
+                config.collab_rooms_secret.clone(),
+            ))
+        }),
+        collab_secret: config.collab_rooms_secret.as_deref().map(Arc::from),
         mail_inbound_secret: config.mail_inbound_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         widget_token_secret: config

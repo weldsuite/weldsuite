@@ -345,6 +345,23 @@
       ]
     },
     {
+      "name": "docs",
+      "module": "docs",
+      "workspace": "apps/workers/docs-api",
+      "tests": [
+        "src/routes/docs/index.test.ts",
+        "src/routes/docs/versions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/docs-api/src/",
+        "packages/clients/app-api-client/src/schemas/docs.ts",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "rust/modules/docs/",
+        "rust/crates/adapters-oss/src/collab.rs",
+        "rust/bins/weldsuite/src/collab.rs"
+      ]
+    },
+    {
       "name": "core: files, folders and drive",
       "module": "core",
       "workspace": "apps/workers/app-api",
