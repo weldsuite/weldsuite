@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { AlertCircle, ArrowLeft, CheckCircle2, FileText, Loader2, Upload } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, FileText, Loader2, Undo2, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -24,6 +25,7 @@ import {
   useBankAccounts,
   useBankImportPreview,
   useImportBankStatement,
+  useUndoBankImport,
 } from '@/hooks/queries/use-weldbooks-banking-queries';
 import {
   errorDetails,
@@ -31,6 +33,7 @@ import {
   type ImportPreviewInput,
   type ImportProblem,
   type ImportStatementResult,
+  type UndoImportResult,
   type UsBankAccount,
 } from '@/lib/api/domains/weldbooks-banking';
 import { CsvFormatEditor } from '../components/csv-format-editor';
@@ -422,6 +425,21 @@ function ImportResult({
   const { t } = useI18n();
   const ti = t.weldbooksUs.banking.import;
   const tp = t.weldbooksUs.banking.importPreview;
+  const { can } = usePermissions();
+  const undoMutation = useUndoBankImport();
+  const [confirmUndo, setConfirmUndo] = useState(false);
+  const [undone, setUndone] = useState<UndoImportResult | null>(null);
+  const canUndo = result.imported > 0 && undone === null && can('banking:delete');
+
+  const undo = async () => {
+    try {
+      setUndone(await undoMutation.mutateAsync(result.batchId));
+    } catch {
+      toast.error(ti.undoImportFailed);
+    } finally {
+      setConfirmUndo(false);
+    }
+  };
 
   return (
     <Card data-testid="import-result">
@@ -468,8 +486,21 @@ function ImportResult({
             </ul>
           </div>
         ) : null}
+        {undone ? (
+          <p className="text-sm text-muted-foreground" role="status" data-testid="import-undone">
+            {(undone.kept > 0 ? ti.undoImportKept : ti.undoImportDone)
+              .replace('{deleted}', String(undone.deleted))
+              .replace('{kept}', String(undone.kept))}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-3 pt-2">
           <Button variant="outline" onClick={onAnother}>{ti.importAnother}</Button>
+          {canUndo ? (
+            <Button variant="outline" className="text-destructive" onClick={() => setConfirmUndo(true)}>
+              <Undo2 className="h-4 w-4 mr-0.5" />
+              {ti.undoImport}
+            </Button>
+          ) : null}
           <Button variant="outline" asChild>
             <Link to="/weldbooks/banking/reconciliation">{ti.matchLines}</Link>
           </Button>
@@ -478,6 +509,16 @@ function ImportResult({
           </Button>
         </div>
       </CardContent>
+      <ConfirmDialog
+        open={confirmUndo}
+        onOpenChange={setConfirmUndo}
+        title={ti.undoImportTitle}
+        description={ti.undoImportDescription}
+        confirmLabel={ti.undoImport}
+        variant="destructive"
+        loading={undoMutation.isPending}
+        onConfirm={undo}
+      />
     </Card>
   );
 }

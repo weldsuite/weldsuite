@@ -228,6 +228,14 @@ export interface ImportStatementResult {
   warning: { code: ImportProblemCode; message: string } | null;
 }
 
+export interface UndoImportResult {
+  batchId: string;
+  /** Lines removed. */
+  deleted: number;
+  /** Lines left in place because they were already reconciled. */
+  kept: number;
+}
+
 // ============================================================================
 // Bank lines and matching
 // ============================================================================
@@ -563,10 +571,13 @@ export const bankingApi = {
     weldbooksApi.post<Envelope<ImportPreview>>('/bank-transactions/import/preview', data),
   importStatement: (data: ImportStatementInput) =>
     weldbooksApi.post<Envelope<ImportStatementResult>>('/bank-transactions/import', data),
+  undoImport: (batchId: string) =>
+    weldbooksApi.delete<Envelope<UndoImportResult>>(`/bank-transactions/import-batches/${batchId}`),
 
   // Bank lines and matching
   listBankLines: (params?: BankLineFilters) =>
     weldbooksApi.get<BankLinePage>(`/bank-transactions${buildQuery({ ...params })}`),
+  deleteBankLine: (id: string) => weldbooksApi.delete<void>(`/bank-transactions/${id}`),
   getSuggestions: (id: string) => weldbooksApi.get<Envelope<MatchSuggestion[]>>(`/bank-transactions/${id}/suggestions`),
   matchPayment: (id: string, paymentId: string) =>
     weldbooksApi.post<Envelope<{ id: string; status: string; paymentId: string; journalEntryId: string | null }>>(

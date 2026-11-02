@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Download, Inbox } from 'lucide-react';
+import { Download, EllipsisVertical, Inbox, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
@@ -15,7 +24,7 @@ import {
   StatusChip,
 } from '@/components/accounting/weldbooks-row-cells';
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
-import { useBankAccounts, useBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
+import { useBankAccounts, useBankLines, useDeleteBankLine } from '@/hooks/queries/use-weldbooks-banking-queries';
 import type { BankLine, BankLineSource } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import { applyExclusions, dateBounds, pillValue } from '@/lib/weldbooks/list-filters';
@@ -26,10 +35,18 @@ const PAGE_SIZE = 50;
 const SOURCES: readonly BankLineSource[] = ['feed', 'import', 'manual'];
 const STATUSES = ['unreconciled', 'reconciled', 'excluded'] as const;
 
+/** Lines that were never booked can be deleted; feed lines would come back on the next sync. */
+function canDeleteLine(line: BankLine): boolean {
+  return (line.status === 'unreconciled' || line.status === 'excluded') && line.source !== 'feed';
+}
+
 export default function BankTransactionsPage() {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [search, setSearch] = useState('');
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteLine, setDeleteLine] = useState<BankLine | null>(null);
+  const deleteMutation = useDeleteBankLine();
+  const { can } = usePermissions();
   const paging = useLoadMorePages<BankLine, number>(1);
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -172,6 +189,43 @@ export default function BankTransactionsPage() {
     },
   ];
 
+  const confirmDelete = async () => {
+    if (!deleteLine) return;
+    try {
+      await deleteMutation.mutateAsync(deleteLine.id);
+      toast.success(tl.deleted);
+    } catch {
+      toast.error(tl.deleteFailed);
+    } finally {
+      setDeleteLine(null);
+    }
+  };
+
+  const renderRowMenu = (line: BankLine) =>
+    can('banking:delete') && canDeleteLine(line) ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={tl.delete}
+            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+          >
+            <EllipsisVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
+            onClick={() => setDeleteLine(line)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
+            {tl.delete}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
+
   if (query.isError && list.items.length === 0) {
     return (
       <p className="p-6 text-sm text-destructive" role="alert">
@@ -187,6 +241,7 @@ export default function BankTransactionsPage() {
         isLoading={list.isLoading}
         columns={columns}
         groups={groups}
+        renderRowMenu={renderRowMenu}
         filters={filterConfigs}
         activeFilters={activeFilters}
         onFiltersChange={(next) => {
@@ -230,6 +285,18 @@ export default function BankTransactionsPage() {
       />
 
       <BankTransactionFormDialog open={addOpen} onOpenChange={setAddOpen} bankAccountId={accountId} />
+      <ConfirmDialog
+        open={deleteLine !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteLine(null);
+        }}
+        title={tl.deleteTitle}
+        description={tl.deleteDescription}
+        confirmLabel={tl.delete}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={confirmDelete}
+      />
     </>
   );
 }

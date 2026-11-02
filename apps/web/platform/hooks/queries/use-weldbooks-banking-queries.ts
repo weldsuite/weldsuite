@@ -163,6 +163,28 @@ export function useImportBankStatement() {
   });
 }
 
+/** Lines and balances change; the ledger doesn't (only unbooked lines are removed). */
+function invalidateAfterLineRemoval(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: accountingKeys.bankTransactions.all });
+  qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+}
+
+export function useUndoBankImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: string) => bankingApi.undoImport(batchId).then((res) => res.data),
+    onSuccess: () => invalidateAfterLineRemoval(qc),
+  });
+}
+
+export function useDeleteBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => bankingApi.deleteBankLine(id),
+    onSuccess: () => invalidateAfterLineRemoval(qc),
+  });
+}
+
 // ============================================================================
 // Bank lines and matching
 // ============================================================================

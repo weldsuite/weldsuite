@@ -133,6 +133,12 @@ export const weldbooksUsBanking = {
     importAnother: 'Nog een importeren',
     matchLines: 'Regels koppelen',
     viewAccount: 'Rekening bekijken',
+    undoImport: 'Import ongedaan maken',
+    undoImportTitle: 'Deze import ongedaan maken?',
+    undoImportDescription: 'Verwijdert de transacties die deze import heeft toegevoegd en haalt ze van het saldo af. Transacties die je al hebt afgestemd blijven staan.',
+    undoImportDone: '{deleted} transacties verwijderd.',
+    undoImportKept: '{deleted} transacties verwijderd, {kept} afgestemde transacties blijven staan.',
+    undoImportFailed: 'De import kon niet ongedaan worden gemaakt.',
   },
 
   importPreview: {
@@ -287,6 +293,11 @@ export const weldbooksUsBanking = {
       manual: 'Handmatig',
     },
     searchPlaceholder: 'Zoek op omschrijving, begunstigde, referentie of chequenummer',
+    delete: 'Verwijderen',
+    deleteTitle: 'Deze transactie verwijderen?',
+    deleteDescription: 'De transactie verdwijnt van de rekening en het bedrag gaat van het saldo af. Dit kan alleen bij transacties die nog niet zijn afgestemd.',
+    deleted: 'Transactie verwijderd',
+    deleteFailed: 'De transactie kon niet worden verwijderd.',
   },
 
   reconciliationPage: {
