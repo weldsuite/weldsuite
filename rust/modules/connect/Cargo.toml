@@ -12,6 +12,7 @@ publish.workspace = true
 weldsuite-ads-domain = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-connect-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-events = { workspace = true }

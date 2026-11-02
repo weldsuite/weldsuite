@@ -249,3 +249,83 @@ export const adEventResultSchema = z.union([
   adSyncResultSchema,
   z.object({ skipped: z.literal(true), reason: z.string() }).strict(),
 ]);
+
+// ── /api/connectors ─────────────────────────────────────────────────────────
+
+const connectorSyncSchema = z
+  .object({ syncName: z.string(), model: z.string(), internalEntity: z.string(), settingKey: z.string() })
+  .strict();
+
+/** `sanitizeConnection(row)`: what the client may see of a connector connection. */
+export const connectorConnectionSchema = z
+  .object({
+    id: z.string(),
+    provider: z.string(),
+    label: z.string(),
+    icon: z.string(),
+    category: z.string(),
+    displayName: z.string().nullable(),
+    status: z.string(),
+    externalAccountId: z.string().nullable(),
+    entityId: z.string().nullable(),
+    enabledSyncs: z.array(z.string()),
+    settings: z.record(z.unknown()),
+    direction: z.string(),
+    objectSyncDirections: z.record(z.string()),
+    authFields: z.array(
+      z
+        .object({
+          key: z.string(),
+          label: z.string(),
+          type: z.string(),
+          placeholder: z.string().optional(),
+          required: z.boolean(),
+        })
+        .strict(),
+    ),
+    syncs: z.array(connectorSyncSchema),
+    lastSyncAt: nullableTimestamp,
+    lastSyncStatus: z.string().nullable(),
+    lastError: z.string().nullable(),
+    lastErrorAt: nullableTimestamp,
+    recordsSynced: z.number(),
+    connectedAt: nullableTimestamp,
+    connectedBy: z.string().nullable(),
+    isConnected: z.boolean(),
+    webhookCount: z.number(),
+  })
+  .strict();
+
+export const connectorCatalogEntrySchema = z
+  .object({
+    provider: z.string(),
+    label: z.string(),
+    description: z.string(),
+    category: z.string(),
+    icon: z.string(),
+    auth: z.object({ kind: z.string(), fields: z.array(z.record(z.unknown())) }).passthrough(),
+    syncs: z.array(connectorSyncSchema),
+    connections: z.array(connectorConnectionSchema),
+    connectionCount: z.number(),
+  })
+  .strict();
+
+/** A `connector_sync_runs` row. */
+export const connectorSyncRunSchema = z
+  .object({ id: z.string(), connectionId: z.string(), syncName: z.string(), status: z.string(), createdAt: timestamp })
+  .passthrough();
+
+export const connectorRecordSchema = z
+  .object({
+    id: z.string(),
+    externalEntityType: z.string(),
+    externalEntityId: z.string(),
+    internalEntityType: z.string(),
+    internalEntityId: z.string(),
+    label: z.string(),
+    lastSyncedAt: nullableTimestamp,
+  })
+  .strict();
+
+export const connectorTestSchema = z.object({ ok: z.literal(true), storeUrl: z.string() }).strict();
+export const connectorStatusSchema = z.object({ status: z.string() }).strict();

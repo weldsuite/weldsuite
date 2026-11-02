@@ -20,6 +20,7 @@
 
 mod builder;
 mod catalog;
+mod connectors;
 mod cron;
 mod crypto;
 mod dashboard;
@@ -187,6 +188,7 @@ where
         .nest("/github-project-links", github::project_links_routes(gate))
         .nest("/external-webhooks", external_webhooks::routes(gate))
         .nest("/integrations", integrations::routes(gate))
+        .nest("/connectors", connectors::routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))

@@ -2163,7 +2163,8 @@
       "tests": [
         "src/routes/external-webhooks/routes.test.ts",
         "src/routes/integrations/routes.test.ts",
-        "src/routes/integrations/internal.routes.test.ts"
+        "src/routes/integrations/internal.routes.test.ts",
+        "src/routes/connectors/routes.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2172,6 +2173,10 @@
         "apps/workers/connect-api/src/routes/integrations/",
         "apps/workers/connect-api/src/services/integrations/",
         "apps/workers/connect-api/src/lib/crm-sync-index.ts",
+        "apps/workers/connect-api/src/routes/connectors/",
+        "apps/workers/connect-api/src/services/connectors/",
+        "packages/domains/connect/src/",
+        "packages/core/connectors/src/",
         "packages/clients/core-api-client/src/schemas/integrations.ts",
         "packages/domains/ads/src/",
         "packages/core/entity-events/src/webhook-delivery.ts",
@@ -2180,6 +2185,7 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-connect-integrations.ts",
         "rust/crates/subscribers/src/webhooks.rs",
         "rust/crates/ads-domain/",
+        "rust/crates/connect-domain/",
         "rust/modules/connect/"
       ],
       "excludedRoutes": [
@@ -2197,7 +2203,51 @@
         },
         {
           "route": "POST /api/integrations/woocommerce-auth",
-          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with the first sync, still to come in rust/crates/connect-domain."
+          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with webhook registration and the first sync, still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/connectors/connect",
+          "reason": "Not ported yet: webhook registration (connectors/webhooks.ts) and the first sync (connectors/sync.ts, ingest.ts) of @weldsuite/connect-domain, and the Stripe and Moneybird clients."
+        },
+        {
+          "route": "POST /api/connectors/authorize",
+          "reason": "Not ported yet: WooCommerce's app authorisation (signed user_id, callback URL) and the Stripe and Moneybird OAuth starts of @weldsuite/connect-domain (connectors/auth.ts, stripe-auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/oauth/callback",
+          "reason": "Not ported yet: the Stripe and Moneybird OAuth completions with the first sync (connectors/auth.ts, stripe-auth.ts, sync.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/select-account",
+          "reason": "Not ported yet: the Moneybird administration choice with the first sync (connectors/auth.ts, sync.ts)."
+        },
+        {
+          "route": "PATCH /api/connectors/connections/:id",
+          "reason": "Not ported yet: the Stripe and Moneybird credential tests, the Stripe re-sync after a start-date change and the Moneybird push after enabling it (connectors/sync.ts, moneybird-push.ts)."
+        },
+        {
+          "route": "DELETE /api/connectors/connections/:id",
+          "reason": "Not ported yet: the provider webhook removal and the Stripe deauthorisation (connectors/webhooks.ts, @weldsuite/connectors stripe/auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/sync",
+          "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/picqer/push",
+          "reason": "Not ported yet: connect-api's Picqer push (services/connectors/publish-picqer.ts)."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/options",
+          "reason": "Not ported yet: the Moneybird client and push plan of @weldsuite/connect-domain (connectors/moneybird-push-plan.ts)."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/push-status",
+          "reason": "Not ported yet: the Moneybird push status of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/moneybird/push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
         }
       ]
     }

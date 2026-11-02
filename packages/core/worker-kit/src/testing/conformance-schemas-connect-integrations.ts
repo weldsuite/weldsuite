@@ -6,6 +6,12 @@
 import {
   adEventResultSchema,
   adSyncResultSchema,
+  connectorCatalogEntrySchema,
+  connectorConnectionSchema,
+  connectorRecordSchema,
+  connectorStatusSchema,
+  connectorSyncRunSchema,
+  connectorTestSchema,
   externalWebhookEventSchema,
   externalWebhookSchema,
   externalWebhookWithSecretSchema,
@@ -34,6 +40,7 @@ import type { RouteSchema } from './conformance-schemas';
 const EW = '/api/external-webhooks';
 const IN = '/api/integrations';
 const CO = '/api/integrations/connections';
+const CN = '/api/connectors';
 
 export const CONNECT_INTEGRATION_ROUTES: RouteSchema[] = [
   // outbound webhooks
@@ -83,4 +90,21 @@ export const CONNECT_INTEGRATION_ROUTES: RouteSchema[] = [
   // the internal (X-Internal-Secret) routes
   { method: 'POST', route: `${IN}/ad-connections/:id/sync`, envelope: 'single', data: adSyncResultSchema },
   { method: 'POST', route: `${IN}/ad-events`, envelope: 'single', data: adEventResultSchema },
+  // store and accounting connectors
+  { method: 'GET', route: `${CN}/catalog`, envelope: 'array', data: connectorCatalogEntrySchema },
+  { method: 'GET', route: `${CN}/connections`, envelope: 'array', data: connectorConnectionSchema },
+  { method: 'GET', route: `${CN}/connections/:id`, envelope: 'single', data: connectorConnectionSchema },
+  { method: 'GET', route: `${CN}/connections/:id/runs`, envelope: 'array', data: connectorSyncRunSchema },
+  { method: 'GET', route: `${CN}/connections/:id/records`, envelope: 'array', data: connectorRecordSchema },
+  { method: 'GET', route: `${CN}/connections/:id/field-mappings`, envelope: 'array', data: integrationFieldMappingSchema },
+  { method: 'PUT', route: `${CN}/connections/:id/field-mappings`, envelope: 'single', data: integrationMappingsReplacedSchema },
+  {
+    method: 'GET',
+    route: `${CN}/connections/:id/field-mappings/defaults`,
+    envelope: 'array',
+    data: integrationDefaultMappingSchema,
+  },
+  { method: 'POST', route: `${CN}/test`, envelope: 'single', data: connectorTestSchema },
+  { method: 'POST', route: `${CN}/connections/:id/pause`, envelope: 'single', data: connectorStatusSchema },
+  { method: 'POST', route: `${CN}/connections/:id/resume`, envelope: 'single', data: connectorStatusSchema },
 ];

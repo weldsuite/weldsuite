@@ -21,6 +21,12 @@ import { fileURLToPath } from 'node:url';
 import { API_MODULES, RECORD_CHAT_OWNER, RECORD_CHAT_PREFIX } from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
 import { listWebhookEvents } from '../packages/core/entity-events/src/webhook-events';
+import {
+  CONNECTOR_EXTERNAL_FIELDS,
+  CONNECTOR_INTERNAL_FIELDS,
+  getDefaultConnectorFieldMappings,
+  listConnectors,
+} from '../packages/core/connectors/src/index';
 import { FLAGS } from '../packages/core/feature-flags/src/flags';
 import {
   EMPLOYEE_MEMBER_PERMISSIONS,
@@ -88,6 +94,28 @@ function weldconnectCatalog(): unknown {
   };
 }
 
+/**
+ * The store and accounting connectors (`@weldsuite/connectors`): their catalog
+ * entries, in order, and the default field mappings per entity type (Picqer's
+ * product and Stripe's none are the exceptions `getDefaultConnectorFieldMappings`
+ * makes).
+ */
+function connectorsCatalog(): unknown {
+  const entities = new Set<string>([
+    ...Object.keys(CONNECTOR_INTERNAL_FIELDS),
+    ...Object.keys(CONNECTOR_EXTERNAL_FIELDS),
+    ...listConnectors().flatMap((c) => c.syncs.map((s) => s.internalEntity)),
+  ]);
+  const defaultFieldMappings = Object.fromEntries(
+    [...entities].map((entity) => [entity, getDefaultConnectorFieldMappings(entity)]).filter(([, m]) => m.length),
+  );
+  return {
+    connectors: listConnectors(),
+    defaultFieldMappings,
+    picqerProductFieldMappings: getDefaultConnectorFieldMappings('product', 'picqer'),
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -97,6 +125,7 @@ async function main(): Promise<void> {
     'catalogs/feature-flags.json': FLAGS,
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
     'catalogs/weldconnect.json': weldconnectCatalog(),
+    'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

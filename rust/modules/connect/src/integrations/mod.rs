@@ -1796,19 +1796,17 @@ async fn default_field_mappings(
     result.unwrap_or_else(|error| internal_error(&error, "Failed to fetch default field mappings"))
 }
 
-async fn replace_field_mappings(
-    caller: Caller,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    const FAILED: &str = "Failed to update field mappings";
-    let read = validate(&headers, &body, |issues, b| {
-        let entity_type = issues
-            .text(b, "entityType", Presence::Required, Some(1), None)
-            .into_option()
-            .unwrap_or_default();
-        let mappings = issues
+/// `updateFieldMappingsSchema`: `(entityType, mappings)`, each mapping as
+/// its row's columns.
+pub(crate) fn field_mappings_body(
+    issues: &mut Issues,
+    b: &Map<String, Value>,
+) -> (String, Vec<Value>) {
+    let entity_type = issues
+        .text(b, "entityType", Presence::Required, Some(1), None)
+        .into_option()
+        .unwrap_or_default();
+    let mappings = issues
             .list(b, "mappings", Presence::Required, None, None, |issues, item| {
                 let fields = issues.object(item)?;
                 let external = issues.text(fields, "externalFieldPath", Presence::Required, Some(1), None);
@@ -1835,32 +1833,52 @@ async fn replace_field_mappings(
             })
             .into_option()
             .unwrap_or_default();
-        (entity_type, mappings)
-    });
+    (entity_type, mappings)
+}
+
+/// The connection's mappings of `entity_type` replaced by `mappings`.
+pub(crate) async fn replace_mappings(
+    db: &PgPool,
+    id: &str,
+    entity_type: &str,
+    mappings: &[Value],
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "delete from integration_field_mappings where connection_id = $1 and entity_type = $2",
+    )
+    .bind(id)
+    .bind(entity_type)
+    .execute(db)
+    .await?;
+    let rows: Vec<Value> = mappings
+        .iter()
+        .enumerate()
+        .map(|(position, m)| {
+            let mut row = m.clone();
+            row["id"] = json!(generate_id("ifm"));
+            row["entity_type"] = json!(entity_type);
+            row["position"] = json!(position);
+            row
+        })
+        .collect();
+    insert_mappings(db, id, &rows, false).await?;
+    Ok(())
+}
+
+async fn replace_field_mappings(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to update field mappings";
+    let read = validate(&headers, &body, field_mappings_body);
     let (entity_type, mappings) = match read {
         Ok(read) => read,
         Err(refusal) => return refusal.respond(FAILED),
     };
     let result: Result<Response, sqlx::Error> = async {
-        sqlx::query(
-            "delete from integration_field_mappings where connection_id = $1 and entity_type = $2",
-        )
-        .bind(&id)
-        .bind(&entity_type)
-        .execute(&caller.db)
-        .await?;
-        let rows: Vec<Value> = mappings
-            .iter()
-            .enumerate()
-            .map(|(position, m)| {
-                let mut row = m.clone();
-                row["id"] = json!(generate_id("ifm"));
-                row["entity_type"] = json!(entity_type);
-                row["position"] = json!(position);
-                row
-            })
-            .collect();
-        insert_mappings(&caller.db, &id, &rows, false).await?;
+        replace_mappings(&caller.db, &id, &entity_type, &mappings).await?;
         Ok(Data(json!({ "entityType": entity_type, "count": mappings.len() })).into_response())
     }
     .await;

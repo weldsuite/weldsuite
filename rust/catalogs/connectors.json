@@ -1,0 +1,1000 @@
+{
+  "connectors": [
+    {
+      "auth": {
+        "fields": [
+          {
+            "key": "storeUrl",
+            "label": "Store URL",
+            "placeholder": "https://yourstore.com",
+            "required": true,
+            "type": "url"
+          }
+        ],
+        "kind": "app_auth"
+      },
+      "category": "ecommerce",
+      "delivery": "hybrid",
+      "description": "Sync products, orders, and customers from a WooCommerce store into WeldSuite.",
+      "icon": "shopping-bag",
+      "label": "WooCommerce",
+      "provider": "woocommerce",
+      "syncs": [
+        {
+          "externalEntityType": "woocommerce_product",
+          "internalEntity": "product",
+          "model": "WooProduct",
+          "settingKey": "products",
+          "syncName": "woocommerce-products"
+        },
+        {
+          "externalEntityType": "woocommerce_order",
+          "internalEntity": "order",
+          "model": "WooOrder",
+          "settingKey": "orders",
+          "syncName": "woocommerce-orders"
+        },
+        {
+          "externalEntityType": "woocommerce_customer",
+          "internalEntity": "person",
+          "model": "WooCustomer",
+          "settingKey": "customers",
+          "syncName": "woocommerce-customers"
+        }
+      ]
+    },
+    {
+      "auth": {
+        "fields": [
+          {
+            "key": "shopDomain",
+            "label": "Shop domain",
+            "placeholder": "mystore.myshopify.com",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "accessToken",
+            "label": "Admin API access token",
+            "placeholder": "shpat_...",
+            "required": true,
+            "type": "secret"
+          },
+          {
+            "key": "apiSecret",
+            "label": "API secret key",
+            "placeholder": "shpss_...",
+            "required": true,
+            "type": "secret"
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "ecommerce",
+      "delivery": "hybrid",
+      "description": "Sync products, orders, and customers from a Shopify store into WeldSuite.",
+      "icon": "store",
+      "label": "Shopify",
+      "provider": "shopify",
+      "syncs": [
+        {
+          "externalEntityType": "shopify_product",
+          "internalEntity": "product",
+          "model": "ShopifyProduct",
+          "settingKey": "products",
+          "syncName": "shopify-products"
+        },
+        {
+          "externalEntityType": "shopify_order",
+          "internalEntity": "order",
+          "model": "ShopifyOrder",
+          "settingKey": "orders",
+          "syncName": "shopify-orders"
+        },
+        {
+          "externalEntityType": "shopify_customer",
+          "internalEntity": "person",
+          "model": "ShopifyCustomer",
+          "settingKey": "customers",
+          "syncName": "shopify-customers"
+        }
+      ]
+    },
+    {
+      "auth": {
+        "fields": [],
+        "kind": "oauth2",
+        "scopes": [
+          "sales_invoices",
+          "documents",
+          "settings",
+          "bank"
+        ]
+      },
+      "category": "accounting",
+      "delivery": "hybrid",
+      "description": "Sync contacts, sales invoices (with PDFs), products, purchase invoices and receipts (with attachments), bank accounts, and bank transactions from Moneybird into WeldBooks.",
+      "icon": "book-open",
+      "label": "Moneybird",
+      "provider": "moneybird",
+      "syncs": [
+        {
+          "externalEntityType": "moneybird_contact",
+          "internalEntity": "party",
+          "model": "MoneybirdContact",
+          "settingKey": "contacts",
+          "syncName": "moneybird-contacts"
+        },
+        {
+          "externalEntityType": "moneybird_sales_invoice",
+          "internalEntity": "invoice",
+          "model": "MoneybirdSalesInvoice",
+          "settingKey": "invoices",
+          "syncName": "moneybird-sales-invoices"
+        },
+        {
+          "externalEntityType": "moneybird_product",
+          "internalEntity": "product",
+          "model": "MoneybirdProduct",
+          "settingKey": "products",
+          "syncName": "moneybird-products"
+        },
+        {
+          "externalEntityType": "moneybird_purchase_invoice",
+          "internalEntity": "bill",
+          "model": "MoneybirdPurchaseInvoice",
+          "settingKey": "bills",
+          "syncName": "moneybird-purchase-invoices"
+        },
+        {
+          "externalEntityType": "moneybird_receipt",
+          "internalEntity": "bill",
+          "model": "MoneybirdReceipt",
+          "settingKey": "bills",
+          "syncName": "moneybird-receipts"
+        },
+        {
+          "externalEntityType": "moneybird_financial_account",
+          "internalEntity": "bank_account",
+          "model": "MoneybirdFinancialAccount",
+          "settingKey": "bankAccounts",
+          "syncName": "moneybird-financial-accounts"
+        },
+        {
+          "externalEntityType": "moneybird_financial_mutation",
+          "internalEntity": "bank_transaction",
+          "model": "MoneybirdFinancialMutation",
+          "settingKey": "bankTransactions",
+          "syncName": "moneybird-financial-mutations"
+        }
+      ]
+    },
+    {
+      "auth": {
+        "fields": [],
+        "kind": "oauth2",
+        "scopes": [
+          "read_write"
+        ]
+      },
+      "category": "accounting",
+      "contactExternalEntityType": "stripe_customer",
+      "delivery": "hybrid",
+      "description": "Import paid Stripe invoices, payments, fees, and payouts into WeldBooks. Pair it with Moneybird to send them on to your bookkeeping.",
+      "icon": "credit-card",
+      "label": "Stripe",
+      "provider": "stripe",
+      "syncs": [
+        {
+          "externalEntityType": "stripe_invoice",
+          "internalEntity": "invoice",
+          "model": "StripeInvoice",
+          "settingKey": "invoices",
+          "syncName": "stripe-invoices"
+        },
+        {
+          "externalEntityType": "stripe_balance",
+          "internalEntity": "bank_account",
+          "model": "StripeBalance",
+          "settingKey": "bankAccounts",
+          "syncName": "stripe-balances"
+        },
+        {
+          "externalEntityType": "stripe_balance_transaction",
+          "internalEntity": "bank_transaction",
+          "model": "StripeBalanceTransaction",
+          "settingKey": "bankTransactions",
+          "syncName": "stripe-balance-transactions"
+        }
+      ]
+    },
+    {
+      "auth": {
+        "fields": [
+          {
+            "key": "subdomain",
+            "label": "Subdomain",
+            "placeholder": "yourcompany",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "apiKey",
+            "label": "API key",
+            "placeholder": "…",
+            "required": true,
+            "type": "secret"
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "wms",
+      "delivery": "hybrid",
+      "description": "Bidirectional sync of products, stock, warehouses, orders, pick lists, purchase orders, returns, and more with Picqer WMS.",
+      "icon": "warehouse",
+      "label": "Picqer",
+      "provider": "picqer",
+      "syncs": [
+        {
+          "externalEntityType": "picqer_product",
+          "internalEntity": "product",
+          "model": "PicqerProduct",
+          "settingKey": "products",
+          "syncName": "picqer-products"
+        },
+        {
+          "externalEntityType": "picqer_customer",
+          "internalEntity": "person",
+          "model": "PicqerCustomer",
+          "settingKey": "customers",
+          "syncName": "picqer-customers"
+        },
+        {
+          "externalEntityType": "picqer_order",
+          "internalEntity": "order",
+          "model": "PicqerOrder",
+          "settingKey": "orders",
+          "syncName": "picqer-orders"
+        },
+        {
+          "externalEntityType": "picqer_inventory",
+          "internalEntity": "inventory",
+          "model": "PicqerInventory",
+          "settingKey": "inventory",
+          "syncName": "picqer-inventory"
+        },
+        {
+          "externalEntityType": "picqer_warehouse",
+          "internalEntity": "warehouse",
+          "model": "PicqerWarehouse",
+          "settingKey": "warehouses",
+          "syncName": "picqer-warehouses"
+        },
+        {
+          "externalEntityType": "picqer_location",
+          "internalEntity": "location",
+          "model": "PicqerLocation",
+          "settingKey": "locations",
+          "syncName": "picqer-locations"
+        },
+        {
+          "externalEntityType": "picqer_picklist",
+          "internalEntity": "picklist",
+          "model": "PicqerPicklist",
+          "settingKey": "picklists",
+          "syncName": "picqer-picklists"
+        },
+        {
+          "externalEntityType": "picqer_shipment",
+          "internalEntity": "shipment",
+          "model": "PicqerShipment",
+          "settingKey": "shipments",
+          "syncName": "picqer-shipments"
+        },
+        {
+          "externalEntityType": "picqer_supplier",
+          "internalEntity": "supplier",
+          "model": "PicqerSupplier",
+          "settingKey": "suppliers",
+          "syncName": "picqer-suppliers"
+        },
+        {
+          "externalEntityType": "picqer_purchase_order",
+          "internalEntity": "purchase_order",
+          "model": "PicqerPurchaseOrder",
+          "settingKey": "purchaseOrders",
+          "syncName": "picqer-purchase-orders"
+        },
+        {
+          "externalEntityType": "picqer_return",
+          "internalEntity": "return",
+          "model": "PicqerReturn",
+          "settingKey": "returns",
+          "syncName": "picqer-returns"
+        },
+        {
+          "externalEntityType": "picqer_stock_count",
+          "internalEntity": "stock_count",
+          "model": "PicqerStockCount",
+          "settingKey": "stockCounts",
+          "syncName": "picqer-stock-counts"
+        },
+        {
+          "externalEntityType": "picqer_movement",
+          "internalEntity": "inventory_movement",
+          "model": "PicqerMovement",
+          "settingKey": "movements",
+          "syncName": "picqer-movements"
+        }
+      ]
+    }
+  ],
+  "defaultFieldMappings": {
+    "bank_account": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "name",
+        "internalFieldPath": "name",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "identifier",
+        "internalFieldPath": "iban",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "currency",
+        "internalFieldPath": "currency",
+        "transformType": "direct"
+      }
+    ],
+    "bank_transaction": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "date",
+        "internalFieldPath": "date",
+        "isRequired": true,
+        "transformType": "format_date"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "amount",
+        "internalFieldPath": "amount",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "message",
+        "internalFieldPath": "description",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "contra_account_name",
+        "internalFieldPath": "counterpartyName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "contra_account_number",
+        "internalFieldPath": "counterpartyIban",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "batch_reference",
+        "internalFieldPath": "reference",
+        "transformType": "direct"
+      }
+    ],
+    "bill": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "reference",
+        "internalFieldPath": "reference",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "state",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "currency",
+        "internalFieldPath": "currency",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total_price_excl_tax",
+        "internalFieldPath": "subtotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total_price_incl_tax",
+        "internalFieldPath": "total",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "due_date",
+        "internalFieldPath": "dueDate",
+        "transformType": "format_date"
+      }
+    ],
+    "inventory": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "freestock",
+        "internalFieldPath": "quantityAvailable",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "stock",
+        "internalFieldPath": "quantityOnHand",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "reserved",
+        "internalFieldPath": "quantityAllocated",
+        "transformType": "direct"
+      }
+    ],
+    "inventory_movement": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "idmovement",
+        "internalFieldPath": "movementNumber",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "amount",
+        "internalFieldPath": "quantity",
+        "transformType": "direct"
+      }
+    ],
+    "invoice": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "invoice_id",
+        "internalFieldPath": "invoiceNumber",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "reference",
+        "internalFieldPath": "reference",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "state",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "currency",
+        "internalFieldPath": "currency",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total_price_excl_tax",
+        "internalFieldPath": "subtotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total_price_incl_tax",
+        "internalFieldPath": "total",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "due_date",
+        "internalFieldPath": "dueDate",
+        "transformType": "format_date"
+      }
+    ],
+    "location": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "name",
+        "internalFieldPath": "name",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "remark",
+        "internalFieldPath": "code",
+        "transformType": "direct"
+      }
+    ],
+    "order": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "number",
+        "internalFieldPath": "orderNumber",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "name",
+        "internalFieldPath": "orderNumber",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "currency",
+        "internalFieldPath": "currency",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total",
+        "internalFieldPath": "total",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "subtotal",
+        "internalFieldPath": "subtotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "total_tax",
+        "internalFieldPath": "taxTotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "shipping_total",
+        "internalFieldPath": "shippingTotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "discount_total",
+        "internalFieldPath": "discountTotal",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.email",
+        "internalFieldPath": "customerEmail",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.first_name",
+        "internalFieldPath": "customerFirstName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.last_name",
+        "internalFieldPath": "customerLastName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.phone",
+        "internalFieldPath": "customerPhone",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "customer_note",
+        "internalFieldPath": "notes",
+        "transformType": "direct"
+      }
+    ],
+    "party": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "company_name",
+        "internalFieldPath": "companyName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "firstname",
+        "internalFieldPath": "firstName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "lastname",
+        "internalFieldPath": "lastName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "email",
+        "internalFieldPath": "email",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "phone",
+        "internalFieldPath": "phone",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "address1",
+        "internalFieldPath": "address",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "city",
+        "internalFieldPath": "city",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "zipcode",
+        "internalFieldPath": "zip",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "country",
+        "internalFieldPath": "country",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "chamber_of_commerce",
+        "internalFieldPath": "vatNumber",
+        "transformType": "direct"
+      }
+    ],
+    "person": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "email",
+        "internalFieldPath": "email",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "first_name",
+        "internalFieldPath": "firstName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "last_name",
+        "internalFieldPath": "lastName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "username",
+        "internalFieldPath": "fullName",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.phone",
+        "internalFieldPath": "directPhone",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.address_1",
+        "internalFieldPath": "address",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.city",
+        "internalFieldPath": "city",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.state",
+        "internalFieldPath": "state",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.postcode",
+        "internalFieldPath": "zip",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "billing.country",
+        "internalFieldPath": "country",
+        "transformType": "direct"
+      }
+    ],
+    "picklist": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "picklistid",
+        "internalFieldPath": "pickListNumber",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      }
+    ],
+    "product": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "name",
+        "internalFieldPath": "name",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "title",
+        "internalFieldPath": "name",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "slug",
+        "internalFieldPath": "slug",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "handle",
+        "internalFieldPath": "slug",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "sku",
+        "internalFieldPath": "sku",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "description",
+        "internalFieldPath": "description",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "body_html",
+        "internalFieldPath": "description",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "short_description",
+        "internalFieldPath": "shortDescription",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "price",
+        "internalFieldPath": "price",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "regular_price",
+        "internalFieldPath": "compareAtPrice",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "weight",
+        "internalFieldPath": "weight",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "vendor",
+        "internalFieldPath": "vendor",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "product_type",
+        "internalFieldPath": "productType",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "type",
+        "internalFieldPath": "productType",
+        "transformType": "direct"
+      }
+    ],
+    "purchase_order": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "purchaseorderid",
+        "internalFieldPath": "poNumber",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "supplier_name",
+        "internalFieldPath": "supplierName",
+        "transformType": "direct"
+      }
+    ],
+    "return": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "returnid",
+        "internalFieldPath": "returnNumber",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      }
+    ],
+    "shipment": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "trackingcode",
+        "internalFieldPath": "shipmentNumber",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "provider",
+        "internalFieldPath": "carrierName",
+        "transformType": "direct"
+      }
+    ],
+    "stock_count": [
+      {
+        "direction": "inbound",
+        "externalFieldPath": "idlocation_stock_count",
+        "internalFieldPath": "countNumber",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "status",
+        "internalFieldPath": "status",
+        "transformType": "direct"
+      }
+    ],
+    "supplier": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "name",
+        "internalFieldPath": "name",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "emailaddress",
+        "internalFieldPath": "email",
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "telephone",
+        "internalFieldPath": "phone",
+        "transformType": "direct"
+      }
+    ],
+    "warehouse": [
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "name",
+        "internalFieldPath": "name",
+        "isRequired": true,
+        "transformType": "direct"
+      },
+      {
+        "direction": "bidirectional",
+        "externalFieldPath": "code",
+        "internalFieldPath": "code",
+        "transformType": "direct"
+      },
+      {
+        "direction": "inbound",
+        "externalFieldPath": "accepts_orders",
+        "internalFieldPath": "isActive",
+        "transformType": "direct"
+      }
+    ]
+  },
+  "picqerProductFieldMappings": [
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "name",
+      "internalFieldPath": "name",
+      "isRequired": true,
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "productcode",
+      "internalFieldPath": "sku",
+      "isRequired": true,
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "barcode",
+      "internalFieldPath": "barcode",
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "description",
+      "internalFieldPath": "description",
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "price",
+      "internalFieldPath": "price",
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "weight",
+      "internalFieldPath": "weight",
+      "transformType": "direct"
+    },
+    {
+      "direction": "bidirectional",
+      "externalFieldPath": "active",
+      "internalFieldPath": "status",
+      "transformType": "direct"
+    }
+  ]
+}

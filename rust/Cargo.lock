@@ -4159,6 +4159,7 @@ dependencies = [
  "weldsuite-ads-domain",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-connect-domain",
  "weldsuite-db",
  "weldsuite-desk-domain",
  "weldsuite-events",
@@ -4166,6 +4167,23 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-subscribers",
+]
+
+[[package]]
+name = "weldsuite-connect-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]
