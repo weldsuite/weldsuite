@@ -1,0 +1,1266 @@
+{
+  "cases": [
+    {
+      "name": "gmail-reply.eml",
+      "raw": "Delivered-To: sam@getacme.com\r\nReceived: by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp1234567pzb;\r\n        Mon, 12 Oct 2026 07:41:02 -0700 (PDT)\r\nReturn-Path: <jane@acme.nl>\r\nReceived: from mail-sor-f41.google.com (mail-sor-f41.google.com. [209.85.220.41])\r\n        by mx.google.com with SMTPS id b12-20020a170902d50c00b001abc123def4si1234pld.56.2026.10.12.07.41.01\r\n        for <sam@getacme.com>\r\n        (Google Transport Security);\r\n        Mon, 12 Oct 2026 07:41:02 -0700 (PDT)\r\nAuthentication-Results: mx.google.com;\r\n       dkim=pass header.i=@acme.nl header.s=google header.b=AbCdEfGh;\r\n       spf=pass (google.com: domain of jane@acme.nl designates 209.85.220.41 as permitted sender) smtp.mailfrom=jane@acme.nl\r\nMIME-Version: 1.0\r\nReferences: <out-1001@getacme.com>\r\nIn-Reply-To: <out-1001@getacme.com>\r\nFrom: Jane Doe <jane@acme.nl>\r\nDate: Mon, 12 Oct 2026 16:40:48 +0200\r\nMessage-ID: <CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com>\r\nSubject: Re: Quick question about Acme logistics\r\nTo: Sam Jansen <sam@getacme.com>\r\nContent-Type: multipart/alternative; boundary=\"000000000000a1b2c3d4\"\r\n\r\n--000000000000a1b2c3d4\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nHi Sam,\r\n\r\nThis looks interesting. Can you send me a few more details and pricing?\r\n\r\nThanks,\r\nJane\r\n\r\nOn Mon, 12 Oct 2026 at 09:14, Sam Jansen <sam@getacme.com> wrote:\r\n\r\n> Hi Jane,\r\n>\r\n> I noticed Acme is expanding its warehouse network. We help logistics teams\r\n> cut manual dispatch work by about 30%.\r\n>\r\n> Worth a quick chat?\r\n>\r\n> Sam\r\n\r\n--000000000000a1b2c3d4\r\nContent-Type: text/html; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n<div dir=3D\"ltr\">Hi Sam,<br><br>This looks interesting. Can you send me a f=\r\new more details and pricing?<br><br>Thanks,<br>Jane</div><br><div class=3D\"=\r\ngmail_quote\"><div dir=3D\"ltr\" class=3D\"gmail_attr\">On Mon, 12 Oct 2026 at 0=\r\n9:14, Sam Jansen &lt;<a href=3D\"mailto:sam@getacme.com\">sam@getacme.com</a>=\r\n&gt; wrote:<br></div><blockquote class=3D\"gmail_quote\">Hi Jane,<br><br>I no=\r\nticed Acme is expanding its warehouse network.</blockquote></div>\r\n\r\n--000000000000a1b2c3d4--\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com",
+          "inReplyTo": "out-1001@getacme.com",
+          "references": [
+            "out-1001@getacme.com"
+          ],
+          "from": {
+            "email": "jane@acme.nl",
+            "name": "Jane Doe"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question about Acme logistics",
+          "text": "Hi Sam,\n\nThis looks interesting. Can you send me a few more details and pricing?\n\nThanks,\nJane\n\nOn Mon, 12 Oct 2026 at 09:14, Sam Jansen <sam@getacme.com> wrote:\n\n> Hi Jane,\n>\n> I noticed Acme is expanding its warehouse network. We help logistics teams\n> cut manual dispatch work by about 30%.\n>\n> Worth a quick chat?\n>\n> Sam\n\n",
+          "headers": {
+            "authentication-results": "mx.google.com; dkim=pass header.i=@acme.nl header.s=google header.b=AbCdEfGh; spf=pass (google.com: domain of jane@acme.nl designates 209.85.220.41 as permitted sender) smtp.mailfrom=jane@acme.nl",
+            "content-type": "multipart/alternative; boundary=\"000000000000a1b2c3d4\"",
+            "date": "Mon, 12 Oct 2026 16:40:48 +0200",
+            "delivered-to": "sam@getacme.com",
+            "from": "Jane Doe <jane@acme.nl>",
+            "in-reply-to": "<out-1001@getacme.com>",
+            "message-id": "<CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com>",
+            "mime-version": "1.0",
+            "received": "by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp1234567pzb; Mon, 12 Oct 2026 07:41:02 -0700 (PDT)",
+            "references": "<out-1001@getacme.com>",
+            "return-path": "<jane@acme.nl>",
+            "subject": "Re: Quick question about Acme logistics",
+            "to": "Sam Jansen <sam@getacme.com>"
+          },
+          "contentType": "multipart/alternative; boundary=\"000000000000a1b2c3d4\"",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Hi Sam,\n\nThis looks interesting. Can you send me a few more details and pricing?\n\nThanks,\nJane",
+        "optOut": false,
+        "threadingIds": [
+          "CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com",
+          "out-1001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "outlook-reply.eml",
+      "raw": "Received: from AM6PR01MB1234.eurprd01.prod.exchangelabs.com (2603:10a6:20b:12::34)\r\n by DB9PR01MB5678.eurprd01.prod.exchangelabs.com with HTTPS; Mon, 12 Oct 2026\r\n 15:02:11 +0000\r\nFrom: Pieter de Vries <pieter@acme.nl>\r\nTo: Sam Jansen <sam@getacme.com>\r\nSubject: RE: Quick question about Acme logistics\r\nThread-Topic: Quick question about Acme logistics\r\nThread-Index: AQHZkLmNoPqRsTuVwXyZ0123456789==\r\nDate: Mon, 12 Oct 2026 15:02:09 +0000\r\nMessage-ID: <AM6PR01MB1234ABCDEF0123456789-outlook-reply-1@AM6PR01MB1234.eurprd01.prod.exchangelabs.com>\r\nReferences: <out-2001@getacme.com>\r\nIn-Reply-To: <out-2001@getacme.com>\r\nAccept-Language: nl-NL, en-US\r\nContent-Language: en-US\r\nX-MS-Has-Attach:\r\nX-MS-TNEF-Correlator:\r\nContent-Type: text/plain; charset=\"windows-1252\"\r\nContent-Transfer-Encoding: quoted-printable\r\nMIME-Version: 1.0\r\n\r\nNot interested at the moment, please don=92t contact me again.\r\n\r\nKind regards,\r\nPieter de Vries\r\nOperations manager | Acme BV\r\n\r\n________________________________\r\nFrom: Sam Jansen <sam@getacme.com>\r\nSent: Monday, October 12, 2026 9:14 AM\r\nTo: Pieter de Vries <pieter@acme.nl>\r\nSubject: Quick question about Acme logistics\r\n\r\nHi Pieter,\r\n\r\nI noticed Acme is expanding its warehouse network. We help logistics teams\r\ncut manual dispatch work by about 30%.\r\n\r\nWorth a quick chat?\r\n\r\nSam\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "AM6PR01MB1234ABCDEF0123456789-outlook-reply-1@AM6PR01MB1234.eurprd01.prod.exchangelabs.com",
+          "inReplyTo": "out-2001@getacme.com",
+          "references": [
+            "out-2001@getacme.com"
+          ],
+          "from": {
+            "email": "pieter@acme.nl",
+            "name": "Pieter de Vries"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "RE: Quick question about Acme logistics",
+          "text": "Not interested at the moment, please don’t contact me again.\n\nKind regards,\nPieter de Vries\nOperations manager | Acme BV\n\n________________________________\nFrom: Sam Jansen <sam@getacme.com>\nSent: Monday, October 12, 2026 9:14 AM\nTo: Pieter de Vries <pieter@acme.nl>\nSubject: Quick question about Acme logistics\n\nHi Pieter,\n\nI noticed Acme is expanding its warehouse network. We help logistics teams\ncut manual dispatch work by about 30%.\n\nWorth a quick chat?\n\nSam\n",
+          "headers": {
+            "accept-language": "nl-NL, en-US",
+            "content-language": "en-US",
+            "content-transfer-encoding": "quoted-printable",
+            "content-type": "text/plain; charset=\"windows-1252\"",
+            "date": "Mon, 12 Oct 2026 15:02:09 +0000",
+            "from": "Pieter de Vries <pieter@acme.nl>",
+            "in-reply-to": "<out-2001@getacme.com>",
+            "message-id": "<AM6PR01MB1234ABCDEF0123456789-outlook-reply-1@AM6PR01MB1234.eurprd01.prod.exchangelabs.com>",
+            "mime-version": "1.0",
+            "received": "from AM6PR01MB1234.eurprd01.prod.exchangelabs.com (2603:10a6:20b:12::34) by DB9PR01MB5678.eurprd01.prod.exchangelabs.com with HTTPS; Mon, 12 Oct 2026 15:02:11 +0000",
+            "references": "<out-2001@getacme.com>",
+            "subject": "RE: Quick question about Acme logistics",
+            "thread-index": "AQHZkLmNoPqRsTuVwXyZ0123456789==",
+            "thread-topic": "Quick question about Acme logistics",
+            "to": "Sam Jansen <sam@getacme.com>",
+            "x-ms-has-attach": "",
+            "x-ms-tnef-correlator": ""
+          },
+          "contentType": "text/plain; charset=\"windows-1252\"",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Not interested at the moment, please don’t contact me again.\n\nKind regards,\nPieter de Vries\nOperations manager | Acme BV",
+        "optOut": false,
+        "threadingIds": [
+          "AM6PR01MB1234ABCDEF0123456789-outlook-reply-1@AM6PR01MB1234.eurprd01.prod.exchangelabs.com",
+          "out-2001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-2001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "reply-no-threading.eml",
+      "raw": "Return-Path: <lisa@bluesky.io>\r\nReceived: from mail.bluesky.io (mail.bluesky.io [203.0.113.7])\r\n\tby mx.example.net with ESMTPS id 1abc2def3\r\n\tfor <sam@getacme.com>; Tue, 13 Oct 2026 08:12:00 +0000\r\nFrom: \"Lisa Bakker\" <lisa@bluesky.io>\r\nTo: sam@getacme.com\r\nSubject: Your email\r\nDate: Tue, 13 Oct 2026 10:11:58 +0200\r\nMessage-ID: <20261013101158.7f3a2b@bluesky.io>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\nHello Sam,\r\n\r\nThanks for reaching out. Wednesday afternoon works for a call, shall we say 14:00?\r\n\r\nLisa\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "20261013101158.7f3a2b@bluesky.io",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "lisa@bluesky.io",
+            "name": "Lisa Bakker"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Your email",
+          "text": "Hello Sam,\n\nThanks for reaching out. Wednesday afternoon works for a call, shall we say 14:00?\n\nLisa\n",
+          "headers": {
+            "content-transfer-encoding": "7bit",
+            "content-type": "text/plain; charset=utf-8",
+            "date": "Tue, 13 Oct 2026 10:11:58 +0200",
+            "from": "\"Lisa Bakker\" <lisa@bluesky.io>",
+            "message-id": "<20261013101158.7f3a2b@bluesky.io>",
+            "mime-version": "1.0",
+            "received": "from mail.bluesky.io (mail.bluesky.io [203.0.113.7]) by mx.example.net with ESMTPS id 1abc2def3 for <sam@getacme.com>; Tue, 13 Oct 2026 08:12:00 +0000",
+            "return-path": "<lisa@bluesky.io>",
+            "subject": "Your email",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "text/plain; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Hello Sam,\n\nThanks for reaching out. Wednesday afternoon works for a call, shall we say 14:00?\n\nLisa",
+        "optOut": false,
+        "threadingIds": [
+          "20261013101158.7f3a2b@bluesky.io"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "ooo-en.eml",
+      "raw": "Return-Path: <jane@acme.nl>\r\nFrom: Jane Doe <jane@acme.nl>\r\nTo: Sam Jansen <sam@getacme.com>\r\nSubject: Automatic reply: Quick question about Acme logistics\r\nDate: Mon, 12 Oct 2026 09:20:44 +0200\r\nMessage-ID: <ooo-en-0001@acme.nl>\r\nIn-Reply-To: <out-1001@getacme.com>\r\nReferences: <out-1001@getacme.com>\r\nAuto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\nPrecedence: auto_reply\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThank you for your email. I am out of the office until Monday 19 October with\r\nlimited access to email. For urgent matters, contact reception@acme.nl.\r\n\r\nKind regards,\r\nJane Doe\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "ooo-en-0001@acme.nl",
+          "inReplyTo": "out-1001@getacme.com",
+          "references": [
+            "out-1001@getacme.com"
+          ],
+          "from": {
+            "email": "jane@acme.nl",
+            "name": "Jane Doe"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Automatic reply: Quick question about Acme logistics",
+          "text": "Thank you for your email. I am out of the office until Monday 19 October with\nlimited access to email. For urgent matters, contact reception@acme.nl.\n\nKind regards,\nJane Doe\n",
+          "headers": {
+            "auto-submitted": "auto-replied",
+            "content-type": "text/plain; charset=utf-8",
+            "date": "Mon, 12 Oct 2026 09:20:44 +0200",
+            "from": "Jane Doe <jane@acme.nl>",
+            "in-reply-to": "<out-1001@getacme.com>",
+            "message-id": "<ooo-en-0001@acme.nl>",
+            "mime-version": "1.0",
+            "precedence": "auto_reply",
+            "references": "<out-1001@getacme.com>",
+            "return-path": "<jane@acme.nl>",
+            "subject": "Automatic reply: Quick question about Acme logistics",
+            "to": "Sam Jansen <sam@getacme.com>",
+            "x-auto-response-suppress": "All"
+          },
+          "contentType": "text/plain; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "auto-submitted:auto-replied"
+        },
+        "replyText": "Thank you for your email. I am out of the office until Monday 19 October with\nlimited access to email. For urgent matters, contact reception@acme.nl.\n\nKind regards,\nJane Doe",
+        "optOut": false,
+        "threadingIds": [
+          "ooo-en-0001@acme.nl",
+          "out-1001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "ooo-nl.eml",
+      "raw": "Return-Path: <tom@redwood.eu>\r\nFrom: Tom Smit <tom@redwood.eu>\r\nTo: Sam Jansen <sam@getacme.com>\r\nSubject: Automatisch antwoord: Quick question about Acme logistics\r\nDate: Mon, 12 Oct 2026 09:31:02 +0200\r\nMessage-ID: <ooo-nl-0001@redwood.eu>\r\nIn-Reply-To: <out-1010@getacme.com>\r\nReferences: <out-1010@getacme.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nBedankt voor uw bericht. Ik ben afwezig tot en met 23 oktober en lees mijn e-mail\r\nniet. In dringende gevallen kunt u contact opnemen met mijn collega Eva (eva@redwood.eu).\r\n\r\nMet vriendelijke groet,\r\nTom Smit\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "ooo-nl-0001@redwood.eu",
+          "inReplyTo": "out-1010@getacme.com",
+          "references": [
+            "out-1010@getacme.com"
+          ],
+          "from": {
+            "email": "tom@redwood.eu",
+            "name": "Tom Smit"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Automatisch antwoord: Quick question about Acme logistics",
+          "text": "Bedankt voor uw bericht. Ik ben afwezig tot en met 23 oktober en lees mijn e-mail\nniet. In dringende gevallen kunt u contact opnemen met mijn collega Eva (eva@redwood.eu).\n\nMet vriendelijke groet,\nTom Smit\n",
+          "headers": {
+            "content-type": "text/plain; charset=utf-8",
+            "date": "Mon, 12 Oct 2026 09:31:02 +0200",
+            "from": "Tom Smit <tom@redwood.eu>",
+            "in-reply-to": "<out-1010@getacme.com>",
+            "message-id": "<ooo-nl-0001@redwood.eu>",
+            "mime-version": "1.0",
+            "references": "<out-1010@getacme.com>",
+            "return-path": "<tom@redwood.eu>",
+            "subject": "Automatisch antwoord: Quick question about Acme logistics",
+            "to": "Sam Jansen <sam@getacme.com>"
+          },
+          "contentType": "text/plain; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "subject"
+        },
+        "replyText": "Bedankt voor uw bericht. Ik ben afwezig tot en met 23 oktober en lees mijn e-mail\nniet. In dringende gevallen kunt u contact opnemen met mijn collega Eva (eva@redwood.eu).\n\nMet vriendelijke groet,\nTom Smit",
+        "optOut": false,
+        "threadingIds": [
+          "ooo-nl-0001@redwood.eu",
+          "out-1010@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1010@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "unsubscribe-reply.eml",
+      "raw": "Return-Path: <tom@redwood.eu>\r\nFrom: Tom Smit <tom@redwood.eu>\r\nTo: Sam Jansen <sam@getacme.com>\r\nSubject: Re: Quick question about Acme logistics\r\nDate: Mon, 12 Oct 2026 11:05:00 +0200\r\nMessage-ID: <unsub-0001@redwood.eu>\r\nIn-Reply-To: <out-1010@getacme.com>\r\nReferences: <out-1010@getacme.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nUnsubscribe\r\n\r\nOn Mon, 12 Oct 2026 at 09:14, Sam Jansen <sam@getacme.com> wrote:\r\n> Hi Tom,\r\n>\r\n> If this is not relevant, just reply \"stop\" and I will not email you again.\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "unsub-0001@redwood.eu",
+          "inReplyTo": "out-1010@getacme.com",
+          "references": [
+            "out-1010@getacme.com"
+          ],
+          "from": {
+            "email": "tom@redwood.eu",
+            "name": "Tom Smit"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question about Acme logistics",
+          "text": "Unsubscribe\n\nOn Mon, 12 Oct 2026 at 09:14, Sam Jansen <sam@getacme.com> wrote:\n> Hi Tom,\n>\n> If this is not relevant, just reply \"stop\" and I will not email you again.\n",
+          "headers": {
+            "content-type": "text/plain; charset=utf-8",
+            "date": "Mon, 12 Oct 2026 11:05:00 +0200",
+            "from": "Tom Smit <tom@redwood.eu>",
+            "in-reply-to": "<out-1010@getacme.com>",
+            "message-id": "<unsub-0001@redwood.eu>",
+            "mime-version": "1.0",
+            "references": "<out-1010@getacme.com>",
+            "return-path": "<tom@redwood.eu>",
+            "subject": "Re: Quick question about Acme logistics",
+            "to": "Sam Jansen <sam@getacme.com>"
+          },
+          "contentType": "text/plain; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Unsubscribe",
+        "optOut": true,
+        "threadingIds": [
+          "unsub-0001@redwood.eu",
+          "out-1010@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1010@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "bounce-gmail-dsn.eml",
+      "raw": "Delivered-To: sam@getacme.com\r\nReceived: by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp7654321pzb;\r\n        Mon, 12 Oct 2026 07:14:21 -0700 (PDT)\r\nReturn-Path: <>\r\nReceived: from mail-sor-f43.google.com (mail-sor-f43.google.com. [209.85.220.43])\r\n        by mx.google.com with SMTPS id z1sor123456pfa.7.2026.10.12.07.14.21\r\n        for <sam@getacme.com>\r\n        (Google Transport Security);\r\n        Mon, 12 Oct 2026 07:14:21 -0700 (PDT)\r\nX-Google-Smtp-Source: AGHT+IHbouncesource\r\nMIME-Version: 1.0\r\nAuto-Submitted: auto-replied\r\nFrom: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\nTo: sam@getacme.com\r\nMessage-ID: <68f9d1ad.170a0220.2e5a1c.0a3bGMR@mx.google.com>\r\nDate: Mon, 12 Oct 2026 07:14:21 -0700 (PDT)\r\nSubject: Delivery Status Notification (Failure)\r\nContent-Type: multipart/report; boundary=\"0000000000007c3a5f06411c9a3d\"; report-type=delivery-status\r\n\r\n--0000000000007c3a5f06411c9a3d\r\nContent-Type: multipart/related; boundary=\"0000000000007c3a5e06411c9a3c\"\r\n\r\n--0000000000007c3a5e06411c9a3c\r\nContent-Type: multipart/alternative; boundary=\"0000000000007c3a5d06411c9a3b\"\r\n\r\n--0000000000007c3a5d06411c9a3b\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\n** Address not found **\r\n\r\nYour message wasn't delivered to nobody@acme.nl because the address couldn't be found, or is unable to receive mail.\r\n\r\nThe response from the remote server was:\r\n550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces.\r\n\r\n--0000000000007c3a5d06411c9a3b\r\nContent-Type: text/html; charset=\"UTF-8\"\r\n\r\n<html><body><h2>Address not found</h2><p>Your message wasn't delivered to <b>nobody@acme.nl</b> because the address couldn't be found, or is unable to receive mail.</p></body></html>\r\n\r\n--0000000000007c3a5d06411c9a3b--\r\n\r\n--0000000000007c3a5e06411c9a3c--\r\n\r\n--0000000000007c3a5f06411c9a3d\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; googlemail.com\r\nReceived-From-MTA: dns; mail-sor-f43.google.com\r\nArrival-Date: Mon, 12 Oct 2026 07:14:20 -0700 (PDT)\r\nX-Original-Message-ID: <out-3001@getacme.com>\r\n\r\nFinal-Recipient: rfc822; nobody@acme.nl\r\nAction: failed\r\nStatus: 5.1.1\r\nRemote-MTA: dns; mx1.acme.nl. (192.0.2.25, the server for the domain acme.nl.)\r\nDiagnostic-Code: smtp; 550 5.1.1 The email account that you tried to reach does not exist.\r\nLast-Attempt-Date: Mon, 12 Oct 2026 07:14:21 -0700 (PDT)\r\n\r\n--0000000000007c3a5f06411c9a3d\r\nContent-Type: message/rfc822\r\n\r\nReceived: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\r\n        for <nobody@acme.nl>; Mon, 12 Oct 2026 07:14:19 -0700 (PDT)\r\nFrom: Sam Jansen <sam@getacme.com>\r\nTo: nobody@acme.nl\r\nSubject: Quick question about Acme logistics\r\nMessage-ID: <out-3001@getacme.com>\r\nDate: Mon, 12 Oct 2026 16:14:18 +0200\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\nHi,\r\n\r\nI noticed Acme is expanding its warehouse network.\r\n\r\nSam\r\n\r\n--0000000000007c3a5f06411c9a3d--\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "68f9d1ad.170a0220.2e5a1c.0a3bGMR@mx.google.com",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@googlemail.com",
+            "name": "Mail Delivery Subsystem"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Delivery Status Notification (Failure)",
+          "text": "** Address not found **\n\nYour message wasn't delivered to nobody@acme.nl because the address couldn't be found, or is unable to receive mail.\n\nThe response from the remote server was:\n550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces.\n\n",
+          "headers": {
+            "auto-submitted": "auto-replied",
+            "content-type": "multipart/report; boundary=\"0000000000007c3a5f06411c9a3d\"; report-type=delivery-status",
+            "date": "Mon, 12 Oct 2026 07:14:21 -0700 (PDT)",
+            "delivered-to": "sam@getacme.com",
+            "from": "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+            "message-id": "<68f9d1ad.170a0220.2e5a1c.0a3bGMR@mx.google.com>",
+            "mime-version": "1.0",
+            "received": "by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp7654321pzb; Mon, 12 Oct 2026 07:14:21 -0700 (PDT)",
+            "return-path": "<>",
+            "subject": "Delivery Status Notification (Failure)",
+            "to": "sam@getacme.com",
+            "x-google-smtp-source": "AGHT+IHbouncesource"
+          },
+          "contentType": "multipart/report; boundary=\"0000000000007c3a5f06411c9a3d\"; report-type=delivery-status",
+          "reportParts": [
+            {
+              "mimeType": "message/delivery-status",
+              "text": "Reporting-MTA: dns; googlemail.com\nReceived-From-MTA: dns; mail-sor-f43.google.com\nArrival-Date: Mon, 12 Oct 2026 07:14:20 -0700 (PDT)\nX-Original-Message-ID: <out-3001@getacme.com>\n\nFinal-Recipient: rfc822; nobody@acme.nl\nAction: failed\nStatus: 5.1.1\nRemote-MTA: dns; mx1.acme.nl. (192.0.2.25, the server for the domain acme.nl.)\nDiagnostic-Code: smtp; 550 5.1.1 The email account that you tried to reach does not exist.\nLast-Attempt-Date: Mon, 12 Oct 2026 07:14:21 -0700 (PDT)\n\n"
+            },
+            {
+              "mimeType": "message/rfc822",
+              "text": "Received: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\n        for <nobody@acme.nl>; Mon, 12 Oct 2026 07:14:19 -0700 (PDT)\nFrom: Sam Jansen <sam@getacme.com>\nTo: nobody@acme.nl\nSubject: Quick question about Acme logistics\nMessage-ID: <out-3001@getacme.com>\nDate: Mon, 12 Oct 2026 16:14:18 +0200\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"UTF-8\"\n\nHi,\n\nI noticed Acme is expanding its warehouse network.\n\nSam\n\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "nobody@acme.nl"
+            ],
+            "status": "5.1.1",
+            "action": "failed",
+            "diagnostic": "smtp; 550 5.1.1 The email account that you tried to reach does not exist.",
+            "originalMessageId": "out-3001@getacme.com",
+            "permanent": true,
+            "addressRejected": true,
+            "source": "dsn"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "** Address not found **\n\nYour message wasn't delivered to nobody@acme.nl because the address couldn't be found, or is unable to receive mail.\n\nThe response from the remote server was:\n550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces.",
+        "optOut": false,
+        "threadingIds": [
+          "68f9d1ad.170a0220.2e5a1c.0a3bGMR@mx.google.com"
+        ],
+        "candidateIds": [
+          "out-3001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "bounce-outlook-ndr.eml",
+      "raw": "Received: from AM9PR02MB7777.eurprd02.prod.outlook.com (2603:10a6:20b:1::5)\r\n by DB9PR02MB1111.eurprd02.prod.outlook.com with HTTPS; Mon, 12 Oct 2026 14:20:40 +0000\r\nFrom: Microsoft Outlook <MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@bluesky.io>\r\nTo: sam@getacme.com\r\nDate: Mon, 12 Oct 2026 14:20:39 +0000\r\nMessage-ID: <3b2c9a1e-7f00-4f0a-9d21-undeliverable-1@AM9PR02MB7777.eurprd02.prod.outlook.com>\r\nSubject: Undeliverable: Quick question about Acme logistics\r\nContent-Language: en-US\r\nX-MS-Exchange-Message-Is-Ndr:\r\nContent-Type: multipart/report; report-type=delivery-status;\r\n\tboundary=\"9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\"\r\nMIME-Version: 1.0\r\n\r\n--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\r\nContent-Type: text/plain; charset=\"us-ascii\"\r\n\r\nDelivery has failed to these recipients or groups:\r\n\r\nformer.employee@bluesky.io<mailto:former.employee@bluesky.io>\r\nThe email address you entered couldn't be found. Please check the recipient's email address and try to resend the message. If the problem continues, please contact your email administrator.\r\n\r\nDiagnostic information for administrators:\r\n\r\nGenerating server: AM9PR02MB7777.eurprd02.prod.outlook.com\r\n\r\nformer.employee@bluesky.io\r\nRemote Server returned '550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup'\r\n\r\n--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com\r\nReceived-From-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com\r\nArrival-Date: Mon, 12 Oct 2026 14:20:39 +0000\r\n\r\nFinal-Recipient: rfc822;former.employee@bluesky.io\r\nAction: failed\r\nStatus: 5.1.10\r\nDiagnostic-Code: smtp;550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup\r\n\r\n--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\r\nContent-Type: message/rfc822\r\n\r\nReceived: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\r\n        for <former.employee@bluesky.io>; Mon, 12 Oct 2026 14:20:30 +0000\r\nFrom: Sam Jansen <sam@getacme.com>\r\nTo: former.employee@bluesky.io\r\nSubject: Quick question about Acme logistics\r\nMessage-ID: <out-3002@getacme.com>\r\nDate: Mon, 12 Oct 2026 16:20:29 +0200\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"us-ascii\"\r\n\r\nHi,\r\n\r\nQuick question about your warehouse.\r\n\r\nSam\r\n\r\n--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF--\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "3b2c9a1e-7f00-4f0a-9d21-undeliverable-1@AM9PR02MB7777.eurprd02.prod.outlook.com",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "microsoftexchange329e71ec88ae4615bbc36ab6ce41109e@bluesky.io",
+            "name": "Microsoft Outlook"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Undeliverable: Quick question about Acme logistics",
+          "text": "Delivery has failed to these recipients or groups:\n\nformer.employee@bluesky.io<mailto:former.employee@bluesky.io>\nThe email address you entered couldn't be found. Please check the recipient's email address and try to resend the message. If the problem continues, please contact your email administrator.\n\nDiagnostic information for administrators:\n\nGenerating server: AM9PR02MB7777.eurprd02.prod.outlook.com\n\nformer.employee@bluesky.io\nRemote Server returned '550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup'\n\n",
+          "headers": {
+            "content-language": "en-US",
+            "content-type": "multipart/report; report-type=delivery-status; boundary=\"9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\"",
+            "date": "Mon, 12 Oct 2026 14:20:39 +0000",
+            "from": "Microsoft Outlook <MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@bluesky.io>",
+            "message-id": "<3b2c9a1e-7f00-4f0a-9d21-undeliverable-1@AM9PR02MB7777.eurprd02.prod.outlook.com>",
+            "mime-version": "1.0",
+            "received": "from AM9PR02MB7777.eurprd02.prod.outlook.com (2603:10a6:20b:1::5) by DB9PR02MB1111.eurprd02.prod.outlook.com with HTTPS; Mon, 12 Oct 2026 14:20:40 +0000",
+            "subject": "Undeliverable: Quick question about Acme logistics",
+            "to": "sam@getacme.com",
+            "x-ms-exchange-message-is-ndr": ""
+          },
+          "contentType": "multipart/report; report-type=delivery-status; boundary=\"9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF\"",
+          "reportParts": [
+            {
+              "mimeType": "message/delivery-status",
+              "text": "Reporting-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com\nReceived-From-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com\nArrival-Date: Mon, 12 Oct 2026 14:20:39 +0000\n\nFinal-Recipient: rfc822;former.employee@bluesky.io\nAction: failed\nStatus: 5.1.10\nDiagnostic-Code: smtp;550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup\n\n"
+            },
+            {
+              "mimeType": "message/rfc822",
+              "text": "Received: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\n        for <former.employee@bluesky.io>; Mon, 12 Oct 2026 14:20:30 +0000\nFrom: Sam Jansen <sam@getacme.com>\nTo: former.employee@bluesky.io\nSubject: Quick question about Acme logistics\nMessage-ID: <out-3002@getacme.com>\nDate: Mon, 12 Oct 2026 16:20:29 +0200\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"us-ascii\"\n\nHi,\n\nQuick question about your warehouse.\n\nSam\n\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "former.employee@bluesky.io"
+            ],
+            "status": "5.1.10",
+            "action": "failed",
+            "diagnostic": "smtp;550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup",
+            "originalMessageId": "out-3002@getacme.com",
+            "permanent": true,
+            "addressRejected": true,
+            "source": "dsn"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "Delivery has failed to these recipients or groups:\n\nformer.employee@bluesky.io<mailto:former.employee@bluesky.io>\nThe email address you entered couldn't be found. Please check the recipient's email address and try to resend the message. If the problem continues, please contact your email administrator.\n\nDiagnostic information for administrators:\n\nGenerating server: AM9PR02MB7777.eurprd02.prod.outlook.com\n\nformer.employee@bluesky.io\nRemote Server returned '550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup'",
+        "optOut": false,
+        "threadingIds": [
+          "3b2c9a1e-7f00-4f0a-9d21-undeliverable-1@AM9PR02MB7777.eurprd02.prod.outlook.com"
+        ],
+        "candidateIds": [
+          "out-3002@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "bounce-postfix-dsn.eml",
+      "raw": "Return-Path: <>\r\nReceived: from mx1.oldco.example (mx1.oldco.example [198.51.100.11])\r\n\tby mx.example.net with ESMTPS id 2bcd3efg4\r\n\tfor <sam@getacme.com>; Tue, 13 Oct 2026 06:00:12 +0000\r\nReceived: by mx1.oldco.example (Postfix)\r\n\tid 3F2A21C0123; Tue, 13 Oct 2026 08:00:12 +0200 (CEST)\r\nDate: Tue, 13 Oct 2026 08:00:12 +0200 (CEST)\r\nFrom: MAILER-DAEMON@mx1.oldco.example (Mail Delivery System)\r\nSubject: Undelivered Mail Returned to Sender\r\nTo: sam@getacme.com\r\nAuto-Submitted: auto-replied\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status;\r\n\tboundary=\"3F2A21C0123.1791878412/mx1.oldco.example\"\r\nMessage-Id: <20261013060012.3F2A21C0123@mx1.oldco.example>\r\n\r\nThis is a MIME-encapsulated message.\r\n\r\n--3F2A21C0123.1791878412/mx1.oldco.example\r\nContent-Description: Notification\r\nContent-Type: text/plain; charset=us-ascii\r\n\r\nThis is the mail system at host mx1.oldco.example.\r\n\r\nI'm sorry to have to inform you that your message could not\r\nbe delivered to one or more recipients. It's attached below.\r\n\r\nFor further assistance, please send mail to postmaster.\r\n\r\nIf you do so, please include this problem report. You can\r\ndelete your own text from the attached returned message.\r\n\r\n                   The mail system\r\n\r\n<gone@oldco.example>: host mail.oldco.example[198.51.100.20] said: 550 5.1.1\r\n    <gone@oldco.example>: Recipient address rejected: User unknown in virtual\r\n    mailbox table (in reply to RCPT TO command)\r\n\r\n--3F2A21C0123.1791878412/mx1.oldco.example\r\nContent-Description: Delivery report\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx1.oldco.example\r\nX-Postfix-Queue-ID: 3F2A21C0123\r\nX-Postfix-Sender: rfc822; sam@getacme.com\r\nArrival-Date: Tue, 13 Oct 2026 08:00:11 +0200 (CEST)\r\n\r\nFinal-Recipient: rfc822; gone@oldco.example\r\nOriginal-Recipient: rfc822;gone@oldco.example\r\nAction: failed\r\nStatus: 5.1.1\r\nRemote-MTA: dns; mail.oldco.example\r\nDiagnostic-Code: smtp; 550 5.1.1 <gone@oldco.example>: Recipient address\r\n    rejected: User unknown in virtual mailbox table\r\n\r\n--3F2A21C0123.1791878412/mx1.oldco.example\r\nContent-Description: Undelivered Message Headers\r\nContent-Type: text/rfc822-headers\r\n\r\nReturn-Path: <sam@getacme.com>\r\nReceived: from smtp.getacme.com (smtp.getacme.com [203.0.113.9])\r\n\tby mx1.oldco.example (Postfix) with ESMTPS id 3F2A21C0123\r\n\tfor <gone@oldco.example>; Tue, 13 Oct 2026 08:00:11 +0200 (CEST)\r\nFrom: Sam Jansen <sam@getacme.com>\r\nTo: gone@oldco.example\r\nSubject: Quick question about Acme logistics\r\nMessage-ID: <out-3003@getacme.com>\r\nDate: Tue, 13 Oct 2026 08:00:10 +0200\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\n--3F2A21C0123.1791878412/mx1.oldco.example--\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "20261013060012.3F2A21C0123@mx1.oldco.example",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@mx1.oldco.example",
+            "name": "Mail Delivery System"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Undelivered Mail Returned to Sender",
+          "text": "This is the mail system at host mx1.oldco.example.\n\nI'm sorry to have to inform you that your message could not\nbe delivered to one or more recipients. It's attached below.\n\nFor further assistance, please send mail to postmaster.\n\nIf you do so, please include this problem report. You can\ndelete your own text from the attached returned message.\n\n                   The mail system\n\n<gone@oldco.example>: host mail.oldco.example[198.51.100.20] said: 550 5.1.1\n    <gone@oldco.example>: Recipient address rejected: User unknown in virtual\n    mailbox table (in reply to RCPT TO command)\n\n",
+          "headers": {
+            "auto-submitted": "auto-replied",
+            "content-type": "multipart/report; report-type=delivery-status; boundary=\"3F2A21C0123.1791878412/mx1.oldco.example\"",
+            "date": "Tue, 13 Oct 2026 08:00:12 +0200 (CEST)",
+            "from": "MAILER-DAEMON@mx1.oldco.example (Mail Delivery System)",
+            "message-id": "<20261013060012.3F2A21C0123@mx1.oldco.example>",
+            "mime-version": "1.0",
+            "received": "from mx1.oldco.example (mx1.oldco.example [198.51.100.11]) by mx.example.net with ESMTPS id 2bcd3efg4 for <sam@getacme.com>; Tue, 13 Oct 2026 06:00:12 +0000",
+            "return-path": "<>",
+            "subject": "Undelivered Mail Returned to Sender",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "multipart/report; report-type=delivery-status; boundary=\"3F2A21C0123.1791878412/mx1.oldco.example\"",
+          "reportParts": [
+            {
+              "mimeType": "message/delivery-status",
+              "text": "Reporting-MTA: dns; mx1.oldco.example\nX-Postfix-Queue-ID: 3F2A21C0123\nX-Postfix-Sender: rfc822; sam@getacme.com\nArrival-Date: Tue, 13 Oct 2026 08:00:11 +0200 (CEST)\n\nFinal-Recipient: rfc822; gone@oldco.example\nOriginal-Recipient: rfc822;gone@oldco.example\nAction: failed\nStatus: 5.1.1\nRemote-MTA: dns; mail.oldco.example\nDiagnostic-Code: smtp; 550 5.1.1 <gone@oldco.example>: Recipient address\n    rejected: User unknown in virtual mailbox table\n\n"
+            },
+            {
+              "mimeType": "text/rfc822-headers",
+              "text": "Return-Path: <sam@getacme.com>\nReceived: from smtp.getacme.com (smtp.getacme.com [203.0.113.9])\n\tby mx1.oldco.example (Postfix) with ESMTPS id 3F2A21C0123\n\tfor <gone@oldco.example>; Tue, 13 Oct 2026 08:00:11 +0200 (CEST)\nFrom: Sam Jansen <sam@getacme.com>\nTo: gone@oldco.example\nSubject: Quick question about Acme logistics\nMessage-ID: <out-3003@getacme.com>\nDate: Tue, 13 Oct 2026 08:00:10 +0200\nMIME-Version: 1.0\nContent-Type: text/plain; charset=\"UTF-8\"\n\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "gone@oldco.example"
+            ],
+            "status": "5.1.1",
+            "action": "failed",
+            "diagnostic": "smtp; 550 5.1.1 <gone@oldco.example>: Recipient address rejected: User unknown in virtual mailbox table",
+            "originalMessageId": "out-3003@getacme.com",
+            "permanent": true,
+            "addressRejected": true,
+            "source": "dsn"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "This is the mail system at host mx1.oldco.example.\n\nI'm sorry to have to inform you that your message could not\nbe delivered to one or more recipients. It's attached below.\n\nFor further assistance, please send mail to postmaster.\n\nIf you do so, please include this problem report. You can\ndelete your own text from the attached returned message.\n\n                   The mail system\n\n<gone@oldco.example>: host mail.oldco.example[198.51.100.20] said: 550 5.1.1\n    <gone@oldco.example>: Recipient address rejected: User unknown in virtual\n    mailbox table (in reply to RCPT TO command)",
+        "optOut": false,
+        "threadingIds": [
+          "20261013060012.3F2A21C0123@mx1.oldco.example"
+        ],
+        "candidateIds": [
+          "out-3003@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "bounce-nondsn.eml",
+      "raw": "Return-Path: <>\r\nFrom: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\nTo: sam@getacme.com\r\nSubject: Delivery Status Notification (Failure)\r\nDate: Tue, 13 Oct 2026 09:45:10 -0700 (PDT)\r\nMessage-ID: <68ff1010.nondsn.0a3b@mx.google.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\nAddress not found\r\n\r\nYour message wasn't delivered to missing.person@example.org because the address couldn't be found, or is unable to receive mail.\r\n\r\nThe response was:\r\n550 5.1.1 The email account that you tried to reach does not exist.\r\n\r\n----- Original message -----\r\n\r\nReceived: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\r\n        for <missing.person@example.org>; Tue, 13 Oct 2026 09:45:05 -0700 (PDT)\r\nFrom: Sam Jansen <sam@getacme.com>\r\nTo: missing.person@example.org\r\nSubject: Quick question about Acme logistics\r\nMessage-ID: <out-3004@getacme.com>\r\nDate: Tue, 13 Oct 2026 18:45:04 +0200\r\n\r\nHi,\r\n\r\nQuick question about your warehouse.\r\n\r\nSam\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "68ff1010.nondsn.0a3b@mx.google.com",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@googlemail.com",
+            "name": "Mail Delivery Subsystem"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Delivery Status Notification (Failure)",
+          "text": "Address not found\n\nYour message wasn't delivered to missing.person@example.org because the address couldn't be found, or is unable to receive mail.\n\nThe response was:\n550 5.1.1 The email account that you tried to reach does not exist.\n\n----- Original message -----\n\nReceived: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA\n        for <missing.person@example.org>; Tue, 13 Oct 2026 09:45:05 -0700 (PDT)\nFrom: Sam Jansen <sam@getacme.com>\nTo: missing.person@example.org\nSubject: Quick question about Acme logistics\nMessage-ID: <out-3004@getacme.com>\nDate: Tue, 13 Oct 2026 18:45:04 +0200\n\nHi,\n\nQuick question about your warehouse.\n\nSam\n",
+          "headers": {
+            "content-type": "text/plain; charset=\"UTF-8\"",
+            "date": "Tue, 13 Oct 2026 09:45:10 -0700 (PDT)",
+            "from": "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+            "message-id": "<68ff1010.nondsn.0a3b@mx.google.com>",
+            "mime-version": "1.0",
+            "return-path": "<>",
+            "subject": "Delivery Status Notification (Failure)",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "text/plain; charset=\"UTF-8\"",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "missing.person@example.org"
+            ],
+            "originalMessageId": "out-3004@getacme.com",
+            "status": "5.1.1",
+            "action": "failed",
+            "diagnostic": null,
+            "permanent": true,
+            "addressRejected": true,
+            "source": "text"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "Address not found\n\nYour message wasn't delivered to missing.person@example.org because the address couldn't be found, or is unable to receive mail.\n\nThe response was:\n550 5.1.1 The email account that you tried to reach does not exist.",
+        "optOut": false,
+        "threadingIds": [
+          "68ff1010.nondsn.0a3b@mx.google.com"
+        ],
+        "candidateIds": [
+          "out-3004@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "bounce-delayed.eml",
+      "raw": "Return-Path: <>\r\nFrom: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\nTo: sam@getacme.com\r\nSubject: Delivery Status Notification (Delay)\r\nDate: Tue, 13 Oct 2026 10:00:00 -0700 (PDT)\r\nMessage-ID: <68ff1111.delay.0a3b@mx.google.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; boundary=\"delay-boundary-1\"; report-type=delivery-status\r\n\r\n--delay-boundary-1\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\n** Delivery incomplete **\r\n\r\nThere was a temporary problem delivering your message to slow@example.org. Gmail will retry for 47 more hours. You will be notified if the delivery fails permanently.\r\n\r\n--delay-boundary-1\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; googlemail.com\r\n\r\nFinal-Recipient: rfc822; slow@example.org\r\nAction: delayed\r\nStatus: 4.4.1\r\nDiagnostic-Code: smtp; 421 4.4.1 Connection timed out\r\n\r\n--delay-boundary-1\r\nContent-Type: text/rfc822-headers\r\n\r\nFrom: Sam Jansen <sam@getacme.com>\r\nTo: slow@example.org\r\nSubject: Quick question about Acme logistics\r\nMessage-ID: <out-3005@getacme.com>\r\n\r\n--delay-boundary-1--\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "68ff1111.delay.0a3b@mx.google.com",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@googlemail.com",
+            "name": "Mail Delivery Subsystem"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Delivery Status Notification (Delay)",
+          "text": "** Delivery incomplete **\n\nThere was a temporary problem delivering your message to slow@example.org. Gmail will retry for 47 more hours. You will be notified if the delivery fails permanently.\n\n",
+          "headers": {
+            "content-type": "multipart/report; boundary=\"delay-boundary-1\"; report-type=delivery-status",
+            "date": "Tue, 13 Oct 2026 10:00:00 -0700 (PDT)",
+            "from": "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+            "message-id": "<68ff1111.delay.0a3b@mx.google.com>",
+            "mime-version": "1.0",
+            "return-path": "<>",
+            "subject": "Delivery Status Notification (Delay)",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "multipart/report; boundary=\"delay-boundary-1\"; report-type=delivery-status",
+          "reportParts": [
+            {
+              "mimeType": "message/delivery-status",
+              "text": "Reporting-MTA: dns; googlemail.com\n\nFinal-Recipient: rfc822; slow@example.org\nAction: delayed\nStatus: 4.4.1\nDiagnostic-Code: smtp; 421 4.4.1 Connection timed out\n\n"
+            },
+            {
+              "mimeType": "text/rfc822-headers",
+              "text": "From: Sam Jansen <sam@getacme.com>\nTo: slow@example.org\nSubject: Quick question about Acme logistics\nMessage-ID: <out-3005@getacme.com>\n\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "slow@example.org"
+            ],
+            "status": "4.4.1",
+            "action": "delayed",
+            "diagnostic": "smtp; 421 4.4.1 Connection timed out",
+            "originalMessageId": "out-3005@getacme.com",
+            "permanent": false,
+            "addressRejected": false,
+            "source": "dsn"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "** Delivery incomplete **\n\nThere was a temporary problem delivering your message to slow@example.org. Gmail will retry for 47 more hours. You will be notified if the delivery fails permanently.",
+        "optOut": false,
+        "threadingIds": [
+          "68ff1111.delay.0a3b@mx.google.com"
+        ],
+        "candidateIds": [
+          "out-3005@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "mailing-list.eml",
+      "raw": "From: Newsletter <news@vendor.example>\r\nTo: sam@getacme.com\r\nSubject: October offers\r\nMessage-ID: <news-1@vendor.example>\r\nList-Unsubscribe: <https://vendor.example/unsub>\r\nContent-Type: text/plain\r\n\r\nBig savings.",
+      "expected": {
+        "parsed": {
+          "messageId": "news-1@vendor.example",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "news@vendor.example",
+            "name": "Newsletter"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "October offers",
+          "text": "Big savings.\n",
+          "headers": {
+            "content-type": "text/plain",
+            "from": "Newsletter <news@vendor.example>",
+            "list-unsubscribe": "<https://vendor.example/unsub>",
+            "message-id": "<news-1@vendor.example>",
+            "subject": "October offers",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "text/plain",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Big savings.",
+        "optOut": false,
+        "threadingIds": [
+          "news-1@vendor.example"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "unknown-unsubscribe.eml",
+      "raw": "From: Anon <anon@somewhere.example>\r\nTo: sam@getacme.com\r\nSubject: unsubscribe\r\nMessage-ID: <anon-1@somewhere.example>\r\n\r\n",
+      "expected": {
+        "parsed": {
+          "messageId": "anon-1@somewhere.example",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "anon@somewhere.example",
+            "name": "Anon"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "unsubscribe",
+          "text": "",
+          "headers": {
+            "from": "Anon <anon@somewhere.example>",
+            "message-id": "<anon-1@somewhere.example>",
+            "subject": "unsubscribe",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "",
+        "optOut": true,
+        "threadingIds": [
+          "anon-1@somewhere.example"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "own-mailbox.eml",
+      "raw": "From: Sam Jansen <sam@getacme.com>\r\nTo: sam@getacme.com\r\nSubject: Re: Quick question about Acme logistics\r\nMessage-ID: <own-1@getacme.com>\r\nIn-Reply-To: <out-1001@getacme.com>\r\n\r\nLooping back.",
+      "expected": {
+        "parsed": {
+          "messageId": "own-1@getacme.com",
+          "inReplyTo": "out-1001@getacme.com",
+          "references": [],
+          "from": {
+            "email": "sam@getacme.com",
+            "name": "Sam Jansen"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question about Acme logistics",
+          "text": "Looping back.\n",
+          "headers": {
+            "from": "Sam Jansen <sam@getacme.com>",
+            "in-reply-to": "<out-1001@getacme.com>",
+            "message-id": "<own-1@getacme.com>",
+            "subject": "Re: Quick question about Acme logistics",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Looping back.",
+        "optOut": false,
+        "threadingIds": [
+          "own-1@getacme.com",
+          "out-1001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "no-message-id.eml",
+      "raw": "From: Jane Doe <jane@acme.nl>\r\nTo: sam@getacme.com\r\nSubject: Re: Quick question\r\nIn-Reply-To: <out-1001@getacme.com>\r\n\r\nYes, call me Tuesday.",
+      "expected": {
+        "parsed": {
+          "messageId": null,
+          "inReplyTo": "out-1001@getacme.com",
+          "references": [],
+          "from": {
+            "email": "jane@acme.nl",
+            "name": "Jane Doe"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question",
+          "text": "Yes, call me Tuesday.\n",
+          "headers": {
+            "from": "Jane Doe <jane@acme.nl>",
+            "in-reply-to": "<out-1001@getacme.com>",
+            "subject": "Re: Quick question",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Yes, call me Tuesday.",
+        "optOut": false,
+        "threadingIds": [
+          "out-1001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "gmail-free-mail-reply.eml",
+      "raw": "From: Ann <ann@gmail.com>\r\nTo: sam@getacme.com\r\nSubject: Re: Quick question\r\nMessage-ID: <free-1@mail.gmail.com>\r\nIn-Reply-To: <out-5001@getacme.com>\r\nReferences: <out-0001@getacme.com> <out-5001@getacme.com>\r\n\r\nInterested, tell me more.",
+      "expected": {
+        "parsed": {
+          "messageId": "free-1@mail.gmail.com",
+          "inReplyTo": "out-5001@getacme.com",
+          "references": [
+            "out-0001@getacme.com",
+            "out-5001@getacme.com"
+          ],
+          "from": {
+            "email": "ann@gmail.com",
+            "name": "Ann"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question",
+          "text": "Interested, tell me more.\n",
+          "headers": {
+            "from": "Ann <ann@gmail.com>",
+            "in-reply-to": "<out-5001@getacme.com>",
+            "message-id": "<free-1@mail.gmail.com>",
+            "references": "<out-0001@getacme.com> <out-5001@getacme.com>",
+            "subject": "Re: Quick question",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Interested, tell me more.",
+        "optOut": false,
+        "threadingIds": [
+          "free-1@mail.gmail.com",
+          "out-5001@getacme.com",
+          "out-0001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-5001@getacme.com",
+          "out-0001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "dsn-delivered.eml",
+      "raw": "From: Mail Delivery System <MAILER-DAEMON@mx.acme.nl>\r\nTo: sam@getacme.com\r\nSubject: Successful Mail Delivery Report\r\nMessage-ID: <dsn-ok-1@mx.acme.nl>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=\"b1\"\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nYour message was delivered.\r\n--b1\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx.acme.nl\r\nX-Original-Message-ID: <out-1001@getacme.com>\r\n\r\nFinal-Recipient: rfc822; jane@acme.nl\r\nAction: delivered\r\nStatus: 2.0.0\r\n--b1--",
+      "expected": {
+        "parsed": {
+          "messageId": "dsn-ok-1@mx.acme.nl",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@mx.acme.nl",
+            "name": "Mail Delivery System"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Successful Mail Delivery Report",
+          "text": "Your message was delivered.\n",
+          "headers": {
+            "content-type": "multipart/report; report-type=delivery-status; boundary=\"b1\"",
+            "from": "Mail Delivery System <MAILER-DAEMON@mx.acme.nl>",
+            "message-id": "<dsn-ok-1@mx.acme.nl>",
+            "mime-version": "1.0",
+            "subject": "Successful Mail Delivery Report",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "multipart/report; report-type=delivery-status; boundary=\"b1\"",
+          "reportParts": [
+            {
+              "mimeType": "message/delivery-status",
+              "text": "Reporting-MTA: dns; mx.acme.nl\nX-Original-Message-ID: <out-1001@getacme.com>\n\nFinal-Recipient: rfc822; jane@acme.nl\nAction: delivered\nStatus: 2.0.0\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "dsn:delivered"
+        },
+        "replyText": "Your message was delivered.",
+        "optOut": false,
+        "threadingIds": [
+          "dsn-ok-1@mx.acme.nl"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "read-receipt.eml",
+      "raw": "From: Jane Doe <jane@acme.nl>\r\nTo: sam@getacme.com\r\nSubject: Read: Quick question\r\nMessage-ID: <mdn-1@acme.nl>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=disposition-notification; boundary=\"b2\"\r\n\r\n--b2\r\nContent-Type: text/plain\r\n\r\nYour message was read.\r\n--b2\r\nContent-Type: message/disposition-notification\r\n\r\nFinal-Recipient: rfc822; jane@acme.nl\r\nDisposition: manual-action/MDN-sent-manually; displayed\r\n--b2--",
+      "expected": {
+        "parsed": {
+          "messageId": "mdn-1@acme.nl",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "jane@acme.nl",
+            "name": "Jane Doe"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Read: Quick question",
+          "text": "Your message was read.\n",
+          "headers": {
+            "content-type": "multipart/report; report-type=disposition-notification; boundary=\"b2\"",
+            "from": "Jane Doe <jane@acme.nl>",
+            "message-id": "<mdn-1@acme.nl>",
+            "mime-version": "1.0",
+            "subject": "Read: Quick question",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "multipart/report; report-type=disposition-notification; boundary=\"b2\"",
+          "reportParts": [
+            {
+              "mimeType": "message/disposition-notification",
+              "text": "Final-Recipient: rfc822; jane@acme.nl\nDisposition: manual-action/MDN-sent-manually; displayed\n"
+            }
+          ]
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "disposition-notification"
+        },
+        "replyText": "Your message was read.",
+        "optOut": false,
+        "threadingIds": [
+          "mdn-1@acme.nl"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "policy-bounce.eml",
+      "raw": "From: postmaster@bigcorp.example\r\nTo: sam@getacme.com\r\nSubject: Returned mail: see transcript\r\nMessage-ID: <policy-1@bigcorp.example>\r\n\r\nThe message was blocked by our spam policy (reputation).\r\nMessage-ID: <out-6001@getacme.com>",
+      "expected": {
+        "parsed": {
+          "messageId": "policy-1@bigcorp.example",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "postmaster@bigcorp.example",
+            "name": null
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Returned mail: see transcript",
+          "text": "The message was blocked by our spam policy (reputation).\nMessage-ID: <out-6001@getacme.com>\n",
+          "headers": {
+            "from": "postmaster@bigcorp.example",
+            "message-id": "<policy-1@bigcorp.example>",
+            "subject": "Returned mail: see transcript",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [],
+            "originalMessageId": "out-6001@getacme.com",
+            "status": null,
+            "action": "failed",
+            "diagnostic": null,
+            "permanent": true,
+            "addressRejected": false,
+            "source": "text"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "The message was blocked by our spam policy (reputation).\nMessage-ID: <out-6001@getacme.com>",
+        "optOut": false,
+        "threadingIds": [
+          "policy-1@bigcorp.example"
+        ],
+        "candidateIds": [
+          "out-6001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "postfix-text-bounce.eml",
+      "raw": "From: MAILER-DAEMON@mx.example.org (Mail Delivery System)\r\nTo: sam@getacme.com\r\nSubject: Undelivered Mail Returned to Sender\r\nMessage-ID: <pf-1@mx.example.org>\r\n\r\nI'm sorry to have to inform you that your message could not\r\nbe delivered to one or more recipients.\r\n\r\n<Gone.User@Example.org>: host mx.example.org[192.0.2.1] said: 550 5.1.1\r\n    <gone.user@example.org>: Recipient address rejected: User unknown\r\n\r\n-----Original Message-----\r\nFrom: Sam <sam@getacme.com>\r\nTo: Other Person <other@example.org>\r\nMessage-ID: <out-7001@getacme.com>",
+      "expected": {
+        "parsed": {
+          "messageId": "pf-1@mx.example.org",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@mx.example.org",
+            "name": "Mail Delivery System"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Undelivered Mail Returned to Sender",
+          "text": "I'm sorry to have to inform you that your message could not\nbe delivered to one or more recipients.\n\n<Gone.User@Example.org>: host mx.example.org[192.0.2.1] said: 550 5.1.1\n    <gone.user@example.org>: Recipient address rejected: User unknown\n\n-----Original Message-----\nFrom: Sam <sam@getacme.com>\nTo: Other Person <other@example.org>\nMessage-ID: <out-7001@getacme.com>\n",
+          "headers": {
+            "from": "MAILER-DAEMON@mx.example.org (Mail Delivery System)",
+            "message-id": "<pf-1@mx.example.org>",
+            "subject": "Undelivered Mail Returned to Sender",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "gone.user@example.org",
+              "other@example.org"
+            ],
+            "originalMessageId": "out-7001@getacme.com",
+            "status": "5.1.1",
+            "action": "failed",
+            "diagnostic": null,
+            "permanent": true,
+            "addressRejected": true,
+            "source": "text"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "I'm sorry to have to inform you that your message could not\nbe delivered to one or more recipients.\n\n<Gone.User@Example.org>: host mx.example.org[192.0.2.1] said: 550 5.1.1\n    <gone.user@example.org>: Recipient address rejected: User unknown",
+        "optOut": false,
+        "threadingIds": [
+          "pf-1@mx.example.org"
+        ],
+        "candidateIds": [
+          "out-7001@getacme.com"
+        ]
+      }
+    },
+    {
+      "name": "outlook-text-bounce.eml",
+      "raw": "From: Microsoft Outlook <postmaster@contoso.example>\r\nTo: sam@getacme.com\r\nSubject: Undeliverable: Hello\r\nMessage-ID: <ol-1@contoso.example>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYour message to Bob@Contoso.example couldn’t be delivered.\r\nBob wasn’t found at contoso.example.",
+      "expected": {
+        "parsed": {
+          "messageId": "ol-1@contoso.example",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "postmaster@contoso.example",
+            "name": "Microsoft Outlook"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Undeliverable: Hello",
+          "text": "Your message to Bob@Contoso.example couldn’t be delivered.\nBob wasn’t found at contoso.example.\n",
+          "headers": {
+            "content-type": "text/plain; charset=utf-8",
+            "from": "Microsoft Outlook <postmaster@contoso.example>",
+            "message-id": "<ol-1@contoso.example>",
+            "subject": "Undeliverable: Hello",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "text/plain; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [],
+            "originalMessageId": null,
+            "status": null,
+            "action": "failed",
+            "diagnostic": null,
+            "permanent": true,
+            "addressRejected": true,
+            "source": "text"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "Your message to Bob@Contoso.example couldn’t be delivered.\nBob wasn’t found at contoso.example.",
+        "optOut": false,
+        "threadingIds": [
+          "ol-1@contoso.example"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "delay-text.eml",
+      "raw": "From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\nTo: sam@getacme.com\r\nSubject: Delivery Status Notification (Delay)\r\nMessage-ID: <delay-text-1@mx.google.com>\r\n\r\nDelivery to the following recipient has been delayed:\r\n\r\n     slow@example.org\r\n\r\nGmail will keep trying to deliver your message.",
+      "expected": {
+        "parsed": {
+          "messageId": "delay-text-1@mx.google.com",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "mailer-daemon@googlemail.com",
+            "name": "Mail Delivery Subsystem"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Delivery Status Notification (Delay)",
+          "text": "Delivery to the following recipient has been delayed:\n\n     slow@example.org\n\nGmail will keep trying to deliver your message.\n",
+          "headers": {
+            "from": "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+            "message-id": "<delay-text-1@mx.google.com>",
+            "subject": "Delivery Status Notification (Delay)",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "bounce",
+          "bounce": {
+            "recipients": [
+              "slow@example.org"
+            ],
+            "originalMessageId": null,
+            "status": null,
+            "action": "delayed",
+            "diagnostic": null,
+            "permanent": false,
+            "addressRejected": false,
+            "source": "text"
+          },
+          "autoReplyReason": null
+        },
+        "replyText": "Delivery to the following recipient has been delayed:\n\n     slow@example.org\n\nGmail will keep trying to deliver your message.",
+        "optOut": false,
+        "threadingIds": [
+          "delay-text-1@mx.google.com"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "ooo-es.eml",
+      "raw": "From: Ana <ana@ejemplo.es>\r\nTo: sam@getacme.com\r\nSubject: =?UTF-8?Q?Respuesta_autom=C3=A1tica=3A_Hola?=\r\nMessage-ID: <ooo-es-1@ejemplo.es>\r\n\r\nEstoy fuera de la oficina.",
+      "expected": {
+        "parsed": {
+          "messageId": "ooo-es-1@ejemplo.es",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "ana@ejemplo.es",
+            "name": "Ana"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Respuesta automática: Hola",
+          "text": "Estoy fuera de la oficina.\n",
+          "headers": {
+            "from": "Ana <ana@ejemplo.es>",
+            "message-id": "<ooo-es-1@ejemplo.es>",
+            "subject": "=?UTF-8?Q?Respuesta_autom=C3=A1tica=3A_Hola?=",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "subject"
+        },
+        "replyText": "Estoy fuera de la oficina.",
+        "optOut": false,
+        "threadingIds": [
+          "ooo-es-1@ejemplo.es"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "exchange-suppress.eml",
+      "raw": "From: Kim <kim@acme.nl>\r\nTo: sam@getacme.com\r\nSubject: Re: Quick question\r\nMessage-ID: <kim-1@acme.nl>\r\nX-Auto-Response-Suppress: All\r\n\r\nThanks!",
+      "expected": {
+        "parsed": {
+          "messageId": "kim-1@acme.nl",
+          "inReplyTo": null,
+          "references": [],
+          "from": {
+            "email": "kim@acme.nl",
+            "name": "Kim"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question",
+          "text": "Thanks!\n",
+          "headers": {
+            "from": "Kim <kim@acme.nl>",
+            "message-id": "<kim-1@acme.nl>",
+            "subject": "Re: Quick question",
+            "to": "sam@getacme.com",
+            "x-auto-response-suppress": "All"
+          },
+          "contentType": "",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "auto_reply",
+          "bounce": null,
+          "autoReplyReason": "x-auto-response-suppress"
+        },
+        "replyText": "Thanks!",
+        "optOut": false,
+        "threadingIds": [
+          "kim-1@acme.nl"
+        ],
+        "candidateIds": []
+      }
+    },
+    {
+      "name": "html-only-reply.eml",
+      "raw": "From: Jane Doe <jane@acme.nl>\r\nTo: sam@getacme.com\r\nSubject: Re: Quick question\r\nMessage-ID: <html-1@acme.nl>\r\nIn-Reply-To: <out-1001@getacme.com>\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<div>Please remove me from your list.</div><blockquote>On Monday Sam wrote: hi</blockquote>",
+      "expected": {
+        "parsed": {
+          "messageId": "html-1@acme.nl",
+          "inReplyTo": "out-1001@getacme.com",
+          "references": [],
+          "from": {
+            "email": "jane@acme.nl",
+            "name": "Jane Doe"
+          },
+          "to": [
+            "sam@getacme.com"
+          ],
+          "subject": "Re: Quick question",
+          "text": "Please remove me from your list.",
+          "headers": {
+            "content-type": "text/html; charset=utf-8",
+            "from": "Jane Doe <jane@acme.nl>",
+            "in-reply-to": "<out-1001@getacme.com>",
+            "message-id": "<html-1@acme.nl>",
+            "subject": "Re: Quick question",
+            "to": "sam@getacme.com"
+          },
+          "contentType": "text/html; charset=utf-8",
+          "reportParts": []
+        },
+        "classification": {
+          "kind": "reply",
+          "bounce": null,
+          "autoReplyReason": null
+        },
+        "replyText": "Please remove me from your list.",
+        "optOut": true,
+        "threadingIds": [
+          "html-1@acme.nl",
+          "out-1001@getacme.com"
+        ],
+        "candidateIds": [
+          "out-1001@getacme.com"
+        ]
+      }
+    }
+  ]
+}
