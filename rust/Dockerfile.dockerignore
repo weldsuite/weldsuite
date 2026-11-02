@@ -12,6 +12,10 @@
 !packages
 !apps/web/platform
 !apps/web/sign-portal
+# The collab-rooms service bundles the workers' room classes.
+!apps/tools/collab-rooms
+!apps/workers/docs-api
+!apps/workers/sheets-api
 
 # The Rust workspace, for the backend.
 !rust/rust-toolchain.toml
