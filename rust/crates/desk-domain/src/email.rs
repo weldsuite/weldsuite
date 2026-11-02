@@ -7,7 +7,7 @@ use weldsuite_db::PgPool;
 
 use crate::webchat::{
     Append, AppendError, ChannelConversation, DESK_CONVERSATIONS, NewConversation, VisitorInput,
-    append_desk_message, create_on_channel, preview_of, upsert_visitor,
+    append, create_on_channel, preview_of, upsert_visitor,
 };
 
 /// `normalizeRfcMessageId(id)`: angle brackets (one each side) and the
@@ -131,6 +131,8 @@ pub struct Ingested {
     pub conversation: Value,
     pub message: Value,
     pub created: bool,
+    /// `slaCheckAt` (see [`crate::webchat::Appended`]).
+    pub sla_check_at: Option<i64>,
 }
 
 /// `ingestDeskEmail(db, input)`.
@@ -218,7 +220,7 @@ pub async fn ingest_desk_email(
     if let Some(conversation) = conversation {
         meta.remove("emailThreadMessageId");
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-        let (conversation, message) = append_desk_message(
+        let appended = append(
             db,
             Append {
                 conversation_id: &id,
@@ -233,13 +235,14 @@ pub async fn ingest_desk_email(
         )
         .await?;
         return Ok(Ingested {
-            conversation,
-            message,
+            sla_check_at: appended.sla_check_at,
+            conversation: appended.conversation,
+            message: appended.message,
             created: false,
         });
     }
 
-    let (conversation, message) = create_on_channel(
+    let appended = create_on_channel(
         db,
         ChannelConversation {
             channel: "email",
@@ -262,8 +265,9 @@ pub async fn ingest_desk_email(
     )
     .await?;
     Ok(Ingested {
-        conversation,
-        message,
+        sla_check_at: appended.sla_check_at,
+        conversation: appended.conversation,
+        message: appended.message,
         created: true,
     })
 }

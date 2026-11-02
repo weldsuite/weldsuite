@@ -13,7 +13,7 @@ use weldsuite_kit::validation::js_trim;
 
 use crate::email::Ingested;
 use crate::webchat::{
-    Append, AppendError, ChannelConversation, NewConversation, VisitorInput, append_desk_message,
+    Append, AppendError, ChannelConversation, NewConversation, VisitorInput, append,
     create_on_channel_for, upsert_visitor,
 };
 
@@ -115,7 +115,7 @@ pub async fn ingest_desk_phone(
 
     if let Some(conversation) = conversation {
         let id = conversation["id"].as_str().unwrap_or_default().to_owned();
-        let (conversation, message) = append_desk_message(
+        let appended = append(
             db,
             Append {
                 conversation_id: &id,
@@ -130,13 +130,14 @@ pub async fn ingest_desk_phone(
         )
         .await?;
         return Ok(Ingested {
-            conversation,
-            message,
+            sla_check_at: appended.sla_check_at,
+            conversation: appended.conversation,
+            message: appended.message,
             created: false,
         });
     }
 
-    let (conversation, message) = create_on_channel_for(
+    let appended = create_on_channel_for(
         db,
         ChannelConversation {
             channel: "phone",
@@ -156,8 +157,9 @@ pub async fn ingest_desk_phone(
     )
     .await?;
     Ok(Ingested {
-        conversation,
-        message,
+        sla_check_at: appended.sla_check_at,
+        conversation: appended.conversation,
+        message: appended.message,
         created: true,
     })
 }
