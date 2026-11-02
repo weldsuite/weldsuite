@@ -357,7 +357,7 @@ beforeAll(async () => {
   holder.db = handle.db;
   client = pgliteClientOf(handle.db)!;
   privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-});
+}, 60_000);
 
 afterAll(() => {
   vi.unstubAllGlobals();

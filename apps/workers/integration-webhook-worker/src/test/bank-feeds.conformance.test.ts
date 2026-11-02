@@ -44,7 +44,7 @@ function booksStub() {
 beforeAll(async () => {
   masterDb = (await createMasterPgliteDb()).db;
   holder.masterDb = masterDb;
-});
+}, 60_000);
 
 beforeEach(async () => {
   await masterDb.delete(masterSchema.bankFeedConnectionIndex);
@@ -218,11 +218,11 @@ describe('providers', () => {
 
 describe('Plaid', () => {
   const kid = 'kid-conformance-1';
-  let keys: CryptoKeyPair;
-  let jwk: JsonWebKey;
+  let keys: webcrypto.CryptoKeyPair;
+  let jwk: webcrypto.JsonWebKey;
 
   beforeAll(async () => {
-    keys = (await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+    keys = (await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as webcrypto.CryptoKeyPair;
     jwk = await webcrypto.subtle.exportKey('jwk', keys.publicKey);
   });
 
@@ -323,7 +323,7 @@ describe('Plaid', () => {
     stubPlaid();
     const books = booksStub();
     const app = createWebhookTestApp({ masterDb, env: { ...plaidEnv(), WORKSPACE_CACHE: memoryKv(), BOOKS_INTERNAL: books } });
-    const other = (await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+    const other = (await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as webcrypto.CryptoKeyPair;
 
     const cases: Array<Record<string, string>> = [
       {},

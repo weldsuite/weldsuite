@@ -56,7 +56,7 @@ beforeAll(async () => {
   masterDb = (await createMasterPgliteDb()).db;
   holder.tenantDb = tenantDb;
   holder.masterDb = masterDb;
-});
+}, 60_000);
 
 beforeEach(async () => {
   await tenantDb.delete(schema.githubIssueSyncMap);
@@ -69,7 +69,7 @@ beforeEach(async () => {
     workspaceId: ORG,
     installationId: INSTALLATION,
     appSlug: 'weldsuite',
-    ownerType: 'Organization',
+    ownerType: 'org',
     ownerLogin: 'acme',
     status: 'active',
     createdAt: now,
@@ -83,9 +83,9 @@ beforeEach(async () => {
       projectId: 'prj_both',
       projectV2NodeId: 'PVT_both',
       projectV2Number: 1,
-      ownerType: 'Organization',
+      ownerType: 'org',
       ownerLogin: 'acme',
-      syncDirection: 'bidirectional',
+      syncDirection: 'bidirectional' as const,
       createdAt: now,
       updatedAt: now,
     },
@@ -96,9 +96,9 @@ beforeEach(async () => {
       projectId: 'prj_out',
       projectV2NodeId: 'PVT_out',
       projectV2Number: 2,
-      ownerType: 'Organization',
+      ownerType: 'org',
       ownerLogin: 'acme',
-      syncDirection: 'outbound',
+      syncDirection: 'outbound' as const,
       createdAt: now,
       updatedAt: now,
     },

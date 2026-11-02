@@ -76,8 +76,8 @@ function servedByRust(method: string, input: string): boolean {
 }
 
 export interface CreateWebhookTestAppOptions {
-  /** The worker's env (bindings and secrets). */
-  env?: Partial<Env> & Record<string, unknown>;
+  /** The worker's env (bindings and secrets; test doubles need only what the routes call). */
+  env?: Record<string, unknown>;
   /** The master database (`createMasterPgliteDb()`), for routes that read it. */
   masterDb?: unknown;
   /**
