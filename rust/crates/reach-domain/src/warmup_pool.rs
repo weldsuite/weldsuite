@@ -264,13 +264,14 @@ pub struct PoolView {
     pub status: String,
     pub ramp_day: i64,
     pub stats: Option<Value>,
+    pub paused_reason: Option<String>,
     pub last_login_error: Option<String>,
 }
 
 /// `readPoolMailboxes(master, clerkOrgId)`.
 pub async fn read_pool(master: &PgPool, clerk_org_id: &str) -> Result<Vec<PoolView>, sqlx::Error> {
-    let rows: Vec<(String, String, i32, Option<Value>, Option<String>)> = sqlx::query_as(
-        "select tenant_mailbox_id, status, ramp_day, stats, last_login_error from reach_warmup_mailboxes
+    let rows: Vec<(String, String, i32, Option<Value>, Option<String>, Option<String>)> = sqlx::query_as(
+        "select tenant_mailbox_id, status, ramp_day, stats, paused_reason, last_login_error from reach_warmup_mailboxes
          where clerk_org_id = $1 and status <> 'removed'",
     )
     .bind(clerk_org_id)
@@ -279,12 +280,15 @@ pub async fn read_pool(master: &PgPool, clerk_org_id: &str) -> Result<Vec<PoolVi
     Ok(rows
         .into_iter()
         .map(
-            |(tenant_mailbox_id, status, ramp_day, stats, last_login_error)| PoolView {
-                tenant_mailbox_id,
-                status,
-                ramp_day: i64::from(ramp_day),
-                stats,
-                last_login_error,
+            |(tenant_mailbox_id, status, ramp_day, stats, paused_reason, last_login_error)| {
+                PoolView {
+                    tenant_mailbox_id,
+                    status,
+                    ramp_day: i64::from(ramp_day),
+                    stats,
+                    paused_reason,
+                    last_login_error,
+                }
             },
         )
         .collect())

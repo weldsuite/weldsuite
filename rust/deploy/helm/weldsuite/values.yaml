@@ -547,6 +547,19 @@ cron:
       enabled: true
       schedule: "* * * * *"
       activeDeadlineSeconds: 290
+    # WeldReach: warmup progress of the mailboxes (provisioning, warming,
+    # active, the daily cap ramp, lapsed domains), for the workspaces the due
+    # index lists. Needs MAILPOOL_API_KEY for mailboxes still provisioning.
+    reach-warmup-sweep:
+      enabled: true
+      schedule: "15 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldReach: gives back Mailpool slots no active mailbox needs (master
+    # database only). Does nothing without MAILPOOL_API_KEY.
+    reach-slot-reconciliation:
+      enabled: true
+      schedule: "15 3 * * *"
+      activeDeadlineSeconds: 600
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.

@@ -27,6 +27,11 @@
 //!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
 //!   for the `reach-send` subscriber of `weldsuite consume`; otherwise it
 //!   runs each workspace's send tick itself.
+//! - `reach-warmup-sweep` (hourly, at :15): WeldReach's warmup progress
+//!   over the due index (kind `reach_warmup`, `cron/warmup-sweep.ts`).
+//! - `reach-slot-reconciliation` (daily, 03:15 UTC): gives back Mailpool
+//!   slots no active mailbox needs (`cron/slot-reconciliation.ts`; master
+//!   database only).
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
 //!   `weldsuite_core_onboarding::IdentitySync`).
@@ -69,7 +74,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -84,7 +89,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
-        | "reach-send-sweep"),
+        | "reach-send-sweep"
+        | "reach-warmup-sweep"
+        | "reach-slot-reconciliation"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -123,6 +130,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             }
             "desk-sla-sweep" => desk_sla_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
+            "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -490,6 +498,48 @@ async fn reach_send_sweep(config: Config) -> Result<(), Box<dyn std::error::Erro
             "due": result.due, "processed": result.processed, "failed": result.failed,
         } })
     );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `reach-warmup-sweep` and `reach-slot-reconciliation`.
+async fn reach_warmup(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let engine = crate::reach::warmup_engine(
+        master,
+        &workspaces,
+        config.keyring.clone(),
+        infra.events.clone(),
+    )?;
+    let result = if job == "reach-warmup-sweep" {
+        let result =
+            weldsuite_reach::warmup::run_warmup_sweep(&engine, time::OffsetDateTime::now_utc())
+                .await;
+        serde_json::json!({ "due": result.due, "processed": result.processed, "failed": result.failed })
+    } else {
+        weldsuite_reach::warmup::run_slot_reconciliation(&engine)
+            .await?
+            .unwrap_or(serde_json::Value::Null)
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await

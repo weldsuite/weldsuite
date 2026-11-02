@@ -339,6 +339,17 @@ impl Mailpool {
         Ok((part("mailboxes"), part("slots")))
     }
 
+    pub(crate) async fn decrease_slots(&self, kind: &str, by: i64) -> Result<(), MailpoolError> {
+        self.request(
+            "POST",
+            "/subscriptions/decrease",
+            &[],
+            Some(&json!({ "type": kind, "decreaseBy": by })),
+        )
+        .await
+        .map(|_| ())
+    }
+
     pub(crate) async fn increase_slots(&self, kind: &str, by: i64) -> Result<(), MailpoolError> {
         self.request(
             "POST",

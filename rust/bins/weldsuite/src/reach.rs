@@ -1,7 +1,7 @@
 //! WeldReach's background engine as the binary runs it: the send queue's
-//! stream and consumer settings, and the [`SendEngine`] that
-//! `weldsuite consume` (`reach-send`) and `weldsuite cron reach-send-sweep`
-//! (inline, without NATS) share.
+//! stream and consumer settings, the [`SendEngine`] that `weldsuite consume`
+//! (`reach-send`) and `weldsuite cron reach-send-sweep` (inline, without
+//! NATS) share, and the [`WarmupEngine`] of the warmup and slot crons.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +14,7 @@ use weldsuite_ports::DynFlagSource;
 use weldsuite_reach::send::{
     SEND_CONSUMER, SEND_STREAM, SEND_SUBJECT, SendEngine, SendTenant, SendTenants,
 };
+use weldsuite_reach::warmup::{WarmupEngine, WarmupTenant, WarmupTenants};
 
 /// The `REACH_SEND` stream: a work queue on disk for a day, deduplicated
 /// for two minutes on the workspace and minute.
@@ -87,4 +88,42 @@ pub(crate) fn send_engine(
         events,
         flags,
     }
+}
+
+/// The warmup crons' engine: the app's databases, Mailpool over HTTPS
+/// (`MAILPOOL_API_KEY`, `MAILPOOL_API_URL`) and the warmup pool's key
+/// (`WELDREACH_WARMUP_KEY`), from the process environment.
+pub(crate) fn warmup_engine(
+    master: PgPool,
+    workspaces: &Arc<Workspaces>,
+    keyring: Keyring,
+    events: EntityEventPublisher,
+) -> Result<WarmupEngine, weldsuite_ports::PortError> {
+    let workspaces = Arc::clone(workspaces);
+    let tenants: WarmupTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(WarmupTenant {
+                db: tenant.db,
+                workspace_id: tenant.workspace_id,
+                clerk_org_id: tenant.clerk_org_id,
+            })
+        })
+    });
+    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(30))?;
+    Ok(WarmupEngine {
+        master,
+        tenants,
+        keyring,
+        warmup_key: env("WELDREACH_WARMUP_KEY"),
+        mailpool_key: env("MAILPOOL_API_KEY"),
+        mailpool_url: env("MAILPOOL_API_URL"),
+        http: weldsuite_ports::OutboundHttp(Arc::new(http)),
+        events,
+    })
 }
