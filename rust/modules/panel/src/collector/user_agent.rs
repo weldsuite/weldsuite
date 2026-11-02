@@ -45,7 +45,10 @@ pub(crate) fn is_bot_user_agent(user_agent: &str) -> bool {
 static BROWSERS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     vec![
         (re(r"(?-u:\b)(?:Edg|EdgA|EdgiOS|Edge)/"), "Edge"),
-        (re(r"(?-u:\b)OPR/|(?-u:\b)OPiOS/|(?-u:\b)Opera(?-u:\b)"), "Opera"),
+        (
+            re(r"(?-u:\b)OPR/|(?-u:\b)OPiOS/|(?-u:\b)Opera(?-u:\b)"),
+            "Opera",
+        ),
         (re(r"SamsungBrowser/"), "Samsung Internet"),
         (re(r"(?-u:\b)Vivaldi/"), "Vivaldi"),
         (re(r"YaBrowser/"), "Yandex"),

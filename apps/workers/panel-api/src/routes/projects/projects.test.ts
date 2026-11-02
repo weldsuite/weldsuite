@@ -19,6 +19,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import type { PanelProjectSettings } from '@weldsuite/db/schema';
@@ -203,8 +204,11 @@ describe('create and read', () => {
   it('publishes panel_project:created with id, name, kind and status only', async () => {
     const project = await newProject({ name: 'Docs', kind: 'app' });
     expect(events.map((e) => e.eventType)).toEqual(['panel_project:created']);
-    expect(events[0]!.entityId).toBe(project.id);
-    expect(events[0]!.data).toEqual({ id: project.id, name: 'Docs', kind: 'app', status: 'active' });
+    // In conformance mode the queue holds the TypeScript run's event, whose new
+    // id is not the one Rust answered with; the harness compares both runs' events.
+    const id = conformanceTarget() ? events[0]!.entityId : project.id;
+    expect(events[0]!.entityId).toBe(id);
+    expect(events[0]!.data).toEqual({ id, name: 'Docs', kind: 'app', status: 'active' });
     expect(JSON.stringify(events)).not.toContain(project.token);
   });
 

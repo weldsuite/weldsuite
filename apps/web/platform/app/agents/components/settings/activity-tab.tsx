@@ -7,6 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { AssistantMessage } from '@/components/weldagent/chat/chat-message';
 import { cn } from '@/lib/utils';
+import { isFeatureAvailable } from '@/lib/edition';
 import { getTranslations } from '@/lib/i18n';
 import { useAgentRuns, useRunAgent, type AgentRun, type AgentWithRuns } from '@/hooks/queries/use-agent-queries';
 import { errorMessage } from '../chat/labels';
@@ -108,16 +109,18 @@ export function ActivityTab({ agent }: Readonly<{ agent: AgentWithRuns }>) {
 
   return (
     <SettingsSection title={t.detail.settings.activity.title} description={t.detail.settings.activity.description}>
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-1.5"
-        disabled={runAgent.isPending || agentNeedsSetup(agent)}
-        onClick={() => void run()}
-      >
-        <Play className="h-3.5 w-3.5" />
-        {runAgent.isPending ? t.actions.running : t.actions.runNow}
-      </Button>
+      {isFeatureAvailable('agent-ai') && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          disabled={runAgent.isPending || agentNeedsSetup(agent)}
+          onClick={() => void run()}
+        >
+          <Play className="h-3.5 w-3.5" />
+          {runAgent.isPending ? t.actions.running : t.actions.runNow}
+        </Button>
+      )}
       {loading && <RunsSkeleton />}
       {!loading && runs.length === 0 && (
         <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">{empty}</p>

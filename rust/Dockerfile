@@ -37,7 +37,7 @@ COPY patches patches
 COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal...
+      --filter platform... --filter sign-portal... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -54,6 +54,14 @@ RUN set -eux; \
     rm -f dist/stats.html; \
     UV_THREADPOOL_SIZE=16 node /usr/local/lib/precompress.mjs dist; \
     mv dist /spa
+
+# ── WeldPanel's browser SDK, the script the collector serves as /s.js ───────
+FROM web-deps AS panel-sdk
+RUN set -eux; \
+    cd packages/sdk/panel-sdk; \
+    pnpm build; \
+    mkdir /panel; \
+    mv dist/panel.global.js /panel/
 
 # ── The sign portal, TanStack Start's Node build ────────────────────────────
 FROM web-deps AS sign-portal-build
@@ -131,6 +139,8 @@ LABEL org.opencontainers.image.title="weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /weldsuite /usr/local/bin/weldsuite
 COPY --from=spa /spa /srv/spa
+# WeldPanel's SDK bundle (PANEL_SDK_FILE's default).
+COPY --from=panel-sdk /panel /srv/panel
 # Serve the SPA for every path the API doesn't answer; SPA_DIR= (empty) for
 # the API alone.
 ENV SPA_DIR=/srv/spa

@@ -112,7 +112,11 @@ pub fn entity_events_stream_config(name: &str, subject_prefix: &str) -> stream::
 /// deduplicated on `<project>:<event_id>` for two minutes (a batch the SDK
 /// sends again). Kept until `max_age` (zero: no age limit), as the Basin
 /// table keeps rows on Global; the store that reports read from consumes it.
-pub fn panel_events_stream_config(name: &str, subject_prefix: &str, max_age: Duration) -> stream::Config {
+pub fn panel_events_stream_config(
+    name: &str,
+    subject_prefix: &str,
+    max_age: Duration,
+) -> stream::Config {
     stream::Config {
         name: name.to_owned(),
         subjects: vec![format!("{subject_prefix}.>")],

@@ -192,6 +192,9 @@ fn hono_pattern(axum_path: &str) -> String {
 struct TestContext {
     user_id: String,
     org_id: Option<String>,
+    /// Empty when the test runs without one (`workspaceId: undefined`): the
+    /// routes then answer as without `c.get('workspaceId')`.
+    #[serde(default)]
     workspace_id: String,
     clerk_org_id: Option<String>,
     #[serde(default)]
@@ -371,10 +374,7 @@ impl Pools {
         }
         // WeldPanel's collector: the test's events stream, salt and usage
         // objects, each one it binds.
-        extensions.insert(
-            self.panel
-                .collector(&context.ledgers, &context.pipelines),
-        );
+        extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),

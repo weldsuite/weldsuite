@@ -155,13 +155,28 @@ mod tests {
 
     #[test]
     fn matches_addresses_and_ranges() {
-        assert!(matches_ip_filter("203.0.113.7", &filters(&["203.0.113.0/24"])));
-        assert!(!matches_ip_filter("203.0.114.7", &filters(&["203.0.113.0/24"])));
-        assert!(matches_ip_filter("2001:db8::1", &filters(&["2001:db8::/32"])));
-        assert!(matches_ip_filter("::ffff:203.0.113.7", &filters(&["203.0.113.7"])));
+        assert!(matches_ip_filter(
+            "203.0.113.7",
+            &filters(&["203.0.113.0/24"])
+        ));
+        assert!(!matches_ip_filter(
+            "203.0.114.7",
+            &filters(&["203.0.113.0/24"])
+        ));
+        assert!(matches_ip_filter(
+            "2001:db8::1",
+            &filters(&["2001:db8::/32"])
+        ));
+        assert!(matches_ip_filter(
+            "::ffff:203.0.113.7",
+            &filters(&["203.0.113.7"])
+        ));
         assert!(matches_ip_filter("[::1]", &filters(&["::1"])));
         assert!(matches_ip_filter("10.0.0.1", &filters(&["0.0.0.0/0"])));
-        assert!(!matches_ip_filter("10.0.0.1", &filters(&["10.0.0.1/33", "garbage", "10.0.0.1/1/2"])));
+        assert!(!matches_ip_filter(
+            "10.0.0.1",
+            &filters(&["10.0.0.1/33", "garbage", "10.0.0.1/1/2"])
+        ));
         assert!(!matches_ip_filter("", &filters(&["10.0.0.1"])));
     }
 }

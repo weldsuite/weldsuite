@@ -209,7 +209,10 @@ mod tests {
 
     #[test]
     fn records_need_version_one() {
-        assert!(ProjectRecord::parse(Some("{\"v\":2,\"projectId\":\"p\",\"workspaceId\":\"w\"}")).is_none());
+        assert!(
+            ProjectRecord::parse(Some("{\"v\":2,\"projectId\":\"p\",\"workspaceId\":\"w\"}"))
+                .is_none()
+        );
         assert!(ProjectRecord::parse(Some("not json")).is_none());
         let record = ProjectRecord::parse(Some(
             "{\"v\":1,\"projectId\":\"p\",\"workspaceId\":\"w\",\"status\":\"active\",\"allowedDomains\":[],\"settings\":{\"autocapture\":false}}",

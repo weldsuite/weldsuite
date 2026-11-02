@@ -61,7 +61,10 @@ impl Namespace {
             .client
             .post(format!("{}/rpc", self.bridge))
             .header("content-type", "application/json")
-            .body(json!({ "binding": self.binding, "name": name, "method": method, "args": args }).to_string())
+            .body(
+                json!({ "binding": self.binding, "name": name, "method": method, "args": args })
+                    .to_string(),
+            )
             .send()
             .await
             .map_err(PortError::backend)?;
@@ -69,7 +72,10 @@ impl Namespace {
         let text = response.text().await.map_err(PortError::backend)?;
         let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         if !status.is_success() {
-            let message = body["error"].as_str().unwrap_or("the stub threw").to_owned();
+            let message = body["error"]
+                .as_str()
+                .unwrap_or("the stub threw")
+                .to_owned();
             return Err(PortError::backend(message));
         }
         Ok(body["result"].clone())

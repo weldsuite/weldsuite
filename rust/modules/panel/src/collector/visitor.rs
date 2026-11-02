@@ -31,7 +31,12 @@ pub(crate) fn utc_date(ms: i64) -> String {
 }
 
 /// `cookielessVisitorId(salt, projectId, ip, userAgent)`.
-pub(crate) fn cookieless_visitor_id(salt: &str, project_id: &str, ip: &str, user_agent: &str) -> String {
+pub(crate) fn cookieless_visitor_id(
+    salt: &str,
+    project_id: &str,
+    ip: &str,
+    user_agent: &str,
+) -> String {
     let digest = Sha256::digest(format!("{salt}:{project_id}:{ip}:{user_agent}").as_bytes());
     format!("{COOKIELESS_PREFIX}{}", &hex::encode(digest)[..24])
 }
@@ -60,7 +65,11 @@ impl CacheSalt {
 
     async fn lookup(&self, now_ms: i64) -> Result<String, PortError> {
         let date = utc_date(now_ms);
-        if let Some((day, salt)) = self.today.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        if let Some((day, salt)) = self
+            .today
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
             && day == date
         {
             return Ok(salt);
@@ -78,7 +87,11 @@ impl CacheSalt {
     async fn create(&self, date: &str, key: &str, now_ms: i64) -> Result<String, PortError> {
         let claimed = self
             .cache
-            .increment(&format!("panel:salt-claim:{date}"), 1, Some(Duration::from_secs(10)))
+            .increment(
+                &format!("panel:salt-claim:{date}"),
+                1,
+                Some(Duration::from_secs(10)),
+            )
             .await?;
         if claimed == 1 {
             let salt = new_salt();
@@ -97,7 +110,9 @@ impl CacheSalt {
                 return Ok(salt);
             }
         }
-        Err(PortError::backend("the day's salt was claimed but not written"))
+        Err(PortError::backend(
+            "the day's salt was claimed but not written",
+        ))
     }
 }
 
@@ -132,7 +147,7 @@ impl UsageCounter for CacheUsage {
                 .increment(
                     &format!("panel:usage:{workspace_id}:{day}"),
                     by,
-                    Some(Duration::from_secs(400 * 24 * 60 * 60)),
+                    Some(Duration::from_hours(400 * 24)),
                 )
                 .await
                 .map(|_| ())
@@ -149,7 +164,10 @@ mod tests {
         let id = cookieless_visitor_id("salt", "pnp_1", "203.0.113.7", "UA");
         assert!(id.starts_with("ck_"));
         assert_eq!(id.len(), 27);
-        assert_ne!(id, cookieless_visitor_id("other", "pnp_1", "203.0.113.7", "UA"));
+        assert_ne!(
+            id,
+            cookieless_visitor_id("other", "pnp_1", "203.0.113.7", "UA")
+        );
     }
 
     #[tokio::test]

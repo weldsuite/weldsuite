@@ -10,7 +10,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { HOME_WIDGETS, emptySlots, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
 import type { HomeWidgetSlot, WidgetId } from '@/lib/home-widgets/types';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 
 function resolveHomeSlots(prefs: ReturnType<typeof useUserPreferences>['data']): [NullableSlot, NullableSlot] {
   const persisted = prefs?.uiPreferences?.homeWidgets?.slots;
@@ -120,8 +120,8 @@ export default function HomePage() {
     return () => ro.disconnect();
   }, [input]);
 
-  // Edition flags (4.F3): the agent composer needs the agent module.
-  const agentOffered = isModuleOffered('agent');
+  // Edition flags (4.F3): the agent composer needs the agent module and its AI.
+  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('agent-ai');
 
   // Load the chat page's chunk up front so the handoff below never waits on it
   // (or flashes the route skeleton) mid-transition.

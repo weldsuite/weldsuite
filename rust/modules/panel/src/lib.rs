@@ -11,7 +11,7 @@
 //! What Cloudflare gives panel-ingest, and what it is here ([`collector`]):
 //!
 //! - the events stream (a Pipelines binding feeding the Basin table
-//!   `panel.events_v1`): one message per row on NATS JetStream, subject
+//!   `panel.events_v1`): one message per row on a `JetStream` stream, subject
 //!   `panel.events.v1.<workspace>`, through [`EventSink`];
 //! - `PanelSalt`, the global Durable Object holding each UTC day's random
 //!   salt of the cookieless visitor hash: the cache (Valkey), the salt

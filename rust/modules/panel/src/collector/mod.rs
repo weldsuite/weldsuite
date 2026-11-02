@@ -41,7 +41,9 @@ use time::OffsetDateTime;
 use weldsuite_db::{MasterDb, PgPool};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::RequestEnv;
-use weldsuite_ports::{BoxFuture, BusMessage, Cache, DynCache, DynEventBus, EventBus, PortError, RequestCache};
+use weldsuite_ports::{
+    BoxFuture, BusMessage, Cache, DynCache, DynEventBus, EventBus, PortError, RequestCache,
+};
 
 pub use visitor::{CacheSalt, CacheUsage};
 
@@ -71,7 +73,7 @@ pub trait EventSink: Send + Sync {
     fn send<'a>(&'a self, rows: &'a [Value]) -> BoxFuture<'a, Result<(), PortError>>;
 }
 
-/// The events stream on the event bus (NATS JetStream): one message per
+/// The events stream on the event bus (a NATS `JetStream` stream): one message per
 /// row on `<prefix>.<workspace>`, its id `<project>:<event_id>`, so a batch
 /// the SDK sends again inside the stream's duplicate window is not stored
 /// twice.
@@ -95,7 +97,8 @@ impl EventSink for BusSink {
             let messages = rows
                 .iter()
                 .map(|row| {
-                    let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
+                    let field =
+                        |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
                     BusMessage::json(
                         format!("{}.{}", self.subject_prefix, field("workspace_id")),
                         format!("{}:{}", field("project_id"), field("event_id")),
@@ -104,7 +107,9 @@ impl EventSink for BusSink {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let sent = futures_util::future::join_all(
-                messages.into_iter().map(|message| self.bus.publish(message)),
+                messages
+                    .into_iter()
+                    .map(|message| self.bus.publish(message)),
             )
             .await;
             sent.into_iter().collect::<Result<Vec<()>, _>>().map(|_| ())
@@ -310,8 +315,14 @@ async fn cors(request: Request, next: Next) -> Response {
     let mut response = if request.method() == Method::OPTIONS {
         let mut response = StatusCode::NO_CONTENT.into_response();
         let headers = response.headers_mut();
-        headers.insert("access-control-allow-methods", HeaderValue::from_static("GET, POST, OPTIONS"));
-        headers.insert("access-control-allow-headers", HeaderValue::from_static("Content-Type"));
+        headers.insert(
+            "access-control-allow-methods",
+            HeaderValue::from_static("GET, POST, OPTIONS"),
+        );
+        headers.insert(
+            "access-control-allow-headers",
+            HeaderValue::from_static("Content-Type"),
+        );
         headers.insert("access-control-max-age", HeaderValue::from_static("86400"));
         response
     } else {
@@ -343,13 +354,21 @@ async fn not_found() -> Response {
 }
 
 fn reject(status: StatusCode, code: &str, message: &str) -> Response {
-    (status, axum::Json(json!({ "error": { "code": code, "message": message } }))).into_response()
+    (
+        status,
+        axum::Json(json!({ "error": { "code": code, "message": message } })),
+    )
+        .into_response()
 }
 
 /// The worker's `onError`.
 fn went_wrong(error: &dyn std::fmt::Display, what: &str) -> Response {
     tracing::error!(%error, "[panel-ingest] {what} failed");
-    reject(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Something went wrong")
+    reject(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "internal_error",
+        "Something went wrong",
+    )
 }
 
 /// `GET /health`.
@@ -397,7 +416,9 @@ async fn script(State(state): State<CollectorState>, ctx: Ctx, headers: HeaderMa
         ("cache-control", "public, max-age=3600".to_owned()),
         ("etag", bundle.etag.clone()),
     ];
-    let if_none_match = headers.get("if-none-match").and_then(|value| value.to_str().ok());
+    let if_none_match = headers
+        .get("if-none-match")
+        .and_then(|value| value.to_str().ok());
     if matches_etag(if_none_match, &bundle.etag) {
         return (StatusCode::NOT_MODIFIED, cache_headers).into_response();
     }
@@ -445,8 +466,12 @@ async fn load_project(
     };
     let field = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
     let record = crate::domain::project_record(
-        row.get("projectId").and_then(Value::as_str).unwrap_or_default(),
-        row.get("workspaceId").and_then(Value::as_str).unwrap_or_default(),
+        row.get("projectId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        row.get("workspaceId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
         &field("status"),
         &field("allowedDomains"),
         &field("settings"),
@@ -474,7 +499,11 @@ async fn config(
     };
     let Some(project) = project else {
         // Not cached: a project created a moment ago must not stay unknown for minutes.
-        let mut response = reject(StatusCode::NOT_FOUND, "unknown_project", "Unknown project token");
+        let mut response = reject(
+            StatusCode::NOT_FOUND,
+            "unknown_project",
+            "Unknown project token",
+        );
         response
             .headers_mut()
             .insert("cache-control", HeaderValue::from_static("no-store"));
@@ -488,9 +517,10 @@ async fn config(
         "excludedUrls": setting("excludedUrls"),
     }))
     .into_response();
-    response
-        .headers_mut()
-        .insert("cache-control", HeaderValue::from_static("public, max-age=300"));
+    response.headers_mut().insert(
+        "cache-control",
+        HeaderValue::from_static("public, max-age=300"),
+    );
     response
 }
 
@@ -551,7 +581,10 @@ async fn events(
         .unwrap_or_default()
         .trim()
         .to_lowercase();
-    if !content_type.is_empty() && content_type != "text/plain" && content_type != "application/json" {
+    if !content_type.is_empty()
+        && content_type != "text/plain"
+        && content_type != "application/json"
+    {
         return reject(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "unsupported_media_type",
@@ -566,7 +599,11 @@ async fn events(
         );
     };
     let Ok(body) = serde_json::from_str::<Js>(&text) else {
-        return reject(StatusCode::BAD_REQUEST, "invalid_body", "The body is not valid JSON");
+        return reject(
+            StatusCode::BAD_REQUEST,
+            "invalid_body",
+            "The body is not valid JSON",
+        );
     };
     let batch = match parse_event_batch(&body) {
         Ok(batch) => batch,
@@ -574,7 +611,13 @@ async fn events(
     };
     let project = match load_project(&ctx, &state, &batch.token).await {
         Ok(Some(project)) => project,
-        Ok(None) => return reject(StatusCode::NOT_FOUND, "unknown_project", "Unknown project token"),
+        Ok(None) => {
+            return reject(
+                StatusCode::NOT_FOUND,
+                "unknown_project",
+                "Unknown project token",
+            );
+        }
         Err(error) => return went_wrong(&error, "POST /e"),
     };
     let origin = headers.get("origin").and_then(|value| value.to_str().ok());
@@ -662,7 +705,12 @@ async fn collect(
         match &ports.salt {
             Some(salt) => match salt.today(received_at).await {
                 Ok(salt) => {
-                    cookieless_id = Some(cookieless_visitor_id(&salt, &project.project_id, &ip, &user_agent));
+                    cookieless_id = Some(cookieless_visitor_id(
+                        &salt,
+                        &project.project_id,
+                        &ip,
+                        &user_agent,
+                    ));
                 }
                 Err(error) => log_failure("Salt lookup", &project, &error),
             },
@@ -716,11 +764,16 @@ async fn collect(
 struct SeenThrottle(Mutex<HashMap<String, i64>>);
 
 const SEEN_INTERVAL_MS: i64 = 5 * 60 * 1000;
-const SEEN_TTL: Duration = Duration::from_secs(90 * 24 * 60 * 60);
+const SEEN_TTL: Duration = Duration::from_hours(90 * 24);
 const SEEN_MAX_REMEMBERED: usize = 2000;
 
 impl SeenThrottle {
-    async fn touch(&self, cache: &Arc<dyn DynCache>, project_id: &str, now: i64) -> Result<(), PortError> {
+    async fn touch(
+        &self,
+        cache: &Arc<dyn DynCache>,
+        project_id: &str,
+        now: i64,
+    ) -> Result<(), PortError> {
         {
             let mut written = self.0.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(last) = written.get(project_id)

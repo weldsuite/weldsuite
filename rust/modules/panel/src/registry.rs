@@ -72,7 +72,11 @@ impl Registry {
     }
 
     /// Deletes the cache records of `tokens`, each once, except `keep`'s.
-    async fn delete_tokens(&self, tokens: &[Option<&str>], keep: Option<&str>) -> Result<(), PortError> {
+    async fn delete_tokens(
+        &self,
+        tokens: &[Option<&str>],
+        keep: Option<&str>,
+    ) -> Result<(), PortError> {
         let mut retired: Vec<&str> = Vec::new();
         for token in tokens.iter().flatten() {
             if token.is_empty() || Some(*token) == keep || retired.contains(token) {
@@ -155,7 +159,10 @@ impl Registry {
         if let Some(after) = self.row(project_id).await?
             && iso(&after, "updatedAt") > updated_at
         {
-            let after_token = after.get("token").and_then(Value::as_str).unwrap_or_default();
+            let after_token = after
+                .get("token")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let deleted = !after.get("deletedAt").is_none_or(Value::is_null);
             if deleted || after_token != token {
                 self.cache.delete(&project_key(token)).await?;

@@ -113,6 +113,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // files store, which isn't built: access, streaming and deletes answer
     // 503 "Recording storage is not configured".
     "meet-recordings",
+    // WeldAgent's AI: chat turns, agent runs, routine tests, connector
+    // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
+    // on Global; the Kubernetes editions have no AI provider yet.
+    "agent-ai",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

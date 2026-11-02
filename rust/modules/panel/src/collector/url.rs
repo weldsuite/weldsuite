@@ -311,7 +311,14 @@ mod tests {
 
     #[test]
     fn secret_parameters() {
-        for name in ["resetToken", "api_key", "access-token", "apikey", "code", "Email"] {
+        for name in [
+            "resetToken",
+            "api_key",
+            "access-token",
+            "apikey",
+            "code",
+            "Email",
+        ] {
             assert!(is_secret_param(name, "x"), "{name}");
         }
         for name in ["keyword", "author", "lang", "utm_source"] {
@@ -330,7 +337,10 @@ mod tests {
             "https://example.com/reset?token=abc&lang=en&q=red%20shoes&utm_source=news",
         )
         .expect("a page");
-        assert_eq!(page.url, "https://example.com/reset?lang=en&q=red%20shoes&utm_source=news");
+        assert_eq!(
+            page.url,
+            "https://example.com/reset?lang=en&q=red%20shoes&utm_source=news"
+        );
         assert_eq!(page.utm.source.as_deref(), Some("news"));
         assert_eq!(
             parse_page_url("https://example.com/login?code=1&password=3").map(|p| p.url),
@@ -346,7 +356,11 @@ mod tests {
 
     #[test]
     fn excluded_paths() {
-        let excluded = ExcludedPaths::new(&["/admin/*".to_owned(), "/a.b".to_owned(), "/über/*".to_owned()]);
+        let excluded = ExcludedPaths::new(&[
+            "/admin/*".to_owned(),
+            "/a.b".to_owned(),
+            "/über/*".to_owned(),
+        ]);
         assert!(excluded.matches("/admin/users"));
         assert!(!excluded.matches("/admin"));
         assert!(excluded.matches("/a.b"));

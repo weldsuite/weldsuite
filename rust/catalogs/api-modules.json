@@ -635,7 +635,7 @@
     "prefixes": [
       "/api/panel"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "panel-api"
   }
 ]

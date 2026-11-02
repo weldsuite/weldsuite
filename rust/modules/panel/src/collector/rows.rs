@@ -24,7 +24,7 @@ pub(crate) fn parse_millis(text: &str) -> Option<i64> {
     let normalized = match text.len().checked_sub(5) {
         Some(at)
             if text.is_char_boundary(at)
-                && matches!(&text[at..at + 1], "+" | "-")
+                && matches!(&text[at..=at], "+" | "-")
                 && text[at + 1..].bytes().all(|b| b.is_ascii_digit()) =>
         {
             format!("{}{}:{}", &text[..at + 3], "", &text[at + 3..])
@@ -192,8 +192,12 @@ mod tests {
     #[test]
     fn corrects_and_clamps_the_clock() {
         let received = parse_millis("2026-10-27T12:00:00.000Z").expect("a date");
-        let ts = correct_timestamp("2026-10-27T11:00:00.000Z", "2026-10-27T11:00:05.000Z", received)
-            .expect("a time");
+        let ts = correct_timestamp(
+            "2026-10-27T11:00:00.000Z",
+            "2026-10-27T11:00:05.000Z",
+            received,
+        )
+        .expect("a time");
         assert_eq!(iso_millis(ts), "2026-10-27T11:59:55.000Z");
         let ahead = correct_timestamp("2030-01-01T00:00:00Z", "2026-10-27T12:00:00Z", received)
             .expect("a time");

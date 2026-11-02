@@ -369,12 +369,17 @@ pub(crate) fn panel_collector(state: &AppState) -> Router {
                 as Arc<dyn weldsuite_panel::UsageCounter>
         }),
         // Conformance builds write to the test's stream only (per request).
-        state.infra.events.bus().filter(|_| !conformance).map(|bus| {
-            Arc::new(weldsuite_panel::BusSink::new(
-                Arc::clone(bus),
-                state.infra.panel_events_subject.clone(),
-            )) as Arc<dyn weldsuite_panel::EventSink>
-        }),
+        state
+            .infra
+            .events
+            .bus()
+            .filter(|_| !conformance)
+            .map(|bus| {
+                Arc::new(weldsuite_panel::BusSink::new(
+                    Arc::clone(bus),
+                    state.infra.panel_events_subject.clone(),
+                )) as Arc<dyn weldsuite_panel::EventSink>
+            }),
         state.environment.clone(),
         (!conformance)
             .then(|| weldsuite_panel::collector::SdkBundle::load(&sdk))

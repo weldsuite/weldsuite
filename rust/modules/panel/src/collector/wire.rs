@@ -195,7 +195,12 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     let Some(fields) = issues.object(&value) else {
         return Err(issues.issues_since(0).to_vec());
     };
-    let event_id = issues.text_with(fields, "event_id", Presence::Required, Text::length(Some(8), Some(64)));
+    let event_id = issues.text_with(
+        fields,
+        "event_id",
+        Presence::Required,
+        Text::length(Some(8), Some(64)),
+    );
     let name = name(&mut issues, fields);
     let ts = issues.text_with(
         fields,
@@ -220,7 +225,8 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     );
     let title = issues.text_with(fields, "title", Presence::Optional, length(512));
     let referrer = issues.text_with(fields, "referrer", Presence::Optional, length(MAX_STRING));
-    let viewport_w = issues.whole_number(fields, "viewport_w", Presence::Optional, int(0.0, 20000.0));
+    let viewport_w =
+        issues.whole_number(fields, "viewport_w", Presence::Optional, int(0.0, 20000.0));
     let el = issues.nested(fields, "el", Presence::Optional, |issues, el| {
         let tag = issues.text_with(el, "tag", Presence::Required, length(32));
         let selector = issues.text_with(el, "selector", Presence::Required, length(512));
@@ -235,7 +241,8 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     });
     let x = issues.whole_number(fields, "x", Presence::Optional, int(0.0, 100_000.0));
     let y = issues.whole_number(fields, "y", Presence::Optional, int(0.0, 1_000_000.0));
-    let scroll_depth = issues.whole_number(fields, "scroll_depth", Presence::Optional, int(0.0, 100.0));
+    let scroll_depth =
+        issues.whole_number(fields, "scroll_depth", Presence::Optional, int(0.0, 100.0));
     let props = properties(&mut issues, fields, raw.get("props"));
     if !issues.is_empty() {
         return Err(issues.issues_since(0).to_vec());
@@ -276,7 +283,10 @@ fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
             None
         }
         _ => {
-            issues.issue_at("name", json!({ "code": "invalid_union", "message": "Invalid input" }));
+            issues.issue_at(
+                "name",
+                json!({ "code": "invalid_union", "message": "Invalid input" }),
+            );
             None
         }
     }
@@ -336,7 +346,9 @@ fn properties(
             Js::String(_) | Js::Number(_) | Js::Bool(_) | Js::Null => {}
             Js::Array(_) | Js::Object(_) => {
                 aborted = true;
-                issues.push_raw(json!({ "code": "invalid_union", "message": "Invalid input", "path": at(key) }));
+                issues.push_raw(
+                    json!({ "code": "invalid_union", "message": "Invalid input", "path": at(key) }),
+                );
             }
         }
     }

@@ -68,12 +68,15 @@ fn text<'a>(row: &'a Value, key: &str) -> &'a str {
 }
 
 /// `registryFor(c)`: null without a workspace (`error.orgRequired`).
-fn registry_for(caller: &Caller, state: &PanelState) -> Result<Registry, Response> {
+fn registry_for(caller: &Caller, state: &PanelState) -> Result<Registry, Box<Response>> {
     if caller.workspace_id.is_empty() {
-        return Err(ApiError::org_required().into_response());
+        return Err(Box::new(ApiError::org_required().into_response()));
     }
     let (Some(master), Some(cache)) = (caller.master(state), caller.cache(state)) else {
-        return Err(unexpected(&"no master database or cache", "project registry"));
+        return Err(Box::new(unexpected(
+            &"no master database or cache",
+            "project registry",
+        )));
     };
     Ok(Registry {
         master,
@@ -125,25 +128,36 @@ pub(crate) async fn list(caller: Caller) -> Response {
 
 /// `z.array(panelDomainSchema)`: each host trimmed and lower-cased, then
 /// checked; the list at most `max` long.
-fn domains(issues: &mut Issues, body: &Map<String, Value>, presence: Presence) -> Field<Vec<String>> {
-    issues.list(body, "allowedDomains", presence, None, Some(20), |issues, item| {
-        let rules = Text {
-            trim: true,
-            lowercase: true,
-            ..Text::default()
-        };
-        let host = issues.item_text(item, rules)?;
-        if DOMAIN.is_match(&host) {
-            Some(host)
-        } else {
-            issues.issue_here(json!({
-                "validation": "regex",
-                "code": "invalid_string",
-                "message": "Enter a host like example.com",
-            }));
-            None
-        }
-    })
+fn domains(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    presence: Presence,
+) -> Field<Vec<String>> {
+    issues.list(
+        body,
+        "allowedDomains",
+        presence,
+        None,
+        Some(20),
+        |issues, item| {
+            let rules = Text {
+                trim: true,
+                lowercase: true,
+                ..Text::default()
+            };
+            let host = issues.item_text(item, rules)?;
+            if DOMAIN.is_match(&host) {
+                Some(host)
+            } else {
+                issues.issue_here(json!({
+                    "validation": "regex",
+                    "code": "invalid_string",
+                    "message": "Enter a host like example.com",
+                }));
+                None
+            }
+        },
+    )
 }
 
 struct NewProject {
@@ -162,7 +176,12 @@ pub(crate) async fn create(
     body: Bytes,
 ) -> Response {
     let input = match validate(&headers, &body, |issues, body| {
-        let name = issues.text_with(body, "name", Presence::Required, Text::trimmed(Some(1), Some(255)));
+        let name = issues.text_with(
+            body,
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(255)),
+        );
         let kind = issues.choice(body, "kind", Presence::Optional, KINDS);
         let allowed = domains(issues, body, Presence::Optional);
         NewProject {
@@ -179,7 +198,7 @@ pub(crate) async fn create(
     }
     let registry = match registry_for(&caller, &state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let settings = Value::Object(
@@ -224,7 +243,12 @@ pub(crate) async fn create(
         }
         return unexpected(&error, "register project");
     }
-    caller.publish(&state, PANEL_PROJECT_CREATED, text(&project, "id"), &event_data(&project));
+    caller.publish(
+        &state,
+        PANEL_PROJECT_CREATED,
+        text(&project, "id"),
+        &event_data(&project),
+    );
     Created(dto(&project)).into_response()
 }
 
@@ -258,7 +282,12 @@ async fn synced(
     if let Err(error) = registry.sync(&project, previous_token).await {
         return unexpected(&error, what);
     }
-    caller.publish(state, PANEL_PROJECT_UPDATED, text(&project, "id"), &event_data(&project));
+    caller.publish(
+        state,
+        PANEL_PROJECT_UPDATED,
+        text(&project, "id"),
+        &event_data(&project),
+    );
     Data(dto(&project)).into_response()
 }
 
@@ -271,18 +300,27 @@ pub(crate) async fn update(
     body: Bytes,
 ) -> Response {
     let patch = match validate(&headers, &body, |issues, body| {
-        let name = issues.text_with(body, "name", Presence::Optional, Text::trimmed(Some(1), Some(255)));
+        let name = issues.text_with(
+            body,
+            "name",
+            Presence::Optional,
+            Text::trimmed(Some(1), Some(255)),
+        );
         let kind = issues.choice(body, "kind", Presence::Optional, KINDS);
         let allowed = domains(issues, body, Presence::Optional);
         nothing_to_update(issues, body, &["name", "kind", "allowedDomains"]);
-        (name.into_option(), kind.into_option(), allowed.into_option())
+        (
+            name.into_option(),
+            kind.into_option(),
+            allowed.into_option(),
+        )
     }) {
         Ok(patch) => patch,
         Err(response) => return *response,
     };
     let registry = match registry_for(&caller, &state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let (name, kind, allowed) = patch;
     let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
@@ -322,10 +360,13 @@ fn settings_patch(issues: &mut Issues, body: &Map<String, Value>) -> Map<String,
     if let Field::Set(flag) = issues.boolean(body, "autocapture", Presence::Optional) {
         out.insert("autocapture".to_owned(), json!(flag));
     }
-    if let Field::Set(level) = issues.choice(body, "maskingLevel", Presence::Optional, MASKING_LEVELS) {
+    if let Field::Set(level) =
+        issues.choice(body, "maskingLevel", Presence::Optional, MASKING_LEVELS)
+    {
         out.insert("maskingLevel".to_owned(), json!(level));
     }
-    if let Field::Set(mode) = issues.choice(body, "consentMode", Presence::Optional, CONSENT_MODES) {
+    if let Field::Set(mode) = issues.choice(body, "consentMode", Presence::Optional, CONSENT_MODES)
+    {
         out.insert("consentMode".to_owned(), json!(mode));
     }
     let rate = weldsuite_kit::validation::Number {
@@ -336,27 +377,39 @@ fn settings_patch(issues: &mut Issues, body: &Map<String, Value>) -> Map<String,
     if let Field::Set(rate) = issues.number(body, "recordingSampleRate", Presence::Optional, rate) {
         out.insert("recordingSampleRate".to_owned(), js_number(rate));
     }
-    let excluded = issues.list(body, "excludedUrls", Presence::Optional, None, Some(50), |issues, item| {
-        let pattern = issues.item_text(item, Text::trimmed(Some(1), Some(200)));
-        let trimmed = item.as_str().map(weldsuite_kit::validation::js_trim);
-        if let Some(trimmed) = trimmed
-            && !trimmed.starts_with('/')
-        {
-            issues.issue_here(json!({
-                "validation": "regex",
-                "code": "invalid_string",
-                "message": "Start with /",
-            }));
-            return None;
-        }
-        pattern
-    });
+    let excluded = issues.list(
+        body,
+        "excludedUrls",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| {
+            let pattern = issues.item_text(item, Text::trimmed(Some(1), Some(200)));
+            let trimmed = item.as_str().map(weldsuite_kit::validation::js_trim);
+            if let Some(trimmed) = trimmed
+                && !trimmed.starts_with('/')
+            {
+                issues.issue_here(json!({
+                    "validation": "regex",
+                    "code": "invalid_string",
+                    "message": "Start with /",
+                }));
+                return None;
+            }
+            pattern
+        },
+    );
     if let Field::Set(patterns) = excluded {
         out.insert("excludedUrls".to_owned(), json!(patterns));
     }
-    let filters = issues.list(body, "ipFilters", Presence::Optional, None, Some(50), |issues, item| {
-        issues.item_text(item, Text::trimmed(Some(1), Some(64)))
-    });
+    let filters = issues.list(
+        body,
+        "ipFilters",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| issues.item_text(item, Text::trimmed(Some(1), Some(64))),
+    );
     if let Field::Set(filters) = filters {
         out.insert("ipFilters".to_owned(), json!(filters));
     }
@@ -387,7 +440,7 @@ pub(crate) async fn update_settings(
     };
     let registry = match registry_for(&caller, &state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let (status, settings) = patch;
     let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
@@ -406,7 +459,15 @@ pub(crate) async fn update_settings(
     match updated {
         Ok(Some(row)) => {
             let project = weldsuite_db::js_row(row);
-            synced(&state, &caller, &registry, project, None, "update project settings").await
+            synced(
+                &state,
+                &caller,
+                &registry,
+                project,
+                None,
+                "update project settings",
+            )
+            .await
         }
         Ok(None) => ApiError::not_found("Project", Some(&id)).into_response(),
         Err(error) => unexpected(&error, "update project settings"),
@@ -423,7 +484,7 @@ pub(crate) async fn remove(
 ) -> Response {
     let registry = match registry_for(&caller, &state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
         "update panel_projects as p set
@@ -460,7 +521,12 @@ pub(crate) async fn remove(
     if let Err(error) = registry.remove(&project).await {
         return unexpected(&error, "delete project");
     }
-    caller.publish(&state, PANEL_PROJECT_DELETED, text(&project, "id"), &event_data(&project));
+    caller.publish(
+        &state,
+        PANEL_PROJECT_DELETED,
+        text(&project, "id"),
+        &event_data(&project),
+    );
     NoContent.into_response()
 }
 
@@ -474,7 +540,7 @@ pub(crate) async fn rotate_token(
 ) -> Response {
     let registry = match registry_for(&caller, &state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let current = match live_project(&caller, &id).await {
         Ok(Some(current)) => current,
@@ -497,7 +563,15 @@ pub(crate) async fn rotate_token(
     match rotated {
         Ok(Some(row)) => {
             let project = weldsuite_db::js_row(row);
-            synced(&state, &caller, &registry, project, Some(&current_token), "rotate token").await
+            synced(
+                &state,
+                &caller,
+                &registry,
+                project,
+                Some(&current_token),
+                "rotate token",
+            )
+            .await
         }
         Ok(None) => match live_project(&caller, &id).await {
             Ok(Some(_)) => ApiError::conflict(
@@ -534,11 +608,16 @@ pub(crate) async fn install(
         },
         None => None,
     };
-    let last_event_at = seen.as_deref().filter(|s| !s.is_empty()).and_then(js_date_iso);
+    let last_event_at = seen
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(js_date_iso);
     let now_ms = now_millis();
     let receiving = last_event_at
         .as_deref()
-        .and_then(|iso| OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok())
+        .and_then(|iso| {
+            OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()
+        })
         .is_some_and(|at| now_ms - millis(at) <= RECEIVING_WINDOW_MS);
 
     let origin = trim_trailing_slashes(&collector).to_owned();
@@ -569,4 +648,3 @@ fn now_millis() -> i64 {
 fn millis(at: OffsetDateTime) -> i64 {
     i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or(i64::MAX)
 }
-

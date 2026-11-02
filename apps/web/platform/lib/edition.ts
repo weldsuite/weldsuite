@@ -70,6 +70,12 @@ export const EDITION_FEATURES = [
   'meet-transcription',
   /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
   'meet-recordings',
+  /**
+   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
+   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
+   * Kubernetes editions yet).
+   */
+  'agent-ai',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
