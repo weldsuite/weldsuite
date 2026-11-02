@@ -195,6 +195,26 @@ const SPECS: Spec[] = [
       changedAt: SAMPLE_DATE,
     }),
   },
+  // WeldMeet's invitation: the join link, and the meeting's time when it is
+  // scheduled (`formatWhen`, written by Rust, becomes `{{ when }}`).
+  {
+    id: 'meet.invitation',
+    flags: ['when', 'description'],
+    fields: ['organizer_name', 'title', 'when', 'description', 'join_url'],
+    multiline: ['description'],
+    texts: (locale) => ({
+      [formatWhen({ start: SAMPLE_DATE, end: '2001-02-03T13:00:00.000Z', locale, timeZone: 'UTC' })]: S('when'),
+    }),
+    props: (f) => ({
+      organizerName: S('organizer_name'),
+      title: S('title'),
+      description: f.has('description') ? S('description') : null,
+      startTime: f.has('when') ? SAMPLE_DATE : null,
+      endTime: f.has('when') ? '2001-02-03T13:00:00.000Z' : null,
+      timezone: 'UTC',
+      joinUrl: S('join_url'),
+    }),
+  },
   ...calendarSpecs(),
 ];
 

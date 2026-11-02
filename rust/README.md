@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has eighteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has nineteen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -104,6 +104,18 @@ modules, each with conformance suites that reach every route:
   checkout and renewal routes answer as the worker does without Stripe, and
   `weldsuite cron domain-auto-renew` does nothing yet. Not ported: the test
   environment's DNS sandbox (a D1 emulator of Cloudflare's API))
+- **meet** (WeldMeet: meetings, invitations with their calendar file,
+  instant meetings, live sessions with join, leave, end and the waiting
+  room, host controls, the in-meeting chat, CRM transcripts, the wallet gate
+  for meeting AI, and the video provider behind `crates/video-rooms`:
+  RealtimeKit, which conformance compares, or LiveKit, which
+  `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
+  served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
+  presence and the end of a room, with no recorder or AI events. Not served:
+  WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
+  the transcript, summary, recording-copy and backfill Workflows (the routes
+  answer as the worker without the binding does), and the recordings bucket;
+  see `meet-transcription` and `meet-recordings` below)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -111,11 +123,11 @@ the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
-returns through Digipoort, buying or porting phone numbers and buying or
-renewing domains.
+returns through Digipoort, buying or porting phone numbers, buying or
+renewing domains, and WeldMeet transcripts and summaries and recordings.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
-meet, connect, agent, reach, sheets, docs and
+connect, agent, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -180,7 +192,9 @@ rust/
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
                         modules/host (WeldHost: Realtime Register, Cloudflare's zones and
-                        registrar, DNS over HTTPS, the Realtime Register webhook);
+                        registrar, DNS over HTTPS, the Realtime Register webhook),
+                        modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
+                        rooms, and LiveKit's webhook verification);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),

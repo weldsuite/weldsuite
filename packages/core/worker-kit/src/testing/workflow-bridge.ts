@@ -24,7 +24,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow bindings the bridge serves. */
-export const WORKFLOW_BINDINGS = ['EXECUTE_SEQUENCE', 'SEND_SCHEDULED_EMAIL', 'WELDDATA_ENRICH'] as const;
+export const WORKFLOW_BINDINGS = [
+  'EXECUTE_SEQUENCE',
+  'SEND_SCHEDULED_EMAIL',
+  'WELDDATA_ENRICH',
+  // WeldMeet: the recording copy, the meeting AI and the legacy backfill.
+  'MEETING_RECORDING_COPY',
+  'MEETING_AI',
+  'MEETING_RECORDING_BACKFILL',
+] as const;
 
 interface WorkflowLike {
   create(options?: unknown): Promise<unknown>;

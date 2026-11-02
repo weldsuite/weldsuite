@@ -10,7 +10,7 @@
  * and trusting it kicked everyone out of a live meeting.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -19,29 +19,11 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import type { Env } from '../../types';
 import { meetingSessionsRoutes } from './index';
-import {
-  addParticipant,
-  createMeeting,
-  endMeeting,
-  getLiveParticipantCount,
-  kickAllParticipants,
-  kickParticipants,
-  removeParticipant,
-} from '@weldsuite/cloudflare-realtime';
 import { isGuestRemovedFromSession } from '@weldsuite/db/schema/meeting-sessions';
-import { fakeKv, fakeRealtime, seedActiveChatCall } from '../../test/fakes';
+import { RTK_ENV, RTK_PRESETS_SEEDED, fakeKv, fakeRealtime, fakeRtkApi } from '../../test/fakes';
 
-vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
-  kickAllParticipants: vi.fn(),
-  kickParticipants: vi.fn(),
-  endMeeting: vi.fn(),
-  getLiveParticipantCount: vi.fn(),
-  addParticipant: vi.fn(),
-  removeParticipant: vi.fn(),
-  createMeeting: vi.fn(),
-  ensurePresets: vi.fn(async () => undefined),
-}));
+/** RealtimeKit's REST API, answered by method and URL (../../test/fakes.ts). */
+const rtk = fakeRtkApi();
 
 const ORGANIZER = 'user_organizer';
 const GUEST = 'user_guest';
@@ -57,19 +39,18 @@ const flush = async () => {
 };
 
 beforeAll(async () => {
+  vi.stubGlobal('fetch', rtk.fetch);
   const handle = await createPgliteDb();
   db = handle.db;
 }, 60_000);
 
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
-  vi.mocked(kickAllParticipants).mockReset().mockResolvedValue(2);
-  vi.mocked(kickParticipants).mockReset().mockResolvedValue(undefined);
-  vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
-  // By default RealtimeKit reports an empty room.
-  vi.mocked(getLiveParticipantCount).mockReset().mockResolvedValue(0);
-  vi.mocked(addParticipant).mockReset().mockResolvedValue({ id: 'cf_new', token: 'tok_new' } as never);
-  vi.mocked(removeParticipant).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(createMeeting).mockReset().mockResolvedValue({ id: 'rtk_created' } as never);
+  // By default RealtimeKit reports an empty room (no live session).
+  rtk.reset();
   realtime = fakeRealtime();
 });
 
@@ -124,15 +105,20 @@ async function seed(
 
 function appFor(userId: string, ...perms: string[]) {
   const env = {
-    WORKSPACE_CACHE: fakeKv(),
+    ...RTK_ENV,
+    WORKSPACE_CACHE: fakeKv(RTK_PRESETS_SEEDED),
     REALTIME: realtime.binding,
   } satisfies Partial<Env>;
   const app = createTestApp('/api/meeting-sessions', meetingSessionsRoutes, {
     context: { permissions: permissions(...perms), userId, tenantDb: db },
     env,
   });
+  // Keep the harness's own waitUntil: in conformance mode it waits for this
+  // work before comparing the side effects.
+  const harnessWaitUntil = app.executionCtx.waitUntil.bind(app.executionCtx);
   app.executionCtx.waitUntil = (promise: Promise<unknown>) => {
     pending.push(Promise.resolve(promise).catch(() => undefined));
+    harnessWaitUntil(promise);
   };
   return app;
 }
@@ -190,18 +176,17 @@ describe('POST /api/meeting-sessions/:id/end', () => {
     expect(meeting.activeSessionId).toBeNull();
     expect(meeting.status).not.toBe('in_progress');
 
-    expect(kickAllParticipants).toHaveBeenCalledTimes(1);
-    expect(kickAllParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID);
-    expect(endMeeting).toHaveBeenCalledTimes(1);
-    expect(endMeeting).toHaveBeenCalledWith(expect.anything(), CF_APP_ID);
-    expect(vi.mocked(kickAllParticipants).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(endMeeting).mock.invocationCallOrder[0]!,
-    );
+    expect(rtk.calls('kick-all')).toHaveLength(1);
+    expect(rtk.seen('kick-all', CF_APP_ID)).toBe(true);
+    expect(rtk.calls('end')).toHaveLength(1);
+    expect(rtk.seen('end', CF_APP_ID)).toBe(true);
+    const order = rtk.state.calls.map((call) => call.kind);
+    expect(order.indexOf('kick-all')).toBeLessThan(order.indexOf('end'));
   });
 
   it('logs a failed kick, still ends the RTK meeting and still ends the session in the DB', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(kickAllParticipants).mockRejectedValue(new Error('Failed to kick all RTK participants: 404'));
+    rtk.state.failures.set('kick-all', 404);
     const { sessionId } = await seed([participant(ORGANIZER), participant(GUEST)]);
     const { request } = appFor(ORGANIZER, 'sessions:read', 'sessions:update');
 
@@ -209,7 +194,7 @@ describe('POST /api/meeting-sessions/:id/end', () => {
 
     expect(res.status).toBe(200);
     expect((await loadSession(sessionId)).status).toBe('ended');
-    expect(endMeeting).toHaveBeenCalledTimes(1);
+    expect(rtk.calls('end')).toHaveLength(1);
     expect(errorSpy).toHaveBeenCalledWith(
       '[MeetingLifecycle] RTK kick-all failed',
       expect.objectContaining({ sessionId, cfAppId: CF_APP_ID, err: expect.any(Error) }),
@@ -218,7 +203,7 @@ describe('POST /api/meeting-sessions/:id/end', () => {
 
   it('logs a failed RTK end without failing the request', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(endMeeting).mockRejectedValue(new Error('boom'));
+    rtk.state.failures.set('end', 400);
     const { sessionId } = await seed([participant(ORGANIZER)]);
     const { request } = appFor(ORGANIZER, 'sessions:read', 'sessions:update');
 
@@ -238,8 +223,7 @@ describe('POST /api/meeting-sessions/:id/end', () => {
 
     await post(request, `/api/meeting-sessions/${sessionId}/end`);
     const first = await loadSession(sessionId);
-    vi.mocked(kickAllParticipants).mockClear();
-    vi.mocked(endMeeting).mockClear();
+    rtk.state.calls = [];
 
     const res = await post(request, `/api/meeting-sessions/${sessionId}/end`);
 
@@ -248,8 +232,8 @@ describe('POST /api/meeting-sessions/:id/end', () => {
     const second = await loadSession(sessionId);
     expect(second.endedAt?.getTime()).toBe(first.endedAt?.getTime());
     expect(second.duration).toBe(first.duration);
-    expect(kickAllParticipants).not.toHaveBeenCalled();
-    expect(endMeeting).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
+    expect(rtk.seen('end')).toBe(false);
   });
 
   it('forbids a non-organizer without sessions:update', async () => {
@@ -260,7 +244,7 @@ describe('POST /api/meeting-sessions/:id/end', () => {
 
     expect(res.status).toBe(403);
     expect((await loadSession(sessionId)).status).toBe('active');
-    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
   });
 
   it('lets the organizer end without sessions:update', async () => {
@@ -271,7 +255,7 @@ describe('POST /api/meeting-sessions/:id/end', () => {
 
     expect(res.status).toBe(200);
     expect((await loadSession(sessionId)).status).toBe('ended');
-    expect(kickAllParticipants).toHaveBeenCalledTimes(1);
+    expect(rtk.calls('kick-all')).toHaveLength(1);
   });
 
   it('lets a non-organizer with sessions:update end the meeting', async () => {
@@ -297,8 +281,7 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     const host = appFor(ORGANIZER, 'sessions:read', 'sessions:update');
     await post(host.request, `/api/meeting-sessions/${sessionId}/end`);
     const ended = await loadSession(sessionId);
-    vi.mocked(kickAllParticipants).mockClear();
-    vi.mocked(endMeeting).mockClear();
+    rtk.state.calls = [];
 
     const guest = appFor(GUEST, 'sessions:read');
     const res = await post(guest.request, `/api/meeting-sessions/${sessionId}/leave`);
@@ -309,8 +292,8 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     expect(after.endedAt?.getTime()).toBe(ended.endedAt?.getTime());
     expect(after.duration).toBe(ended.duration);
     expect(after.updatedAt.getTime()).toBe(ended.updatedAt.getTime());
-    expect(kickAllParticipants).not.toHaveBeenCalled();
-    expect(endMeeting).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
+    expect(rtk.seen('end')).toBe(false);
   });
 
   it('keeps the session active when the organizer leaves while another participant remains', async () => {
@@ -325,8 +308,8 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     expect(session.participants?.find((p) => p.userId === ORGANIZER)?.leftAt).toBeTruthy();
     expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeUndefined();
     expect((await loadMeeting(meetingId)).activeSessionId).toBe(sessionId);
-    expect(kickAllParticipants).not.toHaveBeenCalled();
-    expect(endMeeting).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
+    expect(rtk.seen('end')).toBe(false);
   });
 
   it('still auto-ends when the last participant leaves and RealtimeKit reports the room empty', async () => {
@@ -339,12 +322,12 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
 
     expect(res.status).toBe(200);
-    expect(getLiveParticipantCount).toHaveBeenCalledWith(expect.anything(), CF_APP_ID);
+    expect(rtk.seen('live', CF_APP_ID)).toBe(true);
     const session = await loadSession(sessionId);
     expect(session.status).toBe('ended');
     expect(session.participants?.every((p) => !!p.leftAt)).toBe(true);
     expect((await loadMeeting(meetingId)).activeSessionId).toBeNull();
-    expect(endMeeting).toHaveBeenCalledTimes(1);
+    expect(rtk.calls('end')).toHaveLength(1);
   });
 
   it('does not end or kick when our list says everyone left but RealtimeKit still has people in the room', async () => {
@@ -354,7 +337,7 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
       participant(ORGANIZER, { leftAt: new Date().toISOString() }),
       participant(GUEST),
     ]);
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    rtk.state.defaultLive = 1;
     const { request } = appFor(GUEST, 'sessions:read');
 
     const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
@@ -366,21 +349,21 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     expect(session.endedAt).toBeNull();
     expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeTruthy();
     expect((await loadMeeting(meetingId)).activeSessionId).toBe(sessionId);
-    expect(kickAllParticipants).not.toHaveBeenCalled();
-    expect(endMeeting).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
+    expect(rtk.seen('end')).toBe(false);
   });
 
   it('keeps the session when RealtimeKit cannot be asked', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { sessionId } = await seed([participant(GUEST)]);
-    vi.mocked(getLiveParticipantCount).mockRejectedValue(new Error('Failed to get RTK active session: 500'));
+    rtk.state.failures.set('live', 403);
     const { request } = appFor(GUEST, 'sessions:read');
 
     const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
 
     expect(res.status).toBe(200);
     expect((await loadSession(sessionId)).status).toBe('active');
-    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
     expect(errorSpy).toHaveBeenCalledWith(
       '[MeetingLifecycle] RTK live participant check failed, keeping the session',
       expect.objectContaining({ sessionId, cfAppId: CF_APP_ID }),
@@ -415,7 +398,7 @@ describe('stale-session cleanup', () => {
 
   it('GET /active returns the session instead of ending it while people are still in the room', async () => {
     const { meetingId, sessionId } = await seedAbandoned();
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    rtk.state.defaultLive = 2;
     const { request } = appFor('user_late', 'sessions:read');
 
     const res = await request(`/api/meeting-sessions/active?meetingId=${meetingId}`);
@@ -424,13 +407,13 @@ describe('stale-session cleanup', () => {
     const body = (await res.json()) as { data: { id: string; status: string } | null };
     expect(body.data).toMatchObject({ id: sessionId, status: 'active' });
     expect((await loadSession(sessionId)).status).toBe('active');
-    expect(kickAllParticipants).not.toHaveBeenCalled();
-    expect(endMeeting).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
+    expect(rtk.seen('end')).toBe(false);
   });
 
   it('POST /start reports a conflict instead of ending a session people are still in', async () => {
     const { meetingId, sessionId } = await seedAbandoned();
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    rtk.state.defaultLive = 2;
     const { request } = appFor('user_late', 'sessions:read', 'sessions:create');
 
     const res = await postJson(request, '/api/meeting-sessions/start', { meetingId });
@@ -438,7 +421,7 @@ describe('stale-session cleanup', () => {
     expect(res.status).toBe(409);
     expect((await loadSession(sessionId)).status).toBe('active');
     expect((await loadMeeting(meetingId)).activeSessionId).toBe(sessionId);
-    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick-all')).toBe(false);
   });
 });
 
@@ -458,10 +441,11 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: true } });
-    expect(kickParticipants).toHaveBeenCalledTimes(1);
-    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
-      participantIds: ['cf_guest_jane'],
-    });
+    expect(rtk.calls('kick')).toHaveLength(1);
+    expect(rtk.calls('kick').map((call) => [call.room, call.body])).toContainEqual([
+      CF_APP_ID,
+      { participant_ids: ['cf_guest_jane'], custom_participant_ids: [] },
+    ]);
 
     const session = await loadSession(sessionId);
     expect(session.status).toBe('active');
@@ -487,9 +471,10 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: true } });
-    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
-      participantIds: ['cf_guest_jane'],
-    });
+    expect(rtk.calls('kick').map((call) => [call.room, call.body])).toContainEqual([
+      CF_APP_ID,
+      { participant_ids: ['cf_guest_jane'], custom_participant_ids: [] },
+    ]);
   });
 
   it('merges into existing metadata instead of overwriting it', async () => {
@@ -519,7 +504,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
 
     expect(res.status).toBe(200);
-    expect(kickParticipants).toHaveBeenCalledTimes(1);
+    expect(rtk.calls('kick')).toHaveLength(1);
   });
 
   it('forbids a non-organizer without sessions:update and changes nothing', async () => {
@@ -529,7 +514,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
 
     expect(res.status).toBe(403);
-    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick')).toBe(false);
     const session = await loadSession(sessionId);
     expect(session.metadata).toBeNull();
     expect(session.participants?.find((p) => p.userId === GUEST_USER_ID)?.leftAt).toBeUndefined();
@@ -545,7 +530,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: true } });
-    expect(kickParticipants).toHaveBeenCalledTimes(1);
+    expect(rtk.calls('kick')).toHaveLength(1);
     const second = await loadSession(sessionId);
     expect(second.metadata).toEqual(first.metadata);
     expect(second.participants).toEqual(first.participants);
@@ -562,7 +547,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: true } });
-    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick')).toBe(false);
     expect(isGuestRemovedFromSession((await loadSession(sessionId)).metadata, GUEST_EMAIL)).toBe(true);
   });
 
@@ -574,7 +559,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: false } });
-    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick')).toBe(false);
     expect((await loadSession(sessionId)).metadata).toBeNull();
   });
 
@@ -585,7 +570,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     const res = await postJson(request, removePath(sessionId), { participantId: `cf_${ORGANIZER}` });
 
     expect(res.status).toBe(400);
-    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick')).toBe(false);
     expect((await loadSession(sessionId)).participants?.every((p) => !p.leftAt)).toBe(true);
   });
 
@@ -596,7 +581,7 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     const res = await postJson(request, removePath(sessionId), { participantId: `cf_${GUEST}` });
 
     expect(res.status).toBe(400);
-    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(rtk.seen('kick')).toBe(false);
   });
 
   it('kicks a workspace member and stamps leftAt without recording a block', async () => {
@@ -607,9 +592,10 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: false } });
-    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
-      participantIds: [`cf_${GUEST}`],
-    });
+    expect(rtk.calls('kick').map((call) => [call.room, call.body])).toContainEqual([
+      CF_APP_ID,
+      { participant_ids: [`cf_${GUEST}`], custom_participant_ids: [] },
+    ]);
     const session = await loadSession(sessionId);
     expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeTruthy();
     expect(session.metadata).toBeNull();
@@ -625,14 +611,15 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
-      participantIds: [`cf_${GUEST}`],
-    });
+    expect(rtk.calls('kick').map((call) => [call.room, call.body])).toContainEqual([
+      CF_APP_ID,
+      { participant_ids: [`cf_${GUEST}`], custom_participant_ids: [] },
+    ]);
   });
 
   it('persists the removal and still succeeds when the RTK kick fails', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(kickParticipants).mockRejectedValue(new Error('Failed to kick RTK participants: 404'));
+    rtk.state.failures.set('kick', 404);
     const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()]);
     const { request } = appFor(ORGANIZER, 'sessions:read');
 
@@ -680,14 +667,8 @@ beforeEach(() => {
 });
 
 const superseded = () => realtime.published.filter((e) => e.event === 'call_superseded');
-const removedFrom = () => vi.mocked(removeParticipant).mock.calls.map((c) => [c[1], c[2]]);
-const killedRooms = () => vi.mocked(kickAllParticipants).mock.calls.map((c) => c[1]);
-
-async function loadChatCall(callId: string) {
-  const [row] = await db.select().from(schema.chatCalls).where(eq(schema.chatCalls.id, callId)).limit(1);
-  if (!row) throw new Error('call missing');
-  return row;
-}
+const removedFrom = () => rtk.removed();
+const killedRooms = () => rtk.killed();
 
 describe('POST /api/meeting-sessions/:id/join · one live call at a time', () => {
   const join = async (sessionId: string) => {
@@ -697,17 +678,11 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
     return res;
   };
 
-  it('leaves every other meeting session and chat call, never the session just joined', async () => {
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(1); // others stay connected
+  it('leaves every other meeting session, never the session just joined', async () => {
+    rtk.state.defaultLive = 1; // others stay connected
     const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
     const other = await seed([participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_other' })], {
       cfAppId: 'rtk_other',
-    });
-    const chat = await seedActiveChatCall(db, {
-      userId: JOINER,
-      otherUserId: GUEST,
-      cfAppId: 'rtk_chat_1',
-      cfSessionId: 'cf_joiner_chat',
     });
 
     const res = await join(target.sessionId);
@@ -715,19 +690,13 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
     expect(res.status).toBe(200);
     expect(((await res.json()) as { data: { authToken: string } }).data.authToken).toBe('tok_new');
 
-    // Dropped from the other session and from the chat call ...
+    // Dropped from the other session ...
     expect(removedFrom()).toContainEqual(['rtk_other', 'cf_joiner_other']);
-    expect(removedFrom()).toContainEqual(['rtk_chat_1', 'cf_joiner_chat']);
     const otherAfter = await loadSession(other.sessionId);
     expect(otherAfter.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
     expect(otherAfter.participants?.find((p) => p.userId === ORGANIZER)?.leftAt).toBeUndefined();
     expect(otherAfter.status).toBe('active');
-    const chatAfter = await loadChatCall(chat.callId);
-    expect(chatAfter.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
-    expect(chatAfter.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeUndefined();
-    expect(chatAfter.status).toBe('active');
     expect(killedRooms()).not.toContain('rtk_other');
-    expect(killedRooms()).not.toContain('rtk_chat_1');
 
     // ... and told why, as the contract says.
     // (`_access` is how the hub keeps the event on the user's own sockets; it strips it.)
@@ -741,7 +710,6 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
           meetingId: other.meetingId,
           cfSessionId: 'cf_joiner_other',
         },
-        { topic: `chat.user.${JOINER}`, kind: 'chat', id: chat.callId, cfSessionId: 'cf_joiner_chat' },
       ]),
     );
 
@@ -754,7 +722,7 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
   });
 
   it('never ends a meeting the evicted organizer leaves while others are still in it', async () => {
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    rtk.state.defaultLive = 2;
     const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
     // The joiner organises the other meeting.
     const other = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_org' }), participant(GUEST)], {
@@ -771,7 +739,7 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
     expect(after.status).toBe('active');
     expect(after.endedAt).toBeNull();
     expect(killedRooms()).not.toContain('rtk_other_org');
-    expect(vi.mocked(endMeeting).mock.calls.map((c) => c[1])).not.toContain('rtk_other_org');
+    expect(rtk.calls('end').map((call) => call.room)).not.toContain('rtk_other_org');
     expect((await loadMeeting(other.meetingId)).activeSessionId).toBe(other.sessionId);
   });
 
@@ -779,14 +747,14 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
     const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
 
     // Still counting the connection that was just removed: stays.
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    rtk.state.defaultLive = 1;
     const busy = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_busy' })], { cfAppId: 'rtk_busy' });
     await join(target.sessionId);
     expect((await loadSession(busy.sessionId)).status).toBe('active');
     expect(killedRooms()).not.toContain('rtk_busy');
 
     // Empty: ended, as /leave would.
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(0);
+    rtk.state.defaultLive = 0;
     const empty = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_empty' })], { cfAppId: 'rtk_empty' });
     await join(target.sessionId);
     expect((await loadSession(empty.sessionId)).status).toBe('ended');
@@ -824,7 +792,7 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
   });
 
   it('does not touch the connection when RealtimeKit hands back the id that is already stored', async () => {
-    vi.mocked(addParticipant).mockResolvedValue({ id: 'cf_joiner_same', token: 'tok_same' } as never);
+    rtk.state.participant = { id: 'cf_joiner_same', token: 'tok_same' };
     const target = await seed(
       [participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_same' })],
       { cfAppId: 'rtk_target' },
@@ -865,40 +833,34 @@ describe('POST /api/meeting-sessions/:id/join · one live call at a time', () =>
     const res = await join(target.sessionId);
 
     expect(((await res.json()) as { data: { reason?: string } }).data.reason).toBe('host_must_join_first');
-    expect(addParticipant).not.toHaveBeenCalled();
-    expect(removeParticipant).not.toHaveBeenCalled();
+    expect(rtk.seen('add')).toBe(false);
+    expect(rtk.seen('remove')).toBe(false);
     expect((await loadSession(other.sessionId)).participants?.[0]?.leftAt).toBeUndefined();
   });
 
   it('leaves the current call alone when RealtimeKit refuses the join', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(addParticipant).mockRejectedValue(new Error('RTK 500'));
+    rtk.state.failures.set('add', 422);
     const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
     const other = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_keep2' })], { cfAppId: 'rtk_keep2' });
 
     const res = await join(target.sessionId);
 
     expect(res.status).toBe(500);
-    expect(removeParticipant).not.toHaveBeenCalled();
+    expect(rtk.seen('remove')).toBe(false);
     expect((await loadSession(other.sessionId)).participants?.[0]?.leftAt).toBeUndefined();
   });
 });
 
 describe('POST /api/meeting-sessions/start?join=true · one live call at a time', () => {
-  it('leaves every other meeting session and chat call, never the session it just started', async () => {
-    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
-    vi.mocked(createMeeting).mockResolvedValue({ id: 'rtk_started' } as never);
-    vi.mocked(addParticipant).mockResolvedValue({ id: 'cf_joiner_started', token: 'tok_started' } as never);
+  it('leaves every other meeting session, never the session it just started', async () => {
+    rtk.state.defaultLive = 1;
+    rtk.state.meetingId = 'rtk_started';
+    rtk.state.participant = { id: 'cf_joiner_started', token: 'tok_started' };
     const meetingId = generateId('mtg');
     await db.insert(schema.meetings).values({ id: meetingId, title: 'Fresh', organizerId: JOINER, status: 'scheduled' });
     const other = await seed([participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_other2' })], {
       cfAppId: 'rtk_other2',
-    });
-    const chat = await seedActiveChatCall(db, {
-      userId: JOINER,
-      otherUserId: GUEST,
-      cfAppId: 'rtk_chat_2',
-      cfSessionId: 'cf_joiner_chat2',
     });
     const { request } = appFor(JOINER, 'sessions:read', 'sessions:create');
 
@@ -908,17 +870,15 @@ describe('POST /api/meeting-sessions/start?join=true · one live call at a time'
     expect(res.status).toBe(201);
     const { sessionId } = ((await res.json()) as { data: { sessionId: string } }).data;
     expect(removedFrom()).toContainEqual(['rtk_other2', 'cf_joiner_other2']);
-    expect(removedFrom()).toContainEqual(['rtk_chat_2', 'cf_joiner_chat2']);
     expect(removedFrom().map(([room]) => room)).not.toContain('rtk_started');
     expect((await loadSession(other.sessionId)).participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
-    expect((await loadChatCall(chat.callId)).participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
     const started = await loadSession(sessionId);
     expect(started.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeUndefined();
-    expect(superseded().map((e) => e.data.id)).toEqual(expect.arrayContaining([other.sessionId, chat.callId]));
+    expect(superseded().map((e) => e.data.id)).toEqual(expect.arrayContaining([other.sessionId]));
   });
 
   it('does not leave anything when the session is started without joining', async () => {
-    vi.mocked(createMeeting).mockResolvedValue({ id: 'rtk_started_nojoin' } as never);
+    rtk.state.meetingId = 'rtk_started_nojoin';
     const meetingId = generateId('mtg');
     await db.insert(schema.meetings).values({ id: meetingId, title: 'Later', organizerId: JOINER, status: 'scheduled' });
     await seed([participant(JOINER, { cfSessionId: 'cf_joiner_still' })], { cfAppId: 'rtk_still' });
@@ -928,7 +888,7 @@ describe('POST /api/meeting-sessions/start?join=true · one live call at a time'
     await flush();
 
     expect(res.status).toBe(201);
-    expect(addParticipant).not.toHaveBeenCalled();
-    expect(removeParticipant).not.toHaveBeenCalled();
+    expect(rtk.seen('add')).toBe(false);
+    expect(rtk.seen('remove')).toBe(false);
   });
 });

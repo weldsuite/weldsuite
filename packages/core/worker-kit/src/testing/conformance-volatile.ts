@@ -40,12 +40,24 @@ interface VolatileRoute {
   outbound?: VolatileField[];
   /** A body that is not JSON (an XML download): the matches of each pattern. */
   text?: Array<{ pattern: RegExp; replacement: string }>;
+  /**
+   * And where it announces them to realtime rooms: dot paths into each
+   * publish, `{ path, body }` (`body.data.duration`).
+   */
+  realtime?: VolatileField[];
 }
 
 /** A desk phone tool token (`Bearer <claims>.<signature>`) at `path`. */
 function toolToken(path: string): VolatileField {
   return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
+
+/**
+ * WeldMeet: ending a session stamps its duration, the seconds from its start
+ * to the moment each backend ended it, so it differs when the runs straddle
+ * a second. Every route that can end one announces it.
+ */
+const MEET_SESSION_DURATION = { fields: [], realtime: [{ path: 'body.data.duration' }] };
 
 const ROUTES: VolatileRoute[] = [
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
@@ -177,6 +189,28 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
   },
   { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // WeldMeet's instant meeting reports how long each step took (and leaves the
+  // user's other sessions, which can end one).
+  {
+    method: 'POST',
+    route: '/api/meetings/start-instant',
+    fields: [{ path: 'data.timings' }],
+    realtime: MEET_SESSION_DURATION.realtime,
+  },
+  { method: 'GET', route: '/api/meeting-sessions/active', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/start', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/join', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/leave', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/end', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/participants/remove', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/webhooks/cloudflare-realtime', ...MEET_SESSION_DURATION },
+  // The legacy recording backfill reports why a workspace failed in each
+  // backend's own words (a workspace whose database can't be opened).
+  {
+    method: 'POST',
+    route: '/api/webhooks/cloudflare-realtime/backfill-recordings',
+    fields: [{ path: 'results.0.error' }],
+  },
   // WeldBooks: the exchange rates are stamped with the moment they were answered.
   { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
@@ -295,4 +329,11 @@ export function maskVolatileEvents(method: string, route: string | null, events:
   const fields = entryFor(method, route)?.events;
   if (!fields?.length) return events;
   return events.map((event) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), event));
+}
+
+/** The request's realtime publishes with the route's volatile values masked. */
+export function maskVolatileRealtime(method: string, route: string | null, publishes: unknown[]): unknown[] {
+  const fields = entryFor(method, route)?.realtime;
+  if (!fields?.length) return publishes;
+  return publishes.map((publish) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), publish));
 }

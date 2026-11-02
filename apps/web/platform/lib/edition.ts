@@ -66,6 +66,10 @@ export const EDITION_FEATURES = [
   'vat-digipoort',
   /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
   'domain-purchase',
+  /** WeldMeet transcripts and AI summaries (the MEETING_AI Workflow and RealtimeKit's own AI). */
+  'meet-transcription',
+  /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
+  'meet-recordings',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

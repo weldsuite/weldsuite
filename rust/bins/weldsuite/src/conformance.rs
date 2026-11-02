@@ -354,6 +354,14 @@ impl Pools {
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
         ));
+        // WeldMeet: the test's `MEETING_RECORDINGS` bucket and its three
+        // Workflow bindings, or none, as the worker runs without them.
+        extensions.insert(weldsuite_meet::RequestRecordings(
+            self.buckets.meeting_recordings(&context.files),
+        ));
+        extensions.insert(weldsuite_meet::RequestMeetWorkflows(
+            self.workflows.meet_workflows(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
@@ -545,6 +553,44 @@ pub(crate) async fn public_tenant(
     next: Next,
 ) -> Response {
     if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
+}
+
+/// Middleware for WeldMeet's public routes (the video provider's webhooks,
+/// the recording stream): what [`public_tenant`] inserts, and the test's
+/// other workspaces' tenant databases (`context.tenantDbs`, the backfill's
+/// per-workspace lookups) when it names any. Runs inside [`public`].
+pub(crate) async fn meet_public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        let mut tenants = HashMap::new();
+        for (reference, url) in &context.tenant_database_urls {
+            match pools.get(url) {
+                Ok(pool) => {
+                    tenants.insert(reference.clone(), pool);
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        request
+            .extensions_mut()
+            .insert(weldsuite_meet::RequestTenants(Arc::new(tenants)));
         match pools.get(&context.database_url) {
             Ok(db) => {
                 request.extensions_mut().insert(Tenant {

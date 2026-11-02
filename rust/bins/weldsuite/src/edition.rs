@@ -101,6 +101,18 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // "Stripe is not configured", as the worker without the key does).
     // Managing, transferring and external domains stay available.
     "domain-purchase",
+    // WeldMeet transcripts and summaries: Whisper and the summary model run in
+    // the worker's MEETING_AI Workflow, and the video provider's own
+    // transcript and summary are RealtimeKit's. `POST …/recording/transcribe`
+    // and `…/summarize` answer 503 as the worker without the binding does,
+    // and the AI options of a live meeting need RealtimeKit.
+    "meet-transcription",
+    // WeldMeet recordings: RealtimeKit's recorder uploads the file and the
+    // worker's MEETING_RECORDING_COPY Workflow copies it into the private
+    // MEETING_RECORDINGS bucket. On LiveKit that would be an Egress into the
+    // files store, which isn't built: access, streaming and deletes answer
+    // 503 "Recording storage is not configured".
+    "meet-recordings",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
