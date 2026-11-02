@@ -6459,6 +6459,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
       typescript:
         specifier: ^5.7
         version: 5.9.2

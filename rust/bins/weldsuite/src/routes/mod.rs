@@ -116,6 +116,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = stash(router, state);
     let router = books::api(router, state);
     let router = host::api(router, state);
+    let router = panel(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -317,6 +318,79 @@ fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
             .clone()
         },
     }
+}
+
+/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects`.
+fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("panel") {
+        return router;
+    }
+    let conformance = cfg!(feature = "conformance");
+    let panel = weldsuite_panel::PanelState {
+        events: state.infra.events.clone(),
+        // The collector reads the cache; without Valkey it lives in this
+        // process (one replica's worth), as upload tokens do.
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        collector_url: std::env::var("PANEL_COLLECTOR_URL")
+            .ok()
+            .filter(|url| !url.is_empty()),
+    };
+    router.nest(
+        "/panel/projects",
+        weldsuite_panel::router(panel, &state.permissions),
+    )
+}
+
+/// WeldPanel's public collector (panel-ingest on Global): under
+/// `/public/panel`, and `/s.js`, `/c/{token}` and `/e` at the root of every
+/// host, outside the server's first-party CORS (it answers any origin
+/// itself). Rows go to the events stream on the bus, the day's salt and
+/// counts to the cache. Conformance builds take the test's bindings.
+pub(crate) fn panel_collector(state: &AppState) -> Router {
+    if !mounts("panel") {
+        return Router::new();
+    }
+    let conformance = cfg!(feature = "conformance");
+    let cache = (!conformance).then(|| upload_token_cache(state));
+    let sdk = std::env::var("PANEL_SDK_FILE")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "/srv/panel/panel.global.js".to_owned());
+    let collector = weldsuite_panel::CollectorState::new(
+        state.infra.events.clone(),
+        cache.clone(),
+        (!conformance).then(|| state.workspaces.master().clone()),
+        cache.clone().map(|cache| {
+            Arc::new(weldsuite_panel::CacheSalt::new(cache)) as Arc<dyn weldsuite_panel::SaltSource>
+        }),
+        cache.map(|cache| {
+            Arc::new(weldsuite_panel::CacheUsage::new(cache))
+                as Arc<dyn weldsuite_panel::UsageCounter>
+        }),
+        // Conformance builds write to the test's stream only (per request).
+        state.infra.events.bus().filter(|_| !conformance).map(|bus| {
+            Arc::new(weldsuite_panel::BusSink::new(
+                Arc::clone(bus),
+                state.infra.panel_events_subject.clone(),
+            )) as Arc<dyn weldsuite_panel::EventSink>
+        }),
+        state.environment.clone(),
+        (!conformance)
+            .then(|| weldsuite_panel::collector::SdkBundle::load(&sdk))
+            .flatten()
+            .map(Arc::new),
+        state.trusted_proxies,
+    );
+    let prefixed = weldsuite_panel::collector::router(collector.clone());
+    #[cfg(feature = "conformance")]
+    let prefixed = prefixed.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public,
+    ));
+    Router::new()
+        .nest("/public/panel", prefixed)
+        .merge(weldsuite_panel::collector::root_router(collector))
 }
 
 /// WeldSocial (`weldsuite-social`): social-api's `/api/social-*`.

@@ -2621,6 +2621,36 @@
         "rust/modules/reach/",
         "rust/crates/reach-domain/"
       ]
+    },
+    {
+      "name": "panel",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/projects/projects.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel.ts",
+        "packages/sdk/panel-sdk/src/install.ts",
+        "packages/sdk/panel-sdk/src/host.ts",
+        "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "panel: collector",
+      "module": "panel",
+      "workspace": "apps/workers/panel-ingest",
+      "tests": [
+        "src/conformance.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-ingest/src/",
+        "packages/domains/panel/src/",
+        "packages/sdk/panel-sdk/src/",
+        "rust/modules/panel/"
+      ]
     }
   ]
 }

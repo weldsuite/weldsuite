@@ -18,7 +18,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import type { PanelProjectSettings } from '@weldsuite/db/schema';
@@ -31,7 +31,8 @@ const state = vi.hoisted(() => ({ master: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.master };
+  // Conformance mode serves the same master database to the Rust backend.
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.master) };
 });
 
 import projectsRoutes from './index';
@@ -63,15 +64,30 @@ let master: AnyMasterDatabase;
 let events: EntityEventMessage[] = [];
 const store = new Map<string, string>();
 
-const kv = {
-  get: async (key: string) => store.get(key) ?? null,
-  put: async (key: string, value: string) => {
-    store.set(key, value);
-  },
-  delete: async (key: string) => {
-    store.delete(key);
-  },
-} as unknown as KVNamespace;
+/**
+ * A KV namespace over `entries`, whose writes or deletes can fail on purpose.
+ * `fork()` is for conformance mode: the TypeScript run of a write gets a copy
+ * that fails the same way, while the Rust backend writes to this one.
+ */
+function memoryKv(entries: Map<string, string>, fail: { put?: boolean; delete?: boolean } = {}): KVNamespace {
+  const unavailable = () => {
+    throw new Error('kv unavailable');
+  };
+  return {
+    get: async (key: string) => entries.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      if (fail.put) unavailable();
+      entries.set(key, value);
+    },
+    delete: async (key: string) => {
+      if (fail.delete) unavailable();
+      entries.delete(key);
+    },
+    fork: () => memoryKv(new Map(entries), fail),
+  } as unknown as KVNamespace;
+}
+
+const kv = memoryKv(store);
 
 const queue = {
   send: async (message: EntityEventMessage) => {
@@ -104,6 +120,7 @@ function app(grants: string[] = ADMIN, options: AppOptions = {}) {
     context: {
       permissions: permissions(...grants),
       tenantDb: db,
+      masterDb: master as unknown as Database,
       userId: 'user_alice',
       orgId: workspace.clerkOrgId,
       workspaceId: workspace.workspaceId,
@@ -628,14 +645,7 @@ describe('workspace isolation', () => {
 describe('when the collector cannot be told', () => {
   it('leaves no project behind if registering a new one fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const failing = {
-      ...kv,
-      get: kv.get.bind(kv),
-      put: async () => {
-        throw new Error('kv unavailable');
-      },
-      delete: kv.delete.bind(kv),
-    } as unknown as KVNamespace;
+    const failing = memoryKv(store, { put: true });
 
     const res = await app(ADMIN, { kv: failing }).request(BASE, json({ name: 'Unlucky' }));
     expect(res.status).toBe(500);
@@ -652,13 +662,7 @@ describe('when the collector cannot be told', () => {
   it('repairs the collector on the next change after a failed one', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const project = await newProject();
-    const failing = {
-      get: kv.get.bind(kv),
-      put: async () => {
-        throw new Error('kv unavailable');
-      },
-      delete: kv.delete.bind(kv),
-    } as unknown as KVNamespace;
+    const failing = memoryKv(store, { put: true });
 
     const failed = await app(ADMIN, { kv: failing }).request(
       `${BASE}/${project.id}/settings`,
@@ -677,13 +681,7 @@ describe('when the collector cannot be told', () => {
 });
 
 describe('registry sync under failures and races', () => {
-  const failingDelete = {
-    get: kv.get.bind(kv),
-    put: kv.put.bind(kv),
-    delete: async () => {
-      throw new Error('kv unavailable');
-    },
-  } as unknown as KVNamespace;
+  const failingDelete = memoryKv(store, { delete: true });
 
   async function tenantRow(id: string) {
     const [row] = await db.select().from(panelProjects).where(eq(panelProjects.id, id));

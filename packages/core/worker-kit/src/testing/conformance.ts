@@ -80,6 +80,12 @@ import {
   takeRustServiceCalls,
 } from './service-binding-bridge';
 import {
+  type PipelineCall,
+  pipelineUrls,
+  recordTypeScriptPipelineCalls,
+  takeRustPipelineCalls,
+} from './pipeline-bridge';
+import {
   type OutboundCall,
   outboundBridgeUrl,
   recordOutbound,
@@ -275,6 +281,10 @@ export const FORWARDED_ENV = [
   'MAILPOOL_WEBHOOK_SECRET',
   'WELDREACH_WARMUP_KEY',
   'REACH_INBOUND_DOMAIN',
+  // WeldPanel: the collector origin the install snippets point at, and the
+  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  'PANEL_COLLECTOR_URL',
+  'PANEL_SDK_FILE',
 ] as const;
 
 /**
@@ -376,6 +386,8 @@ export interface SideEffects {
   workflows?: WorkflowCall[];
   /** Calls over service bindings (`BOOKS_INTERNAL`, ./service-binding-bridge.ts). */
   services?: ServiceCall[];
+  /** Rows written to stream bindings (`PANEL_EVENTS`, ./pipeline-bridge.ts). */
+  pipelines?: PipelineCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -1088,6 +1100,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     workflows: await workflowUrls(env),
     // Its service bindings (`BOOKS_INTERNAL`).
     services: await serviceBindingUrls(env),
+    // Its stream bindings (`PANEL_EVENTS`).
+    pipelines: await pipelineUrls(env),
   };
 }
 
@@ -1122,6 +1136,7 @@ async function runBoth(
   takeRustLedgerCalls();
   takeRustWorkflowCalls();
   takeRustServiceCalls();
+  takeRustPipelineCalls();
 
   // The Hono app's run, its `waitUntil` work included, with its outbound calls,
   // its customer mail and its ledger calls.
@@ -1131,9 +1146,10 @@ async function runBoth(
     const ledger = recordTypeScriptLedgerCalls(sends.env);
     const workflows = recordTypeScriptWorkflowCalls(ledger.env);
     const services = recordTypeScriptServiceCalls(workflows.env);
+    const pipelines = recordTypeScriptPipelineCalls(services.env);
     const { result, calls } = await recordOutbound(async () => {
       // The test's own env when there was nothing to wrap, as before.
-      const ts = await runTypeScript(db, services.env === base ? env : services.env);
+      const ts = await runTypeScript(db, pipelines.env === base ? env : pipelines.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
@@ -1145,6 +1161,7 @@ async function runBoth(
         ...mailEffects(sends.finish(), ledger.finish()),
         ...workflowEffects(workflows.finish()),
         ...serviceEffects(services.finish()),
+        ...pipelineEffects(pipelines.finish()),
       },
       tsMail: request.sideEffects.lastMail(),
     };
@@ -1162,6 +1179,7 @@ async function runBoth(
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
         ...workflowEffects(takeRustWorkflowCalls()),
         ...serviceEffects(takeRustServiceCalls()),
+        ...pipelineEffects(takeRustPipelineCalls()),
       },
       rustMail: side.mail,
     };
@@ -1226,6 +1244,11 @@ function workflowEffects(calls: WorkflowCall[]): Pick<SideEffects, 'workflows'> 
 /** Service binding calls as a side effect, present only when there were any. */
 function serviceEffects(calls: ServiceCall[]): Pick<SideEffects, 'services'> {
   return calls.length > 0 ? { services: sortServiceCalls(calls) } : {};
+}
+
+/** Stream writes as a side effect, present only when there were any. */
+function pipelineEffects(calls: PipelineCall[]): Pick<SideEffects, 'pipelines'> {
+  return calls.length > 0 ? { pipelines: calls } : {};
 }
 
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */

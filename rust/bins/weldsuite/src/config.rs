@@ -222,6 +222,12 @@ pub(crate) struct InfraConfig {
     pub(crate) nats_token: Option<String>,
     pub(crate) nats_stream: String,
     pub(crate) nats_subject_prefix: String,
+    /// WeldPanel's events stream and subject prefix
+    /// (`NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`), and how long
+    /// it keeps rows (`NATS_PANEL_EVENTS_MAX_AGE_DAYS`, 0 = no age limit).
+    pub(crate) nats_panel_stream: String,
+    pub(crate) nats_panel_subject: String,
+    pub(crate) nats_panel_max_age_days: u64,
     /// `NATS_ENSURE_STREAMS=true`: create or update the stream at start.
     pub(crate) nats_ensure_streams: bool,
     pub(crate) flags: FlagSourceKind,
@@ -463,6 +469,13 @@ impl InfraConfig {
                 .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_ENTITY_EVENTS_STREAM.to_owned()),
             nats_subject_prefix: lookup("NATS_ENTITY_EVENTS_SUBJECT")
                 .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned()),
+            nats_panel_stream: lookup("NATS_PANEL_EVENTS_STREAM")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_STREAM.to_owned()),
+            nats_panel_subject: lookup("NATS_PANEL_EVENTS_SUBJECT")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned()),
+            nats_panel_max_age_days: lookup("NATS_PANEL_EVENTS_MAX_AGE_DAYS")
+                .and_then(|days| days.parse().ok())
+                .unwrap_or(0),
             nats_ensure_streams: lookup("NATS_ENSURE_STREAMS").as_deref() == Some("true"),
             flags,
             flags_refresh: Duration::from_secs(refresh_seconds),

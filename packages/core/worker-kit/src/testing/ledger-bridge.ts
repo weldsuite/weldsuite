@@ -19,8 +19,23 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The namespaces the bridge serves. */
-export const LEDGER_BINDINGS = ['OUTBOUND_LEDGER', 'OUTBOUND_PLATFORM', 'PORTAL_RATE_LIMITER'] as const;
+export const LEDGER_BINDINGS = [
+  'OUTBOUND_LEDGER',
+  'OUTBOUND_PLATFORM',
+  'PORTAL_RATE_LIMITER',
+  // WeldPanel's collector: the daily salt and the per-workspace event counts.
+  'PANEL_SALT',
+  'PANEL_USAGE',
+] as const;
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
+
+/**
+ * Namespaces whose calls are served but not compared: `PANEL_SALT.today()` is
+ * a read an isolate caches for the day (the Worker calls it once per isolate,
+ * the Rust server once per request in conformance), and its answer shows in
+ * the rows both runs write.
+ */
+const UNCOMPARED = new Set<string>(['PANEL_SALT']);
 
 interface NamespaceLike {
   idFromName(name: string): unknown;
@@ -80,7 +95,7 @@ async function handle(env: Record<string, unknown>, req: IncomingMessage, res: S
     res.writeHead(404).end();
     return;
   }
-  rustCalls.push(masked(call));
+  if (!UNCOMPARED.has(call.binding)) rustCalls.push(masked(call));
   try {
     const stub = ns.get(ns.idFromName(call.name));
     const method = stub[call.method];
@@ -135,7 +150,7 @@ export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
             const value = Reflect.get(target, prop, receiver) as unknown;
             if (typeof prop !== 'string' || typeof value !== 'function') return value;
             return (...args: unknown[]) => {
-              calls.push(masked({ binding, name: ref.name, method: prop, args }));
+              if (!UNCOMPARED.has(binding)) calls.push(masked({ binding, name: ref.name, method: prop, args }));
               return (value as (...a: unknown[]) => unknown).apply(target, args);
             };
           },

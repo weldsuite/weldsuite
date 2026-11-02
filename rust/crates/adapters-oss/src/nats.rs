@@ -11,6 +11,10 @@ use weldsuite_ports::{BusMessage, EventBus, PortError};
 
 /// The stream entity events go to unless configured otherwise.
 pub const DEFAULT_ENTITY_EVENTS_STREAM: &str = "ENTITY_EVENTS";
+/// WeldPanel's events stream (`events_v1` rows from the collector).
+pub const DEFAULT_PANEL_EVENTS_STREAM: &str = "PANEL_EVENTS";
+/// Its subject prefix; the workspace id is the last token.
+pub const DEFAULT_PANEL_EVENTS_SUBJECT: &str = "panel.events.v1";
 
 /// How to reach NATS.
 #[derive(Clone, Default)]
@@ -99,6 +103,21 @@ pub fn entity_events_stream_config(name: &str, subject_prefix: &str) -> stream::
         subjects: vec![format!("{subject_prefix}.>")],
         storage: stream::StorageType::File,
         max_age: Duration::from_hours(7 * 24),
+        duplicate_window: Duration::from_secs(120),
+        ..stream::Config::default()
+    }
+}
+
+/// WeldPanel's events stream: every subject under `subject_prefix`, on disk,
+/// deduplicated on `<project>:<event_id>` for two minutes (a batch the SDK
+/// sends again). Kept until `max_age` (zero: no age limit), as the Basin
+/// table keeps rows on Global; the store that reports read from consumes it.
+pub fn panel_events_stream_config(name: &str, subject_prefix: &str, max_age: Duration) -> stream::Config {
+    stream::Config {
+        name: name.to_owned(),
+        subjects: vec![format!("{subject_prefix}.>")],
+        storage: stream::StorageType::File,
+        max_age,
         duplicate_window: Duration::from_secs(120),
         ..stream::Config::default()
     }

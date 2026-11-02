@@ -3866,6 +3866,7 @@ dependencies = [
  "weldsuite-mail-inbound",
  "weldsuite-meet",
  "weldsuite-migrations",
+ "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
  "weldsuite-pipeline",
@@ -4949,6 +4950,35 @@ dependencies = [
  "tracing",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-panel"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "http",
+ "http-body-util",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 

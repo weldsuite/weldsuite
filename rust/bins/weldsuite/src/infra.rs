@@ -52,6 +52,8 @@ pub(crate) struct Infra {
     pub(crate) identity: Option<Arc<dyn Identity>>,
     /// Workspace databases on the CloudNativePG shards, when configured.
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
+    /// The subject prefix of WeldPanel's events stream, on the bus `events` sends to.
+    pub(crate) panel_events_subject: String,
 }
 
 impl std::fmt::Debug for Infra {
@@ -88,6 +90,7 @@ impl Infra {
             flags: Arc::new(DefaultFlags),
             identity: None,
             provisioner: None,
+            panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
         }
     }
 }
@@ -132,6 +135,12 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
         bus.ensure_stream(entity_events_stream_config(
             &config.nats_stream,
             &config.nats_subject_prefix,
+        ))
+        .await?;
+        bus.ensure_stream(weldsuite_adapters_oss::panel_events_stream_config(
+            &config.nats_panel_stream,
+            &config.nats_panel_subject,
+            std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60),
         ))
         .await?;
     }
@@ -284,5 +293,6 @@ pub(crate) async fn connect(
         mail,
         identity,
         provisioner,
+        panel_events_subject: config.nats_panel_subject.clone(),
     })
 }
