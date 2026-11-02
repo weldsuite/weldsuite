@@ -143,6 +143,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/desk-sla-sweep",
             axum::routing::post(crate::conformance::desk_sla_sweep),
+        )
+        .route(
+            "/__conformance/cron/books-tax-reminders",
+            axum::routing::post(crate::conformance::books_tax_reminders),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.

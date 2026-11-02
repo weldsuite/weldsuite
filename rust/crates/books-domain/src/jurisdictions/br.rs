@@ -1,7 +1,9 @@
 //! Brazil (`jurisdictions/br` and books-api's `br-entity-setup`): CNPJ, CPF
 //! and Inscrição Estadual checks, legal forms and regimes, states, CEP, Pix
 //! keys, and the entity settings (`jurisdictionSettings`) a Brazilian entity
-//! is created or patched with.
+//! is created or patched with. The Pix BR Code an invoice prints is [`pix`].
+
+pub mod pix;
 
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};

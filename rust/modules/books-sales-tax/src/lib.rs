@@ -15,6 +15,7 @@ mod certificates;
 mod common;
 mod jurisdictions;
 mod nexus;
+pub mod reminders;
 mod reports;
 mod returns;
 mod rules;

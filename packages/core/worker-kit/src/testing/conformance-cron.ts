@@ -17,6 +17,12 @@
  * harness hasn't seen yet is a new, empty index: the master rows of that
  * kind are cleared for Rust too. The job's one-time seed flag lives in the
  * test's KV namespace; each namespace is its own seed scope on the Rust side.
+ *
+ * A job that keeps no due index and no seed flag (WeldBooks' tax reminders,
+ * which the test runs on one tenant with its own markers and notifier)
+ * leaves `dueIndex`, `kv` and `masterDb` out and passes what it runs with
+ * as `input`; its result carries what the test checks (the notices sent,
+ * the markers afterwards).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,16 +52,19 @@ interface D1Like {
 
 export interface ConformanceSweep<R> {
   /** The job as the Rust server names it: `/__conformance/cron/<job>`. */
-  job: 'sign-lifecycle' | 'calendar-replan' | 'desk-sla-sweep';
+  job: 'sign-lifecycle' | 'calendar-replan' | 'desk-sla-sweep' | 'books-tax-reminders';
   now: Date;
   tenantDb: Database;
-  masterDb: Database;
+  /** The master database, for a job that keeps a due index. */
+  masterDb?: Database;
   /** The job's env (the forwarded values go to Rust). */
   env: Record<string, unknown>;
-  /** The test's due index and the kind the job keeps in it. */
-  dueIndex: { d1: D1Like; kind: string };
-  /** The test's KV namespace, where the job keeps its seed flag. */
-  kv: object;
+  /** The test's due index and the kind the job keeps in it (a job that keeps one). */
+  dueIndex?: { d1: D1Like; kind: string };
+  /** The test's KV namespace, where the job keeps its seed flag (a job that has one). */
+  kv?: object;
+  /** What else the job runs with, sent to Rust as is (the test's markers, say). */
+  input?: unknown;
   /**
    * The test set the job's seed flag in `kv` itself (not by an earlier tick):
    * Rust's seed scope starts with it set too.
@@ -107,7 +116,8 @@ function eventShape(event: Record<string, unknown>) {
   };
 }
 
-async function dueTimes(opts: ConformanceSweep<unknown>, master: PGliteClient) {
+async function dueTimes(opts: ConformanceSweep<unknown>, master: PGliteClient | null) {
+  if (!opts.dueIndex || !master) return { typescript: [], rust: [] };
   const d1 = await opts.dueIndex.d1
     .prepare('SELECT next_due_at FROM workspace_due_index WHERE kind = ?')
     .bind(opts.dueIndex.kind)
@@ -128,8 +138,8 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
   if (!target) return opts.runTypeScript(opts.tenantDb);
 
   const tenant = clientOf(opts.tenantDb, 'tenant');
-  const master = clientOf(opts.masterDb, 'master');
-  if (!seenIndexes.has(opts.dueIndex.d1)) {
+  const master = opts.masterDb ? clientOf(opts.masterDb, 'master') : null;
+  if (opts.dueIndex && master && !seenIndexes.has(opts.dueIndex.d1)) {
     seenIndexes.add(opts.dueIndex.d1);
     await master.query('delete from workspace_due_index where kind = $1', [opts.dueIndex.kind]);
   }
@@ -151,11 +161,12 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
       body: JSON.stringify({
         now: opts.now.toISOString(),
         databaseUrl: await databaseUrlFor(tenant),
-        masterDatabaseUrl: await databaseUrlFor(master),
+        ...(master ? { masterDatabaseUrl: await databaseUrlFor(master) } : {}),
         env: forwardedEnv(opts.env),
         workspaces: opts.workspaces,
-        seedScope: seedScope(opts.kv),
+        ...(opts.kv ? { seedScope: seedScope(opts.kv) } : {}),
         seeded: opts.seeded ?? false,
+        ...(opts.input === undefined ? {} : { input: opts.input }),
       }),
     });
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);

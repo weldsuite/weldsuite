@@ -10,8 +10,8 @@
 //!   auto-scheduled task events whose start slipped into the past
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
 //! - `books-sweep` (daily, 03:00 UTC): WeldBooks' overdue invoices, due
-//!   recurring invoices, the day's ECB rates and the fixed assets'
-//!   depreciation due, in every workspace that used books
+//!   recurring invoices, the day's ECB rates, the US tax reminders and the
+//!   fixed assets' depreciation due, in every workspace that used books
 //!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
@@ -327,7 +327,17 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
-    let books = crate::routes::books::sweep_state(&master, &config.keyring);
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let mut books = crate::routes::books::sweep_state(&master, &config.keyring);
+    // The tax reminders keep their markers in the cache and publish in-app
+    // notifications.
+    books.cache = infra.cache.clone();
+    books.realtime = infra.realtime.clone();
     let now = time::OffsetDateTime::now_utc();
     // Due again in a day; a little less, so tomorrow's run at the same hour finds it.
     let next = now + time::Duration::hours(23);
@@ -347,7 +357,7 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     .tenant(&workspace_id)
                     .await
                     .map_err(|error| error.to_string())?;
-                let swept = crate::routes::books::sweep_tenant(&tenant.db, &books, now)
+                let swept = crate::routes::books::sweep_tenant(&tenant, &books, now)
                     .await
                     .map_err(|error| error.to_string())?;
                 if let Ok(mut totals) = totals.lock() {
@@ -357,6 +367,8 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     totals.fx_rates += swept.fx_rates;
                     totals.depreciation_posted += swept.depreciation_posted;
                     totals.depreciation_skipped += swept.depreciation_skipped;
+                    totals.reminders_sent += swept.reminders_sent;
+                    totals.reminders_failed += swept.reminders_failed;
                 }
                 Ok::<_, String>(Some(next))
             }
@@ -376,6 +388,13 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             },
         })
     );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(30), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
     Ok(())
 }
 

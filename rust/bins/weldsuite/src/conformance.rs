@@ -887,6 +887,100 @@ impl weldsuite_reach::weldsuite_reach_domain::smtp::SmtpTransport for BridgedSmt
     }
 }
 
+/// `POST /__conformance/cron/books-tax-reminders`: one run of WeldBooks' daily
+/// tax reminders (`runTaxReminders(db, options)`, part of `books-sweep`)
+/// against the test's tenant database, with the test's markers (in memory)
+/// and a notifier that records each notice and refuses the members the test
+/// names, as the test's own recorder does. Answers the result, the notices
+/// sent and the markers afterwards.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemindersRequest {
+    now: String,
+    database_url: String,
+    #[serde(default)]
+    input: RemindersInput,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RemindersInput {
+    #[serde(default)]
+    markers: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    fail_for: Vec<String>,
+    recipients: Option<Vec<String>>,
+    #[serde(default)]
+    force_nexus: bool,
+}
+
+/// The test's `recorder(failFor)`.
+struct RecordingNotifier {
+    fail_for: Vec<String>,
+    sent: Mutex<Vec<serde_json::Value>>,
+}
+
+impl weldsuite_books_sales_tax::reminders::ReminderNotifier for RecordingNotifier {
+    fn send<'a>(
+        &'a self,
+        user_id: &'a str,
+        notice: &'a weldsuite_books_sales_tax::reminders::ReminderNotice,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<(), String>> {
+        let outcome = if self.fail_for.iter().any(|u| u == user_id) {
+            Err("delivery failed".to_owned())
+        } else {
+            self.sent
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(json!({ "userId": user_id, "notice": notice.to_json() }));
+            Ok(())
+        };
+        Box::pin(std::future::ready(outcome))
+    }
+}
+
+pub(crate) async fn books_tax_reminders(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<RemindersRequest>,
+) -> Response {
+    use weldsuite_books_sales_tax::reminders::{
+        MemoryMarkers, TaxReminderOptions, run_tax_reminders,
+    };
+    let db = match state.conformance_pools.get(&request.database_url) {
+        Ok(db) => db,
+        Err(error) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let input = request.input;
+    let markers = MemoryMarkers::with(input.markers);
+    let notifier = RecordingNotifier {
+        fail_for: input.fail_for,
+        sent: Mutex::new(Vec::new()),
+    };
+    let options = TaxReminderOptions {
+        notifier: &notifier,
+        markers: &markers,
+        now,
+        recipients: input.recipients,
+        force_nexus: input.force_nexus,
+    };
+    match run_tax_reminders(&db, &options).await {
+        Ok(result) => axum::Json(json!({
+            "result": result.to_json(),
+            "sent": notifier.sent.into_inner().unwrap_or_else(PoisonError::into_inner),
+            "markers": markers.snapshot(),
+        }))
+        .into_response(),
+        Err(error) => ApiError::internal()
+            .with_message(format!("conformance: tax reminders: {error}"))
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::hono_pattern;

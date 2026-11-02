@@ -1,5 +1,5 @@
 {
-  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route left out on purpose goes in the suite's `excludedRoutes`, with the reason.",
+  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route left out on purpose goes in the suite's `excludedRoutes`, with the reason. A suite whose test files mount another route group's router only to set up their data lists the route prefixes it owns in `coverage`: only those routes count as its to reach (the others are their own suite's, and their requests are still compared); a cross-area suite lists none (packages/core/worker-kit/src/testing/conformance-coverage.ts).",
   "suites": [
     {
       "name": "core: me",
@@ -1907,6 +1907,22 @@
         "src/routes/parcel-settings/routes.test.ts",
         "src/routes/parcel-wallet/routes.test.ts"
       ],
+      "coverage": [
+        "/api/carriers",
+        "/api/return-reasons",
+        "/api/return-rules",
+        "/api/pickups",
+        "/api/returns",
+        "/api/shipments",
+        "/api/shipping-rules",
+        "/api/shipping-prices",
+        "/api/parcels",
+        "/api/parcel-analytics",
+        "/api/parcel-notifications",
+        "/api/parcel-rates",
+        "/api/parcel-settings",
+        "/api/parcel-wallet"
+      ],
       "paths": [
         "apps/workers/commerce-api/src/routes/carriers/",
         "apps/workers/commerce-api/src/routes/return-reasons/",
@@ -2089,7 +2105,8 @@
         "src/routes/journal-entries/journal-entries.integration.test.ts",
         "src/routes/accounting-dimensions/dimensions.integration.test.ts",
         "src/routes/accounting-settings/settings.integration.test.ts",
-        "src/routes/accounting-settings/catch-up.integration.test.ts"
+        "src/routes/accounting-settings/catch-up.integration.test.ts",
+        "src/routes/payroll/internal.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",
@@ -2121,6 +2138,12 @@
         "src/routes/recurring-invoices/crud.integration.test.ts",
         "src/routes/payments/payments.integration.test.ts"
       ],
+      "coverage": [
+        "/api/invoices",
+        "/api/recurring-invoices",
+        "/api/invoice-templates",
+        "/api/payments"
+      ],
       "paths": [
         "apps/workers/books-api/src/routes/invoices/",
         "apps/workers/books-api/src/routes/recurring-invoices/",
@@ -2145,7 +2168,16 @@
         "src/routes/accounting-exports/xaf-ciphertext.integration.test.ts",
         "src/routes/payroll/payroll.integration.test.ts",
         "src/services/fixed-assets/fixed-assets.integration.test.ts",
-        "src/routes/form-1099/form-1099.integration.test.ts"
+        "src/routes/form-1099/form-1099.integration.test.ts",
+        "src/services/form-1099/load.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/accounting-reports",
+        "/api/accounting-dashboard",
+        "/api/accounting-exports",
+        "/api/fixed-assets",
+        "/api/form-1099",
+        "/api/payroll"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-reports/",
@@ -2175,6 +2207,14 @@
         "src/routes/bank-deposits/bank-deposits.integration.test.ts",
         "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts",
         "src/routes/bank-connections/bank-connections.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/bank-accounts",
+        "/api/bank-transactions",
+        "/api/bank-connections",
+        "/api/bank-deposits",
+        "/api/bank-reconciliations",
+        "/api/reconciliation-rules"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bank-accounts/",
@@ -2217,6 +2257,14 @@
         "src/routes/bills/lifecycle.integration.test.ts",
         "src/routes/payment-runs/payment-runs.integration.test.ts"
       ],
+      "coverage": [
+        "/api/bills",
+        "/api/accounting-contacts",
+        "/api/accounting-documents",
+        "/api/w9-requests",
+        "/public/w9",
+        "/api/payment-runs"
+      ],
       "paths": [
         "apps/workers/books-api/src/routes/bills/",
         "apps/workers/books-api/src/routes/accounting-contacts/",
@@ -2251,7 +2299,18 @@
         "src/routes/tax-calendar/integration.test.ts",
         "src/routes/sales-tax/reports.integration.test.ts",
         "src/routes/tax-returns/integration.test.ts",
-        "src/routes/exemption-certificates/certificate-cure.integration.test.ts"
+        "src/routes/exemption-certificates/certificate-cure.integration.test.ts",
+        "src/cron/tax-reminders.test.ts"
+      ],
+      "coverage": [
+        "/api/sales-tax",
+        "/api/sales-tax-agencies",
+        "/api/sales-tax-jurisdictions",
+        "/api/sales-tax-rules",
+        "/api/sales-tax-zones",
+        "/api/exemption-certificates",
+        "/api/tax-returns",
+        "/api/tax-calendar"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/sales-tax/",
@@ -2268,7 +2327,8 @@
         "apps/workers/books-api/src/services/",
         "packages/domains/books/src/",
         "rust/modules/books-sales-tax/",
-        "rust/crates/books-domain/"
+        "rust/crates/books-domain/",
+        "apps/workers/books-api/src/cron/"
       ]
     },
     {
@@ -2356,6 +2416,14 @@
         "src/routes/fiscal-documents/fiscal-documents.integration.test.ts",
         "src/routes/received-fiscal-documents/received-fiscal-documents.integration.test.ts"
       ],
+      "coverage": [
+        "/api/vat-returns",
+        "/api/icp-declarations",
+        "/api/br-tax",
+        "/api/fiscal-documents",
+        "/api/received-fiscal-documents",
+        "/public/fiscal-webhooks"
+      ],
       "paths": [
         "apps/workers/books-api/src/routes/vat-returns/",
         "apps/workers/books-api/src/routes/icp-declarations/",
@@ -2370,6 +2438,52 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-books-tax.ts",
         "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "rust/modules/books-tax/",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
+      "name": "books: cross-area",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/_sweeps.test.ts",
+        "src/routes/invoices/brazil.integration.test.ts",
+        "src/routes/invoices/document-integrity.integration.test.ts",
+        "src/routes/invoices/india-gst.integration.test.ts",
+        "src/services/accounting-fx.integration.test.ts",
+        "src/services/bad-debt-vat.integration.test.ts",
+        "src/services/accounting-ledger.integration.test.ts"
+      ],
+      "coverage": [],
+      "paths": [
+        "apps/workers/books-api/src/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
+      "name": "books: cross-area: us",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/recurring-invoices/integration.test.ts",
+        "src/routes/accounting-reports/us-reports.integration.test.ts",
+        "src/services/accounting-us-banking.integration.test.ts",
+        "src/services/sales-tax/us-documents.integration.test.ts",
+        "src/services/sales-tax/us-provider.integration.test.ts"
+      ],
+      "coverage": [],
+      "paths": [
+        "apps/workers/books-api/src/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books",
         "rust/crates/books-domain/"
       ]
     },

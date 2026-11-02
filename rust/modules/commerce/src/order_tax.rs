@@ -1,6 +1,7 @@
 //! Order sales tax (`commerce-api/src/services/order-sales-tax.ts`): the
-//! WeldBooks sales tax engine ([`crate::sales_tax`]) applied to orders and
-//! carts.
+//! WeldBooks sales tax engine ([`weldsuite_books_domain::sales_tax`]: the
+//! manual engine, Stripe Tax and Avalara through the outbound port) applied
+//! to orders and carts.
 //!
 //! An order has no accounting entity, so the workspace's default entity
 //! decides: `settings.defaultEntityId`, else the entity flagged `isDefault`,
@@ -14,15 +15,21 @@ use http::StatusCode;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 
-use crate::js::{number_text, number_value, to_fixed};
-use crate::sales_tax::rounding::{allocate_cents, from_cents, to_cents};
-use crate::sales_tax::tax_codes::{
+use weldsuite_books_domain::address::normalize_postal_address;
+use weldsuite_books_domain::sales_tax::errors::EngineError;
+use weldsuite_books_domain::sales_tax::load::{
+    LoadError, LoadOptions, load_customer_certificates, load_sales_tax_context,
+};
+use weldsuite_books_domain::sales_tax::tax_codes::{
     DEFAULT_WELD_TAX_CODE, is_avalara_tax_code, is_stripe_tax_code, is_weld_tax_code,
 };
-use crate::sales_tax::{
-    Address, Certificate, EngineError, LoadError, RequestLine, TaxRequest, TaxResult, TaxUse,
-    load_context, load_customer_certificates, normalize_postal_address,
+use weldsuite_books_domain::sales_tax::{
+    CertificateRef, Customer as TaxCustomer, RequestLine, SalesTaxRequest, SalesTaxResult,
+    TaxDirection, TaxUse, allocate_cents, from_cents, to_cents,
 };
+use weldsuite_ports::OutboundHttp;
+
+use crate::js::{number_text, number_value, to_fixed};
 
 /// The shipping charge is a tax line of its own; no document line may use this id.
 pub(crate) const SHIPPING_LINE_ID: &str = "shipping";
@@ -64,7 +71,10 @@ impl OrderTaxError {
             code: "TAX_ENGINE_UNAVAILABLE",
             status: StatusCode::SERVICE_UNAVAILABLE,
             message: error.message.clone(),
-            details: Some(error.details()),
+            details: Some(json!({
+                "reason": error.code,
+                "retryable": error.retryable || error.code == "unreachable" || error.code == "rate_limited",
+            })),
         }
     }
 
@@ -110,6 +120,7 @@ pub(crate) struct LineInput {
     pub(crate) line_id: String,
     pub(crate) product_id: Option<String>,
     pub(crate) amount: f64,
+    pub(crate) quantity: f64,
     pub(crate) tax_code: Option<String>,
     pub(crate) tax_included: bool,
 }
@@ -352,7 +363,8 @@ struct TaxEntity {
     id: String,
     jurisdiction_code: String,
     sales_tax_engine: Option<String>,
-    address: Option<Address>,
+    /// `normalizePostalAddress(entity.address)`.
+    address: Option<Value>,
 }
 
 type EntityRow = (String, String, Option<String>, Option<Value>);
@@ -408,7 +420,7 @@ struct Customer {
     party_id: String,
     kind: Option<String>,
     tax_use: Option<String>,
-    certificates: Vec<Certificate>,
+    certificates: Vec<CertificateRef>,
 }
 
 async fn load_customer(
@@ -457,11 +469,17 @@ fn default_tax_use(tax_use: Option<&str>, kind: Option<&str>) -> TaxUse {
 
 /// The address the sale is taxed at: the ship-to, else the bill-to when the
 /// ship-to has no state.
-fn tax_address(ship_to: Option<Address>, bill_to: Option<Address>) -> Option<Address> {
-    if ship_to.as_ref().is_some_and(|a| a.state.is_some()) {
+fn tax_address(ship_to: Option<Value>, bill_to: Option<Value>) -> Option<Value> {
+    let has_state = |a: &Option<Value>| {
+        a.as_ref()
+            .and_then(|a| a.get("state"))
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    };
+    if has_state(&ship_to) {
         return ship_to;
     }
-    if bill_to.as_ref().is_some_and(|a| a.state.is_some()) {
+    if has_state(&bill_to) {
         return bill_to;
     }
     ship_to.or(bill_to)
@@ -490,6 +508,7 @@ struct Totals {
 pub(crate) async fn calculate_order_sales_tax(
     db: &PgPool,
     keyring: &weldsuite_db::Keyring,
+    http: Option<&OutboundHttp>,
     input: &TaxInput,
 ) -> Result<TaxOutcome, TaxFailure> {
     let Some(entity) = resolve_order_tax_entity(db).await? else {
@@ -588,46 +607,68 @@ pub(crate) async fn calculate_order_sales_tax(
         .map(|l| RequestLine {
             line_id: l.line_id.clone(),
             amount: from_cents(to_cents(l.amount)),
+            quantity: if l.quantity > 0.0 { l.quantity } else { 1.0 },
             tax_code: code_of(&l.line_id),
             tax_use,
             tax_included: l.tax_included,
+            tax_override: None,
         })
         .collect();
     if shipping_cents > 0 {
         sent.push(RequestLine {
             line_id: SHIPPING_LINE_ID.to_owned(),
             amount: from_cents(shipping_cents),
+            quantity: 1.0,
             tax_code: "shipping".to_owned(),
             tax_use,
             tax_included: false,
+            tax_override: None,
         });
     }
 
-    let mut engine_result: Option<TaxResult> = None;
-    let engine_id = entity
+    let mut engine_result: Option<SalesTaxResult> = None;
+    let mut engine_id = entity
         .sales_tax_engine
         .clone()
         .unwrap_or_else(|| "manual".to_owned());
     if !sent.is_empty() {
-        let context = match load_context(db, &entity.id, keyring).await {
+        let options = LoadOptions {
+            keyring: Some(keyring),
+            http,
+        };
+        let context = match load_sales_tax_context(db, &entity.id, options).await {
             Ok(context) => context,
             Err(LoadError::Engine(error)) => return Err(OrderTaxError::of_engine(&error).into()),
             Err(LoadError::Database(error)) => return Err(error.into()),
         };
-        let request = TaxRequest {
+        engine_id = context.engine_id.to_owned();
+        let request = SalesTaxRequest {
+            entity_id: entity.id.clone(),
+            document_type: "order".to_owned(),
             document_id: input.order_id.clone(),
+            document_number: None,
             document_date: document_date.clone(),
-            ship_from: entity.address.clone(),
+            currency: currency.clone(),
+            ship_from: entity.address.clone().unwrap_or_else(|| json!({})),
             ship_to,
-            certificates: customer.certificates,
+            customer: TaxCustomer {
+                party_id: customer.party_id,
+                certificates: customer.certificates,
+                tax_use: Some(tax_use),
+            },
             registrations: context.registrations,
             lines: sent,
             marketplace_facilitated: input.marketplace_facilitated,
+            direction: TaxDirection::Sales,
         };
-        engine_result = Some(context.engine.calculate(&request, crate::now()));
+        engine_result = Some(
+            context
+                .engine
+                .calculate(&request)
+                .await
+                .map_err(|error| OrderTaxError::of_engine(&error))?,
+        );
     }
-    // The party id goes to the provider engines only.
-    let _ = customer.party_id;
 
     let mut totals: Vec<(String, Totals)> = Vec::new();
     let mut line_result = |line_id: &str| -> LineTax {
@@ -641,7 +682,7 @@ pub(crate) async fn calculate_order_sales_tax(
                     .map(|d| Jurisdiction {
                         code: d.jurisdiction_code.clone(),
                         name: d.jurisdiction_name.clone(),
-                        level: d.level,
+                        level: d.level.as_str(),
                         state_code: d.state_code.clone(),
                         agency_id: d.agency_id.clone().filter(|a| !a.is_empty()),
                         rate: d.rate,
@@ -749,7 +790,7 @@ pub(crate) async fn calculate_order_sales_tax(
         entity_id: entity.id,
         engine: engine_result
             .as_ref()
-            .map_or(engine_id, |r| r.engine.to_owned()),
+            .map_or(engine_id, |r| r.engine.clone()),
         calculated_at: engine_result
             .as_ref()
             .map_or_else(crate::now, |r| r.calculated_at.clone()),
@@ -920,10 +961,11 @@ pub(crate) fn tax_input_from_order(
     let mut lines: Vec<LineInput> = gross
         .iter()
         .enumerate()
-        .map(|(i, (item, _, cents, _))| LineInput {
+        .map(|(i, (item, quantity, cents, _))| LineInput {
             line_id: item.id.clone(),
             product_id: item.product_id.clone(),
             amount: from_cents((cents - shares.get(i).copied().unwrap_or(0)).max(0)),
+            quantity: *quantity,
             tax_code: None,
             tax_included: false,
         })
@@ -934,6 +976,7 @@ pub(crate) fn tax_input_from_order(
             line_id: ORDER_LINE_ID.to_owned(),
             product_id: None,
             amount: subtotal,
+            quantity: 1.0,
             tax_code: None,
             tax_included: false,
         }];
@@ -1062,13 +1105,18 @@ pub(crate) fn build_order_tax_application(
 pub(crate) async fn calculate_order_tax(
     db: &PgPool,
     keyring: &weldsuite_db::Keyring,
+    http: Option<&OutboundHttp>,
     order: &Map<String, Value>,
     items: &[TaxItem],
     options: &TaxOptions,
 ) -> Result<(TaxOutcome, Option<Application>), TaxFailure> {
-    let outcome =
-        calculate_order_sales_tax(db, keyring, &tax_input_from_order(order, items, options))
-            .await?;
+    let outcome = calculate_order_sales_tax(
+        db,
+        keyring,
+        http,
+        &tax_input_from_order(order, items, options),
+    )
+    .await?;
     let application = match &outcome {
         TaxOutcome::Calculated(calculated) => {
             Some(build_order_tax_application(order, items, calculated))

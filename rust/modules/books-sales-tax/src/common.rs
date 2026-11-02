@@ -25,11 +25,17 @@ pub(crate) fn today(caller: &Caller, state: &BooksState) -> String {
 /// `todayIn(timeZone)`: the request's day in a time zone (UTC when unset or
 /// unknown).
 pub(crate) fn today_in(caller: &Caller, state: &BooksState, zone: Option<&str>) -> String {
+    day_in(now_of(caller, state), zone)
+}
+
+/// `todayIn(timeZone, now)`: the day of a moment in a time zone (UTC when
+/// unset or unknown).
+pub(crate) fn day_in(at: jiff::Timestamp, zone: Option<&str>) -> String {
     let tz = zone
         .filter(|z| !z.is_empty())
         .and_then(|z| jiff::tz::TimeZone::get(z).ok())
         .unwrap_or(jiff::tz::TimeZone::UTC);
-    let at = now_of(caller, state).to_zoned(tz);
+    let at = at.to_zoned(tz);
     format!("{:04}-{:02}-{:02}", at.year(), at.month(), at.day())
 }
 

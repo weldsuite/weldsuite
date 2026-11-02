@@ -75,10 +75,10 @@ mod portal_public;
 mod printnode;
 mod products;
 mod sales_channels;
-mod sales_tax;
 mod sendcloud;
 mod simple;
 mod table;
+mod tax_class;
 mod wallet;
 
 use std::collections::HashMap;

@@ -15,9 +15,11 @@ use weldsuite_books_domain::compliance::{
 use weldsuite_books_domain::contacts::load_contact_snapshot;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, reply};
 use weldsuite_books_domain::invoice_html::{
-    FiscalDocument, InvoiceRenderData, RenderItem, generate_invoice_html,
+    FiscalDocument, InvoiceRenderData, Pix, RenderItem, generate_invoice_html,
     generate_templated_invoice_html,
 };
+use weldsuite_books_domain::js;
+use weldsuite_books_domain::jurisdictions::br::pix::{PixPayloadInput, build_pix_payload};
 use weldsuite_books_domain::tables::ENTITIES;
 
 use crate::finalize::{load_invoice, load_items};
@@ -63,6 +65,52 @@ async fn fiscal_document(
         },
         number,
         access_key,
+    }))
+}
+
+/// Brazil: the Pix BR Code for the amount due, when the entity has a Pix key
+/// and the invoice is in reais (`brInvoiceRenderExtras`). A key or a name
+/// the BR Code can't hold is the route's 500, as `buildPixPayload` throws.
+fn pix_of(entity: &Value, invoice: &Value) -> Result<Option<Pix>, Refusal> {
+    if entity["jurisdictionCode"] != "BR" {
+        return Ok(None);
+    }
+    let settings = &entity["jurisdictionSettings"];
+    let Some(key) = settings["pixKey"].as_str().filter(|k| !k.is_empty()) else {
+        return Ok(None);
+    };
+    // `??`: only null and undefined fall through.
+    let present = |row: &Value, field: &str| row.get(field).filter(|v| !v.is_null()).cloned();
+    let currency = present(invoice, "currency").or_else(|| present(entity, "baseCurrency"));
+    let due = present(invoice, "balanceDue")
+        .or_else(|| present(invoice, "total"))
+        .and_then(|v| v.as_str().map(js::parse_float))
+        .unwrap_or(0.0);
+    if invoice["type"] == "credit_note"
+        || currency != Some(Value::from("BRL"))
+        || due.is_nan()
+        || due <= 0.0
+    {
+        return Ok(None);
+    }
+    let text_of =
+        |row: &Value, field: &str| present(row, field).and_then(|v| v.as_str().map(str::to_owned));
+    let payload = build_pix_payload(&PixPayloadInput {
+        key: key.to_owned(),
+        merchant_name: text_of(entity, "legalName")
+            .or_else(|| text_of(entity, "name"))
+            .unwrap_or_default(),
+        merchant_city: text_of(settings, "pixCity")
+            .or_else(|| text_of(settings, "municipalityName"))
+            .unwrap_or_default(),
+        amount: Some(due),
+        txid: text_of(invoice, "invoiceNumber").or_else(|| text_of(invoice, "id")),
+        description: None,
+    })
+    .map_err(|error| Refusal::Internal(error.0))?;
+    Ok(Some(Pix {
+        key: key.to_owned(),
+        payload,
     }))
 }
 
@@ -196,6 +244,7 @@ async fn render_invoice(caller: &Caller, id: &str) -> Reply {
         balance_due: owned(&invoice, "balanceDue"),
         tax_breakdown: breakdown,
         fiscal_document: fiscal_document(db, &entity, id).await?,
+        pix: pix_of(&entity, &invoice)?,
     };
     let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id).await?;
     let html = match template {

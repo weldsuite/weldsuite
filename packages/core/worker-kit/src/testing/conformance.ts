@@ -54,6 +54,7 @@ import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileRealtime, maskVolatileText } from './conformance-volatile';
 import { sameBody } from './conformance-binary';
+import { coveragePrefixes, inCoverage } from './conformance-coverage';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import { smtpUrl } from './smtp-bridge';
@@ -974,6 +975,8 @@ export async function record(dir: string, entry: ConformanceRecord): Promise<voi
 /**
  * Record the routes of an app under test, so the coverage report can list the
  * ones no test reaches. Called once per `createTestApp()` in conformance mode.
+ * Only the routes the file's suite must reach (`coverage` in suites.json,
+ * ./conformance-coverage.ts).
  */
 export async function recordInventory(
   target: ConformanceTarget,
@@ -981,9 +984,12 @@ export async function recordInventory(
 ): Promise<void> {
   if (!target.reportDir) return;
   const { file } = await currentTest();
+  const prefixes = coveragePrefixes(file);
   await appendLines(
     target.reportDir,
-    routes.filter((r) => r.method !== 'ALL').map((r) => ({ kind: 'inventory', file, method: r.method, route: r.path })),
+    routes
+      .filter((r) => r.method !== 'ALL' && inCoverage(r.path, prefixes))
+      .map((r) => ({ kind: 'inventory', file, method: r.method, route: r.path })),
   );
 }
 
