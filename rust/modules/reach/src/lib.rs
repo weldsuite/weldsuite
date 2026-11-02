@@ -8,7 +8,7 @@
 //! which external-api and mcp-server share on Global. Mailpool (mailbox
 //! provisioning) is a third-party API reached through the outbound HTTP
 //! port. Billing is Global's billing-worker (Stripe); these editions have
-//! none, so its calls answer as billing-worker does without Stripe (see
+//! none, so billing is off: mailboxes are provisioned unbilled (see
 //! `billing.rs`).
 //!
 //! Paths, bodies, status codes, messages and entity events are the
@@ -42,8 +42,10 @@ mod lists;
 mod mailboxes;
 mod mailpool;
 mod prospects;
+pub mod send;
 mod smtp;
 mod suppressions;
+pub mod warmup;
 mod webhook;
 
 use std::sync::Arc;

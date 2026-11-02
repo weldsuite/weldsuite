@@ -122,6 +122,41 @@ describe('POST /api/reach/billing/setup', () => {
   });
 });
 
+describe('billing off', () => {
+  // Not test, preview or production: the caller's token cannot reach billing-worker,
+  // so billing is off, as on the Kubernetes editions (no billing-worker at all).
+  const reachCalls = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url instanceof URL ? url.href : typeof url === 'string' ? url : (url as Request).url).includes('/api/billing/reach'));
+  function offApi(keys: string[]) {
+    return createTestApp('/api/reach/billing', billingRoutes, {
+      context: { permissions: permissions(...keys), appAccess: approvedAccess(), tenantDb: db },
+      env: { ENVIRONMENT: 'development' } as never,
+    }).request;
+  }
+
+  it('reports no subscription, without asking billing-worker', async () => {
+    const res = await offApi(['reach_settings:read'])('/api/reach/billing', authed);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: null });
+    expect(reachCalls()).toHaveLength(0);
+  });
+
+  it('refuses a payment-method setup: nothing is charged', async () => {
+    const body = { successUrl: 'https://app.weldsuite.org/weldreach/setup?ok=1', cancelUrl: 'https://app.weldsuite.org/weldreach/setup' };
+    const res = await offApi(['reach_mailboxes:create'])('/api/reach/billing/setup', { method: 'POST', body: JSON.stringify(body), ...authed });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: 'BILLING_OFF' } });
+    expect(reachCalls()).toHaveLength(0);
+  });
+
+  it('leaves the inbox quantity alone', async () => {
+    const billing = createReachBilling({ env: { ENVIRONMENT: 'development' }, req: { header: () => 'Bearer clerk_jwt' } });
+    expect(await billing.adjustInboxes(1, 'rmbx_1')).toBeNull();
+    expect(await billing.status()).toBeNull();
+    expect(reachCalls()).toHaveLength(0);
+  });
+});
+
 describe('createReachBilling', () => {
   const ctx = { env: { ENVIRONMENT: 'production' }, req: { header: () => 'Bearer clerk_jwt' } };
 

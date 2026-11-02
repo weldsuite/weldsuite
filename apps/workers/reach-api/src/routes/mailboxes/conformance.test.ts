@@ -249,3 +249,19 @@ describe('update, pause, resume and delete', () => {
     expect((await api(['reach_mailboxes:read'])('/api/reach/mailboxes/rmbx_1', { method: 'DELETE' })).status).toBe(403);
   });
 });
+
+describe('billing off', () => {
+  // Not test, preview or production: the caller's token cannot reach billing-worker,
+  // so billing is off, as on the Kubernetes editions (no billing-worker at all).
+  const OFF = { ...ENV, ENVIRONMENT: 'development' };
+
+  it('provisions and deletes a mailbox unbilled', async () => {
+    const res = await api(ALL, approvedAccess(), OFF)('/api/reach/mailboxes', json('POST', createBody));
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as { data: { id: string; status: string } };
+    expect(data.status).toBe('warming');
+    expect((await api(ALL, approvedAccess(), OFF)(`/api/reach/mailboxes/${data.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect(stubs.calls('https://billing-worker')).toEqual([]);
+    expect(stubs.calls('http://localhost:8788')).toEqual([]);
+  });
+});

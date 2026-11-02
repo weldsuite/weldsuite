@@ -22,6 +22,16 @@
 //! - `desk-sla-sweep` (every minute): WeldDesk's SLA warnings and breaches
 //!   on inbox conversations, for the workspaces the due index lists
 //!   (`apps/workers/desk-api/src/cron/sla-sweep.ts`).
+//! - `reach-send-sweep` (every minute): WeldReach's send sweep over the
+//!   due index (kind `reach_send`, `apps/workers/reach-api/src/cron/send-sweep.ts`).
+//!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
+//!   for the `reach-send` subscriber of `weldsuite consume`; otherwise it
+//!   runs each workspace's send tick itself.
+//! - `reach-warmup-sweep` (hourly, at :15): WeldReach's warmup progress
+//!   over the due index (kind `reach_warmup`, `cron/warmup-sweep.ts`).
+//! - `reach-slot-reconciliation` (daily, 03:15 UTC): gives back Mailpool
+//!   slots no active mailbox needs (`cron/slot-reconciliation.ts`; master
+//!   database only).
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
 //!   `weldsuite_core_onboarding::IdentitySync`).
@@ -64,7 +74,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -78,7 +88,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "flow-file-purge"
         | "books-sweep"
         | "domain-auto-renew"
-        | "desk-sla-sweep"),
+        | "desk-sla-sweep"
+        | "reach-send-sweep"
+        | "reach-warmup-sweep"
+        | "reach-slot-reconciliation"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -116,6 +129,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 Ok(())
             }
             "desk-sla-sweep" => desk_sla_sweep(config).await,
+            "reach-send-sweep" => reach_send_sweep(config).await,
+            "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -438,6 +453,112 @@ async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>
         serde_json::json!({ "job": "desk-sla-sweep", "result": result.to_json() })
     );
     // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+async fn reach_send_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let now = time::OffsetDateTime::now_utc();
+    if std::env::var("REACH_SEND_QUEUE").as_deref() == Ok("nats") {
+        let Some(url) = &config.infra.nats_url else {
+            return Err("REACH_SEND_QUEUE=nats needs NATS_URL".into());
+        };
+        let bus = weldsuite_adapters_oss::JetStreamEventBus::connect(
+            &weldsuite_adapters_oss::NatsOptions {
+                url: url.clone(),
+                user: config.infra.nats_user.clone(),
+                token: config.infra.nats_token.clone(),
+                name: Some("weldsuite-cron".to_owned()),
+            },
+        )
+        .await?;
+        bus.ensure_stream(crate::reach::send_stream_config(1))
+            .await?;
+        let result = weldsuite_reach::send::run_send_sweep(&master, &bus, now).await;
+        println!(
+            "{}",
+            serde_json::json!({ "job": "reach-send-sweep", "queue": "nats", "result": {
+                "due": result.due, "processed": result.processed, "failed": result.failed,
+            } })
+        );
+        return Ok(());
+    }
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let engine = crate::reach::send_engine(
+        master,
+        &workspaces,
+        config.keyring.clone(),
+        infra.events.clone(),
+        Arc::clone(&infra.flags),
+    );
+    let result =
+        weldsuite_reach::send::run_send_inline(&engine, &time::OffsetDateTime::now_utc).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "reach-send-sweep", "queue": "inline", "result": {
+            "due": result.due, "processed": result.processed, "failed": result.failed,
+        } })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `reach-warmup-sweep` and `reach-slot-reconciliation`.
+async fn reach_warmup(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let engine = crate::reach::warmup_engine(
+        master,
+        &workspaces,
+        config.keyring.clone(),
+        infra.events.clone(),
+    )?;
+    let result = if job == "reach-warmup-sweep" {
+        let result =
+            weldsuite_reach::warmup::run_warmup_sweep(&engine, time::OffsetDateTime::now_utc())
+                .await;
+        serde_json::json!({ "due": result.due, "processed": result.processed, "failed": result.failed })
+    } else {
+        weldsuite_reach::warmup::run_slot_reconciliation(&engine)
+            .await?
+            .unwrap_or(serde_json::Value::Null)
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await

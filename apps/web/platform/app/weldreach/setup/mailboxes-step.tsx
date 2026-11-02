@@ -13,6 +13,7 @@ export function MailboxesStep({
   domains,
   mailboxes,
   hasPaymentMethod,
+  billed = true,
   canCreate,
   onBack,
   onNext,
@@ -22,6 +23,8 @@ export function MailboxesStep({
   domains: ReachDomain[];
   mailboxes: ReachMailbox[];
   hasPaymentMethod: boolean;
+  /** False where billing is off: mailboxes are not charged, so no price is shown. */
+  billed?: boolean;
   canCreate: boolean;
   onBack: () => void;
   onNext: () => void;
@@ -35,7 +38,7 @@ export function MailboxesStep({
   const hasMailbox = mailboxes.length > 0;
 
   return (
-    <StepFrame title={t('reach.setup.mailboxes.title')} description={t('reach.setup.mailboxes.description', { price, ...warmupCopyParams() })}>
+    <StepFrame title={t('reach.setup.mailboxes.title')} description={t(billed ? 'reach.setup.mailboxes.description' : 'reach.setup.mailboxes.descriptionUnbilled', { price, ...warmupCopyParams() })}>
       {hasMailbox && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium">{t('reach.setup.mailboxes.createdList')}</h3>

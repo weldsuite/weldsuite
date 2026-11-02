@@ -19,6 +19,8 @@
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
+//! | `REACH_SEND_QUEUE` | `nats`: the WeldReach send sweep publishes to NATS, and the `reach-send` subscriber runs by default (stream `REACH_SEND` on `reach.send`) |
+//! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
 
 use std::fmt;
@@ -35,6 +37,10 @@ pub(crate) const PORTED: [&str; 4] = ["audit", "search-index", "webhooks", "real
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
 pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
+
+/// The WeldReach send queue's subscriber: not on the hub but on the
+/// `REACH_SEND` stream, which `weldsuite cron reach-send-sweep` publishes to.
+pub(crate) const REACH_SEND: &str = "reach-send";
 
 /// Where the `mail-inbound` subscriber reads and writes.
 #[derive(Clone)]
@@ -131,6 +137,9 @@ pub(crate) struct ConsumeConfig {
     pub(crate) drain: Duration,
     /// The `mail-inbound` subscriber's settings (`S3_BUCKET_MAIL` set).
     pub(crate) mail_inbound: Option<MailInboundConfig>,
+    /// `FEATURE_FLAGS=master-db`: flags from the master database, refreshed
+    /// this often; `None` keeps every flag at its default.
+    pub(crate) master_db_flags: Option<Duration>,
 }
 
 impl fmt::Debug for ConsumeConfig {
@@ -262,11 +271,20 @@ impl ConsumeConfig {
         let subject_prefix = lookup("NATS_ENTITY_EVENTS_SUBJECT")
             .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned());
         let mail_inbound = MailInboundConfig::from_lookup(&lookup, &mut problems);
+        let reach_send = match lookup("REACH_SEND_QUEUE").as_deref() {
+            None | Some("inline") => false,
+            Some("nats") => true,
+            Some(_) => {
+                problems.push("REACH_SEND_QUEUE must be nats or inline".to_owned());
+                false
+            }
+        };
         let subscribers: Vec<String> = match lookup("CONSUME_SUBSCRIBERS") {
             None => PORTED
                 .iter()
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
+                .chain(reach_send.then_some(REACH_SEND))
                 .map(str::to_owned)
                 .collect(),
             Some(list) => list
@@ -282,6 +300,9 @@ impl ConsumeConfig {
                     problems
                         .push("CONSUME_SUBSCRIBERS: mail-inbound needs S3_BUCKET_MAIL".to_owned());
                 }
+                continue;
+            }
+            if id == REACH_SEND {
                 continue;
             }
             if !PORTED.contains(&id.as_str()) {
@@ -311,6 +332,21 @@ impl ConsumeConfig {
             &mut problems,
         );
         let webhook_retry_sweep = flag(&lookup, "WEBHOOK_RETRY_SWEEP", true, &mut problems);
+        let flags_master_db = match lookup("FEATURE_FLAGS").as_deref() {
+            None | Some("defaults") => false,
+            Some("master-db") => true,
+            Some(_) => {
+                problems.push("FEATURE_FLAGS must be defaults or master-db".to_owned());
+                false
+            }
+        };
+        let flags_refresh = match lookup("FEATURE_FLAGS_REFRESH_SECONDS") {
+            None => 30,
+            Some(value) => value.parse::<u64>().unwrap_or_else(|_| {
+                problems.push("FEATURE_FLAGS_REFRESH_SECONDS must be a whole number".to_owned());
+                30
+            }),
+        };
 
         if !problems.is_empty() {
             return Err(ConsumeConfigError(problems));
@@ -352,6 +388,7 @@ impl ConsumeConfig {
             webhook_retry_sweep,
             drain: Duration::from_secs(drain),
             mail_inbound,
+            master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
         })
     }
 }
@@ -377,6 +414,27 @@ mod tests {
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect();
         ConsumeConfig::from_lookup(|name| vars.get(name).cloned())
+    }
+
+    #[test]
+    fn the_reach_send_queue_adds_its_subscriber() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let inline = config(&base).expect("valid");
+        assert!(!inline.subscribers.iter().any(|s| s == REACH_SEND));
+        assert!(inline.master_db_flags.is_none());
+        let queued = config(&[
+            base[0],
+            base[1],
+            ("REACH_SEND_QUEUE", "nats"),
+            ("FEATURE_FLAGS", "master-db"),
+        ])
+        .expect("valid");
+        assert!(queued.subscribers.iter().any(|s| s == REACH_SEND));
+        assert_eq!(queued.master_db_flags, Some(Duration::from_secs(30)));
+        assert!(config(&[base[0], base[1], ("REACH_SEND_QUEUE", "kafka")]).is_err());
     }
 
     #[test]

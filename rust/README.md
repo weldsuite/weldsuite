@@ -122,12 +122,17 @@ modules, each with conformance suites that reach every route:
   customer's own mailbox over SMTP (lettre), the CRM hand-off, and
   Mailpool's webhook at `/public/reach/webhooks/mailpool`, all behind the
   `weldreach` app-access gate; the shared logic is `crates/reach-domain`.
-  The inbox subscription is Global's billing-worker (Stripe): here every
-  billing call answers as billing-worker without Stripe does, so
-  `/billing` and adding a mailbox answer 502 `UPSTREAM_ERROR`. Not yet: the
-  send sweep and its queue consumer, the hourly warmup sweep and the daily
-  Mailpool slot reconciliation, the inbound reply path (Cloudflare Email
-  Routing on Global) and the warmup network (`reach-warmup-worker`))
+  The inbox subscription is Global's billing-worker (Stripe); here billing
+  is off, as for bank connections: mailboxes are provisioned unbilled,
+  `GET /billing` is `null` and `POST /billing/setup` answers 409
+  `BILLING_OFF` (the platform leaves out the payment step). The send engine
+  runs as `weldsuite cron reach-send-sweep` and the `reach-send`
+  subscriber of `weldsuite consume` (NATS stream `REACH_SEND`; without
+  NATS the cron sends itself), with the hourly `reach-warmup-sweep` and the
+  daily `reach-slot-reconciliation`. Not yet: the inbound reply path
+  (Cloudflare Email Routing on Global; on Kubernetes Haraka would accept
+  `reply+<token>@REACH_INBOUND_DOMAIN` for the `mail.inbound` subscriber)
+  and the warmup network (`reach-warmup-worker`))
 - **books** (WeldBooks, one crate per area on `crates/books-domain`, plan
   and status in `modules/books/PORTING.md`: the ledger (entities, settings,
   GL accounts, journal entries, fiscal periods, tax rates, FX rates on the
@@ -361,7 +366,11 @@ share one origin and the app finds the API through `/config.json`
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
-and breaches), `identity-sync` every minute (the identity provider's
+and breaches), `reach-send-sweep` every minute (WeldReach's sends: queued
+on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
+which the chart sets with `consume.enabled`, else sent by the job itself),
+`reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
+warmup progress and Mailpool slots), `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
 `workspace-deletion` daily, `workspace-teardown` hourly and
 `domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
@@ -384,6 +393,7 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
 | `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`) |
+| `REACH_SEND_QUEUE` | `nats`: `weldsuite cron reach-send-sweep` queues each workspace with outreach due on NATS for the `reach-send` subscriber of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends itself |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `REALTIME_REGISTER_API_KEY`, `REALTIME_REGISTER_CUSTOMER`, `REALTIME_REGISTER_OTE`, `REALTIME_REGISTER_ADAC_API_KEY`, `REALTIME_REGISTER_ADAC_TLD_SET_TOKEN`, `REALTIME_REGISTER_CONTACT_ADMIN`/`_TECH`/`_BILLING`, `REALTIME_REGISTER_WEBHOOK_SECRET` | WeldHost: Realtime Register's API key and customer handle (unset: search, availability, transfers and the registrar toggles answer as the worker does without them), `true` for its OTE, the ADAC key and TLD set for search, the platform contact handles domains are registered on, and the `?token=` of its process webhook (unset: every delivery is refused) |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |

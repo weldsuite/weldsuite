@@ -18,7 +18,8 @@ pub fn without_credentials(row: &Value) -> Value {
     without(row, SENSITIVE)
 }
 
-fn has_login_error(pool: &PoolView) -> bool {
+/// `hasLoginError(pool)`.
+pub fn has_login_error(pool: &PoolView) -> bool {
     pool.last_login_error
         .as_deref()
         .is_some_and(|e| !e.is_empty())

@@ -28,6 +28,7 @@ mod desk_http;
 mod edition;
 mod infra;
 mod migrate;
+mod reach;
 mod realtime;
 mod routes;
 mod server;
@@ -52,7 +53,8 @@ commands:
   consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep
+             calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
+             reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit

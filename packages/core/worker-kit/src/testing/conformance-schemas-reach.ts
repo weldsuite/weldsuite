@@ -36,7 +36,7 @@ export const REACH_ROUTES: RouteSchema[] = [
   { method: 'GET', route: `${R}/access`, envelope: 'single', data: reachAccessSummarySchema },
   { method: 'GET', route: `${R}/settings`, envelope: 'single', data: reachSettingsSchema },
   { method: 'PATCH', route: `${R}/settings`, envelope: 'single', data: reachSettingsSchema },
-  { method: 'GET', route: `${R}/billing`, envelope: 'single', data: reachBillingSummarySchema },
+  { method: 'GET', route: `${R}/billing`, envelope: 'single', data: reachBillingSummarySchema.nullable() },
   { method: 'POST', route: `${R}/billing/setup`, envelope: 'single', data: reachBillingSetupResultSchema },
   { method: 'GET', route: `${R}/overview`, envelope: 'single', data: reachOverviewSchema },
   // domains
