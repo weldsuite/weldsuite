@@ -6,6 +6,7 @@
     "delete from notifications",
     "delete from workflow_variables",
     "delete from workflows",
+    "delete from helpdesk_workflow_executions",
     "delete from helpdesk_workflows",
     "delete from workspace_members",
     "delete from crm_activities",

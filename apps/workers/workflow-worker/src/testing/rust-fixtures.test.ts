@@ -95,6 +95,8 @@ const CLEAR = [
   'delete from notifications',
   'delete from workflow_variables',
   'delete from workflows',
+  // WeldDesk's workflow parity test leaves executions behind on a shared test database.
+  'delete from helpdesk_workflow_executions',
   'delete from helpdesk_workflows',
   'delete from workspace_members',
   'delete from crm_activities',
