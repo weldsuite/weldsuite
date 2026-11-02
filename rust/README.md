@@ -183,6 +183,13 @@ docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:de
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal
 ```
 
+Built images for the test clusters: the "Rust images" workflow
+(`.github/workflows/rust-images.yml`) pushes
+`ghcr.io/weldsuite/weldsuite` and `ghcr.io/weldsuite/weldsuite-sign-portal`,
+amd64, tagged `sha-<12 characters of the commit>`, on every push to `develop`
+or a `deploy/*` branch that changes what the images are built from. A push to
+`develop` also moves the tag `develop`.
+
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
 `/srv/spa`, and the server serves it for every path its routes don't answer
 (`bins/weldsuite/src/spa.rs`): `index.html` for client routes (revalidated),
