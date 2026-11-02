@@ -253,7 +253,7 @@ impl LiveKit {
 }
 
 /// The participant attribute that keeps a guest in the waiting room. The
-/// LiveKit client in `@weldsuite/weldmeet-ui` (`providers/livekit`) lists such
+/// `LiveKit` client in `@weldsuite/weldmeet-ui` (`providers/livekit`) lists such
 /// a participant as waitlisted; a host admits them by clearing it and
 /// granting publish and subscribe (`UpdateParticipant`), or rejects them by
 /// removing them.
