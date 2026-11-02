@@ -52,7 +52,7 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents, maskVolatileRealtime } from './conformance-volatile';
 import { sameBody } from './conformance-binary';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
@@ -1163,7 +1163,11 @@ function compareRuns(
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
   const prepare = (effects: SideEffects) => {
     const normalized = own(effects);
-    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events) };
+    return {
+      ...normalized,
+      events: maskVolatileEvents(method, route, normalized.events),
+      realtime: maskVolatileRealtime(method, route, normalized.realtime),
+    };
   };
   const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
