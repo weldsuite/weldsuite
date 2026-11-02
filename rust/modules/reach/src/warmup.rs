@@ -193,7 +193,7 @@ async fn process_workspace(
     let hosts: Vec<Value> = if host_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar("select to_jsonb(t) from host_domains t where t.id = any($1)")
+        sqlx::query_scalar("select to_jsonb(t) from domains t where t.id = any($1)")
             .bind(&host_ids)
             .fetch_all(db)
             .await?
