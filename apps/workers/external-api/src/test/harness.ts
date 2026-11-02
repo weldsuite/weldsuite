@@ -151,6 +151,42 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'articles',
   // Commerce
   'categories',
+  'products',
+  'orders',
+  // Chat
+  'channels',
+  'channel-members',
+  'chat-messages',
+  'chat-bookmarks',
+  'chat-drafts',
+  'chat-sections',
+  // Calendar
+  'calendars',
+  'calendar-events',
+  // Social
+  'social-accounts',
+  'social-campaigns',
+  'social-analytics',
+  'social-media',
+  // Books
+  'accounting-contacts',
+  'accounting-documents',
+  'accounting-entities',
+  'accounting-settings',
+  'bank-accounts',
+  'bank-transactions',
+  'bills',
+  'fiscal-periods',
+  'fx-rates',
+  'gl-accounts',
+  'icp-declarations',
+  'invoices',
+  'journal-entries',
+  'payments',
+  'reconciliation-rules',
+  'recurring-invoices',
+  'tax-rates',
+  'vat-returns',
 ]);
 
 /** The `/v1/<object>` segment a test path addresses, or null outside `/v1`. */

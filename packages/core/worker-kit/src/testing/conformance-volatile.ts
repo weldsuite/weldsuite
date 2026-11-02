@@ -49,6 +49,19 @@ const ROUTES: VolatileRoute[] = [
   },
   // The public API's database check answers with the time it ran.
   { method: 'GET', route: '/v1/health/db', fields: [{ path: 'data.timestamp' }] },
+  // An order without a number gets `ORD-<Date.now() base36>-<4 random>`.
+  {
+    method: 'POST',
+    route: '/v1/orders',
+    fields: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+    events: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+  },
+  // A media asset without a storage path is filed under its new id.
+  {
+    method: 'POST',
+    route: '/v1/social-media',
+    fields: [{ path: 'data.storagePath', pattern: /smed_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
   // expiry in seconds, so it differs when the runs straddle a second.
   {

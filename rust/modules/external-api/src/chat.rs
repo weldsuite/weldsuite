@@ -14,18 +14,17 @@ use crate::ExternalApiState;
 use crate::crud::{Caller, Fail, table_list_sql};
 use crate::desk::slugify;
 use crate::schemas::{
-    LIST_CHANNEL_MEMBERS, LIST_CHANNELS, LIST_CHAT_BOOKMARKS, LIST_CHAT_DRAFTS,
-    LIST_CHAT_MESSAGES, LIST_CHAT_SECTIONS,
+    LIST_CHANNEL_MEMBERS, LIST_CHANNELS, LIST_CHAT_BOOKMARKS, LIST_CHAT_DRAFTS, LIST_CHAT_MESSAGES,
+    LIST_CHAT_SECTIONS,
 };
 use crate::schemas_gen::{
     CREATE_CHANNEL, CREATE_CHANNEL_MEMBER, CREATE_CHAT_BOOKMARK, CREATE_CHAT_DRAFT,
     CREATE_CHAT_MESSAGE, CREATE_CHAT_SECTION, UPDATE_CHANNEL, UPDATE_CHANNEL_MEMBER,
     UPDATE_CHAT_BOOKMARK, UPDATE_CHAT_DRAFT, UPDATE_CHAT_MESSAGE, UPDATE_CHAT_SECTION,
 };
-use crate::simple::{self, F, Simple, Stats};
+use crate::simple::{self, Dates, F, Simple, Stats};
 use crate::tables_gen::{
-    CHAT_BOOKMARKS, CHAT_CHANNEL_MEMBERS, CHAT_CHANNELS, CHAT_DRAFTS, CHAT_MESSAGES,
-    CHAT_SECTIONS,
+    CHAT_BOOKMARKS, CHAT_CHANNEL_MEMBERS, CHAT_CHANNELS, CHAT_DRAFTS, CHAT_MESSAGES, CHAT_SECTIONS,
 };
 
 /// Chat's routes.
@@ -51,9 +50,13 @@ fn default_to(values: &mut Map<String, Value>, key: &str, fallback: Value) {
 
 /// channels: `slug` is NOT NULL, derived from the name when not sent (the
 /// id when that leaves nothing; filled in by the engine's `id`).
-fn channel_values(_: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn channel_values(
+    _: &Caller,
+    values: &mut Map<String, Value>,
+    create: bool,
+) -> Result<Dates, Fail> {
     if !create {
-        return Ok(());
+        return Ok(&[]);
     }
     let sent = values
         .get("slug")
@@ -76,7 +79,7 @@ fn channel_values(_: &Caller, values: &mut Map<String, Value>, create: bool) -> 
             values.insert("slug".into(), json!(simple::ID_PLACEHOLDER));
         }
     }
-    Ok(())
+    Ok(&[])
 }
 
 static CHANNELS: Simple = Simple {
@@ -96,8 +99,13 @@ static CHANNELS: Simple = Simple {
     ),
     filters: &[F::Like("search"), F::Eq("type")],
     dates: &[],
-    events: Some([CHAT_CHANNEL_CREATED, CHAT_CHANNEL_UPDATED, CHAT_CHANNEL_DELETED]),
+    events: Some([
+        CHAT_CHANNEL_CREATED,
+        CHAT_CHANNEL_UPDATED,
+        CHAT_CHANNEL_DELETED,
+    ]),
     data: &["name"],
+    deleted_data: None,
     prepare: Some(channel_values),
     stats: Stats::None,
     touch: true,
@@ -121,6 +129,7 @@ static CHANNEL_MEMBERS: Simple = Simple {
     dates: &[],
     events: None,
     data: &[],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
@@ -128,7 +137,11 @@ static CHANNEL_MEMBERS: Simple = Simple {
 
 /// chat-messages: the schema's `body` is the `content` column; a create
 /// fills in the author.
-fn message_values(caller: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn message_values(
+    caller: &Caller,
+    values: &mut Map<String, Value>,
+    create: bool,
+) -> Result<Dates, Fail> {
     let body = values.remove("body");
     if create {
         values.insert(
@@ -140,7 +153,7 @@ fn message_values(caller: &Caller, values: &mut Map<String, Value>, create: bool
     } else if let Some(body) = body {
         values.insert("content".into(), body);
     }
-    Ok(())
+    Ok(&[])
 }
 
 static MESSAGES: Simple = Simple {
@@ -161,8 +174,13 @@ static MESSAGES: Simple = Simple {
     ),
     filters: &[F::Like("search"), F::Eq("channelId"), F::Eq("parentId")],
     dates: &[],
-    events: Some([CHAT_MESSAGE_CREATED, CHAT_MESSAGE_UPDATED, CHAT_MESSAGE_DELETED]),
+    events: Some([
+        CHAT_MESSAGE_CREATED,
+        CHAT_MESSAGE_UPDATED,
+        CHAT_MESSAGE_DELETED,
+    ]),
     data: &["channelId"],
+    deleted_data: None,
     prepare: Some(message_values),
     stats: Stats::None,
     touch: true,
@@ -170,13 +188,17 @@ static MESSAGES: Simple = Simple {
 
 /// chat-bookmarks: the caller's, with empty message and channel ids when
 /// not sent.
-fn bookmark_values(caller: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn bookmark_values(
+    caller: &Caller,
+    values: &mut Map<String, Value>,
+    create: bool,
+) -> Result<Dates, Fail> {
     if create {
         default_to(values, "userId", json!(caller.session.actor()));
         default_to(values, "messageId", json!(""));
         default_to(values, "channelId", json!(""));
     }
-    Ok(())
+    Ok(&[])
 }
 
 static BOOKMARKS: Simple = Simple {
@@ -197,6 +219,7 @@ static BOOKMARKS: Simple = Simple {
     dates: &[],
     events: None,
     data: &[],
+    deleted_data: None,
     prepare: Some(bookmark_values),
     stats: Stats::None,
     touch: true,
@@ -204,7 +227,11 @@ static BOOKMARKS: Simple = Simple {
 
 /// chat-drafts: `workspace_id` holds the Clerk org id; the schema's `body`
 /// is the `content` column.
-fn draft_values(caller: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn draft_values(
+    caller: &Caller,
+    values: &mut Map<String, Value>,
+    create: bool,
+) -> Result<Dates, Fail> {
     if create {
         let workspace = caller
             .session
@@ -222,7 +249,7 @@ fn draft_values(caller: &Caller, values: &mut Map<String, Value>, create: bool) 
     } else if let Some(body) = values.remove("body") {
         values.insert("content".into(), body);
     }
-    Ok(())
+    Ok(&[])
 }
 
 static DRAFTS: Simple = Simple {
@@ -243,6 +270,7 @@ static DRAFTS: Simple = Simple {
     dates: &[],
     events: None,
     data: &[],
+    deleted_data: None,
     prepare: Some(draft_values),
     stats: Stats::None,
     touch: true,
@@ -265,6 +293,7 @@ static SECTIONS: Simple = Simple {
     dates: &[],
     events: None,
     data: &[],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,

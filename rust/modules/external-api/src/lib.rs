@@ -31,6 +31,9 @@ macro_rules! scope {
 
 mod app_storage;
 mod auth;
+mod books;
+mod calendar;
+mod chat;
 mod commerce;
 mod crm;
 mod crud;
@@ -47,6 +50,7 @@ mod schemas_gen;
 mod session;
 mod settings;
 mod simple;
+mod social;
 mod table;
 #[rustfmt::skip]
 mod tables_gen;
@@ -161,6 +165,26 @@ where
     };
     let router = if mounts("commerce") {
         commerce::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("chat") {
+        chat::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("calendar") {
+        calendar::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("social") {
+        social::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("books") {
+        books::routes(router)
     } else {
         router
     };

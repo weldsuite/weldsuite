@@ -110,6 +110,9 @@ export const SCHEMAS: SchemaEntry[] = [
   s('UPDATE_SOCIAL_MEDIA', core('social-media'), 'updateSocialMediaSchema'),
   s('CREATE_SOCIAL_POST', core('social-posts'), 'createSocialPostSchema'),
   s('UPDATE_SOCIAL_POST', core('social-posts'), 'updateSocialPostSchema'),
+  // Books
+  s('CREATE_ACCOUNTING_CONTACT', core('accounting-contacts'), 'createAccountingContactSchema'),
+  s('UPDATE_ACCOUNTING_CONTACT', core('accounting-contacts'), 'updateAccountingContactSchema'),
 ];
 
 export const TABLES = [
@@ -160,4 +163,26 @@ export const TABLES = [
   'socialAnalytics',
   'socialMedia',
   'socialPosts',
+  // Books (read through `columnsFor`: ciphertext columns left out)
+  'entities',
+  'accounts',
+  'invoices',
+  'bills',
+  'journalEntries',
+  'payments',
+  'bankAccounts',
+  'bankTransactions',
+  'taxRates',
+  'recurringInvoices',
+  'reconciliationRules',
+  'fiscalPeriods',
+  'fxRates',
+  'vatReturns',
+  'icpDeclarations',
+  'documents',
+  'settings',
+  'parties',
 ] as const;
+
+/** Tables read without their ciphertext columns (`selectableColumns`). */
+export const OMIT_SENSITIVE: ReadonlySet<string> = new Set(['entities', 'bankAccounts', 'parties']);

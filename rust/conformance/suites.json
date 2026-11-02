@@ -2252,6 +2252,72 @@
       "tests": [
         "src/test/contract.test.ts",
         "src/test/crud.test.ts"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /v1/project-sheets",
+          "reason": "WeldFlow sheets (project_sheets) are not ported to Rust (the sheets module is not served on the Kubernetes editions)."
+        },
+        {
+          "route": "GET /v1/domains",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "POST /v1/domains",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "GET /v1/domains/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "PATCH /v1/domains/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "DELETE /v1/domains/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "GET /v1/domains/:domainId/zones",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "POST /v1/domains/:domainId/zones",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "GET /v1/domains/:domainId/zones/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "PATCH /v1/domains/:domainId/zones/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "DELETE /v1/domains/:domainId/zones/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "GET /v1/domains/:domainId/zones/:zoneId/records",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "POST /v1/domains/:domainId/zones/:zoneId/records",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "GET /v1/domains/:domainId/zones/:zoneId/records/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "PATCH /v1/domains/:domainId/zones/:zoneId/records/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        },
+        {
+          "route": "DELETE /v1/domains/:domainId/zones/:zoneId/records/:id",
+          "reason": "WeldHost (domains, DNS zones and records) is not ported to Rust and not served on the Kubernetes editions."
+        }
       ]
     },
     {
@@ -2292,6 +2358,43 @@
       ],
       "tests": [
         "src/test/articles-categories.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: chat and calendar",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/chat-calendar.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: commerce and social",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/commerce-social.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: books",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/accounting-read-only.test.ts",
+        "src/test/accounting-routes.test.ts"
       ]
     }
   ]

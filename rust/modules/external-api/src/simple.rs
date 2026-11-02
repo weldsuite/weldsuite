@@ -38,8 +38,12 @@ pub(crate) enum F {
     Flag(&'static str),
 }
 
+/// The properties a [`Prepare`] hook set to a `Date` itself.
+pub(crate) type Dates = &'static [&'static str];
+
 /// A route's own step on the values it writes: `create` is true on POST.
-pub(crate) type Prepare = fn(&Caller, &mut Map<String, Value>, bool) -> Result<(), Fail>;
+/// Answers the properties it set to a `Date`.
+pub(crate) type Prepare = fn(&Caller, &mut Map<String, Value>, bool) -> Result<Dates, Fail>;
 
 /// An object group.
 pub(crate) struct Simple {
@@ -65,6 +69,8 @@ pub(crate) struct Simple {
     /// data carries after `id`.
     pub(crate) events: Option<[EventName; 3]>,
     pub(crate) data: &'static [&'static str],
+    /// The deleted event's fields, when not [`Simple::data`].
+    pub(crate) deleted_data: Option<&'static [&'static str]>,
     pub(crate) prepare: Option<Prepare>,
     /// Computed counters the list and the detail add (`withProjectStats`).
     pub(crate) stats: Stats,
@@ -198,10 +204,12 @@ async fn create(
 ) -> Answer {
     let parsed = zod::json(spec.create, &headers, &body)?;
     let mut body = parsed.body.clone();
-    if let Some(prepare) = spec.prepare {
-        prepare(&caller, &mut body, true)?;
-    }
+    let set = match spec.prepare {
+        Some(prepare) => prepare(&caller, &mut body, true)?,
+        None => &[],
+    };
     let mut own = coerce_dates(&mut body, spec.dates)?;
+    own.extend_from_slice(set);
     let stamp = now();
     let id = generate_id(spec.prefix);
     for value in body.values_mut() {
@@ -239,10 +247,12 @@ async fn update(
 ) -> Answer {
     let parsed = zod::json(spec.update, &headers, &body)?;
     let mut body = parsed.body.clone();
-    if let Some(prepare) = spec.prepare {
-        prepare(&caller, &mut body, false)?;
-    }
+    let set = match spec.prepare {
+        Some(prepare) => prepare(&caller, &mut body, false)?,
+        None => &[],
+    };
     let mut own = coerce_dates(&mut body, spec.dates)?;
+    own.extend_from_slice(set);
     let values = if spec.touch {
         with_updated(&body, &now())
     } else {
@@ -282,7 +292,7 @@ async fn remove(
             &state.events,
             deleted_event,
             &id,
-            event_data(spec, &id, &row),
+            pick(&id, &row, spec.deleted_data.unwrap_or(spec.data)),
         );
     }
     no_content()

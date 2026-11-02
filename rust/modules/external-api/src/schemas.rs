@@ -253,3 +253,11 @@ pub(crate) const LIST_SOCIAL_ACCOUNTS: Z = list_query!("platform", "status");
 pub(crate) const LIST_SOCIAL_CAMPAIGNS: Z = list_query!("status");
 pub(crate) const LIST_SOCIAL_ANALYTICS: Z = list_query!("postId", "accountId");
 pub(crate) const LIST_SOCIAL_MEDIA: Z = list_query!("mediaType", "status");
+
+// ---------------------------------------------------------------------------
+// Books (the routes' inline list queries)
+// ---------------------------------------------------------------------------
+
+/// The read-only ledger resources' `listQuery`.
+pub(crate) const LIST_READ_ONLY: Z = list_query!("entityId");
+pub(crate) const LIST_ACCOUNTING_CONTACTS: Z = list_query!("search", "role");

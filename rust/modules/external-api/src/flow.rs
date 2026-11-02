@@ -57,7 +57,7 @@ use crate::schemas_gen::{
     UPDATE_TASK, UPDATE_TASK_COMMENT, UPDATE_TASK_TAG, UPDATE_WHITEBOARD,
 };
 use crate::session::{bad_request, internal, internal_with, not_found};
-use crate::simple::{self, F, Simple, Stats};
+use crate::simple::{self, Dates, F, Simple, Stats};
 use crate::tables_gen::{
     MILESTONES, PROJECT_DOCUMENTS, PROJECT_FILES, PROJECT_GOALS, PROJECT_LABELS, PROJECT_MEMBERS,
     PROJECT_MESSAGES, PROJECT_WHITEBOARDS, PROJECTS, SPRINTS, TASK_COMMENTS, TASK_TAGS, TASKS,
@@ -144,6 +144,7 @@ static PROJECT_GROUP: Simple = Simple {
     dates: &["startDate", "endDate"],
     events: Some([PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED]),
     data: &["name"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::Project,
     touch: true,
@@ -173,6 +174,7 @@ static MILESTONE_GROUP: Simple = Simple {
         PROJECT_MILESTONE_DELETED,
     ]),
     data: &["name", "projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::Milestone,
     touch: true,
@@ -199,6 +201,7 @@ static GOALS: Simple = Simple {
         PROJECT_GOAL_DELETED,
     ]),
     data: &["projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
@@ -228,6 +231,7 @@ static SPRINTS_GROUP: Simple = Simple {
         PROJECT_SPRINT_DELETED,
     ]),
     data: &["name", "projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
@@ -239,7 +243,7 @@ fn comment_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
     create: bool,
-) -> Result<(), Fail> {
+) -> Result<Dates, Fail> {
     let body = values.remove("body");
     if create {
         let author = match values.get("authorId") {
@@ -254,7 +258,7 @@ fn comment_values(
     } else if let Some(body) = body {
         values.insert("content".into(), body);
     }
-    Ok(())
+    Ok(&[])
 }
 
 static TASK_COMMENTS_GROUP: Simple = Simple {
@@ -280,17 +284,22 @@ static TASK_COMMENTS_GROUP: Simple = Simple {
         TASK_COMMENT_DELETED,
     ]),
     data: &["taskId"],
+    deleted_data: None,
     prepare: Some(comment_values),
     stats: Stats::None,
     touch: true,
 };
 
 /// task-tags: a create belongs to the caller (`userId`).
-fn tag_values(caller: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn tag_values(
+    caller: &Caller,
+    values: &mut Map<String, Value>,
+    create: bool,
+) -> Result<Dates, Fail> {
     if create {
         values.insert("userId".into(), json!(caller.session.actor()));
     }
-    Ok(())
+    Ok(&[])
 }
 
 static TASK_TAGS_GROUP: Simple = Simple {
@@ -312,6 +321,7 @@ static TASK_TAGS_GROUP: Simple = Simple {
     dates: &[],
     events: Some([TASK_TAG_CREATED, TASK_TAG_UPDATED, TASK_TAG_DELETED]),
     data: &["name"],
+    deleted_data: None,
     prepare: Some(tag_values),
     stats: Stats::None,
     touch: true,
@@ -341,6 +351,7 @@ static DOCUMENTS: Simple = Simple {
         PROJECT_DOCUMENT_DELETED,
     ]),
     data: &["projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
@@ -370,17 +381,18 @@ static FILES: Simple = Simple {
         PROJECT_FILE_DELETED,
     ]),
     data: &["projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
 };
 
 /// project-labels: `color` is NOT NULL, so a create defaults it.
-fn label_values(_: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<(), Fail> {
+fn label_values(_: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<Dates, Fail> {
     if create && matches!(values.get("color"), Some(Value::Null) | None) {
         values.insert("color".into(), json!("#6B7280"));
     }
-    Ok(())
+    Ok(&[])
 }
 
 static LABELS: Simple = Simple {
@@ -406,6 +418,7 @@ static LABELS: Simple = Simple {
         PROJECT_LABEL_DELETED,
     ]),
     data: &["name"],
+    deleted_data: None,
     prepare: Some(label_values),
     stats: Stats::None,
     touch: true,
@@ -435,6 +448,7 @@ static MEMBERS: Simple = Simple {
         PROJECT_MEMBER_REMOVED,
     ]),
     data: &["projectId", "userId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,
@@ -445,11 +459,11 @@ fn message_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
     create: bool,
-) -> Result<(), Fail> {
+) -> Result<Dates, Fail> {
     if create && matches!(values.get("senderId"), Some(Value::Null) | None) {
         values.insert("senderId".into(), json!(caller.session.actor()));
     }
-    Ok(())
+    Ok(&[])
 }
 
 static MESSAGES: Simple = Simple {
@@ -475,6 +489,7 @@ static MESSAGES: Simple = Simple {
         PROJECT_MESSAGE_DELETED,
     ]),
     data: &["projectId"],
+    deleted_data: None,
     prepare: Some(message_values),
     stats: Stats::None,
     touch: true,
@@ -503,6 +518,7 @@ static WHITEBOARDS: Simple = Simple {
         PROJECT_WHITEBOARD_DELETED,
     ]),
     data: &["name", "projectId"],
+    deleted_data: None,
     prepare: None,
     stats: Stats::None,
     touch: true,

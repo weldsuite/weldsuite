@@ -87,9 +87,21 @@ on the cache's counters (Valkey, exact across pods), `GET /v1`,
 `api-modules` module, so it is not in `RUST_PORTED_MODULES`: each `/v1`
 object group is mounted where its module is. The WeldApps gateway reaches it
 over HTTP through the release's own Service (the chart sets `EXTERNAL_API_URL`).
-Not yet: the `/v1/<object>` groups of the ported modules (CRM, desk, mail,
-flow, chat, calendar, know, files and folders, commerce, social, books'
-read-only ledger) and their tests in its conformance suites.
+The `/v1/<object>` groups served so far: CRM (people, companies, leads,
+opportunities, pipelines, pipeline-stages, activities, quotes), Flow
+(projects, tasks, time-entries, milestones, goals, sprints, task-comments,
+task-tags, project-documents/files/labels/members/messages, whiteboards),
+desk's articles, commerce (categories, products, orders), chat (channels,
+channel-members, chat-messages/bookmarks/drafts/sections), calendar
+(calendars, calendar-events), social (accounts, campaigns, analytics, media)
+and WeldBooks (the read-only ledger, accounting-settings,
+accounting-contacts). Their bodies are validated with the client packages'
+Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
+data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
+statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
+yet: mail, know, files/folders/drive, custom-objects, webhooks, workflows,
+desk's tickets and conversations (the inbox domain), social-posts and reach.
+WeldHost's domains and Flow's sheets are not served on Kubernetes.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -150,7 +162,8 @@ rust/
   crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
                         scopes, reserved codes, and adopting first-party installs onto an official hosted app
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
-                        WeldApps' token grant, app storage and the CLI's developer API; object groups as they land
+                        WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
+                        tools/generate.mts writes their Zod schemas and tables as data
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,

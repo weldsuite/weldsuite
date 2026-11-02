@@ -20,7 +20,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { SCHEMAS, TABLES } from './inventory.mts';
+import { OMIT_SENSITIVE, SCHEMAS, TABLES } from './inventory.mts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../../..');
@@ -31,6 +31,7 @@ const load = (specifier: string) => import(pathToFileURL(requireFrom.resolve(spe
 const { getTableColumns, getTableName, is } = await load('drizzle-orm');
 const { PgTable } = await load('drizzle-orm/pg-core');
 const schema = await load('@weldsuite/db/schema');
+const { selectableColumns } = await load('@weldsuite/db/lib/sensitive-columns');
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -316,7 +317,9 @@ for (const exportName of TABLES) {
   const name = getTableName(table);
   const snap = snapshot.tables[`public.${name}`];
   if (!snap) throw new Error(`${name} is not in ${latest}`);
-  const columns = Object.entries(getTableColumns(table)).map(([prop, column]) => {
+  const all = getTableColumns(table) as Record<string, unknown>;
+  const readable = OMIT_SENSITIVE.has(exportName) ? (selectableColumns(name, all) ?? all) : all;
+  const columns = Object.entries(readable).map(([prop, column]) => {
     const c = column as unknown as { name: string; columnType: string; defaultFn?: unknown; onUpdateFn?: unknown };
     const s = snap.columns[c.name];
     if (!s) throw new Error(`${name}.${c.name} is not in ${latest}`);

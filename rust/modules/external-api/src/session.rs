@@ -134,6 +134,15 @@ pub(crate) fn not_found(resource: &str, id: &str) -> ApiError {
     )
 }
 
+/// `error.notFound(c, resource)`: a resource without an id.
+pub(crate) fn not_found_resource(resource: &str) -> ApiError {
+    ApiError::new(
+        StatusCode::NOT_FOUND,
+        "NOT_FOUND",
+        format!("{resource} not found"),
+    )
+}
+
 /// `error.conflict(c, message)`.
 pub(crate) fn conflict(message: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::CONFLICT, "CONFLICT", message)
