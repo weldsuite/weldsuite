@@ -13,8 +13,7 @@
 //!
 //! `assertMailMessageStoreIsPostgres` always passes here: the mailbox store
 //! is `postgres` on Kubernetes (MAIL-010). Tickets (`ticket`,
-//! `helpdesk_ticket`) open a WeldDesk inbox conversation on Global, which
-//! the Rust backend can't yet (see `helpdesk::create_conversation`).
+//! `helpdesk_ticket`) open a WeldDesk inbox conversation (`desk::create_ticket`).
 
 mod tables;
 
@@ -297,7 +296,7 @@ pub(super) async fn create_record(
     }
     if is_ticket(&entity) {
         // `createTicketAsConversation`: a WeldDesk inbox conversation.
-        return super::helpdesk::create_conversation(inputs, ctx);
+        return super::desk::create_ticket(&data, ctx).await;
     }
     assert_mail_write(ctx, &entity, &data, true).await?;
     let table = table_of(&entity)?;

@@ -3,19 +3,14 @@
 //!
 //! A conversation of the legacy helpdesk (`helpdesk_conversations`) is
 //! written here as the worker does. A WeldDesk inbox conversation
-//! (`desk_conversations`) goes through `@weldsuite/desk-domain/inbox` on
-//! Global, which the Rust backend does not have yet: such a step fails,
-//! without retries, saying so. `create_conversation` opens an inbox
-//! conversation, so it fails the same way.
+//! (`desk_conversations`) goes through [`super::desk`] (the shared inbox
+//! of `weldsuite_desk_domain::inbox`), as is `create_conversation`.
 
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{RealtimeMessage, Room};
 
 use super::{ActionCtx, ActionError, ActionResult};
 use crate::js::{as_text, js_string, truthy};
-
-const DESK_NOT_YET: &str =
-    "WeldDesk inbox conversations can't be changed by a workflow on this deployment yet";
 
 /// `resolveConversationId(inputs, ctx)`.
 fn conversation_id(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -> Option<String> {
@@ -57,18 +52,25 @@ async fn is_desk_conversation(ctx: &ActionCtx<'_>, id: &str) -> Result<bool, Act
     Ok(row.is_some())
 }
 
-/// The conversation to act on, or the step's answer without one.
-async fn target(
-    inputs: &Map<String, Value>,
-    ctx: &ActionCtx<'_>,
-) -> Result<Result<String, Value>, ActionError> {
+/// The conversation a step acts on.
+enum Target {
+    /// A legacy helpdesk conversation.
+    Legacy(String),
+    /// A WeldDesk inbox conversation ([`super::desk`]).
+    Desk(String),
+    /// No conversation id: the step's answer.
+    Answer(Value),
+}
+
+/// The conversation to act on, and which inbox it is in.
+async fn target(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -> Result<Target, ActionError> {
     let Some(id) = conversation_id(inputs, ctx) else {
-        return Ok(Err(no_conversation()));
+        return Ok(Target::Answer(no_conversation()));
     };
     if is_desk_conversation(ctx, &id).await? {
-        return Err(ActionError::fatal(DESK_NOT_YET));
+        return Ok(Target::Desk(id));
     }
-    Ok(Ok(id))
+    Ok(Target::Legacy(id))
 }
 
 /// `publishRealtime(env, workspaceId, 'conversation:<id>', event, data)`.
@@ -93,15 +95,6 @@ fn text_or(value: Option<&Value>, fallback: &str) -> String {
         Some(v) if truthy(v) => as_text(Some(v)),
         _ => fallback.to_owned(),
     }
-}
-
-pub(super) fn create_conversation(
-    _inputs: &Map<String, Value>,
-    _ctx: &ActionCtx<'_>,
-) -> ActionResult {
-    Err(ActionError::fatal(
-        "Opening a WeldDesk inbox conversation from a workflow is not available on this deployment yet",
-    ))
 }
 
 /// `pickAgentByLoad(ctx, strategy, departmentId)`.
@@ -142,8 +135,9 @@ pub(super) async fn assign_conversation(
     ctx: &ActionCtx<'_>,
 ) -> ActionResult {
     let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
+        Target::Legacy(id) => id,
+        Target::Desk(id) => return super::desk::assign(ctx, &id, inputs).await,
+        Target::Answer(answer) => return Ok(answer),
     };
     let strategy = text_or(inputs.get("strategy"), "specific_agent");
     let department = inputs
@@ -223,14 +217,19 @@ pub(super) async fn tag_conversation(
     inputs: &Map<String, Value>,
     ctx: &ActionCtx<'_>,
 ) -> ActionResult {
-    let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
-    };
+    let target = target(inputs, ctx).await?;
+    if let Target::Answer(answer) = target {
+        return Ok(answer);
+    }
     let mode = text_or(inputs.get("mode"), "add");
     let wanted: Vec<String> = match inputs.get("tags") {
         Some(Value::Array(items)) => items.iter().map(|t| js_string(Some(t))).collect(),
         _ => Vec::new(),
+    };
+    let id = match target {
+        Target::Desk(id) => return super::desk::tag(ctx, &id, &mode, wanted).await,
+        Target::Legacy(id) => id,
+        Target::Answer(answer) => return Ok(answer),
     };
     let current: Option<Option<Value>> =
         sqlx::query_scalar("select tags from helpdesk_conversations where id = $1 limit 1")
@@ -274,13 +273,15 @@ pub(super) async fn change_status(
     inputs: &Map<String, Value>,
     ctx: &ActionCtx<'_>,
 ) -> ActionResult {
-    let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
-    };
+    let id = target(inputs, ctx).await?;
     let status = match inputs.get("status") {
         None => "undefined".to_owned(),
         some => js_string(some),
+    };
+    let id = match id {
+        Target::Desk(id) => return super::desk::change_state(ctx, &id, &status).await,
+        Target::Legacy(id) => id,
+        Target::Answer(answer) => return Ok(answer),
     };
     let now = super::now_text();
     sqlx::query(
@@ -302,13 +303,15 @@ pub(super) async fn change_priority(
     inputs: &Map<String, Value>,
     ctx: &ActionCtx<'_>,
 ) -> ActionResult {
-    let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
-    };
+    let id = target(inputs, ctx).await?;
     let priority = match inputs.get("priority") {
         None => "undefined".to_owned(),
         some => js_string(some),
+    };
+    let id = match id {
+        Target::Desk(id) => return super::desk::set_priority(ctx, &id, &priority).await,
+        Target::Legacy(id) => id,
+        Target::Answer(answer) => return Ok(answer),
     };
     sqlx::query(
         "update helpdesk_conversations set priority = $2, updated_at = $3::timestamp where id = $1",
@@ -324,8 +327,12 @@ pub(super) async fn change_priority(
 
 pub(super) async fn send_reply(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -> ActionResult {
     let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
+        Target::Legacy(id) => id,
+        Target::Desk(id) => {
+            let body = text_or(inputs.get("message"), "");
+            return super::desk::add_message(ctx, &id, "message", &body).await;
+        }
+        Target::Answer(answer) => return Ok(answer),
     };
     let message_id = weldsuite_kit::generate_id("msg");
     let author_type = text_or(inputs.get("authorType"), "system");
@@ -381,8 +388,15 @@ pub(super) async fn add_internal_note(
     ctx: &ActionCtx<'_>,
 ) -> ActionResult {
     let id = match target(inputs, ctx).await? {
-        Ok(id) => id,
-        Err(answer) => return Ok(answer),
+        Target::Legacy(id) => id,
+        Target::Desk(id) => {
+            let body = match inputs.get("content").filter(|v| truthy(v)) {
+                Some(content) => as_text(Some(content)),
+                None => text_or(inputs.get("note"), ""),
+            };
+            return super::desk::add_message(ctx, &id, "note", &body).await;
+        }
+        Target::Answer(answer) => return Ok(answer),
     };
     let message_id = weldsuite_kit::generate_id("msg");
     let now = super::now_text();

@@ -22,6 +22,11 @@
 //! - [`http`]: the third-party HTTP calls (Discord, Slack) as a port.
 //! - [`notify`] (`@weldsuite/notifications` `helpers/helpdesk.ts`): whether
 //!   and what to notify on an assignment or a customer reply.
+//! - [`attributes`] (`updateDeskConversationAttributes` of
+//!   `@weldsuite/db/lib/desk`): a conversation's ticket fields, as any author.
+//! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
+//!   outside it (workflows, the public API): `ingestDeskApi`, assignment,
+//!   notifications and the inbox events.
 //! - [`sla`] (`@weldsuite/db/lib/desk-sla`): the SLA engine. Clocks per
 //!   conversation, derived from the timeline and the matching policy on
 //!   [`sla_calendar`]'s business time (`desk-sla-calendar`); every write
@@ -36,8 +41,10 @@
 
 pub mod assignment;
 pub mod assignment_router;
+pub mod attributes;
 pub mod email;
 pub mod http;
+pub mod inbox;
 pub mod notify;
 pub mod phone;
 pub mod realtime;

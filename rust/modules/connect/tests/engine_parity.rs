@@ -346,6 +346,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
             transport: Some(Arc::clone(&mail) as Arc<dyn weldsuite_ports::MailTransport>),
             ..weldsuite_mail_domain::outbound::OutboundBindings::default()
         },
+        assignment: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),

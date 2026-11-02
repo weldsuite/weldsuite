@@ -16,6 +16,7 @@ use crate::js::{as_text, js_number, js_string, truthy};
 
 mod comms;
 mod data;
+mod desk;
 mod helpdesk;
 mod providers;
 mod records;
@@ -126,7 +127,7 @@ pub(crate) async fn execute_action(
         "update_record" => data::update_record(inputs, ctx).await,
         "delete_record" => data::delete_record(inputs, ctx).await,
         "query_data" => data::query_data(inputs, ctx).await,
-        "create_conversation" => helpdesk::create_conversation(inputs, ctx),
+        "create_conversation" => desk::create_conversation(inputs, ctx).await,
         "assign_conversation" => helpdesk::assign_conversation(inputs, ctx).await,
         "tag_conversation" => helpdesk::tag_conversation(inputs, ctx).await,
         "change_conversation_status" => helpdesk::change_status(inputs, ctx).await,

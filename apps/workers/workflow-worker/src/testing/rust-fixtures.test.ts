@@ -117,6 +117,10 @@ const CLEAR = [
   'delete from helpdesk_conversation_messages',
   'delete from helpdesk_conversations',
   'delete from helpdesk_agents',
+  'delete from desk_sla_clocks',
+  'delete from desk_messages',
+  'delete from desk_conversations',
+  'delete from desk_visitors',
   'delete from mail_folders',
   'delete from mail_correspondents',
   'truncate mail_accounts cascade',
@@ -703,6 +707,49 @@ const CASES: Case[] = [
       `select content, author_type, author_id, author_name, type, is_public, is_internal, status
          from helpdesk_conversation_messages order by type`,
       'select id, tickets_assigned, current_active_tickets from helpdesk_agents order by id',
+    ],
+  },
+  {
+    name: 'WeldDesk inbox steps: open and repeat by external id, a ticket record, assign, tags, priority, reply, note, state',
+    instanceId: 'inst_desk',
+    seed: [
+      MEMBERS,
+      workflowRow('wf_desk', [
+        {
+          id: 's1',
+          type: 'create_conversation',
+          config: { title: 'Disk full', message: 'Disk on db-1 is at 95%', name: 'Datadog', email: 'Alerts@Datadog.test', externalId: 'alert-1' },
+        },
+        { id: 's2', type: 'create_conversation', config: { message: 'Disk on db-1 is at 99%', externalId: ' alert-1 ' } },
+        {
+          id: 's3',
+          type: 'create_record',
+          config: { entity: 'ticket', data: { subject: 'Refund', description: 'Please refund order 7', customerName: 'Cy', customerEmail: 'cy@example.com' } },
+        },
+        { id: 's4', type: 'assign_conversation', config: { conversationId: '{{steps.s1.conversationId}}', agentId: 'user_approver' } },
+        { id: 's5', type: 'tag_conversation', config: { conversationId: '{{steps.s1.conversationId}}', tags: ['Ops', 'disk', 'ops'] } },
+        { id: 's6', type: 'tag_conversation', config: { conversationId: '{{steps.s1.conversationId}}', mode: 'remove', tags: ['OPS'] } },
+        { id: 's7', type: 'change_priority', config: { conversationId: '{{steps.s1.conversationId}}', priority: 'critical' } },
+        { id: 's8', type: 'change_priority', config: { conversationId: '{{steps.s1.conversationId}}', priority: 'blocker' } },
+        { id: 's9', type: 'send_reply', config: { conversationId: '{{steps.s1.conversationId}}', message: 'Looking into it' } },
+        { id: 's10', type: 'add_internal_note', config: { conversationId: '{{steps.s3.conversationId}}', note: 'VIP customer' } },
+        { id: 's11', type: 'send_reply', config: { conversationId: '{{steps.s3.conversationId}}', message: '   ' } },
+        { id: 's12', type: 'change_conversation_status', config: { conversationId: '{{steps.s1.conversationId}}', status: 'resolved' } },
+        { id: 's13', type: 'change_conversation_status', config: { conversationId: '{{steps.s1.conversationId}}', status: 'pending' } },
+        { id: 's14', type: 'assign_conversation', config: { conversationId: '{{steps.s3.conversationId}}', strategy: 'round_robin' } },
+        { id: 's15', type: 'change_priority', config: { conversationId: '{{steps.s1.conversationId}}', priority: 'none' } },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_desk', triggerType: 'manual' },
+    inspect: [
+      `select conversation_number, title, state, channel, name, email, assignee_id, priority, tags, external_id,
+         (visitor_id is not null) as has_visitor, (waiting_since is not null) as waiting, last_message_preview
+       from desk_conversations order by conversation_number`,
+      `select c.conversation_number, m.kind, m.author_type, m.author_id, m.body, m.metadata
+         from desk_messages m join desk_conversations c on c.id = m.conversation_id
+         order by c.conversation_number, m.kind collate "C", coalesce(m.metadata ->> 'eventType', '') collate "C",
+           coalesce(m.body, '') collate "C", m.metadata::text collate "C"`,
+      'select name, email from desk_visitors order by email',
     ],
   },
   {

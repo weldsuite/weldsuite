@@ -319,6 +319,7 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 events: state.infra.events.clone(),
                 master: Some(state.workspaces.master().clone()),
                 outbound: deployment_outbound(state),
+                assignment: Some(desk_assignment_router()),
             },
         });
     router.merge(weldsuite_connect::router(

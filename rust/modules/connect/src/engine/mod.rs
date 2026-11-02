@@ -101,6 +101,10 @@ pub struct EngineDeps {
     pub master: Option<PgPool>,
     /// Customer mail and the outbound guard's ledgers (`send_email`).
     pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
+    /// WeldDesk's `AssignmentRouter` (`env.HELPDESK_WORKFLOW`), which hands
+    /// out inbox conversations a workflow opens or assigns; without it the
+    /// pick is local.
+    pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 impl std::fmt::Debug for EngineDeps {

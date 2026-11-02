@@ -4670,6 +4670,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-notifications",
  "weldsuite-ports",
 ]
 
