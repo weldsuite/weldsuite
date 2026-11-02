@@ -116,7 +116,42 @@ function throwingDb(): Database {
  * a request to any other group still runs on TypeScript alone, until its group
  * is ported. `''` is `GET /v1` itself, `health` is `/v1/health/db`.
  */
-export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set(['', 'health', 'oauth', 'app-storage', 'user-apps', 'settings']);
+export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
+  '',
+  'health',
+  'oauth',
+  'app-storage',
+  'user-apps',
+  'settings',
+  // CRM
+  'people',
+  'companies',
+  'leads',
+  'opportunities',
+  'pipelines',
+  'pipeline-stages',
+  'activities',
+  'quotes',
+  // Flow
+  'projects',
+  'tasks',
+  'time-entries',
+  'milestones',
+  'goals',
+  'sprints',
+  'task-comments',
+  'task-tags',
+  'project-documents',
+  'project-files',
+  'project-labels',
+  'project-members',
+  'project-messages',
+  'whiteboards',
+  // Desk
+  'articles',
+  // Commerce
+  'categories',
+]);
 
 /** The `/v1/<object>` segment a test path addresses, or null outside `/v1`. */
 function v1Segment(input: string): string | null {

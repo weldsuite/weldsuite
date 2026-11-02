@@ -31,13 +31,27 @@ macro_rules! scope {
 
 mod app_storage;
 mod auth;
+mod commerce;
+mod crm;
+mod crud;
+mod desk;
+mod flow;
 mod gates;
+mod hooks;
 mod index;
 mod list;
 mod oauth;
+mod schemas;
+#[rustfmt::skip]
+mod schemas_gen;
 mod session;
 mod settings;
+mod simple;
+mod table;
+#[rustfmt::skip]
+mod tables_gen;
 mod user_apps;
+mod zod;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -127,6 +141,26 @@ where
         .route("/oauth/token", post(oauth::token));
     let router = if mounts("core") {
         core(weldapps(router))
+    } else {
+        router
+    };
+    let router = if mounts("crm") {
+        crm::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("flow") {
+        flow::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("desk") {
+        desk::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("commerce") {
+        commerce::routes(router)
     } else {
         router
     };

@@ -2240,6 +2240,59 @@
         "apps/workers/external-api/src/",
         "rust/modules/external-api/"
       ]
+    },
+    {
+      "name": "external-api: objects",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/contract.test.ts",
+        "src/test/crud.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: crm",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/crm.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: flow",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/flow.test.ts",
+        "src/test/project-stats.test.ts",
+        "src/test/task-delete.test.ts",
+        "src/test/task-relations.test.ts",
+        "src/test/task-status.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: articles and categories",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/articles-categories.test.ts"
+      ]
     }
   ]
 }

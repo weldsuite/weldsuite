@@ -119,6 +119,38 @@ pub(crate) async fn list_page_mapped(
     filters: &Value,
     map: impl Fn(Value) -> Value,
 ) -> Result<Response, ApiError> {
+    let mut page = list_rows(db, (page_sql, count_sql), query, filters).await?;
+    page.rows = page.rows.into_iter().map(map).collect();
+    Ok(page.respond())
+}
+
+/// One page of rows, before the answer is built (a route that decorates
+/// the page as a whole: `withProjectStats`).
+pub(crate) struct Page {
+    pub(crate) rows: Vec<Value>,
+    pub(crate) total: i64,
+    pub(crate) has_more: bool,
+    pub(crate) cursor: Value,
+}
+
+impl Page {
+    /// `list(c, data, cursorPagination(total, hasMore, cursor))`.
+    pub(crate) fn respond(self) -> Response {
+        Json(json!({
+            "data": self.rows,
+            "pagination": { "totalCount": self.total, "hasMore": self.has_more, "cursor": self.cursor },
+        }))
+        .into_response()
+    }
+}
+
+/// The rows of one page, as `to_jsonb` gives them.
+pub(crate) async fn list_rows(
+    db: &PgPool,
+    (page_sql, count_sql): (&'static str, &'static str),
+    query: &ListQuery,
+    filters: &Value,
+) -> Result<Page, ApiError> {
     let probe = query.limit + 1;
     let mut rows: Vec<Value> = sqlx::query_scalar(page_sql)
         .bind(query.cursor.as_deref())
@@ -145,12 +177,12 @@ pub(crate) async fn list_page_mapped(
     } else {
         Value::Null
     };
-    let data: Vec<Value> = rows.into_iter().map(map).collect();
-    Ok(Json(json!({
-        "data": data,
-        "pagination": { "totalCount": total, "hasMore": has_more, "cursor": cursor },
-    }))
-    .into_response())
+    Ok(Page {
+        rows,
+        total,
+        has_more,
+        cursor,
+    })
 }
 
 #[cfg(test)]
