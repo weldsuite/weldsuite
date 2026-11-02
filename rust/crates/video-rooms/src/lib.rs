@@ -27,7 +27,7 @@ mod realtimekit;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-pub use livekit::{LiveKit, LiveKitConfig};
+pub use livekit::{LiveKit, LiveKitConfig, WAITING_ATTRIBUTE};
 pub use livekit_webhook::{WebhookRejected, verify_livekit_webhook};
 pub use realtimekit::{
     GUEST_PRESET, GUEST_WAITING_PRESET, HOST_PRESET, MEMBER_PRESET, RealtimeKit, RealtimeKitConfig,
@@ -44,14 +44,7 @@ pub fn from_env(
     get: impl Fn(&str) -> Option<String>,
     http: OutboundHttp,
 ) -> Arc<dyn DynVideoRooms> {
-    let value = |name: &str| get(name).filter(|value| !value.is_empty());
-    let provider = value("VIDEO_PROVIDER").map(|p| p.to_ascii_lowercase());
-    let livekit = match provider.as_deref() {
-        Some("livekit") => true,
-        Some(_) => false,
-        None => value("LIVEKIT_URL").is_some(),
-    };
-    if !livekit {
+    if !selects_livekit(&get) {
         return Arc::new(RealtimeKit::new(RealtimeKitConfig::from_env(&get), http));
     }
     match LiveKitConfig::from_env(&get) {
@@ -60,6 +53,62 @@ pub fn from_env(
             "LiveKit is not configured (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)"
                 .to_owned(),
         )),
+    }
+}
+
+/// Whether the environment picks `LiveKit` (see the table above).
+fn selects_livekit(get: &impl Fn(&str) -> Option<String>) -> bool {
+    let value = |name: &str| get(name).filter(|value| !value.is_empty());
+    match value("VIDEO_PROVIDER")
+        .map(|p| p.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("livekit") => true,
+        Some(_) => false,
+        None => value("LIVEKIT_URL").is_some(),
+    }
+}
+
+/// Which client the frontends join rooms with, for `/config.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClientSettings {
+    /// `livekit` or `realtimekit`.
+    pub provider: ClientProvider,
+    /// The server clients connect to (`LIVEKIT_URL`); `LiveKit` only.
+    pub url: Option<String>,
+}
+
+/// The video provider a client joins with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ClientProvider {
+    /// Cloudflare `RealtimeKit` (Global's, and the default).
+    #[default]
+    RealtimeKit,
+    /// A self-hosted `LiveKit` server.
+    LiveKit,
+}
+
+impl ClientProvider {
+    /// The name `/config.json` uses (`videoProvider`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RealtimeKit => "realtimekit",
+            Self::LiveKit => "livekit",
+        }
+    }
+}
+
+/// The provider [`from_env`] picks, as the frontends need it: which client
+/// joins rooms, and where a `LiveKit` client connects. Holds nothing secret.
+pub fn client_settings(get: impl Fn(&str) -> Option<String>) -> ClientSettings {
+    if !selects_livekit(&get) {
+        return ClientSettings::default();
+    }
+    ClientSettings {
+        provider: ClientProvider::LiveKit,
+        url: get("LIVEKIT_URL")
+            .map(|url| url.trim().trim_end_matches('/').to_owned())
+            .filter(|url| !url.is_empty()),
     }
 }
 
@@ -244,5 +293,32 @@ mod tests {
             .await
             .expect("a token");
         assert!(token.participant_id.starts_with("user_1~"));
+    }
+
+    #[test]
+    fn tells_the_clients_which_provider_and_server() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        assert_eq!(client_settings(env(&[])), ClientSettings::default());
+        assert_eq!(ClientSettings::default().provider.as_str(), "realtimekit");
+        let livekit = client_settings(env(&[("LIVEKIT_URL", "wss://lk.example.com/")]));
+        assert_eq!(livekit.provider.as_str(), "livekit");
+        assert_eq!(livekit.url.as_deref(), Some("wss://lk.example.com"));
+        // An explicit provider wins over the URL being set.
+        let forced = client_settings(env(&[
+            ("VIDEO_PROVIDER", "RealtimeKit"),
+            ("LIVEKIT_URL", "wss://lk.example.com"),
+        ]));
+        assert_eq!(forced, ClientSettings::default());
+        // LiveKit without a URL: the clients know the provider, not where to go.
+        let no_url = client_settings(env(&[("VIDEO_PROVIDER", "livekit")]));
+        assert_eq!(no_url.provider, ClientProvider::LiveKit);
+        assert_eq!(no_url.url, None);
     }
 }

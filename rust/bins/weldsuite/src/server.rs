@@ -576,11 +576,17 @@ mod tests {
             public_env: [("VITE_MAPBOX_ACCESS_TOKEN".to_owned(), "pk.eu".to_owned())]
                 .into_iter()
                 .collect(),
+            video: weldsuite_video_rooms::ClientSettings {
+                provider: weldsuite_video_rooms::ClientProvider::LiveKit,
+                url: Some("wss://lk.example.eu".to_owned()),
+            },
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
+        assert_eq!(body["videoProvider"], "livekit");
+        assert_eq!(body["videoUrl"], "wss://lk.example.eu");
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

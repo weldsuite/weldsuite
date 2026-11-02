@@ -38,6 +38,28 @@ export interface MeetingToolsController {
   /** The tool whose view is open in the panel, or null for the list. */
   activeTool: MeetingToolKey | null;
   setActiveTool: (tool: MeetingToolKey | null) => void;
+  /**
+   * Tools the meeting's video provider has no channel for, left out of the
+   * list: RealtimeKit's transcript (and the translation of it), polls and
+   * live stream don't exist on LiveKit. Empty on RealtimeKit.
+   */
+  unavailable?: ReadonlySet<MeetingToolKey>;
+}
+
+const NONE_UNAVAILABLE: ReadonlySet<MeetingToolKey> = new Set();
+
+/** The tools a meeting client can't offer: the RealtimeKit modules it lacks. */
+export function unavailableTools(meeting: MeetingClient | null): ReadonlySet<MeetingToolKey> {
+  if (!meeting) return NONE_UNAVAILABLE;
+  const modules = meeting as unknown as Partial<Record<'ai' | 'polls' | 'livestream', unknown>>;
+  const missing = new Set<MeetingToolKey>();
+  if (!modules.ai) {
+    missing.add('transcribe');
+    missing.add('translation');
+  }
+  if (!modules.polls) missing.add('polls');
+  if (!modules.livestream) missing.add('livestream');
+  return missing.size > 0 ? missing : NONE_UNAVAILABLE;
 }
 
 interface ControllerOptions {
@@ -191,5 +213,6 @@ export function useMeetingToolsController(options: ControllerOptions): MeetingTo
     labels,
     activeTool,
     setActiveTool,
+    unavailable: unavailableTools(meeting),
   };
 }

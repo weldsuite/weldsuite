@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth';
 import { DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useQueryClient } from '@tanstack/react-query';
@@ -49,6 +49,7 @@ import {
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
 import { isFeatureAvailable } from '@/lib/edition';
+import { isLiveKit } from '@/lib/video-provider';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { MeetingInvitePicker } from './meeting-invite-picker';
 import { StartRecordingDialog } from './start-recording-dialog';
@@ -146,6 +147,14 @@ function InvitePopoverContent({ meetingId }: Readonly<{ meetingId: string }>) {
 // ============================================================================
 // Adapter — pulls from contexts/queries and feeds the shared MeetingRoomView
 // ============================================================================
+
+/**
+ * The background-effects button and panel. Effects are RealtimeKit video
+ * middlewares, so LiveKit meetings (the Kubernetes editions) go without them.
+ */
+function effectsControls(onToggleEffects: () => void, backgroundEffectsSlot: ReactNode) {
+  return isLiveKit() ? {} : { onToggleEffects, backgroundEffectsSlot };
+}
 
 function MeetingRoomAdapter() {
   const t = getTranslations('weldmeet');
@@ -781,9 +790,8 @@ function MeetingRoomAdapter() {
       headerLabels={t.inCall.header}
       toolsLabels={t.inCall.tools}
       onRenameMeeting={handleRename}
-      onToggleEffects={() => setShowEffects(v => !v)}
+      {...effectsControls(() => setShowEffects(v => !v), backgroundEffectsSlot)}
       effectsOpen={showEffects}
-      backgroundEffectsSlot={backgroundEffectsSlot}
       chatPanelSlot={chatPanelSlot}
       invitePopoverSlot={invitePopoverSlot}
       peoplePanelSlot={peoplePanelSlot}
