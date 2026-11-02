@@ -2468,6 +2468,8 @@ export const accounting = {
       descriptionPlaceholder: 'Entry description',
       account: 'Account',
       selectAccount: 'Select account',
+      searchAccount: 'Search by code or name',
+      noAccountFound: 'No account found',
       linePlaceholder: 'Line description',
       debit: 'Debit',
       credit: 'Credit',
@@ -2500,6 +2502,7 @@ export const accounting = {
       colDescription: 'Description',
       colDebit: 'Debit',
       colCredit: 'Credit',
+      colStatus: 'Status',
       noEntries: 'No journal entries found',
     },
 

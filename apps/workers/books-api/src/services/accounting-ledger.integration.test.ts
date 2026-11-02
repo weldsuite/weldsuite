@@ -367,3 +367,30 @@ describe('ledger foundations', () => {
     expect(second.data.invoices).toBe(0);
   });
 });
+
+describe('manual journal entries', () => {
+  // TASK-1002: "Post Entry" on a manual draft without tax returned 500.
+  it('posts a draft without tax and moves both account balances', async () => {
+    const bankBefore = await balanceOf('1100');
+    const capitalBefore = await balanceOf('0510');
+    const created = await call('/api/journal-entries', journalEntriesRoutes, '/api/journal-entries', 'POST', {
+      date: '2026-07-20',
+      lines: [
+        { accountId: accountId['1100'], debit: '100' },
+        { accountId: accountId['0510'], credit: '100' },
+      ],
+    });
+    expect(created.status).toBe(201);
+    const entryId = created.data.id as string;
+
+    const posted = await call('/api/journal-entries', journalEntriesRoutes, `/api/journal-entries/${entryId}/post`, 'POST');
+    expect(posted.status).toBe(200);
+    const [entry] = await db.select().from(schema.journalEntries).where(eq(schema.journalEntries.id, entryId));
+    expect(entry.status).toBe('posted');
+    expect(await balanceOf('1100')).toBe(bankBefore + 100);
+    expect(await balanceOf('0510')).toBe(capitalBefore - 100);
+
+    const again = await call('/api/journal-entries', journalEntriesRoutes, `/api/journal-entries/${entryId}/post`, 'POST');
+    expect(again.status).toBe(400);
+  });
+});
