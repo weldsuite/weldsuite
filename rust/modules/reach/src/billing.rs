@@ -2,15 +2,17 @@
 //! Global's billing-worker (`/api/billing/reach/*`, Stripe), called with the
 //! member's token.
 //!
-//! The Kubernetes editions have no billing-worker and no Stripe (the
-//! `billing` feature is off), so every call answers as the worker does when
-//! billing-worker has no Stripe: billing-worker refuses (503
-//! `BILLING_NOT_CONFIGURED`), which reach-api reports as 502 `UPSTREAM_ERROR`
-//! ("Billing service error"). A mailbox create stops there, before anything
-//! is provisioned; a delete still completes, its release logged. Under
-//! conformance the calls go to the test's `fetch`, at the URL the worker
-//! derives from `ENVIRONMENT`, so both backends are compared on the same
-//! answers; a production request never leaves the cluster for Global.
+//! Billing is off where the worker cannot forward the caller's token to
+//! billing-worker (`reachBillingEnabled(env)`: an `ENVIRONMENT` other than
+//! test, preview or production), and always on the Kubernetes editions, which
+//! have no billing-worker and no Stripe (the `billing` feature is off). Then
+//! mailboxes are provisioned unbilled, as WeldBooks' bank connections are:
+//! the status is null, an inbox change is a no-op, and a payment-method setup
+//! is refused (409 `BILLING_OFF`). Under conformance the test's
+//! `ENVIRONMENT` decides, and where billing is on the calls go to the test's
+//! `fetch`, at the URL the worker derives from it, so both backends are
+//! compared on the same answers; a production request never leaves the
+//! cluster for Global.
 
 use serde_json::{Value, json};
 use weldsuite_ports::HttpRequest;
@@ -67,6 +69,21 @@ fn billing_worker_url(environment: Option<&str>) -> &'static str {
     }
 }
 
+/// `reachBillingEnabled(env)`: only under conformance, with an HTTPS
+/// billing-worker URL.
+fn enabled(caller: &Caller) -> bool {
+    caller.conformance() && billing_worker_url(caller.env("ENVIRONMENT").as_deref()).starts_with("https:")
+}
+
+/// `billingOffError()`.
+fn billing_off() -> ReachError {
+    ReachError::new(
+        409,
+        "BILLING_OFF",
+        "Billing is off in this environment: mailboxes are not charged, so there is no payment method to add.",
+    )
+}
+
 async fn send(
     caller: &Caller,
     state: &ReachState,
@@ -74,14 +91,6 @@ async fn send(
     path: &str,
     body: Option<&Value>,
 ) -> Result<Value, BillingError> {
-    if !caller.conformance() {
-        // billing-worker without Stripe answers 503 BILLING_NOT_CONFIGURED.
-        return Err(BillingError::Failed {
-            status: 503,
-            code: Some("BILLING_NOT_CONFIGURED".to_owned()),
-            message: "Billing is not configured for this environment.".to_owned(),
-        });
-    }
     let base = billing_worker_url(caller.env("ENVIRONMENT").as_deref());
     let mut headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
     if base.starts_with("https:")
@@ -139,31 +148,41 @@ async fn send(
     }
 }
 
-/// `GET /status`.
+/// `GET /status`; null when billing is off.
 pub(crate) async fn status(caller: &Caller, state: &ReachState) -> Result<Value, ReachError> {
+    if !enabled(caller) {
+        return Ok(Value::Null);
+    }
     send(caller, state, "GET", "/status", None)
         .await
         .map_err(BillingError::into_reach)
 }
 
-/// `POST /setup`.
+/// `POST /setup`; refused when billing is off.
 pub(crate) async fn setup(
     caller: &Caller,
     state: &ReachState,
     input: &Value,
 ) -> Result<Value, ReachError> {
+    if !enabled(caller) {
+        return Err(billing_off());
+    }
     send(caller, state, "POST", "/setup", Some(input))
         .await
         .map_err(BillingError::into_reach)
 }
 
-/// `POST /inboxes { delta, mailboxId }`.
+/// `POST /inboxes { delta, mailboxId }`; a no-op answering null when
+/// billing is off.
 pub(crate) async fn adjust_inboxes(
     caller: &Caller,
     state: &ReachState,
     delta: i64,
     mailbox_id: &str,
 ) -> Result<Value, BillingError> {
+    if !enabled(caller) {
+        return Ok(Value::Null);
+    }
     send(
         caller,
         state,

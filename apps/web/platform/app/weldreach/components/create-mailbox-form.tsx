@@ -37,6 +37,7 @@ import {
   type ReachMailbox,
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useCreateReachMailbox } from '@/hooks/queries/use-reach-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { isPaymentMethodRequiredError, reachErrorMessage } from '@/lib/reach/errors';
 import { useReachFormat } from '@/lib/reach/format';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
@@ -272,7 +273,7 @@ export function CreateMailboxForm({
           )}
         />
 
-        <p className="text-sm text-muted-foreground">{t('reach.mailboxes.create.price', { price })}</p>
+        {isFeatureAvailable('billing') && <p className="text-sm text-muted-foreground">{t('reach.mailboxes.create.price', { price })}</p>}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {onCancel && (
