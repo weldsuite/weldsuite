@@ -2,11 +2,12 @@
 //! accounting connectors (WooCommerce, Shopify, Picqer, Moneybird, Stripe)
 //! on `weldsuite_connect_domain`. Served here so far: the catalog, the
 //! connections and their runs, imported records and field mappings, the
-//! credential test (WooCommerce, Shopify and Picqer) and pause/resume.
+//! credential test (WooCommerce, Shopify and Picqer), the Picqer push
+//! ([`crate::picqer_push`]) and pause/resume.
 //! Not yet (they need connect-domain's sync engine, the Stripe and Moneybird
 //! clients, WooCommerce's app authorisation or provider webhooks, still on
 //! Global): connect, authorize, the OAuth callback, select-account, manual
-//! sync, the Picqer push, the Moneybird push routes, PATCH and DELETE of a
+//! sync, the Moneybird push routes, PATCH and DELETE of a
 //! connection. Global keeps the connector sync schedule in its D1 index;
 //! nothing reads one here, so pause and resume write none.
 
@@ -71,6 +72,10 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             "/connections/{id}/field-mappings/defaults",
             get(defaults).route_layer(read()),
         )
+        .route(
+            "/connections/{id}/picqer/push",
+            post(crate::picqer_push::push).route_layer(update()),
+        )
         .route("/connections/{id}/pause", post(pause).route_layer(update()))
         .route(
             "/connections/{id}/resume",
@@ -79,7 +84,7 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
 }
 
 /// `keyringFromEnv(c.env)`.
-fn keyring(caller: &Caller, state: &ConnectState) -> Keyring {
+pub(crate) fn keyring(caller: &Caller, state: &ConnectState) -> Keyring {
     weldsuite_connect_domain::connections::keyring(
         caller.overrides.env(state, "DATABASE_ENCRYPTION_KEY"),
         caller.overrides.env(state, "DATABASE_ENCRYPTION_KEY_V2"),

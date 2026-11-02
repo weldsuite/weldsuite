@@ -2241,7 +2241,8 @@
         "src/routes/external-webhooks/routes.test.ts",
         "src/routes/integrations/routes.test.ts",
         "src/routes/integrations/internal.routes.test.ts",
-        "src/routes/connectors/routes.test.ts"
+        "src/routes/connectors/routes.test.ts",
+        "src/routes/connectors/picqer-push.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2309,10 +2310,6 @@
         {
           "route": "POST /api/connectors/connections/:id/sync",
           "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/picqer/push",
-          "reason": "Not ported yet: connect-api's Picqer push (services/connectors/publish-picqer.ts)."
         },
         {
           "route": "GET /api/connectors/connections/:id/moneybird/options",

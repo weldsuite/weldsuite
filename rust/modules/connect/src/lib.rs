@@ -33,6 +33,7 @@ mod github_app;
 mod integrations;
 mod js;
 mod mvp;
+mod picqer_push;
 mod public_webhook;
 pub mod runs;
 mod schedule_sweep;

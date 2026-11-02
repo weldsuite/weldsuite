@@ -31,6 +31,7 @@ import {
   integrationTestSchema,
   integrationUpdatedSchema,
   mcpToolsSchema,
+  picqerPushResultSchema,
   syncLogSchema,
   webhookDeliverySchema,
   webhookTestResultSchema,
@@ -107,4 +108,5 @@ export const CONNECT_INTEGRATION_ROUTES: RouteSchema[] = [
   { method: 'POST', route: `${CN}/test`, envelope: 'single', data: connectorTestSchema },
   { method: 'POST', route: `${CN}/connections/:id/pause`, envelope: 'single', data: connectorStatusSchema },
   { method: 'POST', route: `${CN}/connections/:id/resume`, envelope: 'single', data: connectorStatusSchema },
+  { method: 'POST', route: `${CN}/connections/:id/picqer/push`, envelope: 'single', data: picqerPushResultSchema },
 ];

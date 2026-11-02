@@ -329,3 +329,8 @@ export const connectorRecordSchema = z
 
 export const connectorTestSchema = z.object({ ok: z.literal(true), storeUrl: z.string() }).strict();
 export const connectorStatusSchema = z.object({ status: z.string() }).strict();
+/** `POST /api/connectors/connections/:id/picqer/push`: the Picqer id, or `{ ok }` for a stock change. */
+export const picqerPushResultSchema = z.union([
+  z.object({ externalId: z.string() }).strict(),
+  z.object({ ok: z.literal(true) }).strict(),
+]);

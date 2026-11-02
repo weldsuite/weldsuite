@@ -905,6 +905,31 @@ impl Picqer {
         search: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<Value, ConnectorError> {
+        self.request_text(http, method, path, search, body.map(Value::to_string))
+            .await
+    }
+
+    /// A write with a body the caller serialised (`JSON.stringify` of an
+    /// object built in its own key order): the Picqer push's
+    /// `client.createCustomer(body)`, `updateOrder(id, body)`, ….
+    pub async fn send(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        body: String,
+    ) -> Result<Value, ConnectorError> {
+        self.request_text(http, method, path, &[], Some(body)).await
+    }
+
+    async fn request_text(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        search: &[(&str, String)],
+        body: Option<String>,
+    ) -> Result<Value, ConnectorError> {
         let mut url = url::Url::parse(&format!(
             "https://{}.picqer.com/api/v1/{}",
             self.subdomain,
@@ -932,7 +957,7 @@ impl Picqer {
             method: method.to_owned(),
             url: url.to_string(),
             headers,
-            body: body.map(|b| b.to_string().into_bytes()),
+            body: body.map(String::into_bytes),
         };
         let response = with_retries("Could not reach Picqer", || {
             let request = request.clone();
