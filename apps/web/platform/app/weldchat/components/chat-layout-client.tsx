@@ -20,7 +20,7 @@ import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
 import { parseWeldChatPath } from '../lib/route-segments';
 import { threadAfterChannelChange, threadMessageIdFor, type OpenThread } from '../lib/thread-state';
-import { ChatContext, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
+import { ChatContext, requestComposerFocus, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { ModuleContent } from '@/components/layout/module-content';
@@ -178,6 +178,10 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     closeAllObjectPanels();
     setThread({ channelId: currentChannelId, messageId });
     setRightPanelState('thread');
+    // A newly opened thread's composer focuses itself on mount, but reopening
+    // the thread that is already open remounts nothing. Ask that composer for
+    // focus once the menu has closed, so typing goes into the thread.
+    requestComposerFocus(messageId);
   }, [closeAllObjectPanels, currentChannelId]);
   const closeThread = useCallback(() => {
     setThread(null);
@@ -267,12 +271,15 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
           <ChatHeader />
 
           <ModuleContent>
-            <div className="flex flex-1 min-w-0 h-full overflow-hidden">
+            <div className="@container relative flex flex-1 min-w-0 h-full overflow-hidden">
               <div className="flex-1 min-w-0 flex flex-col">{children}</div>
 
+              {/* Beside the channel the panel is 480px wide. When the chat area
+                  is narrower than 48rem that would squeeze the timeline to a
+                  few words per line, so there the panel slides over it. */}
               {effectiveRightPanel && currentChannelId && !isInlineCall &&
                 (!isDmPage || effectiveRightPanel === 'bookmarks' || effectiveRightPanel === 'filters') && (
-                <div className="max-md:fixed max-md:inset-0 max-md:z-40 max-md:bg-background max-md:flex max-md:flex-col md:w-[480px] md:flex-shrink-0 md:border-l h-full overflow-hidden">
+                <div className="max-md:fixed max-md:inset-0 max-md:z-40 max-md:bg-background max-md:flex max-md:flex-col md:w-[480px] md:flex-shrink-0 md:border-l md:@max-3xl:absolute md:@max-3xl:inset-y-0 md:@max-3xl:right-0 md:@max-3xl:z-30 md:@max-3xl:max-w-full md:@max-3xl:bg-background md:@max-3xl:shadow-xl h-full overflow-hidden">
                   {/* Mobile-only close bar. On md+ this is hidden because each
                       panel has its own internal header / close affordance. */}
                   <div className="md:hidden flex items-center justify-end px-2 py-2 border-b flex-shrink-0">
