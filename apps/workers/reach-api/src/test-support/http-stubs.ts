@@ -80,62 +80,74 @@ function urlOf(input: RequestInfo | URL): string {
   return input instanceof URL ? input.href : input.url;
 }
 
+/** `POST /domains/cloudflare/connect`: every domain connected, but the skipped ones. */
+function connectDomains(world: StubWorld, body: unknown): Response {
+  const domains = ((body as { domains?: string[] }).domains ?? []).map((d) => d.toLowerCase());
+  return json({
+    connected: domains.filter((d) => !world.skippedDomains[d]).map((d) => ({ id: idOf(d), domain: d, status: 'Active' })),
+    skipped: domains.filter((d) => world.skippedDomains[d]).map((d) => ({ domain: d, reason: world.skippedDomains[d] })),
+  });
+}
+
+/** `/domains/:id` and `/domains/:id/dns`. */
+function domainAnswer(world: StubWorld, method: string, id: string, dns: boolean): Response {
+  if (method === 'DELETE') return json({ id, domain: 'example.test', status: 'inactive' });
+  if (dns) return json(world.domainDns);
+  const error = world.remoteDomainStatus === 'inactive' ? { error: { code: 1, message: 'Domain suspended' } } : {};
+  return json({ id, domain: 'example.test', status: world.remoteDomainStatus, ...error });
+}
+
+/** A mailbox's logins, as Mailpool reports them once it is ready. */
+function loginsOf(email: string, type: string) {
+  return {
+    smtpHost: 'smtp.mailpool.test',
+    smtpPort: type === 'google' ? 465 : '587',
+    smtpTLS: true,
+    smtpUsername: email,
+    smtpPassword: 'smtp-secret-password',
+    imapHost: 'imap.mailpool.test',
+    imapPort: 993,
+    imapTLS: true,
+    imapUsername: email,
+    imapPassword: 'imap-secret-password',
+  };
+}
+
+/** `POST /mailboxes` (an array of one): the mailbox, with logins when the world says so. */
+function createMailbox(world: StubWorld, body: unknown): Response {
+  const input = ((body as unknown[]) ?? [])[0] as { email: string; firstName: string; lastName: string; type: string };
+  const error = world.createStatus === 'inactive' ? { error: { code: 1, message: 'Mailbox could not be activated' } } : {};
+  const mailbox = {
+    id: idOf(input.email),
+    type: input.type,
+    email: input.email,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    status: world.createStatus,
+    ...error,
+    ...(world.createWithLogins ? loginsOf(input.email, input.type) : {}),
+  };
+  return json({ emails: [mailbox] });
+}
+
+/** The fixed answers, by `METHOD path`. */
+const FIXED: Record<string, (world: StubWorld, body: unknown) => Response> = {
+  'GET /subscriptions/slots': (world) => json(world.slots),
+  'POST /subscriptions/increase': () => json({ ok: true }),
+  'POST /subscriptions/decrease': () => json({ ok: true }),
+  'POST /domains/cloudflare/connect': connectDomains,
+  'POST /mailboxes': createMailbox,
+  'GET /mailboxes': () => json({ data: [], total: 0 }),
+};
+
 function mailpool(world: StubWorld, method: string, url: URL, body: unknown): Response {
   const path = url.pathname.replace(/^\/v1\/api/, '');
   const refusal = world.refusals[`${method} ${path}`];
   if (refusal) return json(refusal.body, refusal.status);
-  if (method === 'GET' && path === '/subscriptions/slots') return json(world.slots);
-  if (method === 'POST' && (path === '/subscriptions/increase' || path === '/subscriptions/decrease')) return json({ ok: true });
-  if (method === 'POST' && path === '/domains/cloudflare/connect') {
-    const domains = ((body as { domains?: string[] }).domains ?? []).map((d) => d.toLowerCase());
-    return json({
-      connected: domains.filter((d) => !world.skippedDomains[d]).map((d) => ({ id: idOf(d), domain: d, status: 'Active' })),
-      skipped: domains.filter((d) => world.skippedDomains[d]).map((d) => ({ domain: d, reason: world.skippedDomains[d] })),
-    });
-  }
+  const fixed = FIXED[`${method} ${path}`];
+  if (fixed) return fixed(world, body);
   const domain = /^\/domains\/([^/]+)(\/dns)?$/.exec(path);
-  if (domain) {
-    if (method === 'DELETE') return json({ id: domain[1], domain: 'example.test', status: 'inactive' });
-    if (domain[2]) return json(world.domainDns);
-    return json({
-      id: domain[1],
-      domain: 'example.test',
-      status: world.remoteDomainStatus,
-      ...(world.remoteDomainStatus === 'inactive' ? { error: { code: 1, message: 'Domain suspended' } } : {}),
-    });
-  }
-  if (method === 'POST' && path === '/mailboxes') {
-    const input = ((body as unknown[]) ?? [])[0] as { email: string; firstName: string; lastName: string; type: string };
-    const logins = world.createWithLogins
-      ? {
-          smtpHost: 'smtp.mailpool.test',
-          smtpPort: input.type === 'google' ? 465 : '587',
-          smtpTLS: true,
-          smtpUsername: input.email,
-          smtpPassword: 'smtp-secret-password',
-          imapHost: 'imap.mailpool.test',
-          imapPort: 993,
-          imapTLS: true,
-          imapUsername: input.email,
-          imapPassword: 'imap-secret-password',
-        }
-      : {};
-    return json({
-      emails: [
-        {
-          id: idOf(input.email),
-          type: input.type,
-          email: input.email,
-          firstName: input.firstName,
-          lastName: input.lastName,
-          status: world.createStatus,
-          ...(world.createStatus === 'inactive' ? { error: { code: 1, message: 'Mailbox could not be activated' } } : {}),
-          ...logins,
-        },
-      ],
-    });
-  }
-  if (method === 'GET' && path === '/mailboxes') return json({ data: [], total: 0 });
+  if (domain) return domainAnswer(world, method, domain[1] ?? '', Boolean(domain[2]));
   const mailbox = /^\/mailboxes\/([^/]+)$/.exec(path);
   if (mailbox) return json({ id: mailbox[1], type: 'google', email: 'x@example.test', status: method === 'DELETE' ? 'inactive' : 'active' });
   return json({ message: 'Not found' }, 404);

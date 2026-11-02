@@ -145,9 +145,8 @@ async fn ineligible_reason(
     match footprint(http, text(host, "fullDomain").unwrap_or_default()).await {
         Ok((true, _)) => Ok(Some("has_mx")),
         Ok((_, true)) => Ok(Some("has_website")),
-        Ok(_) => Ok(None),
         Err(error) if throw_dns => Err(error),
-        Err(_) => Ok(None),
+        Ok(_) | Err(_) => Ok(None),
     }
 }
 

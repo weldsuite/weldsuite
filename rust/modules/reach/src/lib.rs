@@ -15,7 +15,20 @@
 //! TypeScript worker's; its tests run against this crate in the `reach`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(clippy::too_many_lines, clippy::type_complexity)]
+// JavaScript numbers are mirrored on purpose (casts), handlers answer a
+// `Response` as their refusal, and `Option<Option<_>>` is a field a body may
+// leave out, set or null.
+#![allow(
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::option_option,
+    clippy::result_large_err,
+    clippy::similar_names
+)]
 
 mod account;
 mod billing;

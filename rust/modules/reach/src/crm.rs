@@ -55,6 +55,7 @@ impl From<sqlx::Error> for HandoffError {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)] // used as a `map_err` function
 fn crm_failure(error: DomainError) -> HandoffError {
     HandoffError::Failed(ReachError::unexpected(&format!("{error:?}")))
 }

@@ -749,20 +749,6 @@ pub(crate) async fn calendar_replan_sweep(
     axum::Json(json!(result)).into_response()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::hono_pattern;
-
-    #[test]
-    fn route_patterns_use_hono_syntax() {
-        assert_eq!(hono_pattern("/api/me/permissions"), "/api/me/permissions");
-        assert_eq!(
-            hono_pattern("/api/companies/{id}/notes/{noteId}"),
-            "/api/companies/:id/notes/:noteId"
-        );
-    }
-}
-
 /// WeldReach's SMTP transport in conformance builds: each submission goes to
 /// the test's `SMTP_SEND` double over the bridge (`smtp-bridge.ts`), which
 /// answers `sendMail`'s result, or 500 when it threw.
@@ -810,5 +796,19 @@ impl weldsuite_reach::weldsuite_reach_domain::smtp::SmtpTransport for BridgedSmt
                     .to_owned())
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hono_pattern;
+
+    #[test]
+    fn route_patterns_use_hono_syntax() {
+        assert_eq!(hono_pattern("/api/me/permissions"), "/api/me/permissions");
+        assert_eq!(
+            hono_pattern("/api/companies/{id}/notes/{noteId}"),
+            "/api/companies/:id/notes/:noteId"
+        );
     }
 }

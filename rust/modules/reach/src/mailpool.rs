@@ -3,6 +3,7 @@
 //! failures with backoff; a POST only on 429 / 503, where Mailpool certainly
 //! did not process it (every mailbox costs money).
 
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -365,10 +366,12 @@ fn url_param(text: &str) -> String {
     for byte in text.bytes() {
         match byte {
             b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
-                out.push(byte as char)
+                out.push(byte as char);
             }
             b' ' => out.push('+'),
-            _ => out.push_str(&format!("%{byte:02X}")),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
         }
     }
     out
