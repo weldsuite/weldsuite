@@ -32,6 +32,7 @@ import type {
   TaxWorksheet,
   TrialBalanceReport,
 } from '@/lib/weldbooks/report-types';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 
 // ============================================================================
 // Query Keys
@@ -238,6 +239,8 @@ export function useCreateAccountingEntity() {
     mutationFn: (data: CreateAccountingEntityInput) => accountingApi.createEntity(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.entities.all });
+      // A new entity is seeded with its chart of accounts: tick "Set up chart of accounts" now.
+      invalidateOnboardingChecklist(qc);
     },
   });
 }
@@ -352,7 +355,10 @@ export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => accountingApi.createAccount(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.accounts.all }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+      invalidateOnboardingChecklist(qc);
+    },
   });
 }
 
