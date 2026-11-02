@@ -1,5 +1,5 @@
 //! `services/integrations/oauth-providers.ts`: the OAuth and
-//! webhook-registration side of the CRM sync providers (Attio, HubSpot,
+//! webhook-registration side of the CRM sync providers (Attio, `HubSpot`,
 //! Google Calendar). The record sync itself is the `CRM_SYNC` Workflow
 //! (integration-webhook-worker's `CrmSyncWorkflow`), which these routes only
 //! start. Every call goes out through the outbound HTTP port.
@@ -434,7 +434,10 @@ impl Provider {
                 let mut secret = format!("{{\"token\":{}", json!(token));
                 for key in ["resourceId", "expiration"] {
                     if let Some(value) = data.get(key) {
-                        secret.push_str(&format!(",{}:{value}", json!(key)));
+                        secret.push(',');
+                        secret.push_str(&json!(key).to_string());
+                        secret.push(':');
+                        secret.push_str(&value.to_string());
                     }
                 }
                 secret.push('}');
@@ -513,7 +516,7 @@ pub(crate) fn webhook_worker_url(environment: Option<&str>) -> &'static str {
     }
 }
 
-/// HubSpot's portal id for webhook routing (`fetchHubspotPortalId`): `None`
+/// `HubSpot`'s portal id for webhook routing (`fetchHubspotPortalId`): `None`
 /// when it can't be read.
 pub(crate) async fn hubspot_portal_id(http: &OutboundHttp, access_token: &str) -> Option<String> {
     let request = HttpRequest::empty(
@@ -629,10 +632,11 @@ mod tests {
                 .len(),
             7
         );
-        assert!(
+        assert_eq!(
             Provider::GoogleCalendar
                 .default_field_mappings("calendar_event")
-                .is_empty()
+                .len(),
+            0
         );
     }
 }

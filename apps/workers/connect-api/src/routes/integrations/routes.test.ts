@@ -196,7 +196,7 @@ describe('MCP server connections', () => {
       id: 'slog_mcp000000001',
       platform: 'attio',
       connectionId: id,
-      syncType: 'full',
+      syncType: 'all',
       status: 'completed',
       triggeredBy: 'manual',
     } as typeof schema.syncLogs.$inferInsert);

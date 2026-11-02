@@ -111,7 +111,7 @@ pub struct WebhookRow {
 }
 
 impl WebhookRow {
-    /// From a `to_jsonb(external_webhooks)` row (snake_case keys).
+    /// From a `to_jsonb(external_webhooks)` row (`snake_case` keys).
     pub fn from_json(row: &Value) -> Self {
         let text = |key: &str| {
             row.get(key)

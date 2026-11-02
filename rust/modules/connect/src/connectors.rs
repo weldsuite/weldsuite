@@ -154,6 +154,7 @@ async fn connections(caller: Caller) -> Response {
 }
 
 /// The connection, or the 404 the routes answer first.
+#[allow(clippy::result_large_err)]
 async fn found(caller: &Caller, id: &str) -> Result<Value, Response> {
     match get_connection(&caller.db, id).await {
         Ok(Some(row)) => Ok(row),

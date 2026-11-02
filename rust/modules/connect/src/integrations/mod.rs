@@ -2,7 +2,7 @@
 //! `services/integrations/connections.ts`): integration connections
 //! (`integration_connections`), backing the original object CRUD and the
 //! connections surface: MCP servers (create, tool discovery, connectivity
-//! test), the Attio / HubSpot / Google Calendar OAuth connect flows,
+//! test), the Attio, `HubSpot` and Google Calendar OAuth connect flows,
 //! disconnect, manual sync (the `CRM_SYNC` Workflow, hosted by
 //! integration-webhook-worker on Global, which the Kubernetes editions do not
 //! run yet: the route then answers as Global does without the binding),
@@ -45,7 +45,7 @@ use crate::{Caller, ConnectState, Refusal, internal as internal_error, now, vali
 pub struct RequestCrmSyncRuns(pub Option<Arc<dyn ProjectSyncRuns>>);
 
 const STATE_TTL: Duration = Duration::from_secs(300);
-const MAPPING_TTL: Duration = Duration::from_secs(86_400 * 365);
+const MAPPING_TTL: Duration = Duration::from_hours(8760);
 const STALE_SYNC_MINUTES: i64 = 15;
 const DIRECTIONS: &[&str] = &["inbound", "outbound", "bidirectional"];
 const TRANSPORTS: &[&str] = &["streamable-http", "sse", "stdio"];
@@ -169,7 +169,7 @@ fn db_error(error: impl std::fmt::Display) -> Refusal {
     Refusal::Database(sqlx::Error::Protocol(error.to_string()))
 }
 
-/// The connection row (`to_jsonb`, snake_case), not deleted.
+/// The connection row (`to_jsonb`, `snake_case`), not deleted.
 pub(crate) async fn connection_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
     sqlx::query_scalar(
         "select to_jsonb(t) from integration_connections t
@@ -517,7 +517,7 @@ async fn get_integration(caller: Caller, Path(id): Path<String>) -> Response {
     }
 }
 
-/// `integration_connections`' columns, camelCase → snake_case: the keys a
+/// `integration_connections`' columns, `camelCase` → `snake_case`: the keys a
 /// passthrough body can set (Drizzle ignores the rest).
 const COLUMNS: &[(&str, &str)] = &[
     ("id", "id"),
@@ -1042,7 +1042,8 @@ fn state_record(org_id: &str, user_id: &str, provider: Option<&str>) -> String {
         json!(user_id)
     );
     if let Some(provider) = provider {
-        out.push_str(&format!(",\"provider\":{}", json!(provider)));
+        out.push_str(",\"provider\":");
+        out.push_str(&json!(provider).to_string());
     }
     out.push('}');
     out
@@ -1476,7 +1477,7 @@ async fn insert_default_mappings(
     insert_mappings(db, connection_id, &rows, true).await
 }
 
-/// Multi-row insert of `integration_field_mappings` (snake_case objects).
+/// Multi-row insert of `integration_field_mappings` (`snake_case` objects).
 async fn insert_mappings(
     db: &PgPool,
     connection_id: &str,
@@ -1544,7 +1545,7 @@ async fn discover_tools(
         if let Some(token) = &token {
             match auth_type {
                 Some("bearer") => {
-                    request = request.header("Authorization", format!("Bearer {token}"))
+                    request = request.header("Authorization", format!("Bearer {token}"));
                 }
                 Some("api_key") => request = request.header("X-API-Key", token.clone()),
                 Some("header") => {

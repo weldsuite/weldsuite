@@ -39,7 +39,7 @@ pub fn encrypt_credentials(
 
 pub use crate::clients::decrypt_credentials;
 
-/// `getConnectionById(db, id)`: the row (`to_jsonb`, snake_case), not deleted.
+/// `getConnectionById(db, id)`: the row (`to_jsonb`, `snake_case`), not deleted.
 pub async fn get_connection(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
     sqlx::query_scalar(
         "select to_jsonb(c) from connector_connections c where c.id = $1 and c.deleted_at is null limit 1",
@@ -68,7 +68,7 @@ fn or_value(value: Option<&Value>, fallback: Value) -> Value {
 
 /// `sanitizeConnection(row, { entityId })`: the allow-listed fields the
 /// client may see, from a `to_jsonb` row.
-pub fn sanitize_connection(row: &Value, entity_id: Option<String>) -> Value {
+pub fn sanitize_connection(row: &Value, entity_id: Option<&str>) -> Value {
     let row = js_row(row.clone());
     let provider = row["provider"].as_str().unwrap_or_default();
     let connector = get_connector(provider);
@@ -156,8 +156,7 @@ pub fn sanitize_with_entity(row: &Value, keyring: &Keyring) -> Value {
         .get("entityId")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|e| !e.is_empty())
-        .map(str::to_owned);
+        .filter(|e| !e.is_empty());
     sanitize_connection(row, entity)
 }
 

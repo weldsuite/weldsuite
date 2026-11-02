@@ -117,16 +117,19 @@ mod tests {
             .collect();
         assert!(providers.contains(&"woocommerce"));
         assert!(providers.contains(&"picqer"));
-        assert!(!default_field_mappings("product", None).is_empty());
-        assert!(default_field_mappings("product", Some("stripe")).is_empty());
-        assert!(!default_field_mappings("product", Some("picqer")).is_empty());
-        assert!(default_field_mappings("nothing", None).is_empty());
+        assert_ne!(default_field_mappings("product", None).len(), 0);
+        assert_eq!(
+            default_field_mappings("product", Some("stripe")).first(),
+            None
+        );
+        assert_eq!(default_field_mappings("product", Some("picqer")).len(), 7);
+        assert_eq!(default_field_mappings("nothing", None).first(), None);
     }
 
     #[test]
     fn enabled_syncs() {
         let all = normalize_enabled_syncs("woocommerce", None);
-        assert!(!all.is_empty());
+        assert_ne!(all.len(), 0);
         let picked = normalize_enabled_syncs(
             "woocommerce",
             Some(&["products".to_owned(), "x".to_owned()]),

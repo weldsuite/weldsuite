@@ -116,6 +116,7 @@ struct Internal {
 
 impl Internal {
     /// `getWorkspaceForOrg(env, clerkOrgId).id`.
+    #[allow(clippy::result_large_err)]
     async fn workspace_id(&self, state: &ConnectState) -> Result<String, Response> {
         if let Some(id) = &self.tenant_workspace {
             return Ok(id.clone());
@@ -137,6 +138,7 @@ impl Internal {
 }
 
 /// `resolveInternal`: the secret, then the tenant.
+#[allow(clippy::result_large_err)]
 async fn resolve(
     state: &ConnectState,
     headers: &HeaderMap,
@@ -435,7 +437,7 @@ mod tests {
     fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut map = HeaderMap::new();
         for (name, value) in pairs {
-            map.insert(*name, value.parse().unwrap());
+            map.insert(*name, http::HeaderValue::from_str(value).expect("header"));
         }
         map
     }
