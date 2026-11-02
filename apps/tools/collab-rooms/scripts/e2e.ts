@@ -50,7 +50,8 @@ function token(user: string): string {
   const now = Math.floor(Date.now() / 1000);
   const head = b64({ alg: 'RS256', typ: 'JWT', kid: 'ins_e2e' });
   const body = b64({ sub: user, sid: `sess_${user}`, iat: now - 10, nbf: now - 10, exp: now + 3600, v: 2, o: { id: ORG, rol: 'admin' } });
-  return `${head}.${body}.${sign('sha256', Buffer.from(`${head}.${body}`), keys.privateKey).toString('base64url')}`;
+  const signed = `${head}.${body}`;
+  return `${signed}.${sign('sha256', Buffer.from(signed), keys.privateKey).toString('base64url')}`;
 }
 
 // ---- Databases ----
@@ -68,8 +69,9 @@ async function createDatabases(): Promise<void> {
   const tsx = createRequire(path.join(repo, 'package.json')).resolve('tsx/cli');
   const migrated = spawnSync(process.execPath, [tsx, 'scripts/rust-test-db.ts', '--master', masterUrl, '--tenant', tenantUrl], { cwd: repo, stdio: 'inherit' });
   if (migrated.status !== 0) throw new Error('migrations failed');
+  const slug = `e2e-${run}`;
   const master = postgres(masterUrl, { max: 1, onnotice: () => {} });
-  await master`insert into workspaces (id, name, slug, clerk_org_id, database_url) values (${WORKSPACE}, 'E2E', ${`e2e-${run}`}, ${ORG}, ${tenantUrl})`;
+  await master`insert into workspaces (id, name, slug, clerk_org_id, database_url) values (${WORKSPACE}, 'E2E', ${slug}, ${ORG}, ${tenantUrl})`;
   await master.end();
   const tenant = postgres(tenantUrl, { max: 1, onnotice: () => {} });
   for (const [id, user, role, name] of [
@@ -103,7 +105,8 @@ async function pgliteDatabases(): Promise<{ master: string; tenant: string }> {
   const { sql } = await import('drizzle-orm');
   const tenantUrlLocal = await serve(tenant.db, base + 4);
   const masterUrlLocal = await serve(master.db, base + 5);
-  await master.db.execute(sql`insert into workspaces (id, name, slug, clerk_org_id, database_url) values (${WORKSPACE}, 'E2E', ${`e2e-${run}`}, ${ORG}, ${tenantUrlLocal})`);
+  const slug = `e2e-${run}`;
+  await master.db.execute(sql`insert into workspaces (id, name, slug, clerk_org_id, database_url) values (${WORKSPACE}, 'E2E', ${slug}, ${ORG}, ${tenantUrlLocal})`);
   for (const [id, user, role, name] of [
     ['wm_alice', 'user_alice', 'OWNER', 'Alice'],
     ['wm_bob', 'user_bob', 'ADMIN', 'Bob'],
@@ -133,7 +136,7 @@ async function body(req: IncomingMessage): Promise<Buffer> {
 function s3Server(): Server {
   return createServer((req, res) => {
     void (async () => {
-      const url = new URL(req.url ?? '/', 'http://s3');
+      const url = new URL(req.url ?? '/', 'https://s3.local');
       const [, bucket, ...rest] = url.pathname.split('/');
       const key = `${bucket}/${rest.map(decodeURIComponent).join('/')}`;
       if (req.method === 'GET' && url.searchParams.get('list-type') === '2') {

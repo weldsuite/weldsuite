@@ -1,9 +1,10 @@
 /**
  * A co-editing client as the platform runs one (`DocConnection`), without a
  * browser: the engine's own `CollabClient` on a `ws` socket, frames and all.
- * Used by the tests here and by scripts/collab-e2e.ts against a running stack.
+ * Used by the tests here and by scripts/e2e.ts against a running stack.
  */
 
+import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { CollabClient, FrameAssembler, decodeServer, encode, toFrames, type OtAdapter } from '@weldsuite/collab';
 
@@ -24,7 +25,7 @@ export async function connect<State, Op>(
   const assembler = new FrameAssembler();
   let frame = 0;
   const client = new CollabClient<State, Op, unknown, unknown>(adapter, {
-    sessionId: `s${Math.random().toString(36).slice(2)}`,
+    sessionId: randomUUID(),
     send: (msg) => {
       for (const part of toFrames(encode(msg), `c${++frame}`)) socket.send(part);
     },

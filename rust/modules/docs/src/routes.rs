@@ -213,66 +213,81 @@ pub(crate) async fn create(
             }
             let checkpoint = weldsuite_ports::collab::value_bytes(&made["checkpoint"])
                 .ok_or_else(|| Refusal::from(ApiError::internal()))?;
-
-            // The first checkpoint goes in before the rows, so a room never opens a document without one.
-            let doc_id = generate_id("doc");
-            let key = snapshot_key_for(&org, &doc_id);
-            let size = i64::try_from(checkpoint.len()).unwrap_or(i64::MAX);
-            let files = caller.files(&state).ok_or_else(|| Refusal::from(ApiError::internal()))?;
-            let mut options = PutOptions::content_type("application/gzip");
-            options = options.with_metadata("revision", "0");
-            files
-                .private
-                .put_boxed(&key, checkpoint, &options)
-                .await
-                .map_err(|error| {
-                    tracing::error!(%error, "[docs-api] writing a checkpoint failed");
-                    Refusal::from(ApiError::internal())
-                })?;
             let name = name.unwrap_or_else(|| DEFAULT_DOC_NAME.to_owned());
-            let now = now();
-            let file = create_file(
-                &caller.db,
-                &NewFile {
-                    file_name: name.clone(),
-                    original_name: Some(name),
-                    mime_type: WELDDOC_MIME_TYPE.to_owned(),
-                    file_size: size,
-                    file_type: Some("document".to_owned()),
-                    storage_path: key.clone(),
-                    file_key: Some(key.clone()),
-                    bucket: Some("private".to_owned()),
-                    folder_id: folder,
-                    metadata: Some(json!({ "weldDocId": doc_id })),
-                    uploaded_by_id: caller.user_id.clone(),
-                    ..NewFile::default()
-                },
-                &now,
-            )
-            .await?;
-            let file_id = file["id"].as_str().unwrap_or_default().to_owned();
-            records::insert_doc(&caller.db, &doc_id, &file_id, &key, &caller.user_id, &now).await?;
-            let Some(created) = records::get_doc(&caller.db, &doc_id).await? else {
-                tracing::error!(doc_id, "[docs-api] a document vanished after insert");
-                return Err(ApiError::internal().into());
-            };
-            caller.publish(
-                &state,
-                FILE_CREATED,
-                &created.file_id,
-                &json!({
-                    "id": created.file_id,
-                    "name": created.name,
-                    "folderId": created.folder_id,
-                    "fileType": "document",
-                    "fileSize": size,
-                }),
-            );
-            caller.publish(&state, DOC_CREATED, &created.id, &created.event_data());
+            let created = save_new_doc(&state, &caller, &org, name, folder, checkpoint).await?;
             Ok(Created(created.summary(DriveRole::Owner, caller.may_update())).into_response())
         }
         .await,
     )
+}
+
+/// Stores a new document from its first checkpoint: the checkpoint first,
+/// so a room never opens a document without one, then its drive file and
+/// row, and reports both (`createDoc` and the route's events).
+async fn save_new_doc(
+    state: &DocsState,
+    caller: &Caller,
+    org: &str,
+    name: String,
+    folder: Option<String>,
+    checkpoint: Vec<u8>,
+) -> Result<DocRecord, Refusal> {
+    let doc_id = generate_id("doc");
+    let key = snapshot_key_for(org, &doc_id);
+    let size = i64::try_from(checkpoint.len()).unwrap_or(i64::MAX);
+    let files = caller
+        .files(state)
+        .ok_or_else(|| Refusal::from(ApiError::internal()))?;
+    let mut options = PutOptions::content_type("application/gzip");
+    options = options.with_metadata("revision", "0");
+    files
+        .private
+        .put_boxed(&key, checkpoint, &options)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "[docs-api] writing a checkpoint failed");
+            Refusal::from(ApiError::internal())
+        })?;
+    let now = now();
+    let file = create_file(
+        &caller.db,
+        &NewFile {
+            file_name: name.clone(),
+            original_name: Some(name),
+            mime_type: WELDDOC_MIME_TYPE.to_owned(),
+            file_size: size,
+            file_type: Some("document".to_owned()),
+            storage_path: key.clone(),
+            file_key: Some(key.clone()),
+            bucket: Some("private".to_owned()),
+            folder_id: folder,
+            metadata: Some(json!({ "weldDocId": doc_id })),
+            uploaded_by_id: caller.user_id.clone(),
+            ..NewFile::default()
+        },
+        &now,
+    )
+    .await?;
+    let file_id = file["id"].as_str().unwrap_or_default().to_owned();
+    records::insert_doc(&caller.db, &doc_id, &file_id, &key, &caller.user_id, &now).await?;
+    let Some(created) = records::get_doc(&caller.db, &doc_id).await? else {
+        tracing::error!(doc_id, "[docs-api] a document vanished after insert");
+        return Err(ApiError::internal().into());
+    };
+    caller.publish(
+        state,
+        FILE_CREATED,
+        &created.file_id,
+        &json!({
+            "id": created.file_id,
+            "name": created.name,
+            "folderId": created.folder_id,
+            "fileType": "document",
+            "fileSize": size,
+        }),
+    );
+    caller.publish(state, DOC_CREATED, &created.id, &created.event_data());
+    Ok(created)
 }
 
 /// A top-level field of a JSON body as the text it was sent as.

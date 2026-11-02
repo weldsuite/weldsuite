@@ -126,7 +126,7 @@ async fn connect(
     };
     match open_upstream(&rooms, room, path, ticket).await {
         Ok(upstream) => upgrade.on_upgrade(move |socket| join(socket, upstream)),
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
@@ -141,7 +141,7 @@ async fn open_upstream(
     room: &str,
     path: &str,
     ticket: &str,
-) -> Result<Upstream, Response> {
+) -> Result<Upstream, Box<Response>> {
     let pod = rooms.owner(room);
     let ws = pod
         .strip_prefix("http")
@@ -150,7 +150,7 @@ async fn open_upstream(
     // The ticket was checked to be `[0-9a-f.A-Za-z_-]`: nothing to escape.
     let mut request = format!("{ws}{path}?ticket={ticket}")
         .into_client_request()
-        .map_err(|_| unavailable())?;
+        .map_err(|_| Box::new(unavailable()))?;
     if let Some(secret) = rooms.secret()
         && let Ok(value) = HeaderValue::from_str(secret)
     {
@@ -166,11 +166,11 @@ async fn open_upstream(
                 .as_deref()
                 .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
                 .unwrap_or_default();
-            Err((status, body).into_response())
+            Err(Box::new((status, body).into_response()))
         }
         Err(error) => {
             tracing::error!(%error, pod, "[collab] opening a room socket failed");
-            Err(unavailable())
+            Err(Box::new(unavailable()))
         }
     }
 }

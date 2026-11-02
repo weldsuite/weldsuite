@@ -7,7 +7,7 @@
 //! (`DocRoom`, one per document) and the room's checkpoints in the private
 //! bucket. The room is the collab-rooms service on Kubernetes
 //! (`rust/docs/collab-rooms.md`), reached through the
-//! [`CollabRooms`](weldsuite_ports::CollabRooms) port; so is the docs engine
+//! [`CollabRooms`](weldsuite_ports::`CollabRooms`) port; so is the docs engine
 //! for a new document's first checkpoint.
 //!
 //! Paths, bodies, status codes, messages and entity events are the

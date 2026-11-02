@@ -1,6 +1,6 @@
 //! Document records (`services/docs.ts`) and versions (`services/versions.ts`):
 //! a drive `files` row paired with a `docs` row. Only WeldDocs documents (a
-//! row with a checkpoint key) are listed or opened; a row with BlockNote
+//! row with a checkpoint key) are listed or opened; a row with `BlockNote`
 //! `content` belongs to flow-api's `/api/documents`.
 
 use serde_json::{Value, json};

@@ -78,7 +78,7 @@ pub(crate) async fn list(
                 Some(after) => match get_version(&caller.db, &doc.id, after).await? {
                     Some(last) => Some(last),
                     // An unknown cursor is an empty page.
-                    None => return Ok(page(Vec::new(), total, false)),
+                    None => return Ok(page(&[], total, false)),
                 },
                 None => None,
             };
@@ -86,13 +86,13 @@ pub(crate) async fn list(
                 records::list_versions(&caller.db, &doc.id, limit, after.as_ref()).await?;
             let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
             rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-            Ok(page(rows, total, has_more))
+            Ok(page(&rows, total, has_more))
         }
         .await,
     )
 }
 
-fn page(rows: Vec<Value>, total: i64, has_more: bool) -> Response {
+fn page(rows: &[Value], total: i64, has_more: bool) -> Response {
     let cursor = if has_more {
         rows.last()
             .and_then(|row| row["id"].as_str())

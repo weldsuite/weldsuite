@@ -118,7 +118,8 @@ export class RoomStorage {
           (options.startAfter === undefined || k > options.startAfter) &&
           (options.end === undefined || k < options.end),
       )
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      // Code-unit order, as Durable Object storage lists keys.
+      .sort();
     if (options.reverse) keys.reverse();
     if (options.limit !== undefined) keys = keys.slice(0, options.limit);
     return new Map(keys.map((k) => [k, structuredClone(this.data.get(k)) as T]));

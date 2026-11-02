@@ -1,5 +1,5 @@
 //! The collab-rooms service (`rust/docs/collab-rooms.md`): WeldDocs' and
-//! WeldSheets' rooms in Node, one StatefulSet pod per shard.
+//! WeldSheets' rooms in Node, one `StatefulSet` pod per shard.
 //!
 //! `POST <pod>/rpc { binding, name, method, args }` answers `200 { result }`,
 //! or `500 { error }` when the method threw (the conformance ledger bridge's
