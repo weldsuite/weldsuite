@@ -9,6 +9,7 @@ mod access_requests;
 pub(crate) mod books;
 mod feature_flags;
 mod host;
+pub(crate) mod integrations;
 mod me;
 
 use std::sync::{Arc, OnceLock};
@@ -1163,7 +1164,9 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(reach_public(state))
         .merge(books::public(state))
         .merge(host::public(state))
-        .merge(commerce_public(state));
+        .merge(commerce_public(state))
+        // The integration workers' webhook receivers (no module id: always).
+        .merge(integrations::public(state));
     if mounts("mail") {
         router
             .nest(
