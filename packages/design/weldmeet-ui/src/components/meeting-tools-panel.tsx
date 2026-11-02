@@ -213,6 +213,7 @@ function toolStatus(
 
 /** Live streaming is a host tool; everyone else only sees it while a stream is running. */
 function isToolListed(key: MeetingToolKey, tools: MeetingToolsController | null | undefined): boolean {
+  if (tools?.unavailable?.has(key)) return false;
   if (key !== 'livestream' || !tools) return true;
   return tools.isOrganizer || tools.livestream.isLive;
 }

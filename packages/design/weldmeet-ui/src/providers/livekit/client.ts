@@ -372,13 +372,8 @@ export class LiveKitSelf extends Emitter {
     this.emit('deviceUpdate', { device });
   }
 
-  /** Video middlewares (virtual backgrounds) are RealtimeKit's; not on LiveKit. */
-  async addVideoMiddleware(): Promise<never> {
-    throw new Error('Background effects are not available on this video provider');
-  }
-  async removeVideoMiddleware(): Promise<void> {
-    /* nothing was added */
-  }
+  // No addVideoMiddleware: video middlewares (virtual backgrounds) are
+  // RealtimeKit's, and `useVirtualBackground` leaves a client without them be.
 
   private async withPermission(kind: 'audio' | 'video', enable: () => Promise<unknown>): Promise<void> {
     try {

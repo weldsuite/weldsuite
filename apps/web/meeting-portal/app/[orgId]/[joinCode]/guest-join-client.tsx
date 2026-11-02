@@ -26,6 +26,7 @@ import {
   useLeaveCallGuard,
   useMicrophoneRecovery,
   useVirtualBackground,
+  videoJoinTarget,
   type ViewMode,
 } from '@weldsuite/weldmeet-ui';
 import { writeGuestIdentity } from '@/lib/guest-identity';
@@ -109,6 +110,39 @@ import { ConnectingScreen, LoadingScreen, ReconnectingNotice, WaitingScreen } fr
 import { WaitlistedScreen } from './components/waitlisted-screen';
 
 type GuestJoinBody = Parameters<typeof guestJoinMeeting>[1];
+
+/**
+ * The meeting client for a join answer: RealtimeKit's (Global), or the
+ * LiveKit client when the answer names LiveKit (the Kubernetes editions),
+ * which answers to the same client surface this page drives. LiveKit's is
+ * loaded only then, so Global never fetches it.
+ */
+async function initMeetingClient(
+  authToken: string,
+  video: Pick<GuestJoinResult, 'videoProvider' | 'videoUrl'> | undefined,
+  media: { audio: boolean; video: boolean; noiseSupression: boolean },
+): Promise<RealtimeKitClient> {
+  const join = videoJoinTarget(video?.videoProvider, video?.videoUrl);
+  if (join.provider === 'livekit') {
+    const { initLiveKitMeeting } = await import('@weldsuite/weldmeet-ui/providers/livekit');
+    return initLiveKitMeeting<RealtimeKitClient>({
+      url: join.url,
+      token: authToken,
+      defaults: { audio: media.audio, video: media.video },
+      noiseSuppression: media.noiseSupression,
+    });
+  }
+  return RealtimeKitClient.init({
+    authToken,
+    defaults: {
+      audio: media.audio,
+      video: media.video,
+      mediaConfiguration: {
+        audio: { noiseSupression: media.noiseSupression },
+      },
+    },
+  });
+}
 
 /** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
 const RTK_LEAVE_TIMEOUT_MS = 2_000;
@@ -614,7 +648,12 @@ export default function GuestJoinClient() {
     sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
   }, []);
 
-  const connectToRtk = useCallback(async (authToken: string) => {
+  // `video` is the join answer's provider: LiveKit on the Kubernetes editions,
+  // RealtimeKit (nothing set) on Global.
+  const connectToRtk = useCallback(async (
+    authToken: string,
+    video?: Pick<GuestJoinResult, 'videoProvider' | 'videoUrl'>,
+  ) => {
     // A new attempt supersedes any previous client and any pending
     // kicked-state check.
     detachRtkClient();
@@ -654,15 +693,10 @@ export default function GuestJoinClient() {
 
       let m: RealtimeKitClient;
       try {
-        m = await RealtimeKitClient.init({
-          authToken,
-          defaults: {
-            audio: wantAudio,
-            video: wantVideo,
-            mediaConfiguration: {
-              audio: { noiseSupression: useNoiseSuppression ? false : wantNoiseSupression },
-            },
-          },
+        m = await initMeetingClient(authToken, video, {
+          audio: wantAudio,
+          video: wantVideo,
+          noiseSupression: useNoiseSuppression ? false : wantNoiseSupression,
         });
       } catch (initErr) {
         try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
@@ -814,7 +848,7 @@ export default function GuestJoinClient() {
     if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
       stopPolling();
       setGuestToken(retry.guestToken ?? '');
-      await connectToRtk(retry.authToken);
+      await connectToRtk(retry.authToken, retry);
     }
   }, [stopPolling, connectToRtk]);
 
@@ -876,7 +910,7 @@ export default function GuestJoinClient() {
     }
     if (result.status === 'joined' && result.authToken && result.sessionId) {
       setGuestToken(result.guestToken ?? '');
-      await connectToRtk(result.authToken);
+      await connectToRtk(result.authToken, result);
     }
   }, [retryJoin, pollWaitlist, connectToRtk, stopPolling]);
 

@@ -31,6 +31,12 @@ function storeBackgroundPreference(pref: VirtualBackgroundPreference) {
 
 // ── Hook for the settings page (no active meeting) ───────────────────────
 
+/** Whether the client takes video middlewares (RealtimeKit's do; LiveKit's adapter doesn't). */
+export function supportsVideoMiddleware(meeting: RealtimeKitClient): boolean {
+  const self = meeting.self as unknown as { addVideoMiddleware?: unknown } | undefined;
+  return typeof self?.addVideoMiddleware === 'function';
+}
+
 export function useVirtualBackgroundPreference() {
   const [pref, setPref] = useState<VirtualBackgroundPreference>(getStoredBackgroundPreference);
 
@@ -76,6 +82,9 @@ export function useVirtualBackground(meeting: RealtimeKitClient | null) {
   const getTransformer = useCallback((): Promise<RealtimeKitVideoBackgroundTransformer | null> => {
     if (transformerRef.current) return Promise.resolve(transformerRef.current);
     if (!meeting) return Promise.resolve(null);
+    // Video middlewares are RealtimeKit's; a client without them (LiveKit)
+    // gets no background effects, and a saved one is not re-applied.
+    if (!supportsVideoMiddleware(meeting)) return Promise.resolve(null);
     if (initPromiseRef.current) return initPromiseRef.current;
 
     initPromiseRef.current = (async () => {
