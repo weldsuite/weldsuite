@@ -817,7 +817,7 @@ pub fn should_notify_desk_team(created: bool, prior: Option<&Prior>) -> bool {
     let Some(prior) = prior.filter(|_| !created) else {
         return true;
     };
-    !(prior.state == "open" && !prior.waiting_since.is_null())
+    prior.state != "open" || prior.waiting_since.is_null()
 }
 
 /// `openedAction(result, conversation)`.

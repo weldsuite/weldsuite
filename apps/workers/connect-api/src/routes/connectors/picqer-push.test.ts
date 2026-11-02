@@ -25,7 +25,7 @@ const json = (body: unknown, status = 200) =>
 
 /** Picqer's answers, by method and path under `/api/v1/`. */
 const ANSWERS: Record<string, unknown | ((body: Record<string, unknown>) => unknown)> = {
-  'POST customers': (body) => ({ idcustomer: body.name === 'Bo' ? 502 : 501, name: body.name }),
+  'POST customers': (body: Record<string, unknown>) => ({ idcustomer: body.name === 'Bo' ? 502 : 501, name: body.name }),
   'PUT customers/501': { idcustomer: 501 },
   'POST orders': { idorder: 601 },
   'POST suppliers': { idsupplier: 701 },
