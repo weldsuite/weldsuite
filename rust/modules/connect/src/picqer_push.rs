@@ -310,13 +310,13 @@ async fn load<'a>(
     }
     let keyring = crate::connectors::keyring(caller, state);
     let credentials = decrypt_credentials(connection.get("credentials"), &keyring);
-    let client = match product_write_client(
+    let StoreClient::Picqer(client) = product_write_client(
         "picqer",
         &credentials,
         connection["external_account_id"].as_str(),
-    )? {
-        StoreClient::Picqer(client) => client,
-        _ => return Err(permanent("Picqer connection not found", 404)),
+    )?
+    else {
+        return Err(permanent("Picqer connection not found", 404));
     };
     Ok(Target {
         db: &caller.db,
