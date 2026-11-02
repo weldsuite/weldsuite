@@ -9,7 +9,7 @@ use weldsuite_db::{Keyring, PgPool};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
 
-use crate::connectors::{self, ConnectorError, ProductRef, StoreClient};
+use weldsuite_connect_domain::clients::{self as connectors, ConnectorError, ProductRef, StoreClient};
 use crate::js::{number_text, to_fixed};
 use crate::now;
 use crate::tables;
