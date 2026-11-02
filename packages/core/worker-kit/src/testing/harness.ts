@@ -84,6 +84,12 @@ export interface TestContext {
    * is exactly the binding-less local-dev fallback.
    */
   flags?: KitVariables['flags'];
+  /**
+   * What `appAccessGate(appCode)` sets as `c.get('appAccess')` (status,
+   * staff-set limits, billing state), for the routes of an on-request app
+   * tested without the gate. Conformance mode hands it to Rust too.
+   */
+  appAccess?: unknown;
 }
 
 export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
@@ -190,6 +196,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
       if (ctx.permissions) set('userPermissions', ctx.permissions);
       // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
       if (ctx.flags) set('flags', ctx.flags);
+      if (ctx.appAccess) set('appAccess', ctx.appAccess);
       await next();
       // Conformance mode reports which route answered: the handler Hono ran
       // last (`routeIndex`), not the last route that matched, since

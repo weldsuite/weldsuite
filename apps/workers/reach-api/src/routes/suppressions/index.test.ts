@@ -7,7 +7,7 @@ import { reachCampaigns, reachEnrollments, reachProspects, reachSuppressions } f
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 import { publishEntityEvent } from '@weldsuite/entity-events';

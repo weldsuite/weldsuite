@@ -4,7 +4,7 @@
  * `c.get('appAccess')` see a realistic value.
  */
 
-import { Hono } from 'hono';
+import type { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import type { Database } from '@weldsuite/worker-kit';
 import type { WeldReachLimits } from '@weldsuite/app-api-client/schemas/reach';
@@ -20,20 +20,16 @@ export interface ReachAppOptions {
 }
 
 export function reachApp(mount: string, router: Hono<{ Bindings: Env; Variables: Variables }>, options: ReachAppOptions) {
-  const wrapper = new Hono<{ Bindings: Env; Variables: Variables }>();
-  wrapper.use('*', async (c, next) => {
-    c.set('appAccess', {
-      workspaceId: 'ws_test',
-      status: 'approved',
-      limits: { ...options.limits },
-      billingStatus: 'active',
-      billingStatusAt: null,
-    });
-    await next();
-  });
-  wrapper.route('/', router);
-  return createTestApp<Env, Variables>(mount, wrapper, {
+  return createTestApp<Env, Variables>(mount, router, {
     context: {
+      // What appAccessGate would set: the staff-set limits.
+      appAccess: {
+        workspaceId: 'ws_test',
+        status: 'approved',
+        limits: { ...options.limits },
+        billingStatus: 'active',
+        billingStatusAt: null,
+      },
       permissions: permissions(...options.permissions),
       tenantDb: options.db,
       ...(options.userId ? { userId: options.userId } : {}),

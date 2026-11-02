@@ -583,7 +583,7 @@
       "/api/reach",
       "/public/reach"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "reach-api"
   },
   {

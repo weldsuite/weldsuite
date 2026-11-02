@@ -554,6 +554,43 @@ impl Issues {
         field
     }
 
+    /// [`Issues::pattern`] after `rules`' transforms: `z.string().trim()
+    /// .toLowerCase().min(min).max(max).regex(pattern, message)`. The regex
+    /// sees the trimmed, lower-cased value, as Zod's checks do.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pattern_with(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        rules: Text,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Field<String> {
+        let field = self.text_at(Some(key), body.get(key), presence, rules);
+        if let Some(Value::String(raw)) = body.get(key) {
+            let mut text = if rules.trim {
+                js_trim(raw).to_owned()
+            } else {
+                raw.clone()
+            };
+            if rules.lowercase {
+                text = text.to_lowercase();
+            }
+            if !matches(&text) {
+                let path = self.path(key);
+                self.issues.push(json!({
+                    "validation": "regex",
+                    "code": "invalid_string",
+                    "message": message,
+                    "path": path,
+                }));
+                return Field::Absent;
+            }
+        }
+        field
+    }
+
     /// An issue at the current path itself (an object's own
     /// `unrecognized_keys`, a union an array item failed); `issue` is the
     /// rest of Zod's object.
@@ -794,7 +831,23 @@ impl Issues {
         presence: Presence,
         rules: Number,
     ) -> Field<f64> {
-        let value = body.get(key);
+        self.number_at(Some(key), body.get(key), presence, rules)
+    }
+
+    /// An array item as a number with `rules` (`z.array(z.number()...)`),
+    /// reported at the item's own path; `None` when invalid.
+    pub fn item_number(&mut self, item: &Value, rules: Number) -> Option<f64> {
+        self.number_at(None, Some(item), Presence::Required, rules)
+            .into_option()
+    }
+
+    fn number_at(
+        &mut self,
+        key: Option<&str>,
+        value: Option<&Value>,
+        presence: Presence,
+        rules: Number,
+    ) -> Field<f64> {
         // `z.coerce.number()` runs `Number(value)` first, `undefined` included.
         let number = if rules.coerce {
             if value.is_none() && presence != Presence::Required {
@@ -802,17 +855,17 @@ impl Issues {
             }
             js_number_of(value)
         } else {
-            if let Some(field) = self.left_out(Some(key), "number", value, presence) {
+            if let Some(field) = self.left_out(key, "number", value, presence) {
                 return field;
             }
             let Some(Value::Number(number)) = value else {
-                self.invalid_type(key, "number", value);
+                self.invalid_type_at(key, "number", value);
                 return Field::Absent;
             };
             number.as_f64().unwrap_or(f64::NAN)
         };
         if number.is_nan() {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.issues.push(json!({
                 "code": "invalid_type",
                 "expected": "number",
@@ -825,7 +878,7 @@ impl Issues {
         let before = self.issues.len();
         // `Number.isInteger`; beyond 2^53 every double is one.
         if rules.int && !(number.is_finite() && number.fract() == 0.0) {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.issues.push(json!({
                 "code": "invalid_type",
                 "expected": "integer",
@@ -837,7 +890,7 @@ impl Issues {
         if let Some(min) = rules.min
             && number < min
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_small(
                 &path,
                 "number",
@@ -851,7 +904,7 @@ impl Issues {
         if let Some(max) = rules.max
             && number > max
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_big(
                 &path,
                 "number",
