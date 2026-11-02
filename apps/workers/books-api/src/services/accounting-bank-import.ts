@@ -6,9 +6,13 @@
  * amount and text) and counts as a duplicate when the account already holds a
  * line with the same id, amount and date. Importing never touches lines that
  * were reconciled.
+ *
+ * The way back: `deleteBankLines` removes lines that were never booked
+ * (unreconciled or excluded), one at a time or a whole import batch, and takes
+ * their amounts back out of the account balance.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { ParsedBankTransaction } from './bank-parsers';
@@ -67,6 +71,8 @@ export async function findExistingImports(
 export interface ImportCounts {
   importedCount: number;
   duplicateCount: number;
+  /** Sum of the imported lines' amounts, for files that carry no closing balance. */
+  importedNet: number;
 }
 
 /** Number of lines of a file the account already holds, without writing anything. */
@@ -128,5 +134,66 @@ export async function importParsedTransactions(
   for (let i = 0; i < fresh.length; i += CHUNK) {
     await db.insert(schema.bankTransactions).values(fresh.slice(i, i + CHUNK));
   }
-  return { importedCount: fresh.length, duplicateCount };
+  return { importedCount: fresh.length, duplicateCount, importedNet: sumAmounts(fresh) };
+}
+
+function sumAmounts(rows: Array<{ amount: string | number }>): number {
+  const cents = rows.reduce((total, row) => total + Math.round(Number(row.amount) * 100), 0);
+  return cents / 100;
+}
+
+/** Move a bank account's balance by `delta` (positive or negative). */
+export async function adjustAccountBalance(db: Database, bankAccountId: string, delta: number): Promise<void> {
+  if (delta === 0) return;
+  await db
+    .update(schema.bankAccounts)
+    .set({
+      currentBalance: sql`(coalesce(${schema.bankAccounts.currentBalance}, 0)::numeric + ${delta.toFixed(2)}::numeric)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.bankAccounts.id, bankAccountId));
+}
+
+type BankLine = typeof schema.bankTransactions.$inferSelect;
+
+/** Lines that were never booked, so removing them leaves the ledger alone. */
+const DELETABLE_STATUSES = new Set(['unreconciled', 'excluded']);
+/** Feed lines come back on the next sync, so they are excluded instead. */
+const DELETABLE_SOURCES = new Set(['import', 'manual']);
+
+/** Why this line can't be deleted, or null when it can. */
+export function lineDeleteBlocker(line: Pick<BankLine, 'status' | 'source'>): 'reconciled' | 'feed' | null {
+  if (!DELETABLE_STATUSES.has(line.status)) return 'reconciled';
+  if (!DELETABLE_SOURCES.has(line.source ?? 'import')) return 'feed';
+  return null;
+}
+
+export interface DeleteLinesResult {
+  deleted: BankLine[];
+  /** Lines left in place: reconciled, or from a bank feed. */
+  kept: number;
+}
+
+/**
+ * Soft-delete the deletable lines among `lines` and take their amounts back
+ * out of their accounts' balances. The others are left alone and counted.
+ */
+export async function deleteBankLines(db: Database, lines: BankLine[]): Promise<DeleteLinesResult> {
+  const deleted = lines.filter((line) => lineDeleteBlocker(line) === null);
+  const now = new Date();
+  const ids = deleted.map((line) => line.id);
+  for (let i = 0; i < ids.length; i += LOOKUP_CHUNK) {
+    await db
+      .update(schema.bankTransactions)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(inArray(schema.bankTransactions.id, ids.slice(i, i + LOOKUP_CHUNK)));
+  }
+  const byAccount = new Map<string, BankLine[]>();
+  for (const line of deleted) {
+    byAccount.set(line.bankAccountId, [...(byAccount.get(line.bankAccountId) ?? []), line]);
+  }
+  for (const [bankAccountId, accountLines] of byAccount) {
+    await adjustAccountBalance(db, bankAccountId, -sumAmounts(accountLines));
+  }
+  return { deleted, kept: lines.length - deleted.length };
 }

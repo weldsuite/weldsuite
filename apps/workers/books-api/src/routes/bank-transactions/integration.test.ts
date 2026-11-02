@@ -387,3 +387,119 @@ describe('/api/bank-transactions · pglite integration', () => {
     expect(res.status).toBe(403);
   });
 });
+
+const CSV_STATEMENT = [
+  'Datum;Omschrijving;Bedrag',
+  '01-10-2026;Factuur 2026-77;-1.234,56',
+  '02-10-2026;Betaling ord 5;99,95',
+].join('\n');
+
+const CSV_FORMAT = {
+  dateFormat: 'DMY',
+  decimalSeparator: ',',
+  thousandsSeparator: '.',
+  negativeStyle: 'minus',
+  columns: { date: 'Datum', description: 'Omschrijving', amount: 'Bedrag' },
+  hasHeader: true,
+  skipRows: 0,
+  delimiter: ';',
+} as const;
+
+function bankApp(...perms: string[]) {
+  return createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+    context: { permissions: permissions(...perms), tenantDb: db },
+  });
+}
+
+async function importCsv(bankAccountId: string) {
+  const { request } = bankApp('banking:create');
+  const res = await request('/api/bank-transactions/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bankAccountId, content: CSV_STATEMENT, fileName: 'ing.csv', format: 'csv', csvFormat: CSV_FORMAT }),
+  });
+  expect(res.status).toBe(201);
+  return ((await res.json()) as { data: { batchId: string; imported: number; duplicates: number } }).data;
+}
+
+async function balanceOf(bankAccountId: string) {
+  const [account] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankAccountId)).limit(1);
+  return account?.currentBalance;
+}
+
+async function liveLines(bankAccountId: string) {
+  const rows = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.bankAccountId, bankAccountId));
+  return rows.filter((row) => row.deletedAt === null);
+}
+
+describe('/api/bank-transactions import, delete and undo · pglite integration', () => {
+  it('POST /import adds a CSV statement to the balance and skips it the second time', async () => {
+    await seedBankAccount('ba_import_twice', '-949.50');
+
+    const first = await importCsv('ba_import_twice');
+    expect(first).toMatchObject({ imported: 2, duplicates: 0 });
+    expect(await balanceOf('ba_import_twice')).toBe('-2084.11');
+
+    const second = await importCsv('ba_import_twice');
+    expect(second).toMatchObject({ imported: 0, duplicates: 2 });
+    expect(await balanceOf('ba_import_twice')).toBe('-2084.11');
+    expect(await liveLines('ba_import_twice')).toHaveLength(2);
+  });
+
+  it('DELETE /import-batches/:batchId removes the unbooked lines and restores the balance', async () => {
+    await seedBankAccount('ba_undo', '100.00');
+    const { batchId } = await importCsv('ba_undo');
+    const [reconciled] = await liveLines('ba_undo');
+    await db.update(schema.bankTransactions).set({ status: 'reconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+
+    const { request } = bankApp('banking:delete');
+    const res = await request(`/api/bank-transactions/import-batches/${batchId}`, { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: unknown }).data).toEqual({ batchId, deleted: 1, kept: 1 });
+
+    const left = await liveLines('ba_undo');
+    expect(left.map((l) => l.id)).toEqual([reconciled!.id]);
+    // The reconciled line stays in the balance; the removed one comes out.
+    expect(await balanceOf('ba_undo')).toBe((100 + Number(reconciled!.amount)).toFixed(2));
+    const [batch] = await db.select().from(schema.bankImportBatches).where(eq(schema.bankImportBatches.id, batchId)).limit(1);
+    expect(batch?.status).toBe('partly_undone');
+
+    // After an undo the same file imports again.
+    await db.update(schema.bankTransactions).set({ status: 'unreconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+    expect(await importCsv('ba_undo')).toMatchObject({ imported: 1, duplicates: 1 });
+  });
+
+  it('DELETE /:id removes an unreconciled line and takes it out of the balance', async () => {
+    await seedBankAccount('ba_delete_one', '0.00');
+    await importCsv('ba_delete_one');
+    const line = (await liveLines('ba_delete_one')).find((l) => l.amount === '99.95')!;
+
+    const { request } = bankApp('banking:delete');
+    const res = await request(`/api/bank-transactions/${line.id}`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
+    expect((await liveLines('ba_delete_one')).map((l) => l.amount)).toEqual(['-1234.56']);
+    expect(await balanceOf('ba_delete_one')).toBe('-1234.56');
+
+    const again = await request(`/api/bank-transactions/${line.id}`, { method: 'DELETE' });
+    expect(again.status).toBe(404);
+  });
+
+  it('DELETE /:id refuses reconciled and bank feed lines', async () => {
+    await seedBankAccount('ba_delete_blocked', '0.00');
+    await importCsv('ba_delete_blocked');
+    const [reconciled, feed] = await liveLines('ba_delete_blocked');
+    await db.update(schema.bankTransactions).set({ status: 'reconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+    await db.update(schema.bankTransactions).set({ source: 'feed' }).where(eq(schema.bankTransactions.id, feed!.id));
+
+    const { request } = bankApp('banking:delete');
+    expect((await request(`/api/bank-transactions/${reconciled!.id}`, { method: 'DELETE' })).status).toBe(409);
+    expect((await request(`/api/bank-transactions/${feed!.id}`, { method: 'DELETE' })).status).toBe(409);
+    expect(await liveLines('ba_delete_blocked')).toHaveLength(2);
+  });
+
+  it('DELETE /:id returns 403 without banking:delete', async () => {
+    const { request } = bankApp('banking:update');
+    const res = await request('/api/bank-transactions/bt_whatever', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+  });
+});

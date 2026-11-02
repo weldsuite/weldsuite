@@ -18,8 +18,10 @@
  * /:id/unreconcile (voids that payment or reverses that entry), /:id/exclude
  * and /auto-reconcile. Every one of them is written to the accounting audit
  * log (administratieplicht).
+ * DELETE /:id removes a line that was never booked, and
+ * DELETE /import-batches/:batchId undoes an import (its reconciled lines stay).
  *
- * Permissions: banking:read | banking:create | banking:update.
+ * Permissions: banking:read | banking:create | banking:update | banking:delete.
  */
 
 import { Hono, type Context } from 'hono';
@@ -30,7 +32,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createBankTransactionSchema } from '@weldsuite/core-api-client/schemas/bank-transactions';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
+import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
@@ -41,7 +43,12 @@ import {
   type CsvFormat,
 } from '../../services/bank-parsers';
 import { csvFormatSchema } from '../../services/bank-parsers/csv-format-schema';
-import { countDuplicates, importParsedTransactions } from '../../services/accounting-bank-import';
+import {
+  countDuplicates,
+  deleteBankLines,
+  importParsedTransactions,
+  lineDeleteBlocker,
+} from '../../services/accounting-bank-import';
 import { autoReconcileBatch, findMatches } from '../../services/accounting-reconciliation';
 import {
   ClosedPeriodError,
@@ -404,11 +411,16 @@ function importBatchStatus(errorCount: number, importedCount: number): 'partial'
   return errorCount > 0 ? 'partial' : 'completed';
 }
 
-/** Record the last import date / closing balance on the bank account. */
+/**
+ * Record the last import date and the new balance on the bank account: the
+ * file's closing balance when it has one, otherwise the old balance plus the
+ * imported lines (a CSV export carries no balance).
+ */
 async function updateAccountAfterImport(
   db: Database,
   bankAccountId: string,
   closingBalance: ParsedBankFile['closingBalance'],
+  importedNet: number,
   rememberedCsvFormat?: CsvFormat,
   importSettings?: BankAccountRow['importSettings'],
 ): Promise<void> {
@@ -419,6 +431,8 @@ async function updateAccountAfterImport(
   if (closingBalance != null) {
     updateData.lastImportBalance = closingBalance.toString();
     updateData.currentBalance = closingBalance.toString();
+  } else if (importedNet !== 0) {
+    updateData.currentBalance = sql`(coalesce(${schema.bankAccounts.currentBalance}, 0)::numeric + ${importedNet.toFixed(2)}::numeric)`;
   }
   if (rememberedCsvFormat) updateData.importSettings = { ...(importSettings ?? {}), csv: rememberedCsvFormat };
   await db.update(schema.bankAccounts).set(updateData).where(eq(schema.bankAccounts.id, bankAccountId));
@@ -559,7 +573,7 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
     });
 
     // Import transactions (skip duplicates by externalId)
-    const { importedCount, duplicateCount } = await importParsedTransactions(db, {
+    const { importedCount, duplicateCount, importedNet } = await importParsedTransactions(db, {
       entityId: accountingEntityId,
       bankAccountId: data.bankAccountId,
       batchId,
@@ -587,6 +601,7 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
         db,
         data.bankAccountId,
         importedCount > 0 ? parseResult.closingBalance : undefined,
+        importedNet,
         remember,
         bankAccount.importSettings,
       );
@@ -962,6 +977,100 @@ app.post('/:id/exclude', requirePermission('banking:update'), async (c) => {
   } catch (err) {
     console.error('[app-api/bank-transactions] exclude failed:', err);
     return error.internal(c, 'Failed to exclude transaction');
+  }
+});
+
+/** Audit and announce each deleted line. */
+async function recordLinesDeleted(c: AppContext, db: Database, lines: BankTransactionRow[], batchId?: string): Promise<void> {
+  for (const line of lines) {
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: line.entityId,
+      entityType: 'bank_transaction',
+      entityId: line.id,
+      action: 'deleted',
+      changes: {
+        amount: { old: line.amount, new: null },
+        date: { old: line.date.toISOString(), new: null },
+        description: { old: line.description, new: null },
+        ...(batchId ? { importBatchId: { old: batchId, new: null } } : {}),
+      },
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'bank_transaction',
+      entityId: line.id,
+      action: 'deleted',
+      data: { id: line.id, bankAccountId: line.bankAccountId, amount: line.amount, description: line.description, status: line.status },
+    });
+  }
+}
+
+// DELETE /import-batches/:batchId — undo an import: removes its lines that were never booked
+app.delete('/import-batches/:batchId', requirePermission('banking:delete'), async (c) => {
+  const db = c.get('tenantDb');
+  const batchId = c.req.param('batchId');
+  const { bankImportBatches, bankTransactions } = schema;
+  try {
+    const [batch] = await db.select().from(bankImportBatches)
+      .where(and(eq(bankImportBatches.id, batchId), isNull(bankImportBatches.deletedAt))).limit(1);
+    if (!batch) return error.notFound(c, 'Import', batchId);
+
+    const lines = await db.select().from(bankTransactions)
+      .where(and(eq(bankTransactions.importBatchId, batchId), isNull(bankTransactions.deletedAt)));
+    const { deleted, kept } = await deleteBankLines(db, lines);
+
+    await db.update(bankImportBatches)
+      .set({ status: kept > 0 ? 'partly_undone' : 'undone', updatedAt: new Date() })
+      .where(eq(bankImportBatches.id, batchId));
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: batch.entityId,
+      entityType: 'bank_import_batch',
+      entityId: batchId,
+      action: 'undone',
+      changes: { deletedCount: { old: null, new: deleted.length }, keptCount: { old: null, new: kept } },
+    });
+    await recordLinesDeleted(c, db, deleted, batchId);
+    if (deleted.length > 0) {
+      publishEntityEvent({
+        c,
+        entityType: 'bank_account',
+        entityId: batch.bankAccountId,
+        action: 'updated',
+        data: { id: batch.bankAccountId },
+      });
+    }
+
+    return success(c, { batchId, deleted: deleted.length, kept });
+  } catch (err) {
+    console.error('[books-api/bank-transactions] undo import failed:', err);
+    return error.internal(c, 'Failed to undo the import');
+  }
+});
+
+// DELETE /:id — remove a line that was never booked (unreconciled or excluded)
+app.delete('/:id', requirePermission('banking:delete'), async (c) => {
+  const db = c.get('tenantDb');
+  const txnId = c.req.param('id');
+  const { bankTransactions } = schema;
+  try {
+    const [txn] = await db.select().from(bankTransactions)
+      .where(and(eq(bankTransactions.id, txnId), isNull(bankTransactions.deletedAt))).limit(1);
+    if (!txn) return error.notFound(c, 'Transaction', txnId);
+
+    const blocker = lineDeleteBlocker(txn);
+    if (blocker === 'reconciled') {
+      return error.conflict(c, 'This transaction is reconciled. Unreconcile it first, then delete it.');
+    }
+    if (blocker === 'feed') {
+      return error.conflict(c, 'This transaction came from a bank feed and would come back on the next sync. Exclude it instead.');
+    }
+
+    await deleteBankLines(db, [txn]);
+    await recordLinesDeleted(c, db, [txn]);
+    return noContent(c);
+  } catch (err) {
+    console.error('[books-api/bank-transactions] delete failed:', err);
+    return error.internal(c, 'Failed to delete transaction');
   }
 });
 
