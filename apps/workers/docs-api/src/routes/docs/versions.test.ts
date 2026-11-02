@@ -10,6 +10,7 @@ import type { Env, Variables } from '../../types';
 import { writeSnapshot } from '../../room/snapshot';
 import { versionKeyFor } from '../../services/versions';
 import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
+import { docEngineNamespace } from '../../engine-ops';
 import docRoutes from './index';
 
 const ALL = ['docs:read', 'docs:create', 'docs:update', 'docs:delete'];
@@ -23,7 +24,7 @@ let rooms: ReturnType<typeof fakeRoomNamespace>;
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/docs', docRoutes, {
     context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
-    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding },
+    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding, DOC_ENGINE: docEngineNamespace() },
   });
 }
 
@@ -68,7 +69,7 @@ describe('/api/docs/:id/versions', () => {
 
     const key = `workspaces/org_test_default/docs/${doc.id}/versions/${version.id}.json.gz`;
     expect(versionKeyFor(docKey(doc), version.id)).toBe(key);
-    expect(rooms.saved).toEqual([
+    expect(rooms.saved.slice(-1)).toEqual([
       { name: `org_test_default:${doc.id}`, doc: { workspaceId: 'org_test_default', docId: doc.id, snapshotKey: docKey(doc) }, key },
     ]);
     const [row] = await db.select().from(docVersions).where(eq(docVersions.id, version.id));
@@ -117,7 +118,7 @@ describe('/api/docs/:id/versions', () => {
     const version = await saveVersion(doc, 'Saved');
     const saved = DocModel.create();
     applyOp(saved, { type: 'insert', story: 'body', at: 0, content: { text: 'Back then' } });
-    await writeSnapshot(bucket.asBinding(), rooms.saved[0]!.key, { revision: 7, doc: saved.toSnapshot() });
+    await writeSnapshot(bucket.asBinding(), rooms.saved.at(-1)!.key, { revision: 7, doc: saved.toSnapshot() });
 
     const res = await app({ keys: ['docs:read'] }).request(`/api/docs/${doc.id}/versions/${version.id}/snapshot`);
     expect(res.status).toBe(200);
@@ -134,7 +135,7 @@ describe('/api/docs/:id/versions', () => {
     const result = ((await res.json()) as { data: DocRestoreResult }).data;
     expect(result.revision).toBe(8);
     expect(result.autoVersion).toMatchObject({ docId: doc.id, name: null, revision: 7, createdById: ALICE });
-    expect(rooms.restores[0]!.request).toEqual({
+    expect(rooms.restores.at(-1)!.request).toEqual({
       doc: { workspaceId: 'org_test_default', docId: doc.id, snapshotKey: docKey(doc) },
       versionId: version.id,
       versionKey: versionKeyFor(docKey(doc), version.id),
@@ -155,7 +156,7 @@ describe('/api/docs/:id/versions', () => {
     const doc = await create('Shared');
     const version = await saveVersion(doc, 'Mine');
     await db.update(files).set({ generalAccess: 'workspace_view' }).where(eq(files.id, doc.fileId));
-    await writeSnapshot(bucket.asBinding(), rooms.saved[0]!.key, { revision: 7, doc: DocModel.create().toSnapshot() });
+    await writeSnapshot(bucket.asBinding(), rooms.saved.at(-1)!.key, { revision: 7, doc: DocModel.create().toSnapshot() });
 
     const bob = app({ userId: BOB });
     expect((await bob.request(`/api/docs/${doc.id}/versions`)).status).toBe(200);

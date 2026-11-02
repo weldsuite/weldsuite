@@ -23,6 +23,7 @@
 //! environment.
 
 mod cnpg;
+pub mod collab;
 mod embeddings;
 mod flags;
 mod http;

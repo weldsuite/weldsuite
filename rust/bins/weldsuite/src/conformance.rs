@@ -349,6 +349,16 @@ impl Pools {
         ));
         // WeldCommerce's portal rate limits: the test's namespace, or none.
         extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
+        // WeldDocs' and WeldSheets' rooms and engines: the test's own fakes,
+        // served by the ledger bridge in the collab-rooms service's wire format.
+        if let Some(bridge) = ["DOC_ROOM", "SHEET_ROOM", "DOC_ENGINE", "SHEET_ENGINE"]
+            .iter()
+            .find_map(|binding| context.ledgers.get(*binding))
+        {
+            extensions.insert(weldsuite_ports::RequestCollab(Arc::new(
+                weldsuite_adapters_oss::collab::HttpCollabRooms::new(vec![bridge.clone()], None),
+            )));
+        }
         // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
