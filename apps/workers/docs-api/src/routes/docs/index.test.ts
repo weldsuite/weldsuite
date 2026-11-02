@@ -12,6 +12,9 @@ import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
 import { docEngineNamespace } from '../../engine-ops';
 import docRoutes from './index';
 
+/** The docs engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */
+const engineBinding = { DOC_ENGINE: docEngineNamespace() };
+
 const ALL = ['docs:read', 'docs:create', 'docs:update', 'docs:delete'];
 const ALICE = 'user_alice';
 const BOB = 'user_bob';
@@ -23,7 +26,7 @@ let rooms: ReturnType<typeof fakeRoomNamespace>;
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/docs', docRoutes, {
     context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
-    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding, DOC_ENGINE: docEngineNamespace() },
+    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding, ...engineBinding },
   });
 }
 

@@ -33,7 +33,7 @@ let master: { url: string; db: ReturnType<typeof drizzle<typeof masterSchema>> }
 function masterDb(env: DbEnv) {
   const url = env.DATABASE_URL_MASTER;
   if (!url) throw new Error('DATABASE_URL_MASTER is not set');
-  if (master?.url !== url) master = { url, db: drizzle(postgres(url, { max: 4, idle_timeout: 60 }), { schema: masterSchema }) };
+  if (master?.url !== url) master = { url, db: drizzle(postgres(url, { max: 2, idle_timeout: 60, prepare: false }), { schema: masterSchema }) };
   return master.db;
 }
 
@@ -41,7 +41,8 @@ function databaseFor(url: string, env: DbEnv): Database {
   let db = databases.get(url);
   if (!db) {
     const max = Number(env.TENANT_POOL_MAX_CONNECTIONS) || 4;
-    db = drizzle(postgres(url, { max, idle_timeout: 60, prepare: true }), { schema });
+    // Unnamed statements: safe behind PgBouncer's transaction pooling (CloudNativePG's pooler).
+    db = drizzle(postgres(url, { max, idle_timeout: 60, prepare: false }), { schema });
     databases.set(url, db);
   }
   return db;

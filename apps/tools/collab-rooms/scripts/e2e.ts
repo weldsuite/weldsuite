@@ -8,6 +8,7 @@
  *   pnpm --filter collab-rooms build
  *   pnpm exec tsx apps/tools/collab-rooms/scripts/e2e.ts \
  *     --bin <weldsuite serve binary> --pg postgres://postgres:pg@127.0.0.1:55432/postgres [--ports 18851]
+ *   (or --pglite instead of --pg: the databases in pglite, no Postgres needed)
  */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
@@ -15,7 +16,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { docsAdapter, type DocModel, type Op as DocOp } from '@weldsuite/docs-engine';
 import { connect } from '../test/client';
@@ -80,7 +81,42 @@ async function createDatabases(): Promise<void> {
   await tenant.end();
 }
 
+/**
+ * `--pglite`: the master and tenant databases in pglite, served over the
+ * Postgres wire protocol as the conformance harness serves them (no
+ * Postgres needed). pglite is one session, so every pool gets one
+ * connection (`*_MAX_CONNECTIONS=1`).
+ */
+async function pgliteDatabases(): Promise<{ master: string; tenant: string }> {
+  const kit = '../../../../packages/core/worker-kit/src/testing';
+  const { createPgliteDb, createMasterPgliteDb, pgliteClientOf } = (await import(`${kit}/pglite`)) as typeof import('../../../../packages/core/worker-kit/src/testing/pglite');
+  const { wireCompatiblePglite } = (await import(`${kit}/pglite-wire`)) as typeof import('../../../../packages/core/worker-kit/src/testing/pglite-wire');
+  const socketModule = createRequire(path.join(repo, 'packages/core/worker-kit/package.json')).resolve('@electric-sql/pglite-socket');
+  const { PGLiteSocketServer } = (await import(pathToFileURL(socketModule).href)) as typeof import('@electric-sql/pglite-socket');
+  const serve = async (db: unknown, port: number) => {
+    const server = new PGLiteSocketServer({ db: wireCompatiblePglite(pgliteClientOf(db)!) as never, port, host: '127.0.0.1', maxConnections: 8 });
+    await server.start();
+    return `postgres://postgres:postgres@127.0.0.1:${port}/postgres?sslmode=disable`;
+  };
+  const tenant = await createPgliteDb();
+  const master = await createMasterPgliteDb();
+  const { sql } = await import('drizzle-orm');
+  const tenantUrlLocal = await serve(tenant.db, base + 4);
+  const masterUrlLocal = await serve(master.db, base + 5);
+  await master.db.execute(sql`insert into workspaces (id, name, slug, clerk_org_id, database_url) values (${WORKSPACE}, 'E2E', ${`e2e-${run}`}, ${ORG}, ${tenantUrlLocal})`);
+  for (const [id, user, role, name] of [
+    ['wm_alice', 'user_alice', 'OWNER', 'Alice'],
+    ['wm_bob', 'user_bob', 'ADMIN', 'Bob'],
+  ]) {
+    await tenant.db.execute(sql`insert into workspace_members (id, user_id, role, name, status) values (${id}, ${user}, ${role}, ${name}, 'ACTIVE')`);
+  }
+  return { master: masterUrlLocal, tenant: tenantUrlLocal };
+}
+const usePglite = process.argv.includes('--pglite');
+let masterDatabase = masterUrl;
+
 async function dropDatabases(): Promise<void> {
+  if (usePglite) return;
   const admin = postgres(pgAdmin, { max: 1, onnotice: () => {} });
   for (const name of [masterName, tenantName]) await admin.unsafe(`drop database if exists ${name} with (force)`);
   await admin.end();
@@ -149,7 +185,8 @@ function startRust(): ChildProcess {
       ENVIRONMENT: 'test',
       LOG_FORMAT: 'text',
       RUST_LOG: 'warn',
-      DATABASE_URL_MASTER: masterUrl,
+      DATABASE_URL_MASTER: masterDatabase,
+      ...(usePglite ? { DATABASE_MASTER_MAX_CONNECTIONS: '1', TENANT_POOL_MAX_CONNECTIONS: '1' } : {}),
       CLERK_JWT_KEY: publicKeyPem,
       COLLAB_ROOMS_URLS: `http://127.0.0.1:${ROOMS}`,
       COLLAB_ROOMS_SECRET: SECRET,
@@ -167,7 +204,8 @@ function startRooms(): ChildProcess {
       PORT: String(ROOMS),
       COLLAB_ROOMS_SECRET: SECRET,
       COLLAB_EVENTS_URL: `http://127.0.0.1:${RUST}/internal/collab/events`,
-      DATABASE_URL_MASTER: masterUrl,
+      DATABASE_URL_MASTER: masterDatabase,
+      ...(usePglite ? { TENANT_POOL_MAX_CONNECTIONS: '1' } : {}),
     },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -220,8 +258,8 @@ async function docs(): Promise<void> {
   await alice.until(() => !alice.client.hasPending && !bob.client.hasPending && alice.client.revision === 3 && bob.client.revision === 3);
   check(text(alice) === text(bob) && text(alice).startsWith('>> Hello world'), 'two editors converge through the Rust proxy');
 
-  const live = await api<{ data: { revision: number; snapshot: { stories: Record<string, { text: string }> } } }>('user_bob', 'GET', `/api/docs/${id}/snapshot`);
-  check(live.body.data.revision === 3 && live.body.data.snapshot.stories['body']!.text.startsWith('>> Hello world'), 'GET /snapshot serves the live room');
+  const current = await api<{ data: { revision: number; snapshot: { stories: Record<string, { text: string }> } } }>('user_bob', 'GET', `/api/docs/${id}/snapshot`);
+  check(current.body.data.revision === 3 && current.body.data.snapshot.stories['body']!.text.startsWith('>> Hello world'), 'GET /snapshot serves the live room');
   const version = await api<{ data: { id: string; revision: number } }>('user_alice', 'POST', `/api/docs/${id}/versions`, { name: 'Three' });
   check(version.status === 201 && version.body.data.revision === 3, 'POST /versions saves the live document');
 
@@ -248,11 +286,13 @@ async function docs(): Promise<void> {
 }
 
 let rooms: ChildProcess;
+let passed = false;
 
 async function main(): Promise<void> {
   const s3 = s3Server();
   await new Promise<void>((resolve) => s3.listen(S3, '127.0.0.1', resolve));
-  await createDatabases();
+  if (usePglite) masterDatabase = (await pgliteDatabases()).master;
+  else await createDatabases();
   const rust = startRust();
   rooms = startRooms();
   try {
@@ -260,6 +300,7 @@ async function main(): Promise<void> {
     await live(`http://127.0.0.1:${ROOMS}/healthz`);
     await docs();
     console.log('e2e passed');
+    passed = true;
   } finally {
     await stop(rooms);
     await stop(rust);
@@ -268,7 +309,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+main().then(() => process.exit(passed ? 0 : 1)).catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });
