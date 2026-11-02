@@ -2,17 +2,19 @@
 //! store. Adding a sales channel pushes (or matches by SKU and updates) the
 //! store's listing, then writes `product_sales_channels` and an
 //! `integration_entity_mappings` row; removing one deletes the remote listing
-//! first. The store clients are [`crate::connectors`].
+//! first. The store clients are `weldsuite_connect_domain::clients`.
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
 
-use crate::connectors::{self, ConnectorError, ProductRef, StoreClient};
 use crate::js::{number_text, to_fixed};
 use crate::now;
 use crate::tables;
+use weldsuite_connect_domain::clients::{
+    self as connectors, ConnectorError, ProductRef, StoreClient,
+};
 
 /// `ProductSalesChannelError` (its `code` and message), or a database error.
 #[derive(Debug)]

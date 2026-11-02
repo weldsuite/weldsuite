@@ -691,8 +691,9 @@ pub async fn create_person_detailed(
 }
 
 /// `createPersonDetailed(db, input, { allowDuplicateEmail })`: with
-/// `allow_duplicate_email` a new row is written even when someone has the
-/// email (WeldBooks creates a separate person when asked to).
+/// `allow_duplicate_email` the email is not looked up, so a second person
+/// with it is inserted (WeldConnect's `create_contact` without
+/// `skipIfEmailExists`).
 pub async fn create_person_with(
     db: &PgPool,
     input: &Map<String, Value>,

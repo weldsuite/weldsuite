@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { Hono } from 'hono';
+import { conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -18,7 +18,7 @@ const published: Array<Record<string, unknown>> = [];
 
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getTenantDbForWorkspace: async () => db };
+  return { ...actual, getTenantDbForWorkspace: async () => conformanceTenantDb(db) };
 });
 
 vi.mock('@weldsuite/entity-events', async (importOriginal) => {
@@ -27,21 +27,29 @@ vi.mock('@weldsuite/entity-events', async (importOriginal) => {
     ...actual,
     publishEntityEventRaw: async (event: Record<string, unknown>) => {
       published.push(event);
+      // Still sent, so the conformance harness compares it with Rust's.
+      await actual.publishEntityEventRaw(event as never);
     },
   };
 });
 
 const { internalWorkflowActionsRoutes } = await import('./index');
 
+const SECRET = 'internal-secret-for-tests';
+const BASE = '/api/internal/workflow-actions';
+
+/** The routes behind their internal bearer, as connect-api's public mount serves them. */
 function app() {
-  const root = new Hono<{ Variables: { internalTrusted: boolean } }>();
-  root.use('*', async (c, next) => {
-    c.set('internalTrusted', true);
-    await next();
+  const { request } = createTestApp(BASE, internalWorkflowActionsRoutes as never, {
+    context: { tenantDb: db },
+    env: { INTERNAL_API_SECRET: SECRET } as never,
   });
-  root.route('/', internalWorkflowActionsRoutes as never);
   return (path: string, body: unknown) =>
-    root.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, {});
+    request(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify(body),
+    });
 }
 
 const actor = (ownerUserId: string) => ({ workspaceId: 'org_1', ownerUserId, triggeredBy: 'system', chainDepth: 1 });
@@ -208,5 +216,89 @@ describe('POST /log-activity', () => {
   it('rejects a missing subject before touching the database', async () => {
     const res = await app()('/log-activity', { ...actor('member_1'), activity: { type: 'note' } });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /create-customer', () => {
+  const customerBody = (over: Record<string, unknown> = {}) => ({
+    workspaceId: 'org_1',
+    userId: 'member_1',
+    ownerUserId: 'member_1',
+    chainDepth: 2,
+    customer: { name: '  Acme Corp ', email: 'billing@acme.test', phone: '+31 20 123', notes: '' },
+    ...over,
+  });
+
+  it('creates the company as the owner and publishes company:created with the chain depth', async () => {
+    const res = await app()('/create-customer', customerBody());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { created: boolean; customer: { id: string; name: string; status: string } };
+    expect(body).toMatchObject({ created: true, customer: { name: 'Acme Corp', status: 'active' } });
+
+    const [row] = await db.select().from(schema.companies).where(eq(schema.companies.id, body.customer.id));
+    expect(row).toMatchObject({ name: 'Acme Corp', email: 'billing@acme.test', ownerId: 'member_1', source: 'weldconnect' });
+    expect(published).toEqual([
+      expect.objectContaining({ entityType: 'company', action: 'created', userId: 'member_1', workflowDepth: 2 }),
+    ]);
+  });
+
+  it('reuses a company with the same email (any case) instead of duplicating it', async () => {
+    const res = await app()('/create-customer', customerBody({ customer: { name: 'Acme Again', email: 'BILLING@acme.test' } }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ created: false, customer: { name: 'Acme Corp' } });
+    expect(published).toEqual([]);
+  });
+
+  it('creates a second company when skipIfEmailExists is off, without an owner for a schedule run', async () => {
+    const res = await app()(
+      '/create-customer',
+      customerBody({
+        userId: 'system',
+        ownerUserId: undefined,
+        skipIfEmailExists: false,
+        customer: { name: 'Acme Twin', email: 'billing@acme.test', status: 'prospect' },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { created: boolean; customer: { id: string; status: string } };
+    expect(body).toMatchObject({ created: true, customer: { status: 'prospect' } });
+    const [row] = await db.select().from(schema.companies).where(eq(schema.companies.id, body.customer.id));
+    expect(row?.ownerId).toBeNull();
+  });
+
+  it('refuses when the owner may not create companies', async () => {
+    const res = await app()('/create-customer', customerBody({ ownerUserId: 'viewer_1' }));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toMatch(/permission to create companies/);
+  });
+
+  it('rejects an invalid email and a missing name in one answer', async () => {
+    const res = await app()('/create-customer', customerBody({ customer: { name: ' ', email: 'not-an-email' } }));
+    expect(res.status).toBe(400);
+    const issues = ((await res.json()) as { error: { issues: Array<{ path: string[]; message: string }> } }).error.issues;
+    expect(issues.map((i) => i.path.join('.'))).toEqual(['customer.name', 'customer.email']);
+  });
+});
+
+describe('the internal bearer', () => {
+  const call = (env: Record<string, unknown>, headers: Record<string, string>) =>
+    createTestApp(BASE, internalWorkflowActionsRoutes as never, { context: { tenantDb: db }, env: env as never }).request(
+      `${BASE}/create-lead`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: '{}' },
+    );
+
+  it('is closed without a configured secret', async () => {
+    const res = await call({}, { Authorization: `Bearer ${SECRET}` });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'Internal auth not configured' });
+  });
+
+  it('refuses a missing or wrong bearer before reading the body', async () => {
+    const missing = await call({ INTERNAL_API_SECRET: SECRET }, {});
+    expect(missing.status).toBe(401);
+    expect(await missing.json()).toEqual({ error: 'Missing or invalid Authorization header' });
+    const wrong = await call({ INTERNAL_API_SECRET: SECRET }, { Authorization: 'Bearer nope' });
+    expect(wrong.status).toBe(401);
+    expect(await wrong.json()).toEqual({ error: 'Unauthorized' });
   });
 });

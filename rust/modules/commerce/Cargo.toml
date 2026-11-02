@@ -13,6 +13,7 @@ weldsuite-auth = { workspace = true }
 weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-commerce-domain = { workspace = true }
+weldsuite-connect-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }

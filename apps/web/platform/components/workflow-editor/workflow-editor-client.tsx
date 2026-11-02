@@ -87,6 +87,7 @@ import {
 import { ActionConfigForm } from './components/action-config-form';
 import { GenerateWithAiDialog } from './components/generate-with-ai-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   WorkflowCanvas,
   getConditionBranchIds,
@@ -742,7 +743,7 @@ function EditorActionButtons({
 
   return (
     <>
-      {!isHelpdesk && !hideAiAndResources && (
+      {!isHelpdesk && !hideAiAndResources && isFeatureAvailable('weldconnect-ai') && (
         <Button
           variant="outline"
           size="sm"
@@ -4380,7 +4381,7 @@ export function WorkflowEditorClient({
         onRun={handleRunTest}
       />
 
-      {module !== 'helpdesk' && !hideAiAndResources && (
+      {module !== 'helpdesk' && !hideAiAndResources && isFeatureAvailable('weldconnect-ai') && (
         <GenerateWithAiDialog
           open={showGenerateDialog}
           onOpenChange={setShowGenerateDialog}

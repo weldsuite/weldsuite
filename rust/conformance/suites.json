@@ -2127,6 +2127,222 @@
       ]
     },
     {
+      "name": "connect: workflows",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflows/integration.test.ts",
+        "src/routes/workflows/routes.test.ts",
+        "src/routes/workflows/webhook-provisioning.integration.test.ts",
+        "src/routes/workflow-executions/integration.test.ts",
+        "src/routes/workflow-executions/approval.integration.test.ts",
+        "src/routes/workflow-executions/routes.test.ts",
+        "src/routes/workflow-versions/integration.test.ts",
+        "src/routes/workflow-versions/routes.test.ts",
+        "src/routes/workflow-templates/integration.test.ts",
+        "src/routes/workflow-templates/routes.test.ts",
+        "src/routes/workflow-variables/integration.test.ts",
+        "src/routes/workflow-variables/routes.test.ts",
+        "src/routes/workflow-webhooks/integration.test.ts",
+        "src/routes/workflow-webhooks/routes.test.ts",
+        "src/routes/workflow-dashboard/errors.integration.test.ts",
+        "src/routes/workflow-dashboard/routes.test.ts",
+        "src/routes/workflow-schedules/routes.test.ts",
+        "src/routes/workflow-triggers/routes.test.ts",
+        "src/routes/workflow-builder/routes.test.ts",
+        "src/routes/public-workflow-webhook/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflows/",
+        "apps/workers/connect-api/src/routes/workflow-builder/",
+        "apps/workers/connect-api/src/routes/workflow-dashboard/",
+        "apps/workers/connect-api/src/routes/workflow-executions/",
+        "apps/workers/connect-api/src/routes/workflow-schedules/",
+        "apps/workers/connect-api/src/routes/workflow-templates/",
+        "apps/workers/connect-api/src/routes/workflow-triggers/",
+        "apps/workers/connect-api/src/routes/workflow-variables/",
+        "apps/workers/connect-api/src/routes/workflow-versions/",
+        "apps/workers/connect-api/src/routes/workflow-webhooks/",
+        "apps/workers/connect-api/src/routes/public-workflow-webhook/",
+        "apps/workers/connect-api/src/services/",
+        "apps/workers/connect-api/src/lib/",
+        "packages/clients/app-api-client/src/schemas/weldconnect.ts",
+        "packages/clients/app-api-client/src/schemas/weldconnect-templates.ts",
+        "packages/clients/core-api-client/src/schemas/workflow-executions.ts",
+        "packages/clients/core-api-client/src/schemas/weldconnect-builder.ts",
+        "packages/core/workflow-integrations/src/cron.ts",
+        "packages/core/db/src/lib/workflow-concurrency.ts",
+        "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/workflows/generate",
+          "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
+        }
+      ]
+    },
+    {
+      "name": "connect: workflow actions",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/internal-workflow-actions/chat.test.ts",
+        "src/routes/internal-workflow-actions/contacts.test.ts",
+        "src/routes/internal-workflow-actions/create-task.test.ts",
+        "src/routes/internal-workflow-actions/crm-actions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/internal-workflow-actions/",
+        "apps/workers/connect-api/src/services/workflow-actions.ts",
+        "apps/workers/connect-api/src/services/workflow-owner.ts",
+        "packages/domains/crm/src/",
+        "packages/domains/chat/src/post-system-message.ts",
+        "packages/domains/flow/src/",
+        "packages/core/notifications/src/",
+        "packages/clients/app-api-client/src/schemas/weldconnect-workflow-actions.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-actions.ts",
+        "rust/modules/connect/",
+        "rust/crates/crm-domain/",
+        "rust/crates/chat-domain/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "connect: workflow integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-integrations/integration.test.ts",
+        "src/routes/workflow-integrations/github.test.ts",
+        "src/routes/workflow-integrations/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-integrations/",
+        "apps/workers/connect-api/src/services/workflow-integrations/",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/core/workflow-integrations/src/",
+        "packages/domains/connect/src/github/",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
+    },
+    {
+      "name": "connect: github",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-github/routes.test.ts",
+        "src/routes/github-project-links/routes.test.ts",
+        "src/routes/github-connections/routes.test.ts",
+        "src/routes/public-github-callback.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-github/",
+        "apps/workers/connect-api/src/routes/github-project-links/",
+        "apps/workers/connect-api/src/routes/github-connections/",
+        "apps/workers/connect-api/src/routes/github-repo-links/",
+        "apps/workers/connect-api/src/routes/public-github-callback.ts",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/clients/core-api-client/src/schemas/github.ts",
+        "packages/clients/core-api-client/src/schemas/github-connections.ts",
+        "packages/clients/core-api-client/src/schemas/github-repo-links.ts",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
+    },
+    {
+      "name": "connect: integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/external-webhooks/routes.test.ts",
+        "src/routes/integrations/routes.test.ts",
+        "src/routes/integrations/internal.routes.test.ts",
+        "src/routes/connectors/routes.test.ts",
+        "src/routes/connectors/picqer-push.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/external-webhooks/",
+        "apps/workers/connect-api/src/services/external-webhooks.ts",
+        "apps/workers/connect-api/src/lib/tenant-work-index.ts",
+        "apps/workers/connect-api/src/routes/integrations/",
+        "apps/workers/connect-api/src/services/integrations/",
+        "apps/workers/connect-api/src/lib/crm-sync-index.ts",
+        "apps/workers/connect-api/src/routes/connectors/",
+        "apps/workers/connect-api/src/services/connectors/",
+        "packages/domains/connect/src/",
+        "packages/core/connectors/src/",
+        "packages/clients/core-api-client/src/schemas/integrations.ts",
+        "packages/domains/ads/src/",
+        "packages/core/entity-events/src/webhook-delivery.ts",
+        "packages/core/entity-events/src/webhook-events.ts",
+        "packages/clients/app-api-client/src/schemas/connect-integrations-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-integrations.ts",
+        "rust/crates/subscribers/src/webhooks.rs",
+        "rust/crates/ads-domain/",
+        "rust/crates/connect-domain/",
+        "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/integrations/connections/:id/connector-event",
+          "reason": "Not ported yet: the inbound WooCommerce/Shopify webhook ingest of @weldsuite/connect-domain (connectors/webhooks.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/connections/:id/catch-up",
+          "reason": "Not ported yet: the connector catch-up sync of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/moneybird-push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/woocommerce-auth",
+          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with webhook registration and the first sync, still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/connectors/connect",
+          "reason": "Not ported yet: webhook registration (connectors/webhooks.ts) and the first sync (connectors/sync.ts, ingest.ts) of @weldsuite/connect-domain, and the Stripe and Moneybird clients."
+        },
+        {
+          "route": "POST /api/connectors/authorize",
+          "reason": "Not ported yet: WooCommerce's app authorisation (signed user_id, callback URL) and the Stripe and Moneybird OAuth starts of @weldsuite/connect-domain (connectors/auth.ts, stripe-auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/oauth/callback",
+          "reason": "Not ported yet: the Stripe and Moneybird OAuth completions with the first sync (connectors/auth.ts, stripe-auth.ts, sync.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/select-account",
+          "reason": "Not ported yet: the Moneybird administration choice with the first sync (connectors/auth.ts, sync.ts)."
+        },
+        {
+          "route": "PATCH /api/connectors/connections/:id",
+          "reason": "Not ported yet: the Stripe and Moneybird credential tests, the Stripe re-sync after a start-date change and the Moneybird push after enabling it (connectors/sync.ts, moneybird-push.ts)."
+        },
+        {
+          "route": "DELETE /api/connectors/connections/:id",
+          "reason": "Not ported yet: the provider webhook removal and the Stripe deauthorisation (connectors/webhooks.ts, @weldsuite/connectors stripe/auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/sync",
+          "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/options",
+          "reason": "Not ported yet: the Moneybird client and push plan of @weldsuite/connect-domain (connectors/moneybird-push-plan.ts)."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/push-status",
+          "reason": "Not ported yet: the Moneybird push status of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/moneybird/push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
+        }
+      ]
+    },
+    {
       "name": "books: sales",
       "module": "books",
       "workspace": "apps/workers/books-api",

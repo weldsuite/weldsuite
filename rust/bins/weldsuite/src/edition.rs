@@ -81,6 +81,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
+    // WeldConnect's "Generate with AI" (`POST /api/workflows/generate`) runs
+    // on Workers AI through the Cloudflare AI Gateway; the Rust backend has
+    // no AI port yet.
+    "weldconnect-ai",
     // WeldHR payroll: sending the loonaangifte over Digipoort needs the
     // worker's PKIoverheid client certificate binding. The return is filed
     // by hand and marked as filed (`POST …/filings/:id/submit` answers

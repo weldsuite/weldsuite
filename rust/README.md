@@ -73,7 +73,8 @@ modules, each with conformance suites that reach every route:
   at `/public/commerce-portal` (its invoice document is WeldBooks' invoice
   layout), with the sign-in limits on the cache's atomic counters and the
   sign-in mail as system mail; `crates/commerce-domain` holds the portal's
-  tokens, slugs and limits. Not yet: WooCommerce's app-auth callback, which
+  tokens, slugs and limits; the sales channels' store clients and field crypto
+  are `crates/connect-domain`'s. Not yet: WooCommerce's app-auth callback, which
   completes a WeldConnect authorisation)
 - **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
   call intelligence (phone numbers, the WebRTC token, statistics, call
@@ -166,7 +167,8 @@ desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
 returns through Digipoort, buying or porting phone numbers, buying or
-renewing domains, and WeldMeet transcripts and summaries and recordings.
+renewing domains, WeldMeet transcripts and summaries and recordings, and
+WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 connect, agent, sheets, docs and
@@ -215,6 +217,7 @@ rust/
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
+                        the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps),
                         the SLA engine (sla.rs, sla_calendar.rs), the helpdesk workflow engine (`workflow/`:
                         handlers, the desk.conversation-workflow job); tests/fixtures from
                         `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
@@ -372,9 +375,10 @@ which the chart sets with `consume.enabled`, else sent by the job itself),
 `reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
 warmup progress and Mailpool slots), `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
-`workspace-deletion` daily, `workspace-teardown` hourly and
+`workspace-deletion` daily, `workspace-teardown` hourly,
 `domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
-which stays with Global). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+which stays with Global) and `workflow-schedules` every minute (WeldConnect's
+scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -391,6 +395,8 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `CONNECT_API_URL` | WeldConnect: the GitHub App (WeldFlow's repositories and Projects, the workflow GitHub integration; unset: those routes answer 500 `GitHub App is not configured`) and the public origin of the workflow webhook URLs (default by `ENVIRONMENT`). The install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the install callback lands on `PUBLIC_APP_URL`. `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`: the workflow integrations' OAuth apps |
+| `TELNYX_API_KEY` | WeldConnect: the `send_sms` step's Telnyx key (unset: the step fails `TELNYX_API_KEY not configured`). `send_email` steps go out through the customer-mail relay (`MAIL_SMTP_URL`) and the outbound guard, from one of the workspace's mailboxes; `INTERNAL_API_SECRET` is the bearer of `/api/internal/workflow-actions/*` (the engine runs those actions in the process) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
 | `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`) |
 | `REACH_SEND_QUEUE` | `nats`: `weldsuite cron reach-send-sweep` queues each workspace with outreach due on NATS for the `reach-send` subscriber of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends itself |
@@ -439,7 +445,8 @@ stream. It reads the same database, NATS and Valkey variables, needs no sign-in
 settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_STREAM_MAX_BYTES`,
 `NATS_DEAD_LETTER_MAX_BYTES`,
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
-`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`,
+`RESTATE_INGRESS_URL` for the `weldconnect` subscriber's workflow runs):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.
 With `S3_BUCKET_MAIL` set it also runs `mail-inbound` (in the default list then;
 named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:

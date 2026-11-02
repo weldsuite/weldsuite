@@ -21,7 +21,7 @@ fn is_v2(value: &str) -> bool {
 
 /// `decryptField(value, keyring)`: a v1 or v2 value opened with its key;
 /// anything else is an error (a v3 value needs its AAD).
-pub(crate) fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, String> {
+pub fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, String> {
     if is_v3(value) {
         return Err(
             "decryptField: value is v3 (AAD-bound), open it with decryptWorkspaceDatabaseUrl()"
@@ -45,7 +45,7 @@ pub(crate) fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, St
 /// `maybeDecryptField(value, keyring)`: the plaintext of a sealed v1/v2
 /// value the keyring opens; anything else (plain text, v3, a value the
 /// keyring has no key for or can't open) as it is.
-pub(crate) fn maybe_decrypt_field(value: &str, keyring: &Keyring) -> String {
+pub fn maybe_decrypt_field(value: &str, keyring: &Keyring) -> String {
     let v2 = is_v2(value);
     let v1 = hex_pair(value);
     if !(v1 || v2) || is_v3(value) {

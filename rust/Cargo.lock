@@ -3842,6 +3842,7 @@ dependencies = [
  "weldsuite-chat",
  "weldsuite-commerce",
  "weldsuite-commerce-domain",
+ "weldsuite-connect",
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
@@ -4306,6 +4307,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-commerce-domain",
+ "weldsuite-connect-domain",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -4326,6 +4328,62 @@ dependencies = [
  "sha2 0.11.1",
  "tokio",
  "tracing",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-connect"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
+ "http",
+ "jiff",
+ "jsonwebtoken 11.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-ads-domain",
+ "weldsuite-auth",
+ "weldsuite-calendar-domain",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-connect-domain",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-subscribers",
+]
+
+[[package]]
+name = "weldsuite-connect-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-db",
+ "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
 ]
@@ -4621,6 +4679,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-notifications",
  "weldsuite-ports",
 ]
 

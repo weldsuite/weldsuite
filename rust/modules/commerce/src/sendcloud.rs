@@ -718,7 +718,7 @@ fn build_client(stored: &Stored, keyring: &Keyring, http: Option<OutboundHttp>) 
     let secret = stored
         .text("secretKey")
         .filter(|k| !k.is_empty())
-        .map(|s| crate::crypto::maybe_decrypt_field(s, keyring))
+        .map(|s| weldsuite_connect_domain::crypto::maybe_decrypt_field(s, keyring))
         .filter(|s| !s.is_empty())?;
     Some(Client::new(public_key, &secret, http))
 }
