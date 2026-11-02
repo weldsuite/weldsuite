@@ -1,7 +1,7 @@
-//! The store clients a product's sales channels push to: a port of the
-//! pieces of `@weldsuite/connectors` (`packages/core/connectors/src`) and
-//! `@weldsuite/connect-domain` (`packages/domains/connect/src/connectors`)
-//! commerce-api imports, to be deduplicated with the WeldConnect port:
+//! The store clients (`@weldsuite/connectors`, `packages/core/connectors/src`,
+//! and `@weldsuite/connect-domain`'s `connectors/clients.ts`): what
+//! commerce-api pushes a product's sales channels through, and what
+//! connect-api tests a store's credentials with:
 //!
 //! - `getConnector(provider)` → [`connector`] (label, category, the product
 //!   sync's `externalEntityType`), `resolveConnectorObjectDirection` +
@@ -30,15 +30,15 @@ use weldsuite_ports::{HttpRequest, HttpResponse, OutboundHttp};
 use crate::js::{number_text, number_value};
 
 /// A connector's catalog entry (`ConnectorDef`), what commerce reads of it.
-pub(crate) struct Connector {
-    pub(crate) label: &'static str,
-    pub(crate) category: &'static str,
+pub struct Connector {
+    pub label: &'static str,
+    pub category: &'static str,
     /// The product sync's `externalEntityType`, when it has one.
-    pub(crate) product_entity: Option<&'static str>,
+    pub product_entity: Option<&'static str>,
 }
 
 /// `getConnector(provider)`.
-pub(crate) fn connector(provider: &str) -> Option<Connector> {
+pub fn connector(provider: &str) -> Option<Connector> {
     let (label, category, product_entity) = match provider {
         "woocommerce" => ("WooCommerce", "ecommerce", Some("woocommerce_product")),
         "shopify" => ("Shopify", "ecommerce", Some("shopify_product")),
@@ -56,11 +56,7 @@ pub(crate) fn connector(provider: &str) -> Option<Connector> {
 
 /// `allowsOutboundSync(resolveConnectorObjectDirection({ direction,
 /// objectSyncDirections, settingKey }))`.
-pub(crate) fn allows_outbound(
-    direction: Option<&str>,
-    per_object: Option<&Value>,
-    key: &str,
-) -> bool {
+pub fn allows_outbound(direction: Option<&str>, per_object: Option<&Value>, key: &str) -> bool {
     let resolved = per_object
         .and_then(|o| o.get(key))
         .and_then(Value::as_str)
@@ -72,7 +68,7 @@ pub(crate) fn allows_outbound(
 
 /// `ConnectorErrorKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub enum Kind {
     Auth,
     RateLimit,
     Transient,
@@ -81,16 +77,16 @@ pub(crate) enum Kind {
 
 /// `ConnectorApiError`.
 #[derive(Debug, Clone)]
-pub(crate) struct ConnectorError {
-    pub(crate) message: String,
-    pub(crate) status: u16,
-    pub(crate) kind: Kind,
-    pub(crate) body: Option<String>,
-    pub(crate) retry_after: Option<f64>,
+pub struct ConnectorError {
+    pub message: String,
+    pub status: u16,
+    pub kind: Kind,
+    pub body: Option<String>,
+    pub retry_after: Option<f64>,
 }
 
 impl ConnectorError {
-    fn new(message: impl Into<String>, status: u16, kind: Kind) -> Self {
+    pub fn new(message: impl Into<String>, status: u16, kind: Kind) -> Self {
         Self {
             message: message.into(),
             status,
@@ -237,14 +233,14 @@ fn as_text(value: &Value) -> String {
 
 /// A remote listing (`ExternalProductRef`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProductRef {
-    pub(crate) id: String,
-    pub(crate) url: Option<String>,
+pub struct ProductRef {
+    pub id: String,
+    pub url: Option<String>,
 }
 
 /// The product pushed to a store (`OutboundCatalogProduct`): the JSON the
 /// route builds (`toOutboundProduct`).
-pub(crate) type CatalogProduct = Value;
+pub type CatalogProduct = Value;
 
 fn text_of<'a>(product: &'a Value, key: &str) -> Option<&'a str> {
     product.get(key).and_then(Value::as_str)
@@ -298,7 +294,7 @@ fn number(text: &str) -> Value {
 
 // ── WooCommerce ─────────────────────────────────────────────────────────────
 
-pub(crate) struct Woo {
+pub struct Woo {
     store_url: String,
     key: String,
     secret: String,
@@ -671,7 +667,7 @@ fn set_param(url: &mut url::Url, key: &str, value: &str) {
 
 // ── Shopify ─────────────────────────────────────────────────────────────────
 
-pub(crate) struct Shopify {
+pub struct Shopify {
     domain: String,
     token: String,
 }
@@ -852,7 +848,7 @@ impl Shopify {
 
 // ── Picqer ──────────────────────────────────────────────────────────────────
 
-pub(crate) struct Picqer {
+pub struct Picqer {
     subdomain: String,
     key: String,
 }
@@ -909,6 +905,31 @@ impl Picqer {
         search: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<Value, ConnectorError> {
+        self.request_text(http, method, path, search, body.map(Value::to_string))
+            .await
+    }
+
+    /// A write with a body the caller serialised (`JSON.stringify` of an
+    /// object built in its own key order): the Picqer push's
+    /// `client.createCustomer(body)`, `updateOrder(id, body)`, ….
+    pub async fn send(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        body: String,
+    ) -> Result<Value, ConnectorError> {
+        self.request_text(http, method, path, &[], Some(body)).await
+    }
+
+    async fn request_text(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        search: &[(&str, String)],
+        body: Option<String>,
+    ) -> Result<Value, ConnectorError> {
         let mut url = url::Url::parse(&format!(
             "https://{}.picqer.com/api/v1/{}",
             self.subdomain,
@@ -936,7 +957,7 @@ impl Picqer {
             method: method.to_owned(),
             url: url.to_string(),
             headers,
-            body: body.map(|b| b.to_string().into_bytes()),
+            body: body.map(String::into_bytes),
         };
         let response = with_retries("Could not reach Picqer", || {
             let request = request.clone();
@@ -998,7 +1019,7 @@ impl Picqer {
 // ── the client ──────────────────────────────────────────────────────────────
 
 /// A product write client (`ShopifyClient | WooCommerceClient | PicqerClient`).
-pub(crate) enum StoreClient {
+pub enum StoreClient {
     Woo(Woo),
     Shopify(Shopify),
     Picqer(Picqer),
@@ -1012,7 +1033,7 @@ fn credential<'a>(credentials: &'a Map<String, Value>, key: &str) -> &'a str {
 }
 
 /// `createProductWriteClient(provider, credentials, fallbackAccountId)`.
-pub(crate) fn product_write_client(
+pub fn product_write_client(
     provider: &str,
     credentials: &Map<String, Value>,
     fallback: Option<&str>,
@@ -1067,8 +1088,44 @@ pub(crate) fn product_write_client(
 }
 
 impl StoreClient {
+    /// `client.storeUrl`.
+    pub fn store_url(&self) -> String {
+        match self {
+            Self::Woo(woo) => woo.store_url.clone(),
+            Self::Shopify(shopify) => shopify.store_url(),
+            Self::Picqer(picqer) => format!("https://{}.picqer.com", picqer.subdomain),
+        }
+    }
+
+    /// `client.test()`: a one-item read proves the credentials work; the
+    /// store URL, or why it failed.
+    pub async fn test(&self, http: Option<&OutboundHttp>) -> Result<String, String> {
+        let read = match self {
+            Self::Woo(woo) => woo
+                .request(
+                    http,
+                    "GET",
+                    "products",
+                    &[("per_page", "1".to_owned())],
+                    None,
+                )
+                .await
+                .map(|_| ()),
+            Self::Shopify(shopify) => shopify
+                .request(http, "GET", "products.json?limit=1", None)
+                .await
+                .map(|_| ()),
+            Self::Picqer(picqer) => picqer
+                .request(http, "GET", "products", &[("offset", "0".to_owned())], None)
+                .await
+                .map(|_| ()),
+        };
+        read.map(|()| self.store_url())
+            .map_err(|error| error.message)
+    }
+
     /// `client.findProductBySku(sku)`.
-    pub(crate) async fn find_by_sku(
+    pub async fn find_by_sku(
         &self,
         http: Option<&OutboundHttp>,
         sku: &str,
@@ -1160,7 +1217,7 @@ impl StoreClient {
     }
 
     /// `client.createProduct(product)`.
-    pub(crate) async fn create(
+    pub async fn create(
         &self,
         http: Option<&OutboundHttp>,
         product: &CatalogProduct,
@@ -1191,7 +1248,7 @@ impl StoreClient {
     }
 
     /// `client.updateProduct(id, product)`.
-    pub(crate) async fn update(
+    pub async fn update(
         &self,
         http: Option<&OutboundHttp>,
         id: &str,
@@ -1240,7 +1297,7 @@ impl StoreClient {
     }
 
     /// `client.deleteProduct(id)`.
-    pub(crate) async fn delete(
+    pub async fn delete(
         &self,
         http: Option<&OutboundHttp>,
         id: &str,
@@ -1270,10 +1327,7 @@ impl StoreClient {
 
 /// `decryptCredentials(credentials, keyring)`: each truthy value opened
 /// with `maybeDecryptField`.
-pub(crate) fn decrypt_credentials(
-    credentials: Option<&Value>,
-    keyring: &Keyring,
-) -> Map<String, Value> {
+pub fn decrypt_credentials(credentials: Option<&Value>, keyring: &Keyring) -> Map<String, Value> {
     let mut out = Map::new();
     let Some(Value::Object(stored)) = credentials else {
         return out;

@@ -56,6 +56,8 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /** WeldConnect's "Generate with AI" (`POST /api/workflows/generate`, Workers AI). */
+  'weldconnect-ai',
   /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
   'payroll-digipoort',
   /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */

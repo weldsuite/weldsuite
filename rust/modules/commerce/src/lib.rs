@@ -60,9 +60,7 @@ macro_rules! listing_as {
 #[rustfmt::skip]
 mod tables;
 mod categories;
-mod connectors;
 mod crud;
-mod crypto;
 mod invoice_html;
 mod js;
 mod notifications;

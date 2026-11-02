@@ -239,6 +239,10 @@ struct TestContext {
     /// Its Workflow bindings over HTTP (`conformance_workflows`).
     #[serde(default)]
     workflows: HashMap<String, String>,
+    /// The header names of the test's request as the Hono app saw them
+    /// (`requestHeaders`), for a route that keeps the request's headers.
+    #[serde(default)]
+    request_headers: Option<Vec<String>>,
     /// Its service bindings over HTTP (`{ BOOKS_INTERNAL: url }`,
     /// `conformance_books`).
     #[serde(default)]
@@ -368,6 +372,22 @@ impl Pools {
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
         ));
+        // WeldConnect's runs start on the test's `EXECUTE_WORKFLOW`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestWorkflowRuns(
+            self.workflows.execute_runs(&context.workflows),
+        ));
+        // GitHub project syncs start on the test's `GITHUB_PROJECT_SYNC`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestProjectSyncRuns(
+            self.workflows.project_sync_runs(&context.workflows),
+        ));
+        // CRM syncs start on the test's `CRM_SYNC`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestCrmSyncRuns(
+            self.workflows.crm_sync_runs(&context.workflows),
+        ));
+        // The headers the test's request carried, as the Hono app saw them.
+        if let Some(names) = &context.request_headers {
+            extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
+        }
         // WeldMeet: the test's `MEETING_RECORDINGS` bucket and its three
         // Workflow bindings, or none, as the worker runs without them.
         extensions.insert(weldsuite_meet::RequestRecordings(

@@ -742,7 +742,8 @@ fn read_credentials(
             "The {engine} credentials could not be read; enter them again"
         ))
     };
-    let plain = crate::crypto::decrypt_field(blob, keyring).map_err(|_| unreadable())?;
+    let plain =
+        weldsuite_connect_domain::crypto::decrypt_field(blob, keyring).map_err(|_| unreadable())?;
     match serde_json::from_str::<Value>(&plain).map_err(|_| unreadable())? {
         Value::Object(map) => Ok(map),
         // An array is an object to `typeof`: it holds no credentials.

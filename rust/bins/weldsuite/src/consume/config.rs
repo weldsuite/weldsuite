@@ -13,6 +13,7 @@
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
 //! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
+//! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
 //! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
 //! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
@@ -30,7 +31,13 @@ use weldsuite_db::{Keyring, WorkspaceConfig};
 use crate::config::LogFormat;
 
 /// The subscribers `weldsuite consume` can run.
-pub(crate) const PORTED: [&str; 4] = ["audit", "search-index", "webhooks", "realtime"];
+pub(crate) const PORTED: [&str; 5] = [
+    "audit",
+    "search-index",
+    "webhooks",
+    "weldconnect",
+    "realtime",
+];
 
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
@@ -128,6 +135,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) embeddings: Option<EmbeddingsConfig>,
     pub(crate) webhook_allow_private: bool,
     pub(crate) webhook_retry_sweep: bool,
+    /// Restate's ingress, for the `weldconnect` subscriber's runs.
+    pub(crate) restate_ingress_url: Option<String>,
     pub(crate) drain: Duration,
     /// The `mail-inbound` subscriber's settings (`S3_BUCKET_MAIL` set).
     pub(crate) mail_inbound: Option<MailInboundConfig>,
@@ -153,6 +162,10 @@ impl fmt::Debug for ConsumeConfig {
             )
             .field("webhook_allow_private", &self.webhook_allow_private)
             .field("webhook_retry_sweep", &self.webhook_retry_sweep)
+            .field(
+                "restate",
+                &self.restate_ingress_url.as_ref().map(|_| "<set>"),
+            )
             .field(
                 "mail_inbound",
                 &self.mail_inbound.as_ref().map(|m| m.mail.bucket.as_str()),
@@ -350,6 +363,7 @@ impl ConsumeConfig {
             embeddings,
             webhook_allow_private,
             webhook_retry_sweep,
+            restate_ingress_url: lookup("RESTATE_INGRESS_URL").filter(|url| !url.is_empty()),
             drain: Duration::from_secs(drain),
             mail_inbound,
         })
