@@ -20,9 +20,9 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::crud::{Filter, ListError, Listing, fetch, page_of};
 use crate::sales_channels::{self, ChannelError, Context};
-use crate::sales_tax::tax_codes::is_accepted_product_tax_class;
 use crate::table::WriteError;
 use crate::tables;
+use crate::tax_class::is_accepted_product_tax_class;
 use crate::{Caller, CommerceState, Refusal, all, now, validate};
 
 const PRODUCT_LIST: (&str, &str) = listing_as!(row_of!(products); "products";

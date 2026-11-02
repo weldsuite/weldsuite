@@ -1440,16 +1440,25 @@ async fn invoice(buyer: Buyer, Path(id): Path<String>) -> Response {
     }
 }
 
-/// The invoice as printable HTML (`renderPortalInvoiceHtml`): its 404s as
-/// the worker answers them; the document itself waits for the WeldBooks
-/// invoice generator (see [`crate::invoice_html`]).
+/// The invoice as printable HTML (`renderPortalInvoiceHtml`, WeldBooks'
+/// invoice layout: [`crate::invoice_html`]).
 async fn invoice_document(buyer: Buyer, Path(id): Path<String>) -> Response {
     use crate::invoice_html::{InvoiceDocument, portal_invoice_document};
     match portal_invoice_document(&buyer.portal.db, &id, &buyer.session.party_id).await {
         Ok(InvoiceDocument::NotFound) => ApiError::not_found("Invoice", Some(&id)).into_response(),
-        Ok(InvoiceDocument::Unavailable) => {
-            ApiError::unavailable("Invoice documents are not available on this edition yet")
-                .into_response()
+        Ok(InvoiceDocument::Html { html, filename }) => {
+            let mut response = (StatusCode::OK, html).into_response();
+            let headers = response.headers_mut();
+            headers.insert(
+                http::header::CONTENT_TYPE,
+                http::HeaderValue::from_static("text/html; charset=utf-8"),
+            );
+            if let Ok(value) =
+                http::HeaderValue::from_str(&format!("inline; filename=\"{filename}\""))
+            {
+                headers.insert(http::header::CONTENT_DISPOSITION, value);
+            }
+            response
         }
         Err(error) => internal("Failed to generate invoice document", &error),
     }

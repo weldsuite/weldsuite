@@ -29,9 +29,9 @@ use crate::order_tax::{
     calculate_order_sales_tax, calculate_order_tax, load_order_tax_items, order_tax_lock_reason,
     persist_order_tax, write_item_tax,
 };
-use crate::sales_tax::TaxUse;
 use crate::tables;
 use crate::{Caller, CommerceState, Refusal, all, now, positive, validate};
+use weldsuite_books_domain::sales_tax::TaxUse;
 
 const ORDER_LIST: (&str, &str) = listing_as!(row_of!(orders); "orders";
     "($2::boolean or t.customer_id = $3::text)",
@@ -182,7 +182,7 @@ fn read_use(issues: &mut Issues, fields: &Map<String, Value>) -> Option<TaxUse> 
             &["business", "personal"],
         )
         .into_option()
-        .and_then(|u| TaxUse::parse(&u))
+        .and_then(|u| TaxUse::parse(Some(u.as_str())))
 }
 
 /// `taxAddressSchema.nullish()`: the address, its unknown keys stripped.
@@ -243,7 +243,7 @@ fn read_line(issues: &mut Issues, item: &Value) -> Option<LineInput> {
             ..Number::default()
         },
     );
-    positive(issues, line, "quantity", Presence::Optional, false);
+    let quantity = positive(issues, line, "quantity", Presence::Optional, false);
     let tax_code = issues.text_with(
         line,
         "taxCode",
@@ -258,6 +258,7 @@ fn read_line(issues: &mut Issues, item: &Value) -> Option<LineInput> {
         line_id: line_id.into_option()?,
         product_id: product_id.into_option(),
         amount: amount.into_option()?,
+        quantity: quantity.unwrap_or(1.0),
         tax_code: tax_code.into_option(),
         tax_included: tax_included.into_option().unwrap_or(false),
     })
@@ -394,7 +395,8 @@ async fn cart_tax(
         Err(refusal) => return refusal.respond(FAILED),
     };
     let keyring = caller.overrides.keyring(&state);
-    match calculate_order_sales_tax(&caller.db, &keyring, &input).await {
+    let outbound = caller.overrides.http(&state);
+    match calculate_order_sales_tax(&caller.db, &keyring, outbound.as_ref(), &input).await {
         Ok(outcome) => Data(Value::Object(outcome.response())).into_response(),
         Err(failure) => tax_failed(failure, FAILED),
     }
@@ -445,11 +447,20 @@ async fn order_tax(
         Err(error) => return Refusal::Database(error).respond(FAILED),
     };
     let keyring = caller.overrides.keyring(&state);
-    let (outcome, application) =
-        match calculate_order_tax(&caller.db, &keyring, &order, &items, &options).await {
-            Ok(calculated) => calculated,
-            Err(failure) => return tax_failed(failure, FAILED),
-        };
+    let outbound = caller.overrides.http(&state);
+    let (outcome, application) = match calculate_order_tax(
+        &caller.db,
+        &keyring,
+        outbound.as_ref(),
+        &order,
+        &items,
+        &options,
+    )
+    .await
+    {
+        Ok(calculated) => calculated,
+        Err(failure) => return tax_failed(failure, FAILED),
+    };
     let mut response = outcome.response();
     let application = match application {
         Some(application) if apply => application,
@@ -557,7 +568,16 @@ async fn create_order(
         subject.insert("id".to_owned(), json!(id));
         subject.insert("createdAt".to_owned(), json!(now));
         let keyring = caller.overrides.keyring(&state);
-        match calculate_order_tax(&caller.db, &keyring, &subject, &[], &TaxOptions::default()).await
+        let outbound = caller.overrides.http(&state);
+        match calculate_order_tax(
+            &caller.db,
+            &keyring,
+            outbound.as_ref(),
+            &subject,
+            &[],
+            &TaxOptions::default(),
+        )
+        .await
         {
             Ok((outcome, applied)) => {
                 tax = Some(outcome);
@@ -651,9 +671,11 @@ async fn update_order(
         let mut subject = existing.clone();
         subject.extend(update.iter().map(|(k, v)| (k.clone(), v.clone())));
         let keyring = caller.overrides.keyring(&state);
+        let outbound = caller.overrides.http(&state);
         match calculate_order_tax(
             &caller.db,
             &keyring,
+            outbound.as_ref(),
             &subject,
             &items,
             &TaxOptions::default(),

@@ -904,8 +904,8 @@ async fn expiring(
     )
 }
 
-/// `expiringCertificates(db, entity, { days })`.
-async fn expiring_certificates(
+/// `expiringCertificates(db, entity, { days })` on `today` (the entity's day).
+pub(crate) async fn expiring_certificates(
     db: &PgPool,
     entity: &Value,
     days: i64,

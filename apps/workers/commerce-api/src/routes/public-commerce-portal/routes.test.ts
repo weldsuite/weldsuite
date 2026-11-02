@@ -14,7 +14,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp } from '@weldsuite/worker-kit/testing';
-import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
@@ -692,10 +691,9 @@ describe('GET /public/commerce-portal/invoices/:id', () => {
 });
 
 describe('GET /public/commerce-portal/invoices/:id/pdf', () => {
-  // The document itself is WeldBooks' invoice generator, which the Rust
-  // backend does not have yet (it answers 503, rust/modules/commerce/src/
-  // invoice_html); the 404s below run on both backends.
-  it.skipIf(conformanceTarget())('renders an own invoice as printable HTML in the entity’s language', async () => {
+  // The document is WeldBooks' invoice generator, on both backends (Rust:
+  // weldsuite_books_domain::invoice_html).
+  it('renders an own invoice as printable HTML in the entity’s language', async () => {
     await enablePortal();
     const buyer = await seedBuyer('invoice_html');
     await seedEntity('ent_html_nl', 'NL', 'nl-NL', 'EUR');
@@ -727,7 +725,7 @@ describe('GET /public/commerce-portal/invoices/:id/pdf', () => {
     expect(usHtml).toContain('Line ii_html_us');
   });
 
-  it.skipIf(conformanceTarget())('answers 500 for an entity in a jurisdiction without an invoice adapter (BE)', async () => {
+  it('answers 500 for an entity in a jurisdiction without an invoice adapter (BE)', async () => {
     // Pins current behaviour: books-domain registers adapters for NL, IN, US
     // and BR only, so a Belgian entity's invoice cannot be rendered.
     await enablePortal();

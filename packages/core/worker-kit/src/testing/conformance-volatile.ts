@@ -25,6 +25,12 @@ export interface VolatileField {
    * normalised like any other.
    */
   decode?: 'base64-json';
+  /**
+   * Compare an array in a stable order instead of masking it: its items
+   * sorted by these keys (dot paths into each item). For rows a route
+   * orders by a value that differs between the two runs by construction.
+   */
+  sortBy?: string[];
 }
 
 interface VolatileRoute {
@@ -235,9 +241,35 @@ const ROUTES: VolatileRoute[] = [
     'expense-by-category',
     'tax-worksheet',
   ].map((report) => ({ method: 'GET', route: `/api/accounting-reports/${report}`, fields: [{ path: 'data.generatedAt' }] })),
+  // A new 1099 filing answers its lines ordered by (created_at, id). They are
+  // inserted in one statement, so they share created_at, and their ids are
+  // random per run: the two runs list the same lines in different orders (as
+  // TypeScript does from run to run). Compared in recipient order instead: a
+  // new filing has one line per recipient.
+  { method: 'POST', route: '/api/form-1099/filings', fields: [{ path: 'data.lines', sortBy: ['partyId'] }] },
 ];
 
+/** The value at a dot path, as text for ordering. */
+function sortKey(item: unknown, path: string): string {
+  let value: unknown = item;
+  for (const segment of path.split('.')) {
+    value = value && typeof value === 'object' ? (value as Record<string, unknown>)[segment] : undefined;
+  }
+  return JSON.stringify(value) ?? '';
+}
+
 function mask(value: unknown, field: VolatileField): unknown {
+  if (field.sortBy) {
+    if (!Array.isArray(value)) return value;
+    const keys = field.sortBy;
+    return [...value].sort((a, b) => {
+      for (const key of keys) {
+        const order = sortKey(a, key).localeCompare(sortKey(b, key));
+        if (order !== 0) return order;
+      }
+      return 0;
+    });
+  }
   if (field.decode === 'base64-json' && typeof value === 'string') {
     try {
       return JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as unknown;

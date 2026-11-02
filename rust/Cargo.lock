@@ -2101,6 +2101,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+
+[[package]]
 name = "quinn"
 version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4011,6 +4017,7 @@ dependencies = [
  "icu_collator",
  "jiff",
  "jsonwebtoken 11.1.0",
+ "qrcodegen",
  "regex",
  "serde",
  "serde_json",
@@ -4293,6 +4300,7 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-auth",
+ "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-commerce-domain",
  "weldsuite-db",

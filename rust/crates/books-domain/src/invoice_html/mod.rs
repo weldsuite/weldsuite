@@ -6,8 +6,8 @@
 //! India's HSN/SAC and CGST/SGST split, Brazil's tax groups) and its labels.
 //! Money, numbers and dates are formatted as Node's `Intl` does ([`intl`]).
 //!
-//! Brazil's Pix QR code (`jurisdictions/br/pix`) is not drawn yet: a
-//! Brazilian invoice prints without the Pix block.
+//! A Brazilian invoice prints its Pix BR Code for the amount due
+//! ([`crate::jurisdictions::br::pix`]).
 
 #![allow(
     clippy::format_collect,
@@ -26,7 +26,9 @@ use serde_json::{Map, Value};
 
 use crate::address::{format_postal_address_lines, normalize_postal_address};
 use crate::compliance::invoice_requirements;
-use layout::{DocumentData, LegalData, PartyData, TableColumnData, TableRowData, TotalsRow};
+use layout::{
+    DocumentData, LegalData, PartyData, PixData, TableColumnData, TableRowData, TotalsRow,
+};
 
 /// One printed line (`InvoiceLineItem`).
 #[derive(Debug, Clone, Default)]
@@ -81,6 +83,15 @@ pub struct InvoiceRenderData {
     pub certificate_numbers: Map<String, Value>,
     pub draft: bool,
     pub fiscal_document: Option<FiscalDocument>,
+    /// Brazil: the Pix BR Code for the amount due.
+    pub pix: Option<Pix>,
+}
+
+/// Brazil: the Pix key and its BR Code payload (`InvoiceRenderData.pix`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pix {
+    pub key: String,
+    pub payload: String,
 }
 
 /// Why an invoice can't be printed (TypeScript throws: the route's 500).
@@ -979,6 +990,10 @@ pub fn generate_invoice_html(
             esc(t)
         )
     });
+    let pix = invoice
+        .pix
+        .as_ref()
+        .map_or_else(String::new, |pix| pix_block(pix, labels));
     let notes = invoice.notes.as_deref().filter(|n| !n.is_empty()).map_or_else(String::new, |n| {
         format!("\n  <div style=\"margin-top:20px;\">\n    <div style=\"font-weight:600;margin-bottom:4px;\">Notes</div>\n    <div style=\"font-size:14px;color:#555;white-space:pre-wrap;\">{}</div>\n  </div>", esc(n))
     });
@@ -1008,7 +1023,7 @@ pub fn generate_invoice_html(
         String::new()
     };
     Ok(format!(
-        "<!DOCTYPE html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>{title_prefix}{type_label} {number}</title>\n<style>\n  @media print {{\n    body {{ margin: 0; }}\n    .no-print {{ display: none !important; }}\n  }}\n  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; line-height: 1.5; margin: 0; padding: 0; }}\n  .container {{ max-width: 800px; margin: 0 auto; padding: 40px; position: relative; }}\n  table {{ border-collapse: collapse; width: 100%; }}\n</style>\n</head>\n<body>\n<div class=\"container\">\n  {draft_marking}\n  <div style=\"display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;\">\n    <div>{logo}</div>\n    <div style=\"text-align:right;\">\n      <div style=\"font-size:28px;font-weight:bold;color:{primary};text-transform:uppercase;\">{type_label}</div>\n      <div style=\"font-size:16px;color:#666;margin-top:4px;\">{number}</div>\n    </div>\n  </div>\n\n  <div style=\"display:flex;justify-content:space-between;margin-bottom:30px;\">\n    <div style=\"flex:1;\">\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;\">{from}</div>\n      <div style=\"font-weight:600;\">{seller_name}</div>\n      <div style=\"font-size:14px;color:#555;\">{entity_block}</div>\n      {registration}\n      {vat}\n    </div>\n    <div style=\"flex:1;text-align:right;\">\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;\">{bill_to}</div>\n      <div style=\"font-weight:600;\">{contact}</div>\n      {buyer_address}\n      {buyer_email}\n      {buyer_vat}\n      {ship_to}\n    </div>\n  </div>\n\n  <div style=\"display:flex;gap:40px;margin-bottom:30px;padding:16px;background:#f8f9fa;border-radius:6px;\">\n    <div>\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;\">{date_label}</div>\n      <div style=\"font-weight:500;\">{issue}</div>\n    </div>\n    <div>\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;\">{due_label}</div>\n      <div style=\"font-weight:500;\">{due}</div>\n    </div>\n    {reference}\n    {place}\n    {fiscal}\n  </div>\n\n  {table}\n\n  <div style=\"display:flex;justify-content:flex-end;\">\n    <div style=\"width:300px;\">\n      <table>\n        <tr>\n          <td style=\"padding:6px 0;color:#666;\">{subtotal_label}</td>\n          <td style=\"padding:6px 0;text-align:right;\">{subtotal}</td>\n        </tr>\n        {discount}\n        {tax_rows_html}\n        {tax_total_row}\n        <tr style=\"border-top:2px solid {primary};\">\n          <td style=\"padding:12px 0;font-size:18px;font-weight:bold;\">{total_label}</td>\n          <td style=\"padding:12px 0;text-align:right;font-size:18px;font-weight:bold;\">{total}</td>\n        </tr>\n        {paid}\n      </table>{exempt}\n    </div>\n  </div>\n\n  {compliance}\n\n  <div style=\"margin-top:40px;padding:20px;background:#f8f9fa;border-radius:6px;border-left:4px solid {accent};\">\n    <div style=\"font-weight:600;margin-bottom:8px;\">{payment_label}</div>\n    <div style=\"font-size:14px;color:#555;\">\n      {bank_html}\n      <div>{entity_name_html}</div>\n      <div>Ref: {number}</div>\n    </div>\n    {instructions}\n    \n  </div>\n\n  {notes}\n\n  {terms}\n\n  {footer}\n\n  {footer_text}\n</div>\n</body>\n</html>",
+        "<!DOCTYPE html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>{title_prefix}{type_label} {number}</title>\n<style>\n  @media print {{\n    body {{ margin: 0; }}\n    .no-print {{ display: none !important; }}\n  }}\n  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; line-height: 1.5; margin: 0; padding: 0; }}\n  .container {{ max-width: 800px; margin: 0 auto; padding: 40px; position: relative; }}\n  table {{ border-collapse: collapse; width: 100%; }}\n</style>\n</head>\n<body>\n<div class=\"container\">\n  {draft_marking}\n  <div style=\"display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;\">\n    <div>{logo}</div>\n    <div style=\"text-align:right;\">\n      <div style=\"font-size:28px;font-weight:bold;color:{primary};text-transform:uppercase;\">{type_label}</div>\n      <div style=\"font-size:16px;color:#666;margin-top:4px;\">{number}</div>\n    </div>\n  </div>\n\n  <div style=\"display:flex;justify-content:space-between;margin-bottom:30px;\">\n    <div style=\"flex:1;\">\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;\">{from}</div>\n      <div style=\"font-weight:600;\">{seller_name}</div>\n      <div style=\"font-size:14px;color:#555;\">{entity_block}</div>\n      {registration}\n      {vat}\n    </div>\n    <div style=\"flex:1;text-align:right;\">\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;\">{bill_to}</div>\n      <div style=\"font-weight:600;\">{contact}</div>\n      {buyer_address}\n      {buyer_email}\n      {buyer_vat}\n      {ship_to}\n    </div>\n  </div>\n\n  <div style=\"display:flex;gap:40px;margin-bottom:30px;padding:16px;background:#f8f9fa;border-radius:6px;\">\n    <div>\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;\">{date_label}</div>\n      <div style=\"font-weight:500;\">{issue}</div>\n    </div>\n    <div>\n      <div style=\"font-size:11px;text-transform:uppercase;color:#999;\">{due_label}</div>\n      <div style=\"font-weight:500;\">{due}</div>\n    </div>\n    {reference}\n    {place}\n    {fiscal}\n  </div>\n\n  {table}\n\n  <div style=\"display:flex;justify-content:flex-end;\">\n    <div style=\"width:300px;\">\n      <table>\n        <tr>\n          <td style=\"padding:6px 0;color:#666;\">{subtotal_label}</td>\n          <td style=\"padding:6px 0;text-align:right;\">{subtotal}</td>\n        </tr>\n        {discount}\n        {tax_rows_html}\n        {tax_total_row}\n        <tr style=\"border-top:2px solid {primary};\">\n          <td style=\"padding:12px 0;font-size:18px;font-weight:bold;\">{total_label}</td>\n          <td style=\"padding:12px 0;text-align:right;font-size:18px;font-weight:bold;\">{total}</td>\n        </tr>\n        {paid}\n      </table>{exempt}\n    </div>\n  </div>\n\n  {compliance}\n\n  <div style=\"margin-top:40px;padding:20px;background:#f8f9fa;border-radius:6px;border-left:4px solid {accent};\">\n    <div style=\"font-weight:600;margin-bottom:8px;\">{payment_label}</div>\n    <div style=\"font-size:14px;color:#555;\">\n      {bank_html}\n      <div>{entity_name_html}</div>\n      <div>Ref: {number}</div>\n    </div>\n    {instructions}\n    {pix}\n  </div>\n\n  {notes}\n\n  {terms}\n\n  {footer}\n\n  {footer_text}\n</div>\n</body>\n</html>",
         lang = esc(locale.split('-').next().unwrap_or_default()),
         number = esc(&invoice.invoice_number),
         from = esc(l(labels, "from")),
@@ -1026,6 +1041,18 @@ pub fn generate_invoice_html(
         payment_label = l(labels, "paymentInstructions"),
         entity_name_html = esc(entity_name),
     ))
+}
+
+/// `buildPixBlock(pix, labels)`: the Pix QR code (BR Code) for the amount
+/// due and its "copia e cola" text.
+fn pix_block(pix: &Pix, labels: &Value) -> String {
+    format!(
+        "\n  <div style=\"margin-top:24px;display:flex;gap:20px;align-items:center;padding:16px;border:1px solid #e5e7eb;border-radius:6px;\">\n    <div style=\"flex:none;\">{}</div>\n    <div style=\"font-size:12px;color:#555;min-width:0;\">\n      <div style=\"font-weight:600;font-size:14px;margin-bottom:6px;\">{}</div>\n      <div>{}</div>\n      <div style=\"margin-top:6px;font-family:monospace;font-size:10px;word-break:break-all;color:#777;\">{}</div>\n    </div>\n  </div>",
+        crate::jurisdictions::br::pix::pix_qr_svg(&pix.payload, 140),
+        esc(l_or(labels, "pixPayment", "Pix")),
+        esc(&pix.key),
+        esc(&pix.payload)
+    )
 }
 
 /// `value.replace(/(\d{4})(?=\d)/g, '$1 ')`: a space after each four digits
@@ -1559,7 +1586,12 @@ pub fn invoice_template_data(
         legal: LegalData {
             notices,
             fiscal_document,
-            pix: None,
+            pix: invoice.pix.as_ref().map(|pix| PixData {
+                title: l_or(labels, "pixPayment", "Pix").to_owned(),
+                key: pix.key.clone(),
+                payload: pix.payload.clone(),
+                matrix: crate::jurisdictions::br::pix::pix_qr_matrix(&pix.payload),
+            }),
             required_footer: text(requirements, "requiredFooter").map(str::to_owned),
         },
         draft: invoice.draft.then(|| {

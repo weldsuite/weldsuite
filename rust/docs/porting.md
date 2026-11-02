@@ -103,7 +103,13 @@ templates).
    those interfaces.
 3. Add the suite to `rust/conformance/suites.json` (the worker's test files
    and the paths that change it). Once the module is in
-   `RUST_PORTED_MODULES`, an unreached route fails the suite.
+   `RUST_PORTED_MODULES`, an unreached route fails the suite. A suite's
+   routes are those of every router its files mount; when files mount
+   another route group's router only to set up their data (WeldBooks'
+   tests create their entity through `/api/accounting-entities`), list the
+   suite's own route prefixes in `coverage` and only those count
+   (`worker-kit/src/testing/conformance-coverage.ts`; a cross-area suite
+   lists none, each group's own suite reaches its routes).
 4. Run it: build the conformance server and run the tests with
    `CONFORMANCE_TARGET=rust CONFORMANCE_STRICT=0 CONFORMANCE_REPORT_DIR=<dir>`
    (`pnpm rust:conformance` does the whole thing; `--no-build` reuses the

@@ -259,7 +259,7 @@
       "/api/received-fiscal-documents",
       "/public/fiscal-webhooks"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "books-api"
   },
   {

@@ -108,6 +108,10 @@ pub(crate) struct TenantSweep {
     pub(crate) depreciation_posted: usize,
     /// Depreciation periods skipped (a lock date, a closed period).
     pub(crate) depreciation_skipped: usize,
+    /// Tax reminder notices sent (each to every owner and admin).
+    pub(crate) reminders_sent: u64,
+    /// Tax reminders that failed (a candidate's query, a delivery).
+    pub(crate) reminders_failed: u64,
 }
 
 impl TenantSweep {
@@ -119,6 +123,8 @@ impl TenantSweep {
             "fxRates": self.fx_rates,
             "depreciationPosted": self.depreciation_posted,
             "depreciationSkipped": self.depreciation_skipped,
+            "remindersSent": self.reminders_sent,
+            "remindersFailed": self.reminders_failed,
         })
     }
 }
@@ -126,15 +132,16 @@ impl TenantSweep {
 /// `sweepTenant(db, now, tax)` (books-api `cron/books-sweep.ts`): finalized
 /// invoices past due become overdue, due recurring invoices are generated (one
 /// period per schedule per run) as the system, and today's ECB rates are
-/// stored; then the depreciation of fixed assets due through the end of last
-/// month is posted (`runMonthlyDepreciation`: a locked period is skipped, a
-/// failure is logged and never fails the tenant). The US tax reminders join
-/// here when the sales-tax area has ported the services they read.
+/// stored; then the US tax reminders go out ([`tax_reminders`]) and the
+/// depreciation of fixed assets due through the end of last month is posted
+/// (`runMonthlyDepreciation`: a locked period is skipped). A failure of
+/// either is logged and never fails the tenant.
 pub(crate) async fn sweep_tenant(
-    db: &PgPool,
+    tenant: &Tenant,
     books: &BooksState,
     now: time::OffsetDateTime,
 ) -> Result<TenantSweep, sqlx::Error> {
+    let db = &tenant.db;
     let mut result = TenantSweep::default();
     let at = weldsuite_events::iso_timestamp(now);
     let overdue: Vec<String> = sqlx::query_scalar(
@@ -205,6 +212,11 @@ pub(crate) async fn sweep_tenant(
         }
     }
 
+    if let Some(reminders) = tax_reminders(tenant, books, now).await {
+        result.reminders_sent = reminders.sent;
+        result.reminders_failed = reminders.failed;
+    }
+
     // Depreciation due through the end of last month (UTC).
     let today: String = at.chars().take(10).collect();
     let through = weldsuite_books_reports::last_completed_month_end(&today);
@@ -226,6 +238,62 @@ pub(crate) async fn sweep_tenant(
         Err(error) => tracing::error!(%error, "books-sweep: depreciation failed"),
     }
     Ok(result)
+}
+
+/// `runTaxReminders` for one workspace of the daily sweep
+/// (`cron/tax-reminders.ts`): sales tax returns, calendar deadlines,
+/// expiring certificates and (on Mondays) newly reached nexus of its US
+/// entities, once each, to its owners and admins in the app. The "already
+/// reminded" markers live in the cache with their TTL
+/// (`books:reminder:<workspaces.id>:<marker>`, KV on Global); without a cache
+/// nothing would keep a reminder from repeating daily, so none is sent.
+async fn tax_reminders(
+    tenant: &Tenant,
+    books: &BooksState,
+    now: time::OffsetDateTime,
+) -> Option<weldsuite_books_sales_tax::reminders::TaxReminderResult> {
+    use weldsuite_books_sales_tax::reminders::{
+        CacheMarkers, InAppNotifier, TaxReminderOptions, run_tax_reminders,
+    };
+    let Some(cache) = books.cache.clone() else {
+        tracing::warn!(
+            workspace = %tenant.workspace_id,
+            "books-sweep: no cache, tax reminders not sent"
+        );
+        return None;
+    };
+    let markers = CacheMarkers::new(cache, tenant.workspace_id.clone());
+    // The realtime hub knows the workspace by its organization id, as books-api's.
+    let hub = tenant
+        .clerk_org_id
+        .clone()
+        .unwrap_or_else(|| tenant.workspace_id.clone());
+    let notifier = InAppNotifier::new(tenant.db.clone(), books.realtime.clone(), hub);
+    let options = TaxReminderOptions {
+        notifier: &notifier,
+        markers: &markers,
+        now,
+        recipients: None,
+        force_nexus: false,
+    };
+    match run_tax_reminders(&tenant.db, &options).await {
+        Ok(result) => {
+            if result.sent > 0 || result.failed > 0 {
+                tracing::info!(
+                    workspace = %tenant.workspace_id,
+                    sent = result.sent,
+                    skipped = result.skipped,
+                    failed = result.failed,
+                    "books-sweep: tax reminders"
+                );
+            }
+            Some(result)
+        }
+        Err(error) => {
+            tracing::error!(workspace = %tenant.workspace_id, %error, "books-sweep: tax reminders failed");
+            None
+        }
+    }
 }
 
 /// books-api's routes outside the session (`/public/w9`,
