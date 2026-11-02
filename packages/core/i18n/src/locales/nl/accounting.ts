@@ -2502,6 +2502,8 @@ export const accounting = {
       descriptionPlaceholder: 'Postomschrijving',
       account: 'Rekening',
       selectAccount: 'Selecteer rekening',
+      searchAccount: 'Zoek op nummer of naam',
+      noAccountFound: 'Geen rekening gevonden',
       linePlaceholder: 'Regelomschrijving',
       debit: 'Debet',
       credit: 'Credit',
@@ -2534,6 +2536,7 @@ export const accounting = {
       colDescription: 'Omschrijving',
       colDebit: 'Debet',
       colCredit: 'Credit',
+      colStatus: 'Status',
       noEntries: 'Geen journaalposten gevonden',
     },
 

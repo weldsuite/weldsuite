@@ -4,7 +4,14 @@ import { TextAlignStart } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import { RowAmount, RowDate, RowNumberChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
+import {
+  RowAmount,
+  RowDate,
+  RowNumberChip,
+  RowText,
+  RowTitle,
+  StatusChip,
+} from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { toCalendarDate } from '@/lib/weldbooks/format';
@@ -15,6 +22,7 @@ interface JournalEntryRow {
   entryNumber: string | null;
   reference: string | null;
   description: string | null;
+  status: string;
   totalDebit: number | null;
   totalCredit: number | null;
 }
@@ -66,6 +74,7 @@ export default function JournalEntriesPage() {
   useObjectPanelUrlSync('/weldbooks/journal');
   const { t } = useI18n();
   const tjp = t.accounting.journalPage;
+  const statusLabels = t.accounting.statusLabels.journalEntry as Record<string, string>;
   const { formatMoney: fmt, formatDate, formatMonth } = useWeldbooksFormat();
 
   const entries = (data?.data ?? []) as unknown as JournalEntryRow[];
@@ -105,6 +114,12 @@ export default function JournalEntriesPage() {
       header: tjp.colCredit,
       width: 'w-[130px]',
       render: (e) => <RowAmount>{fmt(e.totalCredit)}</RowAmount>,
+    },
+    {
+      id: 'status',
+      header: tjp.colStatus,
+      width: 'w-[110px]',
+      render: (e) => <StatusChip status={e.status}>{statusLabels[e.status] ?? e.status}</StatusChip>,
     },
   ];
 
