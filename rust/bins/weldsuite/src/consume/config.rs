@@ -54,6 +54,9 @@ pub(crate) struct MailInboundConfig {
     pub(crate) stream: String,
     pub(crate) subject: String,
     pub(crate) dead_letter_stream: String,
+    /// `REACH_INBOUND_DOMAIN`: WeldReach's reply domain, whose
+    /// `reply+<token>@` recipients go to WeldReach (when it is served).
+    pub(crate) reach_domain: Option<String>,
 }
 
 impl MailInboundConfig {
@@ -95,6 +98,7 @@ impl MailInboundConfig {
                 .unwrap_or_else(|| weldsuite_mail_inbound::consumer::DEFAULT_SUBJECT.to_owned()),
             dead_letter_stream: lookup("NATS_MAIL_INBOUND_DLQ_STREAM")
                 .unwrap_or_else(|| "MAIL_INBOUND_DLQ".to_owned()),
+            reach_domain: lookup("REACH_INBOUND_DOMAIN").filter(|d| !d.trim().is_empty()),
             mail,
         })
     }

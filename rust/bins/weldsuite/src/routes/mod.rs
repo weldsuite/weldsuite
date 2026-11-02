@@ -1171,17 +1171,37 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
                 weldsuite_mail::internal_outbound_router(mail_state(state)),
             )
             // Haraka's `RCPT TO` check (MAIL-010): the master registry,
-            // behind `MAIL_INBOUND_SECRET`.
+            // and WeldReach's reply addresses, behind `MAIL_INBOUND_SECRET`.
             .nest(
                 "/internal/mail-inbound",
-                weldsuite_mail_inbound::rcpt::router(
+                weldsuite_mail_inbound::rcpt::router_with(
                     state.workspaces.master().clone(),
                     state.mail_inbound_secret.as_deref().map(str::to_owned),
+                    reach_recipients(state),
                 ),
             )
     } else {
         router
     }
+}
+
+/// WeldReach's `reply+<token>@REACH_INBOUND_DOMAIN` for the RCPT check:
+/// accepted while master `reach_routes` has an active route for the token,
+/// so Haraka takes the replies `weldsuite consume` hands to WeldReach.
+fn reach_recipients(state: &AppState) -> Option<weldsuite_mail_inbound::rcpt::ExtraRecipients> {
+    let domain = std::env::var("REACH_INBOUND_DOMAIN")
+        .ok()
+        .filter(|d| !d.trim().is_empty() && mounts("reach"))?;
+    let master = state.workspaces.master().clone();
+    Some(Arc::new(move |address: String| {
+        let master = master.clone();
+        let domain = domain.clone();
+        Box::pin(async move {
+            weldsuite_reach::inbound::accepts_recipient(&master, &domain, &address)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    }))
 }
 
 fn public_core(state: &AppState) -> Router<AppState> {

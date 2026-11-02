@@ -208,9 +208,51 @@ fn mail_inbound_handler(
             "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
         );
     }
-    Ok(Arc::new(
-        weldsuite_mail_inbound::MailInboundSubscriber::new(ctx, spool),
-    ))
+    let reach = reach_inbound(inbound, workspaces, &ctx);
+    let mail: Arc<dyn BatchHandler> = Arc::new(weldsuite_mail_inbound::MailInboundSubscriber::new(
+        ctx,
+        Arc::clone(&spool),
+    ));
+    Ok(match reach {
+        Some(reach) => {
+            Arc::new(weldsuite_reach::inbound::ReachInboundRouter { reach, mail, spool })
+        }
+        None => mail,
+    })
+}
+
+/// WeldReach's reply path on `mail.inbound`: `reply+<token>@REACH_INBOUND_DOMAIN`
+/// goes to WeldReach, when the module is served and the domain set.
+fn reach_inbound(
+    inbound: &MailInboundConfig,
+    workspaces: &Arc<Workspaces>,
+    ctx: &weldsuite_mail_inbound::InboundContext,
+) -> Option<weldsuite_reach::inbound::ReachInbound> {
+    let served = weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "reach" && m.rust);
+    let domain = inbound.reach_domain.clone().filter(|_| served)?;
+    tracing::info!(
+        domain,
+        "mail-inbound: WeldReach replies are routed to WeldReach"
+    );
+    let tenants = Arc::clone(workspaces);
+    Some(weldsuite_reach::inbound::ReachInbound {
+        master: workspaces.master().clone(),
+        tenants: Arc::new(move |reference: String| {
+            let tenants = Arc::clone(&tenants);
+            Box::pin(async move {
+                tenants
+                    .tenant(&reference)
+                    .await
+                    .map(|tenant| tenant.db)
+                    .map_err(|error| error.to_string())
+            })
+        }),
+        storage: ctx.storage.clone(),
+        events: ctx.events.clone(),
+        inbound_domain: domain,
+    })
 }
 
 /// What the probes look at.
