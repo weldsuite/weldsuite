@@ -66,8 +66,27 @@ browser ──/api/docs/*, /api/sheets/*──▶ weldsuite serve (Rust: modules
   two socket paths outside the session pipeline (the ticket is the
   credential), and answers `POST /internal/collab/events`.
 
-Without `COLLAB_ROOMS_URLS` the room routes answer 503 and the platform
-hides WeldDocs and WeldSheets' live editing (`unavailableFeatures`:
-`collab-rooms`), as Rust serves the records but nothing can open them.
+Without `COLLAB_ROOMS_URLS` (the chart's `collabRooms.enabled: false`)
+every route that needs a room or an engine (create, session, live
+snapshot, version save and restore) answers 503 `Live editing is not
+configured`; the records can still be listed, renamed, moved and trashed.
+
+Tests: `apps/tools/collab-rooms/test` (two editors on the engines' own
+`CollabClient`, a second service catching up from the op log, the
+checkpoint); `apps/tools/collab-rooms/scripts/e2e.ts` (the Rust server,
+this service and an S3 stand-in on real databases, or `--pglite`); the
+kind smoke test opens a room socket through the server.
+
+## Status
+
+- WeldDocs: ported (`modules/docs`, suite `docs`).
+- WeldSheets: the service hosts `SheetRoom` and the engine functions its
+  routes need (`apps/workers/sheets-api/src/engine-ops.ts`: a new
+  workbook, imports, legacy conversions, version exports), and the
+  response schemas are registered; `modules/sheets` (the REST routes) is
+  not written yet. Connected tables: their listing code
+  (`services/data-sources`) runs in `SheetRoom` for scheduled refreshes
+  already; the routes' refresh can call the same code as an engine
+  function with the workspace's database rather than porting it to Rust.
 
 Global is untouched: the workers keep their Durable Objects.
