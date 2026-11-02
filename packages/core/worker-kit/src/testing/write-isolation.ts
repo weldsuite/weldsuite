@@ -37,7 +37,7 @@ function r2Object(entry: ScratchObject) {
     httpMetadata: entry.httpMetadata,
     customMetadata: entry.customMetadata,
     get body() {
-      return new Response(entry.bytes).body;
+      return new Response(entry.bytes as BodyInit).body;
     },
     arrayBuffer: async () => entry.bytes.slice().buffer,
     text: async () => new TextDecoder().decode(entry.bytes),

@@ -77,7 +77,7 @@ impl ApiSession {
 
 /// Scopes a key holds only when granted by name: neither `*` nor
 /// `<namespace>:*` covers them (ADR API-011).
-pub const NAMED_ONLY_SCOPES: [&str; 2] = ["mail_messages:send", "reach_inbox:reply"];
+pub(crate) const NAMED_ONLY_SCOPES: [&str; 2] = ["mail_messages:send", "reach_inbox:reply"];
 
 /// `hasScope(scopes, required)`: the scope itself, `*` (except a named-only
 /// scope) or `<namespace>:*`.

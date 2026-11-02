@@ -19,7 +19,9 @@ use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_apps_domain::adopt::sweep_adopt_system_installs;
 use weldsuite_apps_domain::schemas;
-use weldsuite_apps_domain::scopes::{is_allowed_dev_session_url, is_reserved, random_hex, sha256_hex};
+use weldsuite_apps_domain::scopes::{
+    is_allowed_dev_session_url, is_reserved, random_hex, sha256_hex,
+};
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::ApiError;
@@ -66,8 +68,15 @@ fn require_developer_key(key: &Key) -> Result<(), ApiError> {
 }
 
 /// The request's env (conformance builds give the test's), else the state's.
-fn env_value(state: &ExternalApiState, request_env: Option<&weldsuite_kit::RequestEnv>, key: &str) -> Option<String> {
-    request_env.map_or_else(|| state.env.get(key).cloned(), |env| env.0.get(key).cloned())
+fn env_value(
+    state: &ExternalApiState,
+    request_env: Option<&weldsuite_kit::RequestEnv>,
+    key: &str,
+) -> Option<String> {
+    request_env.map_or_else(
+        || state.env.get(key).cloned(),
+        |env| env.0.get(key).cloned(),
+    )
 }
 
 /// `isOfficialPublisher`: the workspace is in `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS`.
@@ -95,7 +104,10 @@ where
 {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut http::request::Parts, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
         let shared = <ExternalApiState as axum::extract::FromRef<S>>::from_ref(state);
         let key = Key::from_request_parts(parts, state).await?;
         Ok(Self {
@@ -118,7 +130,12 @@ impl Developer {
 
     fn official(&self, state: &ExternalApiState) -> bool {
         is_official_publisher(
-            env_value(state, self.env.as_ref(), "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS").as_deref(),
+            env_value(
+                state,
+                self.env.as_ref(),
+                "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS",
+            )
+            .as_deref(),
             &self.key.session.workspace_id,
         )
     }
@@ -166,7 +183,12 @@ fn text<'a>(row: &'a Value, key: &str) -> &'a str {
 fn string_list(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -189,24 +211,27 @@ pub(crate) async fn agent_tools(caller: Developer) -> Response {
     let app_id = (key.session.key_type == KeyType::App)
         .then(|| key.session.app_id.clone())
         .flatten();
-    let rows: Result<Vec<(String, String, Option<Value>, Option<Value>)>, sqlx::Error> = sqlx::query_as(
-        "select a.code, a.name, a.manifest, i.granted_scopes
+    let rows: Result<Vec<(String, String, Option<Value>, Option<Value>)>, sqlx::Error> =
+        sqlx::query_as(
+            "select a.code, a.name, a.manifest, i.granted_scopes
            from user_app_installs i
            join user_apps a on a.id = i.app_id
           where i.workspace_id = $1 and i.status = 'active' and a.is_active = true
             and a.deleted_at is null and ($2::text is null or i.app_id = $2)",
-    )
-    .bind(&key.session.workspace_id)
-    .bind(app_id)
-    .fetch_all(&master)
-    .await;
+        )
+        .bind(&key.session.workspace_id)
+        .bind(app_id)
+        .fetch_all(&master)
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return db_error(&error).into_response(),
     };
     let mut tools = Vec::new();
     for (code, name, manifest, granted) in rows {
-        let granted = granted.filter(|value| !value.is_null()).unwrap_or_else(|| json!([]));
+        let granted = granted
+            .filter(|value| !value.is_null())
+            .unwrap_or_else(|| json!([]));
         let Some(Value::Array(items)) = manifest.as_ref().and_then(|m| m.get("agentTools")) else {
             continue;
         };
@@ -497,7 +522,9 @@ async fn form_data(request: Request) -> Option<Vec<(String, FormValue)>> {
         .map(|value| value.trim().to_ascii_lowercase())
         .unwrap_or_default();
     if media == "application/x-www-form-urlencoded" {
-        let body = axum::body::to_bytes(request.into_body(), MAX_BUNDLE_BYTES * 2).await.ok()?;
+        let body = axum::body::to_bytes(request.into_body(), MAX_BUNDLE_BYTES * 2)
+            .await
+            .ok()?;
         return Some(
             form_urlencoded::parse(&body)
                 .map(|(key, value)| (key.into_owned(), FormValue::Text(value.into_owned())))
@@ -529,14 +556,20 @@ async fn form_data(request: Request) -> Option<Vec<(String, FormValue)>> {
 fn sanitize_bundle_path(raw: &str) -> Option<String> {
     let replaced = raw.replace('\\', "/");
     // `^\.?\/+`: an optional `.` and at least one `/`; `.a` stays as it is.
-    let path = match replaced.strip_prefix('.').filter(|rest| rest.starts_with('/')) {
+    let path = match replaced
+        .strip_prefix('.')
+        .filter(|rest| rest.starts_with('/'))
+    {
         Some(rest) => rest.trim_start_matches('/'),
         None => replaced.trim_start_matches('/'),
     };
     if path.is_empty() || path.encode_utf16().count() > 255 {
         return None;
     }
-    if path.split('/').any(|segment| segment.is_empty() || segment == "." || segment == "..") {
+    if path
+        .split('/')
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
         return None;
     }
     Some(path.to_owned())
@@ -544,7 +577,11 @@ fn sanitize_bundle_path(raw: &str) -> Option<String> {
 
 /// `CONTENT_TYPES` by extension, `application/octet-stream` otherwise.
 fn content_type_for(path: &str) -> &'static str {
-    let extension = path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let extension = path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     match extension.as_str() {
         "html" | "htm" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
@@ -599,8 +636,8 @@ async fn parse_upload(request: Request, app_code: &str) -> Result<Upload, ApiErr
             ));
         }
     };
-    let json: Value =
-        serde_json::from_str(&raw_manifest).map_err(|_| bad_request("manifest must be valid JSON"))?;
+    let json: Value = serde_json::from_str(&raw_manifest)
+        .map_err(|_| bad_request("manifest must be valid JSON"))?;
     let manifest = schemas::manifest(&json)
         .map_err(|details| bad_request("Invalid manifest").with_details(details))?;
     let code = text(&manifest, "code");
@@ -643,7 +680,11 @@ async fn parse_upload(request: Request, app_code: &str) -> Result<Upload, ApiErr
 
 /// `POST /:id/versions`: upload a bundle. Private, unapproved and official
 /// apps go live at once; an approved public app's version waits for review.
-pub(crate) async fn upload_version(developer: Developer, Path(id): Path<String>, request: Request) -> Response {
+pub(crate) async fn upload_version(
+    developer: Developer,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
     respond(upload(developer, id, request).await)
 }
 
@@ -657,13 +698,14 @@ async fn upload(developer: Developer, id: String, request: Request) -> Result<Re
     let upload = parse_upload(request, text(&app, "code")).await?;
     let version = text(&upload.manifest, "version").to_owned();
     let master = &developer.master;
-    let dupe: Option<String> =
-        sqlx::query_scalar("select id from user_app_versions where app_id = $1 and version = $2 limit 1")
-            .bind(&id)
-            .bind(&version)
-            .fetch_optional(master)
-            .await
-            .map_err(|error| db_error(&error))?;
+    let dupe: Option<String> = sqlx::query_scalar(
+        "select id from user_app_versions where app_id = $1 and version = $2 limit 1",
+    )
+    .bind(&id)
+    .bind(&version)
+    .fetch_optional(master)
+    .await
+    .map_err(|error| db_error(&error))?;
     if dupe.is_some() {
         return Err(conflict(format!(
             "Version {version} already exists for this app"
@@ -725,7 +767,9 @@ async fn upload(developer: Developer, id: String, request: Request) -> Result<Re
     .map_err(|error| db_error(&error))?;
     let row = row.ok_or_else(|| internal_with("Failed to create version"))?;
     if publish_now {
-        publish_live(master, &app, manifest, &version_id, &now).await.map_err(|error| db_error(&error))?;
+        publish_live(master, &app, manifest, &version_id, &now)
+            .await
+            .map_err(|error| db_error(&error))?;
     } else {
         sqlx::query("update user_apps set review_status = 'submitted', updated_at = $2::timestamptz where id = $1")
             .bind(&id)
@@ -805,7 +849,10 @@ async fn publish_live(
     .await?;
     for (install_id, granted) in installs {
         let granted = string_list(granted.as_ref());
-        let pending: Vec<&String> = requested.iter().filter(|scope| !granted.contains(scope)).collect();
+        let pending: Vec<&String> = requested
+            .iter()
+            .filter(|scope| !granted.contains(scope))
+            .collect();
         if !pending.is_empty() {
             sqlx::query(
                 "update user_app_installs set pending_scopes = $2, updated_at = $3::timestamptz where id = $1",
@@ -981,13 +1028,20 @@ pub(crate) async fn delete_dev_session(
         async {
             developer_gate(&developer)?;
             let query = query_values(raw.as_deref());
-            let user_id = developer.key.session.user_id.clone().or_else(|| {
-                query.get("userId").and_then(|value| match value {
-                    Value::String(text) => Some(text.clone()),
-                    Value::Array(items) => items.first().and_then(Value::as_str).map(str::to_owned),
-                    _ => None,
+            // `session.userId ?? c.req.query('userId') ?? null`, then `if (!userId)`.
+            let user_id = developer
+                .key
+                .session
+                .user_id
+                .clone()
+                .or_else(|| {
+                    query.get("userId").and_then(|value| match value {
+                        Value::String(text) => Some(text.clone()),
+                        Value::Array(items) => items.first().and_then(Value::as_str).map(str::to_owned),
+                        _ => None,
+                    })
                 })
-            });
+                .filter(|user| !user.is_empty());
             let app = developer.owned_app(&id).await?;
             let Some(user_id) = user_id else {
                 return Err(bad_request(
@@ -1090,8 +1144,14 @@ mod tests {
 
     #[test]
     fn bundle_paths_are_sanitized() {
-        assert_eq!(sanitize_bundle_path("index.html").as_deref(), Some("index.html"));
-        assert_eq!(sanitize_bundle_path("./assets/a.js").as_deref(), Some("assets/a.js"));
+        assert_eq!(
+            sanitize_bundle_path("index.html").as_deref(),
+            Some("index.html")
+        );
+        assert_eq!(
+            sanitize_bundle_path("./assets/a.js").as_deref(),
+            Some("assets/a.js")
+        );
         assert_eq!(sanitize_bundle_path("/a/b.css").as_deref(), Some("a/b.css"));
         assert_eq!(sanitize_bundle_path("a\\b.css").as_deref(), Some("a/b.css"));
         assert_eq!(sanitize_bundle_path("../x"), None);

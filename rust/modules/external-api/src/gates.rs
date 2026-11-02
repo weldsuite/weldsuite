@@ -44,7 +44,10 @@ pub fn module_for_external_path(path: &str) -> &'static ApiModule {
 
 /// `missingLicensedApp`: the module's own app when none of its apps is
 /// licensed; `None` when the module is never gated or one is.
-pub fn missing_licensed_app<'a>(module: &'a ApiModule, licensed: &[String]) -> Option<&'a str> {
+pub(crate) fn missing_licensed_app<'a>(
+    module: &'a ApiModule,
+    licensed: &[String],
+) -> Option<&'a str> {
     let apps = module.apps.as_ref()?;
     if apps.iter().any(|app| licensed.contains(app)) {
         return None;
@@ -54,7 +57,7 @@ pub fn missing_licensed_app<'a>(module: &'a ApiModule, licensed: &[String]) -> O
 
 /// `isReadOnlyRequestAllowed` of external-api: reads always, a write only on
 /// `/v1/search`.
-pub fn is_read_only_request_allowed(method: &Method, path: &str) -> bool {
+pub(crate) fn is_read_only_request_allowed(method: &Method, path: &str) -> bool {
     if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return true;
     }
@@ -99,13 +102,13 @@ pub(crate) fn full_path(request: &Request) -> String {
 
 /// `/v1/oauth` is mounted before authentication: the client credentials in
 /// the body are its authentication.
-pub fn is_before_authentication(path: &str) -> bool {
+pub(crate) fn is_before_authentication(path: &str) -> bool {
     path.starts_with("/v1/oauth/")
 }
 
 /// Requests per minute by tier (`RATE_LIMITS`, the `[[ratelimits]]` of
 /// `wrangler.toml`); an unknown tier is `free`'s.
-pub fn tier_limit(tier: &str) -> i64 {
+pub(crate) fn tier_limit(tier: &str) -> i64 {
     match tier {
         "business" => 300,
         "scale" => 1_000,

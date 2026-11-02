@@ -35,6 +35,18 @@ interface VolatileRoute {
 const ROUTES: VolatileRoute[] = [
   // The public API's client_credentials grant: a fresh `wsat_` token per run.
   { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
+  // The CLI's OAuth client: a fresh client id (new client) and secret per run.
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/oauth-client',
+    fields: [{ path: 'data.clientId', pattern: /wac_[0-9a-f]{24}/g, replacement: 'wac_<volatile>' }, { path: 'data.clientSecret' }],
+  },
+  // A version's bundle lives under its new id (`user-apps/<app>/<version>`).
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/versions',
+    fields: [{ path: 'data.bundleKey', pattern: /uav_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // The public API's database check answers with the time it ran.
   { method: 'GET', route: '/v1/health/db', fields: [{ path: 'data.timestamp' }] },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its

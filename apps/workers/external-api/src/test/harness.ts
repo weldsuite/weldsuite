@@ -116,7 +116,7 @@ function throwingDb(): Database {
  * a request to any other group still runs on TypeScript alone, until its group
  * is ported. `''` is `GET /v1` itself, `health` is `/v1/health/db`.
  */
-export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set(['', 'health', 'oauth', 'app-storage']);
+export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set(['', 'health', 'oauth', 'app-storage', 'user-apps', 'settings']);
 
 /** The `/v1/<object>` segment a test path addresses, or null outside `/v1`. */
 function v1Segment(input: string): string | null {
@@ -198,11 +198,9 @@ export function createExternalTestApp(options: CreateExternalTestAppOptions = {}
   } as unknown as ExecutionContext;
 
   // Conformance compares only the groups Rust serves; coverage lists them all.
-  const inventory = target
-    ? recordInventory(target, app.routes.filter((route) => servedByRust(route.path)))
-    : recorder
-      ? recordInventory(recorder, app.routes)
-      : Promise.resolve();
+  let inventory: Promise<void> = Promise.resolve();
+  if (target) inventory = recordInventory(target, app.routes.filter((route) => servedByRust(route.path)));
+  else if (recorder) inventory = recordInventory(recorder, app.routes);
   const runHere = (input: string, init?: RequestInit) =>
     Promise.resolve(
       reporting

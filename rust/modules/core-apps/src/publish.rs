@@ -16,9 +16,7 @@ use weldsuite_ports::DynCache;
 
 use crate::access::now;
 use crate::http_transport::{HttpTransport, OutboundRequest};
-use crate::scopes::{
-    diff_scopes, is_safe_lifecycle_webhook_url, random_hex, sha256_hex,
-};
+use crate::scopes::{diff_scopes, is_safe_lifecycle_webhook_url, random_hex, sha256_hex};
 
 /// A row from `to_jsonb`, as Drizzle returns it.
 pub(crate) fn row(value: Value) -> Value {

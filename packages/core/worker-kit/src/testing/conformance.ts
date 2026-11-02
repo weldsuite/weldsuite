@@ -1239,10 +1239,13 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
         ...init,
         method,
         headers: rustHeaders,
-        body,
+        // Bytes are a valid body under every lib (DOM's or Workers'); the cast
+        // keeps a worker whose tsconfig mixes both (external-api) compiling.
+        body: body as BodyInit | undefined,
         redirect: 'manual',
       }).then(capture),
-    (db, runEnv) => request.runTypeScript(db, tsInput, { ...init, method, headers, body }, runEnv).then(capture),
+    (db, runEnv) =>
+      request.runTypeScript(db, tsInput, { ...init, method, headers, body: body as BodyInit | undefined }, runEnv).then(capture),
   );
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
@@ -1285,5 +1288,5 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
   }
 
   const nullBody = [101, 204, 205, 304].includes(rust.status);
-  return new Response(nullBody ? null : rust.bytes, { status: rust.status, headers: rust.headers });
+  return new Response(nullBody ? null : (rust.bytes as BodyInit), { status: rust.status, headers: rust.headers });
 }

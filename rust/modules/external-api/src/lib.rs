@@ -19,6 +19,13 @@
 //! TypeScript worker's; its tests run against this crate in the
 //! `external-api` conformance suite (`rust/conformance/suites.json`).
 
+/// `requireScope(scope)` as a route layer.
+macro_rules! scope {
+    ($scope:literal) => {
+        axum::middleware::from_fn_with_state($scope, crate::session::require_scope)
+    };
+}
+
 mod app_storage;
 mod auth;
 mod gates;
@@ -26,14 +33,15 @@ mod index;
 mod list;
 mod oauth;
 mod session;
+mod settings;
 mod user_apps;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::http::StatusCode;
 use axum::extract::DefaultBodyLimit;
+use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use weldsuite_db::{PgPool, Workspaces};
 use weldsuite_events::EntityEventPublisher;
@@ -115,7 +123,7 @@ where
         // Before authentication: the client credentials are the auth.
         .route("/oauth/token", post(oauth::token));
     let router = if mounts("core") {
-        weldapps(router)
+        core(weldapps(router))
     } else {
         router
     };
@@ -168,6 +176,23 @@ fn weldapps(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
             get(app_storage::get_kv)
                 .put(app_storage::put_kv)
                 .delete(app_storage::delete_kv),
+        )
+}
+
+/// The core platform's own objects: `/v1/settings`.
+fn core(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
+    router
+        .route(
+            "/settings/workspace",
+            get(settings::workspace).route_layer(scope!("settings:read")),
+        )
+        .route(
+            "/settings/members",
+            get(settings::members).route_layer(scope!("members:read")),
+        )
+        .route(
+            "/settings/members/{id}",
+            get(settings::member).route_layer(scope!("members:read")),
         )
 }
 

@@ -4,6 +4,12 @@
  * conformance-schemas.ts.
  */
 import { z } from 'zod';
+import {
+  userAppOauthClientSchema,
+  userAppOauthClientSecretSchema,
+  userAppSchema,
+  userAppVersionSchema,
+} from '@weldsuite/app-api-client/schemas/user-apps';
 import type { RouteSchema } from './conformance-schemas';
 
 const timestamp = z.string().datetime();
@@ -33,6 +39,20 @@ const oauthTokenSchema = z.object({
 
 const workspaceRefSchema = z.object({ id: z.string(), tier: z.string() });
 
+/** An installed app's agent tool, with the install's scopes. */
+const agentToolEntrySchema = z.object({
+  appCode: z.string(),
+  appName: z.string(),
+  name: z.string(),
+  description: z.string(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
+  action: z.object({ type: z.string() }).passthrough(),
+  grantedScopes: z.array(z.string()),
+});
+
+/** A developer's preview session (`.returning({ url, expiresAt })`). */
+const devSessionSchema = z.object({ url: z.string(), expiresAt: timestamp });
+
 export const EXTERNAL_ROUTES: RouteSchema[] = [
   {
     method: 'GET',
@@ -53,4 +73,15 @@ export const EXTERNAL_ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/v1/app-storage/collections/:collection/records/:id', envelope: 'single', data: appRecordSchema },
   { method: 'GET', route: '/v1/app-storage/kv/:key', envelope: 'single', data: appKvSchema },
   { method: 'PUT', route: '/v1/app-storage/kv/:key', envelope: 'single', data: appKvSchema },
+  { method: 'GET', route: '/v1/user-apps/agent-tools', envelope: 'array', data: agentToolEntrySchema },
+  { method: 'GET', route: '/v1/user-apps', envelope: 'list', data: userAppSchema },
+  { method: 'POST', route: '/v1/user-apps', envelope: 'single', data: userAppSchema },
+  { method: 'GET', route: '/v1/user-apps/:id', envelope: 'single', data: userAppSchema },
+  { method: 'PATCH', route: '/v1/user-apps/:id', envelope: 'single', data: userAppSchema },
+  { method: 'GET', route: '/v1/user-apps/:id/versions', envelope: 'list', data: userAppVersionSchema },
+  { method: 'POST', route: '/v1/user-apps/:id/versions', envelope: 'single', data: userAppVersionSchema },
+  { method: 'POST', route: '/v1/user-apps/:id/submit', envelope: 'single', data: userAppSchema },
+  { method: 'PUT', route: '/v1/user-apps/:id/dev-session', envelope: 'single', data: devSessionSchema },
+  { method: 'GET', route: '/v1/user-apps/:id/oauth-client', envelope: 'single', data: userAppOauthClientSchema },
+  { method: 'POST', route: '/v1/user-apps/:id/oauth-client', envelope: 'single', data: userAppOauthClientSecretSchema },
 ];
