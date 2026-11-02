@@ -104,6 +104,7 @@ async fn inbound_ids(tenant: &PgPool) -> Vec<String> {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)] // one spool's whole story
 async fn replies_are_taken_out_of_mail_inbound() {
     let (Some(master), Some(tenant)) = (
         pool("WELDSUITE_TEST_MASTER_URL").await,
@@ -178,7 +179,7 @@ async fn replies_are_taken_out_of_mail_inbound() {
     let answer = router.handle(&[delivery("inbound/a.eml", &[&reply])]).await;
     assert_eq!(answer, [Disposition::Ack]);
     assert_eq!(inbound_ids(&tenant).await, ["reply-a@acme.nl"]);
-    assert!(spool.keys().is_empty());
+    assert_eq!(spool.keys().len(), 0);
     assert!(mail.0.lock().expect("lock").is_empty());
     assert_eq!(storage.keys().len(), 1);
 
