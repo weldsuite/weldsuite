@@ -215,6 +215,7 @@ pub(crate) async fn balance(master: &PgPool, workspace_id: &str) -> Result<i64, 
 }
 
 /// `creditsForMinutes(minutes, rate)`.
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // NaN is not positive, as in `!(minutes > 0)`
 fn credits_for_minutes(minutes: f64, rate: f64) -> f64 {
     if !(minutes > 0.0) || !(rate > 0.0) {
         return 0.0;

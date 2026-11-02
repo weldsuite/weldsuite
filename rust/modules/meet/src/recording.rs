@@ -102,6 +102,7 @@ where
 /// A route's outcome: an answer, or a failure that becomes the route's 500.
 pub(crate) type Outcome = Result<Response, String>;
 
+#[allow(clippy::needless_pass_by_value)] // `map_err(db_error)`
 fn db_error(error: sqlx::Error) -> String {
     error.to_string()
 }
@@ -495,9 +496,9 @@ async fn try_reconcile(
         .await
         .map_err(|e| e.to_string())?;
     }
-    Ok(lifecycle::session_row(&caller.db, id)
+    lifecycle::session_row(&caller.db, id)
         .await
-        .map_err(db_error)?)
+        .map_err(db_error)
 }
 
 async fn info(State(state): State<MeetState>, caller: Caller, Path(id): Path<String>) -> Response {

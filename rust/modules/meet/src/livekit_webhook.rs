@@ -36,7 +36,7 @@ use serde_json::{Value, json};
 use weldsuite_video_rooms::verify_livekit_webhook;
 
 use crate::js::{iso_of_ms, text};
-use crate::webhook::{self, Joined, Left, Mapping};
+use crate::webhook::{self, Joined, LeftIds, Mapping};
 use crate::{MeetState, RequestParts};
 
 const DEDUPE_TTL_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -159,7 +159,7 @@ async fn handle(state: &MeetState, parts: &RequestParts, event: &Value) -> Resul
             webhook::participant_joined(state, parts, &mapping, &ids).await?;
         }
         "participant_left" if !identity.is_empty() => {
-            let ids = Left {
+            let ids = LeftIds {
                 cf_session_id: Some(identity.clone()),
                 custom_id: Some(custom_id(&identity)),
                 left_at: seconds_iso(event.get("createdAt")),

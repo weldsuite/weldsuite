@@ -405,11 +405,7 @@ pub(crate) fn write_mappings(
     let room = room.to_owned();
     state.events.tracker().spawn(async move {
         let live_key = format!("rtk-meeting:{room}");
-        let live_put = cache.put_boxed(
-            &live_key,
-            &live,
-            Some(std::time::Duration::from_secs(86_400)),
-        );
+        let live_put = cache.put_boxed(&live_key, &live, Some(std::time::Duration::from_hours(24)));
         let durable_key = format!("rtk-session:{room}");
         let durable_put = cache.put_boxed(
             &durable_key,
@@ -1057,7 +1053,7 @@ async fn remove_one(
     let index = participants
         .iter()
         .position(|p| !truthy(p.get("leftAt")) && matches(p))
-        .or_else(|| participants.iter().position(|p| matches(p)));
+        .or_else(|| participants.iter().position(&matches));
     let Some(index) = index else {
         return Ok(ApiError::not_found("Participant", Some(participant_id)).into_response());
     };

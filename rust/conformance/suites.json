@@ -2149,6 +2149,7 @@
         "src/routes/meetings/integration.test.ts",
         "src/routes/meetings/start-instant.integration.test.ts",
         "src/routes/meetings/cancel-delete.integration.test.ts",
+        "src/routes/meetings/invitation-mail.integration.test.ts",
         "src/routes/meeting-sessions/lifecycle.integration.test.ts",
         "src/routes/meeting-sessions/recording.integration.test.ts",
         "src/routes/meeting-sessions/crud.integration.test.ts"

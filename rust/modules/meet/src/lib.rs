@@ -16,6 +16,14 @@
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `meet`
 //! conformance suite (`rust/conformance/suites.json`).
+// Route handlers follow the worker's handlers step by step, row tuples are
+// sqlx's, names follow the worker's, and a PATCH field can be absent or null.
+#![allow(
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::similar_names,
+    clippy::option_option
+)]
 
 mod attendees;
 mod billing;

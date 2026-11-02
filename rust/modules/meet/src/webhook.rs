@@ -76,7 +76,7 @@ fn ok() -> Response {
 /// The public key, cached an hour (`cachedKey`): its SPKI DER and when it
 /// was fetched.
 static KEY: Mutex<Option<(Vec<u8>, Instant)>> = Mutex::new(None);
-const KEY_TTL: Duration = Duration::from_secs(60 * 60);
+const KEY_TTL: Duration = Duration::from_hours(1);
 const MIN_REFETCH: Duration = Duration::from_secs(60);
 
 /// `RtkWebhookKeyUnavailableError`.
@@ -420,7 +420,7 @@ async fn handle(
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             };
-            let ids = Left {
+            let ids = LeftIds {
                 cf_session_id: field("id"),
                 custom_id: field("customParticipantId"),
                 left_at: field("leftAt"),
@@ -509,7 +509,7 @@ pub(crate) async fn meeting_ended(
 
 /// `LeftParticipantIds`.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Left {
+pub(crate) struct LeftIds {
     pub(crate) cf_session_id: Option<String>,
     pub(crate) custom_id: Option<String>,
     pub(crate) left_at: Option<String>,
@@ -547,7 +547,7 @@ fn peer_ids(p: &Value) -> Vec<String> {
 }
 
 /// `withPeerIds(participant, peerIds)`.
-fn with_peer_ids(p: &Value, ids: Vec<String>) -> Value {
+fn with_peer_ids(p: &Value, ids: &[String]) -> Value {
     let mut next = p.as_object().cloned().unwrap_or_default();
     if ids.is_empty() {
         next.remove("peerIds");
@@ -558,7 +558,7 @@ fn with_peer_ids(p: &Value, ids: Vec<String>) -> Value {
 }
 
 /// `findLeavingParticipant(participants, ids)`.
-fn find_leaving(participants: &[Value], ids: &Left) -> Option<usize> {
+fn find_leaving(participants: &[Value], ids: &LeftIds) -> Option<usize> {
     let cf = non_empty(ids.cf_session_id.as_ref());
     let custom = non_empty(ids.custom_id.as_ref());
     let index = participants
@@ -586,7 +586,7 @@ fn find_leaving(participants: &[Value], ids: &Left) -> Option<usize> {
 /// `(participants, changed, markedLeft)`.
 pub(crate) fn apply_left(
     participants: &[Value],
-    ids: &Left,
+    ids: &LeftIds,
     left_at: &str,
 ) -> (Vec<Value>, bool, bool) {
     let mut next = participants.to_vec();
@@ -599,7 +599,13 @@ pub(crate) fn apply_left(
             if !known.iter().any(|id| id == peer) || !matches(p, cf, custom) {
                 continue;
             }
-            *p = with_peer_ids(p, known.into_iter().filter(|id| id != peer).collect());
+            *p = with_peer_ids(
+                p,
+                &known
+                    .into_iter()
+                    .filter(|id| id != peer)
+                    .collect::<Vec<_>>(),
+            );
             changed = true;
         }
     }
@@ -641,7 +647,7 @@ pub(crate) fn apply_joined(participants: &[Value], ids: &Joined) -> (Vec<Value>,
         }
         _ => known,
     };
-    let mut updated = with_peer_ids(entry, ids_after);
+    let mut updated = with_peer_ids(entry, &ids_after);
     if let Some(object) = updated.as_object_mut() {
         object.remove("leftAt");
     }
@@ -709,7 +715,7 @@ pub(crate) async fn participant_left(
     state: &MeetState,
     parts: &RequestParts,
     mapping: &Mapping,
-    ids: &Left,
+    ids: &LeftIds,
 ) -> Result<(), String> {
     let db = parts.tenant(state, &mapping.org_id).await?;
     if non_empty(ids.cf_session_id.as_ref()).is_none()
@@ -1298,28 +1304,25 @@ async fn backfill(State(state): State<MeetState>, request: axum::extract::Reques
             json!({ "error": "MEETING_RECORDING_BACKFILL binding is not configured" }),
         );
     }
-    let orgs: Vec<String> = match org {
-        Some(org) => vec![org],
-        None => {
-            let Some(master) = request_parts.master(&state) else {
-                return weldsuite_kit::ApiError::internal().into_response();
-            };
-            let rows: Result<Vec<Option<String>>, sqlx::Error> =
-                sqlx::query_scalar("select clerk_org_id from workspaces where is_active = true")
-                    .fetch_all(&master)
-                    .await;
-            match rows {
-                Ok(rows) => rows
-                    .into_iter()
-                    .flatten()
-                    .filter(|o| !o.is_empty())
-                    .collect(),
-                Err(error) => {
-                    tracing::error!(%error, "[RTK Webhook Backfill] workspace list failed");
-                    return weldsuite_kit::ApiError::internal().into_response();
-                }
-            }
-        }
+    let orgs: Vec<String> = if let Some(org) = org {
+        vec![org]
+    } else {
+        let Some(master) = request_parts.master(&state) else {
+            return weldsuite_kit::ApiError::internal().into_response();
+        };
+        let rows: Result<Vec<Option<String>>, sqlx::Error> =
+            sqlx::query_scalar("select clerk_org_id from workspaces where is_active = true")
+                .fetch_all(&master)
+                .await;
+        let Ok(rows) = rows.inspect_err(|error| {
+            tracing::error!(%error, "[RTK Webhook Backfill] workspace list failed");
+        }) else {
+            return weldsuite_kit::ApiError::internal().into_response();
+        };
+        rows.into_iter()
+            .flatten()
+            .filter(|o| !o.is_empty())
+            .collect()
     };
     let stamp = to_base36(now_ms());
     let mut results = Vec::new();
@@ -1394,10 +1397,10 @@ fn iso(ms: i64) -> String {
 mod tests {
     use super::*;
 
-    fn left(cf: &str) -> Left {
-        Left {
+    fn left(cf: &str) -> LeftIds {
+        LeftIds {
             cf_session_id: Some(cf.into()),
-            ..Left::default()
+            ..LeftIds::default()
         }
     }
 
@@ -1406,14 +1409,14 @@ mod tests {
         let participants = vec![json!({
             "userId": "u1", "cfSessionId": "cf1", "joinedAt": "2026-10-01T10:00:00.000Z", "peerIds": ["p1", "p2"],
         })];
-        let ids = Left {
+        let ids = LeftIds {
             peer_id: Some("p1".into()),
             ..left("cf1")
         };
         let (next, changed, marked) = apply_left(&participants, &ids, "2026-10-01T10:05:00.000Z");
         assert!(changed && !marked);
         assert_eq!(next[0]["peerIds"], json!(["p2"]));
-        let ids = Left {
+        let ids = LeftIds {
             peer_id: Some("p2".into()),
             ..left("cf1")
         };
@@ -1432,7 +1435,7 @@ mod tests {
         assert!(back[0].get("leftAt").is_none());
         assert_eq!(back[0]["peerIds"], json!(["p3"]));
         // A leave stamped before the participant joined is an earlier stint's.
-        let stale = Left {
+        let stale = LeftIds {
             left_at: Some("2026-10-01T09:00:00.000Z".into()),
             ..left("cf1")
         };

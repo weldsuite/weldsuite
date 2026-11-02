@@ -188,7 +188,7 @@ pub(crate) async fn with_organizer(
         text_of(a, "userId") == Some(organizer_id)
             || (!email.is_empty() && text_of(a, "email") == Some(email.as_str()))
     };
-    if attendees.iter().any(|a| is_organizer(a)) {
+    if attendees.iter().any(&is_organizer) {
         return Ok(attendees
             .into_iter()
             .map(|mut a| {
@@ -335,7 +335,10 @@ mod tests {
     use super::*;
 
     fn attendee(value: Value) -> Attendee {
-        value.as_object().cloned().expect("object")
+        match value {
+            Value::Object(object) => object,
+            other => panic!("not an object: {other}"),
+        }
     }
 
     #[test]
