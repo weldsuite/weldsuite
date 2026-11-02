@@ -146,7 +146,7 @@ export function TimeSlotList({
   const availableSlots = slots.filter((s) => s.available);
 
   return (
-    <div className="w-full md:w-[280px] shrink-0 pl-6 md:pl-5 pt-6 md:pt-[14px] pb-6 md:pb-5 overflow-hidden flex flex-col min-h-0">
+    <div className="w-full md:w-[200px] lg:w-[240px] xl:w-[280px] shrink-0 pl-6 md:pl-5 pt-6 md:pt-[14px] pb-6 md:pb-5 overflow-hidden flex flex-col min-h-0">
       {selectedDate ? (
         <>
           <div
