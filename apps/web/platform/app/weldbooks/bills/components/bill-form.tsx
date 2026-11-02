@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef, type FocusEvent } from 'react';
 import { Controller, useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -76,6 +76,16 @@ import {
 import { toTaxFormLine } from '@/lib/weldbooks/document-tax-form';
 
 export type { BillPayload };
+
+/**
+ * Line amount inputs keep a readable width (the table scrolls instead of
+ * squeezing them), drop the browser spinner and select their value on focus,
+ * so typing over the default 1 replaces it instead of making it 13.
+ */
+const LINE_NUMBER_INPUT =
+  'min-w-[5rem] text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+const LINE_SELECT_TRIGGER = 'w-full min-w-[10rem]';
+const selectOnFocus = (e: FocusEvent<HTMLInputElement>) => e.currentTarget.select();
 
 const addressSchema = z.object({
   line1: z.string().optional(),
@@ -513,6 +523,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                     <TableRow>
                       <TableCell>
                         <Input
+                          className="min-w-[12rem]"
                           placeholder={tb.description}
                           aria-label={tb.description}
                           {...form.register(`items.${index}.description`)}
@@ -528,6 +539,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           type="number"
                           step="0.01"
                           min="0"
+                          className={LINE_NUMBER_INPUT}
+                          onFocus={selectOnFocus}
                           aria-label={tb.qty}
                           {...form.register(`items.${index}.quantity`, { valueAsNumber: true })}
                         />
@@ -537,6 +550,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           type="number"
                           step="0.01"
                           min="0"
+                          className={LINE_NUMBER_INPUT}
+                          onFocus={selectOnFocus}
                           aria-label={tb.unitPrice}
                           {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
                         />
@@ -547,6 +562,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           step="0.01"
                           min="0"
                           max="100"
+                          className={LINE_NUMBER_INPUT}
+                          onFocus={selectOnFocus}
                           aria-label={tb.discountPercent}
                           {...form.register(`items.${index}.discountPercent`, {
                             valueAsNumber: true,
@@ -560,6 +577,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                             step="0.0001"
                             min="0"
                             inputMode="decimal"
+                            className={LINE_NUMBER_INPUT}
+                            onFocus={selectOnFocus}
                             aria-label={td.bill.vendorTax}
                             placeholder="0"
                             {...form.register(`items.${index}.vendorTaxRate`)}
@@ -571,7 +590,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                               form.setValue(`items.${index}.taxRateId`, val === NO_TAX_RATE ? '' : val)
                             }
                           >
-                            <SelectTrigger aria-label={labels.taxRate}>
+                            <SelectTrigger className={LINE_SELECT_TRIGGER} aria-label={labels.taxRate}>
                               <SelectValue placeholder={labels.noTax} />
                             </SelectTrigger>
                             <SelectContent>
@@ -595,7 +614,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                             )
                           }
                         >
-                          <SelectTrigger aria-label={tb.account}>
+                          <SelectTrigger className={LINE_SELECT_TRIGGER} aria-label={tb.account}>
                             <SelectValue placeholder={tb.none} />
                           </SelectTrigger>
                           <SelectContent>
