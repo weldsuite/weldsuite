@@ -42,6 +42,7 @@ mod lists;
 mod mailboxes;
 mod mailpool;
 mod prospects;
+pub mod send;
 mod smtp;
 mod suppressions;
 mod webhook;

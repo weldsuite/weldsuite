@@ -63,6 +63,11 @@ cron jobs and the migration Job read the same settings
   value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
 - name: TRUSTED_PROXIES
   value: {{ .Values.config.trustedProxies | default 1 | toString | quote }}
+{{- if .Values.consume.enabled }}
+{{- /* WeldReach's send sweep queues on NATS for the consume role's reach-send subscriber. */}}
+- name: REACH_SEND_QUEUE
+  value: "nats"
+{{- end }}
 {{- with .Values.config.edition }}
 {{- if not (has . (list "eu" "self-hosted")) }}
 {{- fail "config.edition must be eu or self-hosted" }}

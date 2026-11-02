@@ -28,6 +28,7 @@ mod desk_http;
 mod edition;
 mod infra;
 mod migrate;
+mod reach;
 mod realtime;
 mod routes;
 mod server;

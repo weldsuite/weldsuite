@@ -382,7 +382,9 @@ consume:
   enabled: false
   replicaCount: 2
   # The subscribers to run; empty runs every ported one (audit, search-index,
-  # webhooks, realtime). search-index needs `embeddings` below.
+  # webhooks, realtime, and reach-send: WeldReach's sends, which the
+  # reach-send-sweep cron then queues on NATS). search-index needs
+  # `embeddings` below.
   subscribers: []
   # With config.nats.ensureStreams: create or update the hub and the
   # dead-letter stream at start with this many replicas (3 on a three-node
@@ -538,6 +540,13 @@ cron:
       enabled: true
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldReach: the send sweep over the due index (workspaces with outreach
+    # due). With consume.enabled it publishes each one on NATS for the
+    # reach-send subscriber; otherwise it runs their sends itself.
+    reach-send-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 290
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.

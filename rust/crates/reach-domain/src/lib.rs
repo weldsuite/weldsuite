@@ -31,6 +31,7 @@ pub mod campaigns;
 pub mod credentials;
 pub mod dns;
 pub mod domains;
+pub mod engine;
 pub mod enrollments;
 pub mod error;
 pub mod inbox;

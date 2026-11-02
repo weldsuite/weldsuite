@@ -19,6 +19,12 @@
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
 //!
+//! - **WeldReach sends** `REACH_SEND` (`reach.send`), with
+//!   `REACH_SEND_QUEUE=nats`: `weldsuite cron reach-send-sweep` publishes
+//!   one message per workspace with outreach due; the `reach-send`
+//!   subscriber runs that workspace's send tick (the reach-send queue).
+//!   Dead letters go to `REACH_SEND_DLQ`.
+//!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
 //! finishes the batches in hand within `CONSUME_DRAIN_SECONDS` and exits.
@@ -52,7 +58,7 @@ use weldsuite_subscribers::{
 };
 
 pub(crate) use config::ConsumeConfig;
-use config::{MAIL_INBOUND, MailInboundConfig};
+use config::{MAIL_INBOUND, MailInboundConfig, REACH_SEND};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -375,6 +381,25 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
                 .await?;
         }
     }
+    if config.subscribers.iter().any(|s| s == REACH_SEND) {
+        // The sweep publishes here: create or update with ensure_streams,
+        // otherwise only create what is missing.
+        let streams = [
+            crate::reach::send_stream_config(config.stream_replicas),
+            dead_letter_stream_config(
+                crate::reach::SEND_DLQ_STREAM,
+                "reach-send-dlq",
+                config.stream_replicas,
+            ),
+        ];
+        for stream in streams {
+            if config.ensure_streams {
+                bus.context().create_or_update_stream(stream).await?;
+            } else {
+                bus.context().get_or_create_stream(stream).await?;
+            }
+        }
+    }
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(
             connect_valkey(url).await?,
@@ -443,6 +468,33 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         )),
         _ => None,
     };
+    let reach_send = if config.subscribers.iter().any(|s| s == REACH_SEND) {
+        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
+            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
+                master.clone(),
+                refresh,
+            )),
+            None => Arc::new(weldsuite_ports::DefaultFlags),
+        };
+        let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+        let events = weldsuite_events::EntityEventPublisher::new(
+            Some(bus),
+            weldsuite_events::TaskTracker::new(),
+        )
+        .with_subject_prefix(&config.subject_prefix);
+        let engine = crate::reach::send_engine(
+            master.clone(),
+            &workspaces,
+            config.keyring.clone(),
+            events,
+            flags,
+        );
+        let handler: Arc<dyn BatchHandler> =
+            Arc::new(weldsuite_reach::send::ReachSendSubscriber::new(engine));
+        Some((crate::reach::send_spec(), handler))
+    } else {
+        None
+    };
     let Services { bus, http, .. } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
@@ -476,6 +528,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(MAIL_INBOUND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = reach_send {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(REACH_SEND.to_owned());
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

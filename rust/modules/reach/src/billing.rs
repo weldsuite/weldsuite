@@ -72,7 +72,8 @@ fn billing_worker_url(environment: Option<&str>) -> &'static str {
 /// `reachBillingEnabled(env)`: only under conformance, with an HTTPS
 /// billing-worker URL.
 fn enabled(caller: &Caller) -> bool {
-    caller.conformance() && billing_worker_url(caller.env("ENVIRONMENT").as_deref()).starts_with("https:")
+    caller.conformance()
+        && billing_worker_url(caller.env("ENVIRONMENT").as_deref()).starts_with("https:")
 }
 
 /// `billingOffError()`.
