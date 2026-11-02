@@ -375,6 +375,29 @@ fn workflow_actions_state(state: &AppState) -> weldsuite_connect::WorkflowAction
     }
 }
 
+/// connect-api's internal integration routes (`X-Internal-Secret`), which
+/// share their paths with the member routes: the server sends a request
+/// there ahead of the session when `is_internal_integrations_call` says so.
+/// `None` while connect is not mounted. Conformance builds give them what
+/// the test shares, its tenant database included.
+pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
+    if !mounts("connect") {
+        return None;
+    }
+    let router = weldsuite_connect::internal_integrations_router(connect_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public,
+        ));
+    Some(router)
+}
+
 /// WeldConnect's handle on the app: events, the cache (the webhook
 /// registry's), the master database, third-party HTTP, the jobs runs start
 /// on and the workspaces' tenant databases. Conformance builds take the
@@ -409,8 +432,33 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
             env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
             Arc::new(env)
         })),
+        webhooks: if conformance {
+            None
+        } else {
+            connect_webhook_http()
+        },
         trusted_proxies: state.trusted_proxies,
     }
+}
+
+/// The outbound webhooks' HTTP client, for the test delivery of
+/// `/api/external-webhooks/:id/test` (`WEBHOOK_ALLOW_PRIVATE_NETWORKS` as
+/// `weldsuite consume` reads it: private addresses are refused unless set).
+fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
+    static HTTP: OnceLock<Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>> =
+        OnceLock::new();
+    HTTP.get_or_init(|| {
+        let allow_private =
+            std::env::var("WEBHOOK_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "true");
+        match weldsuite_subscribers::WebhookHttp::new(allow_private) {
+            Ok(http) => Some(Arc::new(http) as Arc<dyn weldsuite_subscribers::DeliveryAttempts>),
+            Err(error) => {
+                tracing::error!(%error, "connect: the webhook HTTP client could not be built");
+                None
+            }
+        }
+    })
+    .clone()
 }
 
 /// WeldAds' handle on the app: events, the cache its OAuth state lives in,

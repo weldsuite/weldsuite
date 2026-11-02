@@ -20,14 +20,17 @@
 
 mod builder;
 mod catalog;
+mod connectors;
 mod cron;
 mod crypto;
 mod dashboard;
 pub mod engine;
 mod entity_workflows;
 mod executions;
+mod external_webhooks;
 mod github;
 mod github_app;
+mod integrations;
 mod js;
 mod mvp;
 mod public_webhook;
@@ -84,6 +87,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
 pub use entity_workflows::EntityWorkflowsSubscriber;
+pub use integrations::RequestCrmSyncRuns;
+pub use integrations::internal::is_internal_call as is_internal_integrations_call;
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,
@@ -119,6 +124,10 @@ pub struct ConnectState {
     /// The worker's env values this crate reads (`ENVIRONMENT`,
     /// `CONNECT_API_URL`, …). A request's `RequestEnv` (conformance) wins.
     pub env: Arc<HashMap<String, String>>,
+    /// Where the test delivery of an outbound webhook goes out
+    /// (`WebhookHttp`, which refuses private addresses unless allowed). A
+    /// request's `OutboundHttp` (conformance) wins.
+    pub webhooks: Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>,
     /// `TRUSTED_PROXIES`: where the webhook caller's address sits in
     /// `X-Forwarded-For`, counted from the right.
     pub trusted_proxies: usize,
@@ -152,6 +161,12 @@ pub const ENV_NAMES: &[&str] = &[
     "SLACK_CLIENT_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
+    "ATTIO_CLIENT_ID",
+    "ATTIO_CLIENT_SECRET",
+    "HUBSPOT_CLIENT_ID",
+    "HUBSPOT_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -173,6 +188,9 @@ where
         .nest("/github-connections", github::connections_routes(gate))
         .nest("/github-repo-links", github::repo_links_routes(gate))
         .nest("/github-project-links", github::project_links_routes(gate))
+        .nest("/external-webhooks", external_webhooks::routes(gate))
+        .nest("/integrations", integrations::routes(gate))
+        .nest("/connectors", connectors::routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
@@ -210,6 +228,17 @@ where
             axum::routing::get(github::install_callback),
         )
         .with_state(state)
+}
+
+/// connect-api's internal integration routes (`X-Internal-Secret`) at their
+/// full `/api/integrations/...` paths. They share their paths with the
+/// member routes, so the server sends a request here only when
+/// [`is_internal_integrations_call`] says it is one, ahead of the session.
+pub fn internal_integrations_router<S>(state: ConnectState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    integrations::internal::router(state)
 }
 
 /// What conformance builds hand a request in place of the state's.
@@ -254,6 +283,24 @@ impl Overrides {
     #[allow(dead_code)] // the integration routes use it
     pub(crate) fn http(&self, state: &ConnectState) -> Option<OutboundHttp> {
         self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// Outbound webhook deliveries: through the request's outbound HTTP
+    /// (conformance), else the state's client; without either every attempt
+    /// fails as a `fetch` that cannot connect.
+    pub(crate) fn webhook_attempts(
+        &self,
+        state: &ConnectState,
+    ) -> Arc<dyn weldsuite_subscribers::DeliveryAttempts> {
+        if let Some(http) = &self.http {
+            return Arc::new(weldsuite_subscribers::OutboundAttempts(http.clone()));
+        }
+        match &state.webhooks {
+            Some(webhooks) if self.env.is_none() => Arc::clone(webhooks),
+            _ => Arc::new(weldsuite_subscribers::OutboundAttempts(OutboundHttp(
+                Arc::new(Unreachable),
+            ))),
+        }
     }
 
     /// The master database: the request's (conformance), else the state's.

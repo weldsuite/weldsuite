@@ -87,4 +87,8 @@ pub use realtime::RealtimeSubscriber;
 pub use registry::{SUBSCRIBERS, Subscriber, filter_subject, subscriber, topic_matches};
 pub use search::SearchSubscriber;
 pub use tenants::{ResolvedTenant, StaticTenants, TenantError, Tenants, WorkspaceTenants};
-pub use webhooks::{WebhookHttp, WebhooksSubscriber, run_webhook_retry_sweep};
+pub use webhooks::{
+    DeliverInput, DeliveryAttempts, DeliveryOutcome, OutboundAttempts, WEBHOOK_RETRY_KIND,
+    WebhookHttp, WebhookRow, WebhooksSubscriber, deliver_webhook_event_with,
+    run_webhook_retry_sweep,
+};

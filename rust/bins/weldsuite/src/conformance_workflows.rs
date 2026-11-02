@@ -264,6 +264,21 @@ impl WorkflowBridges {
         })
     }
 
+    /// The test's `CRM_SYNC`, from `{ CRM_SYNC: url }` (same shape as
+    /// `GITHUB_PROJECT_SYNC`: `create({ id, params })`).
+    pub(crate) fn crm_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::ProjectSyncRuns>> {
+        workflows.get("CRM_SYNC").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "CRM_SYNC",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
+        })
+    }
+
     /// The test's `EXECUTE_SEQUENCE`, from `{ EXECUTE_SEQUENCE: url }`.
     pub(crate) fn sequence_runs(
         &self,

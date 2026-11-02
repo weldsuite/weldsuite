@@ -33,6 +33,8 @@ export const WORKFLOW_BINDINGS = [
   'SEND_SCHEDULED_EMAIL',
   'WELDDATA_ENRICH',
   'EXECUTE_WORKFLOW',
+  // WeldConnect's CRM sync (connect-api's /api/integrations), hosted by integration-webhook-worker.
+  'CRM_SYNC',
 ] as const;
 
 interface WorkflowLike {

@@ -9,10 +9,12 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-ads-domain = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-calendar-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-chat-domain = { workspace = true }
+weldsuite-connect-domain = { workspace = true }
 weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
