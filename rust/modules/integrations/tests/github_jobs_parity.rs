@@ -78,7 +78,7 @@ struct OnceSteps {
 }
 
 impl JobContext for OnceSteps {
-    fn key(&self) -> &str {
+    fn key(&self) -> &'static str {
         "fixture"
     }
 
@@ -163,7 +163,7 @@ async fn dump(db: &PgPool) -> Value {
         .await
         .expect("dump");
         let mut rows: Vec<Value> = rows.iter().map(normalise).collect();
-        rows.sort_by_key(|row| row.to_string());
+        rows.sort_by_key(ToString::to_string);
         out.insert(table.to_owned(), Value::Array(rows));
     }
     Value::Object(out)
@@ -179,7 +179,7 @@ fn sorted(rows: &Value) -> Value {
             .iter()
             .map(|(table, rows)| {
                 let mut rows = rows.as_array().cloned().unwrap_or_default();
-                rows.sort_by_key(|row| row.to_string());
+                rows.sort_by_key(ToString::to_string);
                 (table.clone(), Value::Array(rows))
             })
             .collect(),
@@ -195,6 +195,7 @@ fn test_key() -> String {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn the_github_jobs_do_what_the_workflows_did() {
     let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
         eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
@@ -304,19 +305,14 @@ async fn the_github_jobs_do_what_the_workflows_did() {
                     .collect()
             })
             .unwrap_or_default();
+        let steps = json!(ctx.steps.lock().expect("steps").clone());
+        let calls = Value::Array(replay.calls.lock().expect("calls").clone());
+        let rows = dump(&db).await;
         let checks = [
-            (
-                "steps",
-                json!(ctx.steps.lock().expect("steps").clone()),
-                scenario["steps"].clone(),
-            ),
+            ("steps", steps, scenario["steps"].clone()),
             ("error", error, scenario["error"].clone()),
-            (
-                "calls",
-                Value::Array(replay.calls.lock().expect("calls").clone()),
-                Value::Array(expected_calls),
-            ),
-            ("rows", dump(&db).await, sorted(&scenario["rows"])),
+            ("calls", calls, Value::Array(expected_calls)),
+            ("rows", rows, sorted(&scenario["rows"])),
         ];
         for (what, rust, typescript) in checks {
             if rust != typescript {

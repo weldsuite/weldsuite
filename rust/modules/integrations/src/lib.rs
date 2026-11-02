@@ -16,6 +16,10 @@
 //!   feed due sweep ([`bank_feeds`], [`bank_feed_due`]), with WeldBooks'
 //!   internal bank-connection routes in process ([`books`]).
 
+// The workers' handlers and Workflows are ported step for step, so some are
+// long and take what the TypeScript function took.
+#![allow(clippy::too_many_lines, clippy::too_many_arguments)]
+
 pub mod bank_feed_due;
 pub mod bank_feeds;
 pub mod binding;

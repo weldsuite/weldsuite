@@ -135,19 +135,16 @@ impl weldsuite_integrations::ServiceBinding for BridgedBinding {
     }
 }
 
-impl BooksBridges {
-    /// The test's `BOOKS_INTERNAL` for the integration workers, or none when
-    /// the test binds none (the worker then runs without it).
-    pub(crate) fn integrations_books(
-        &self,
-        services: &HashMap<String, String>,
-    ) -> weldsuite_integrations::RequestBooksBinding {
-        weldsuite_integrations::RequestBooksBinding(services.get("BOOKS_INTERNAL").map(|url| {
-            Arc::new(BridgedBinding {
-                bridge: url.trim_end_matches('/').to_owned(),
-                binding: "BOOKS_INTERNAL",
-                client: Client::new(),
-            }) as Arc<dyn weldsuite_integrations::ServiceBinding>
-        }))
-    }
+/// The test's `BOOKS_INTERNAL` for the integration workers, or none when
+/// the test binds none (the worker then runs without it).
+pub(crate) fn integrations_books(
+    services: &HashMap<String, String>,
+) -> weldsuite_integrations::RequestBooksBinding {
+    weldsuite_integrations::RequestBooksBinding(services.get("BOOKS_INTERNAL").map(|url| {
+        Arc::new(BridgedBinding {
+            bridge: url.trim_end_matches('/').to_owned(),
+            binding: "BOOKS_INTERNAL",
+            client: Client::new(),
+        }) as Arc<dyn weldsuite_integrations::ServiceBinding>
+    }))
 }

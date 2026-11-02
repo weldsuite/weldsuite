@@ -105,7 +105,7 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
                 in_process_books(
                     &master,
                     &keyring(),
-                    Arc::clone(&state.workspaces),
+                    &state.workspaces,
                     state.infra.events.clone(),
                 )
             })
@@ -121,14 +121,14 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
 pub(crate) fn in_process_books(
     master: &PgPool,
     keyring: &Keyring,
-    workspaces: Arc<Workspaces>,
+    workspaces: &Arc<Workspaces>,
     events: EntityEventPublisher,
 ) -> Option<Arc<dyn ServiceBinding>> {
     if !super::mounts("books") {
         return None;
     }
     Some(Arc::new(weldsuite_integrations::books::InProcessBooks {
-        tenants: tenants(&workspaces),
+        tenants: tenants(workspaces),
         keyring: keyring.clone(),
         master: Some(master.clone()),
         env: super::books::books_env(),

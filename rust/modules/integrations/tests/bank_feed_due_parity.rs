@@ -56,6 +56,7 @@ impl ServiceBinding for Stub {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines, clippy::type_complexity)]
 async fn the_sweep_does_what_the_worker_did() {
     let Ok(url) = std::env::var("WELDSUITE_TEST_MASTER_URL") else {
         eprintln!("WELDSUITE_TEST_MASTER_URL not set; skipping");

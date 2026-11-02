@@ -479,9 +479,11 @@ pub fn verify_stripe_signature(
             weldsuite_books_domain::js::number_text(timestamp)
         ),
     );
-    candidates.iter().fold(false, |ok, candidate| {
-        timing_safe_equal(candidate, &expected) || ok
-    })
+    // Every candidate is compared (no early exit), as the worker does.
+    candidates
+        .iter()
+        .map(|candidate| timing_safe_equal(candidate, &expected))
+        .fold(false, |ok, matched| ok | matched)
 }
 
 /// `fromBase64Url`: padded and decoded as `atob` does (either alphabet).
@@ -532,9 +534,10 @@ fn memory_keys() -> &'static Mutex<HashMap<String, (String, Instant)>> {
 
 impl PlaidKeys<'_> {
     async fn cached(&self, key: &str) -> Option<String> {
-        match &self.cache {
-            Some(cache) => cache.get_boxed(key).await.ok().flatten(),
-            None => {
+        if let Some(cache) = &self.cache {
+            cache.get_boxed(key).await.ok().flatten()
+        } else {
+            {
                 let mut keys = memory_keys().lock().unwrap_or_else(PoisonError::into_inner);
                 match keys.get(key) {
                     Some((value, expires)) if *expires > Instant::now() => Some(value.clone()),
@@ -785,11 +788,11 @@ mod tests {
                 json!({ "type": "reauth_required", "providerConnectionId": "item_1", "message": null })
             ]
         );
-        assert!(
+        assert_eq!(
             plaid_events(&as_record(
                 &json!({ "item_id": "i", "webhook_type": "AUTH", "webhook_code": "X" })
-            ))
-            .is_empty()
+            )),
+            Vec::<Value>::new()
         );
     }
 

@@ -367,7 +367,9 @@ impl Pools {
             extensions.insert(books);
         }
         // The integration workers' bank feed events and syncs too.
-        extensions.insert(self.books.integrations_books(&context.services));
+        extensions.insert(crate::conformance_books::integrations_books(
+            &context.services,
+        ));
         // And the GitHub App webhook's project syncs.
         extensions.insert(self.workflows.github_sync_runs(&context.workflows));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.

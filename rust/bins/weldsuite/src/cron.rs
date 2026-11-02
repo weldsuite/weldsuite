@@ -508,7 +508,7 @@ async fn bank_feed_due(config: Config) -> Result<(), Box<dyn std::error::Error>>
     let books = crate::routes::integrations::in_process_books(
         &master,
         &config.keyring,
-        workspaces,
+        &workspaces,
         infra.events.clone(),
     );
     let now = time::OffsetDateTime::now_utc();

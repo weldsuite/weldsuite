@@ -59,6 +59,10 @@ fn installation_id(payload: &Value) -> Option<i64> {
 }
 
 /// `verifyWebhookSignature(rawBody, header, secret)`.
+///
+/// # Panics
+///
+/// Never: HMAC takes a key of any length.
 pub fn verify_signature(body: &[u8], header: Option<&str>, secret: &str) -> bool {
     let Some(received) = header.and_then(|h| h.strip_prefix("sha256=")) else {
         return false;
@@ -128,13 +132,14 @@ async fn webhook(
         Some(cache) => cache.get_boxed(&cache_key).await.ok().flatten(),
         None => None,
     };
-    let clerk_org_id = match cached.filter(|c| !c.is_empty()) {
-        Some(org) => Some(org),
-        None => {
+    let clerk_org_id = if let Some(org) = cached.filter(|c| !c.is_empty()) {
+        Some(org)
+    } else {
+        {
             let found = resolve_workspace(&ctx, &state, installation).await;
             if let (Some(org), Some(cache)) = (&found, &cache)
                 && let Err(error) = cache
-                    .put_boxed(&cache_key, org, Some(Duration::from_secs(86_400)))
+                    .put_boxed(&cache_key, org, Some(Duration::from_hours(24)))
                     .await
             {
                 tracing::warn!(%error, "[GitHub Webhook] installation not cached");
@@ -410,12 +415,13 @@ async fn dispatch(
     let id = format!("github-project-sync-{link_id}-{bucket}");
     let params =
         json!({ "workspaceId": workspace_id, "projectLinkId": link_id, "inboundOnly": true });
-    match runs.create(&id, &params).await {
-        Ok(()) => tracing::info!(
+    if runs.create(&id, &params).await.is_ok() {
+        tracing::info!(
             "[GitHub Webhook] Dispatched project sync for link {link_id} (bucket {bucket}, delivery {delivery})"
-        ),
-        Err(_) => tracing::info!(
+        );
+    } else {
+        tracing::info!(
             "[GitHub Webhook] Sync already queued for link {link_id} (bucket {bucket}), skipping delivery {delivery}"
-        ),
+        );
     }
 }
