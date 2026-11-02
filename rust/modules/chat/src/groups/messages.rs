@@ -512,7 +512,8 @@ async fn add_reaction(
         let Some(channel) = crate::pins::live_message_channel(&caller.db, &id).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         };
-        if let Some((_, _, reactions_on, _, _)) = channel_feature_flags(&caller.db, &channel).await?
+        if let Some((_, _, reactions_on, _, _)) =
+            channel_feature_flags(&caller.db, &channel).await?
             && !reactions_on
         {
             return Err(ChatError::bad_request(
