@@ -28,8 +28,9 @@
     "delete from helpdesk_conversation_messages",
     "delete from helpdesk_conversations",
     "delete from helpdesk_agents",
+    "delete from mail_folders",
     "delete from mail_correspondents",
-    "delete from mail_accounts"
+    "truncate mail_accounts cascade"
   ],
   "cases": [
     {
@@ -9169,6 +9170,1472 @@
             "execution_count": 1,
             "failure_count": 0,
             "id": "wf_helpdesk",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "generic record steps: create, update, query, delete, and the mail and Drizzle refusals",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into crm_pipeline_stages (id, name, pipeline, position, probability) values ('stg_seed', 'Seed', 'default', 0, 10)",
+          "insert into mail_accounts (id, name, email, status, is_shared)\n        values ('mac_shared', 'Shared', 'shared@acme.test', 'active', true),\n               ('mac_private', 'Private', 'me@acme.test', 'active', false)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_records_generic', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_records_generic', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"create_record\",\"config\":{\"entity\":\"pipeline-stage\",\"data\":{\"name\":\"Qualified\",\"pipeline\":\"default\",\"position\":2,\"probability\":40,\"extra\":\"ignored\"}}},{\"id\":\"s2\",\"type\":\"update_record\",\"config\":{\"entityType\":\"pipeline_stage\",\"id\":\"{{steps.s1.record.id}}\",\"data\":{\"probability\":60,\"isWon\":false}}},{\"id\":\"s3\",\"type\":\"query_data\",\"config\":{\"entity\":\"pipeline_stage\",\"filters\":{\"probability\":{\"operator\":\"gt\",\"value\":50}}}},{\"id\":\"s4\",\"type\":\"delete_record\",\"config\":{\"entity\":\"pipeline_stage\",\"id\":\"{{steps.s1.record.id}}\"}},{\"id\":\"s5\",\"type\":\"query_data\",\"config\":{\"entity\":\"pipeline_stage\",\"where\":{\"pipeline\":\"default\"},\"limit\":10}},{\"id\":\"s6\",\"type\":\"create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"mail_account\",\"data\":{\"name\":\"Ops\",\"email\":\"ops@acme.test\",\"isShared\":false}}},{\"id\":\"s7\",\"type\":\"create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"mail_account\",\"data\":{\"name\":\"Ops\",\"email\":\"ops@acme.test\",\"apiKey\":\"k\",\"passwordHash\":\"h\"}}},{\"id\":\"s8\",\"type\":\"create_record\",\"config\":{\"entity\":\"mail_account\",\"fields\":{\"name\":\"Ops\",\"email\":\"ops@acme.test\"}}},{\"id\":\"s9\",\"type\":\"create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"mail_folder\",\"data\":{\"name\":\"Inbox\",\"accountId\":\"mac_private\"}}},{\"id\":\"s10\",\"type\":\"query_data\",\"config\":{\"entity\":\"mail_account\",\"filters\":{\"email\":{\"operator\":\"contains\",\"value\":\"acme\"}}}},{\"id\":\"s11\",\"type\":\"update_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"mail_account\",\"id\":\"mac_private\",\"data\":{\"name\":\"Mine now\"}}},{\"id\":\"s12\",\"type\":\"create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"task\",\"data\":{\"title\":\"T\",\"dueDate\":\"2026-12-01\"}}},{\"id\":\"s13\",\"type\":\"create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"entity\":\"spaceship\"}},{\"id\":\"s14\",\"type\":\"delete_record\",\"config\":{\"entity\":\"mail_account\",\"id\":\"mac_private\",\"hardDelete\":true}},{\"id\":\"s15\",\"type\":\"delete_record\",\"config\":{\"entity\":\"mail_account\",\"id\":\"mac_shared\",\"hardDelete\":true}},{\"id\":\"s16\",\"type\":\"query_data\",\"config\":{\"entity\":\"mail-account\",\"limit\":1,\"offset\":1}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_records_generic",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_records_generic",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {},
+        "inspect": [
+          "select name, probability, is_won, (deleted_at is not null) as deleted from crm_pipeline_stages order by name",
+          "select id, name, email, is_shared from mail_accounts order by email"
+        ]
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "Record mac_private not found",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s11",
+            "step_name": null,
+            "step_type": "update_record",
+            "workflow_id": "wf_records_generic"
+          },
+          {
+            "error_message": "value.toISOString is not a function",
+            "error_type": "TypeError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s12",
+            "step_name": null,
+            "step_type": "create_record",
+            "workflow_id": "wf_records_generic"
+          },
+          {
+            "error_message": "Unknown entity type: spaceship. Available: lead, crm_lead, customer, company, contact, person, opportunity, crm_opportunity, activity, crm_activity, pipeline_stage, ticket, helpdesk_ticket, ticket_message, department, helpdesk_department, canned_response, order, product, category, project, task, milestone, time_entry, project_file, project_member, mail_account, mail_message, mail_folder, mail_template, workflow, workflow_execution, workflow_schedule, workflow_variable, workflow_webhook, workflow_integration, host_domain",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s13",
+            "step_name": null,
+            "step_type": "create_record",
+            "workflow_id": "wf_records_generic"
+          },
+          {
+            "error_message": "A workflow can only write a shared mail account: there is no workspace member to assign a private one to",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s6",
+            "step_name": null,
+            "step_type": "create_record",
+            "workflow_id": "wf_records_generic"
+          },
+          {
+            "error_message": "Cannot set apiKey, passwordHash on mail_account through a generic record action",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s7",
+            "step_name": null,
+            "step_type": "create_record",
+            "workflow_id": "wf_records_generic"
+          },
+          {
+            "error_message": "Mail account mac_private is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s9",
+            "step_name": null,
+            "step_type": "create_record",
+            "workflow_id": "wf_records_generic"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_records_generic",
+            "completed": true,
+            "current_step_index": 16,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "created": true,
+                "record": {
+                  "color": null,
+                  "createdAt": "<ts>",
+                  "deletedAt": null,
+                  "description": null,
+                  "id": "<id:pst>",
+                  "isDefault": false,
+                  "isLost": false,
+                  "isWon": false,
+                  "name": "Qualified",
+                  "pipeline": "default",
+                  "position": 2,
+                  "probability": 40,
+                  "updatedAt": "<ts>"
+                }
+              },
+              "s10": {
+                "count": 2,
+                "records": [
+                  {
+                    "aiSettings": null,
+                    "assignedUserIds": null,
+                    "authType": "password",
+                    "autoReply": null,
+                    "createdAt": "<ts>",
+                    "customFields": null,
+                    "dailySendLimit": 500,
+                    "deletedAt": null,
+                    "displayName": null,
+                    "email": "shared@acme.test",
+                    "externalAccountId": null,
+                    "forwardingEmail": null,
+                    "id": "mac_shared",
+                    "imapHost": null,
+                    "imapPort": null,
+                    "imapSecure": true,
+                    "isDefault": false,
+                    "isShared": true,
+                    "lastSyncAt": null,
+                    "mailcowSyncedAt": null,
+                    "metadata": null,
+                    "name": "Shared",
+                    "provider": "imap",
+                    "receiveProvider": null,
+                    "sendProvider": null,
+                    "sentToday": 0,
+                    "signature": null,
+                    "smtpHost": null,
+                    "smtpPort": null,
+                    "smtpSecure": true,
+                    "status": "active",
+                    "storageLimit": null,
+                    "storageUsed": 0,
+                    "syncEnabled": true,
+                    "syncError": null,
+                    "syncFrequency": 5,
+                    "syncStatus": "idle",
+                    "tags": null,
+                    "updatedAt": "<ts>"
+                  },
+                  {
+                    "aiSettings": null,
+                    "assignedUserIds": null,
+                    "authType": "password",
+                    "autoReply": null,
+                    "createdAt": "<ts>",
+                    "customFields": null,
+                    "dailySendLimit": 500,
+                    "deletedAt": null,
+                    "displayName": null,
+                    "email": "ops@acme.test",
+                    "externalAccountId": null,
+                    "forwardingEmail": null,
+                    "id": "<id:mac>",
+                    "imapHost": null,
+                    "imapPort": null,
+                    "imapSecure": true,
+                    "isDefault": false,
+                    "isShared": true,
+                    "lastSyncAt": null,
+                    "mailcowSyncedAt": null,
+                    "metadata": null,
+                    "name": "Ops",
+                    "provider": "imap",
+                    "receiveProvider": null,
+                    "sendProvider": null,
+                    "sentToday": 0,
+                    "signature": null,
+                    "smtpHost": null,
+                    "smtpPort": null,
+                    "smtpSecure": true,
+                    "status": "active",
+                    "storageLimit": null,
+                    "storageUsed": 0,
+                    "syncEnabled": true,
+                    "syncError": null,
+                    "syncFrequency": 5,
+                    "syncStatus": "idle",
+                    "tags": null,
+                    "updatedAt": "<ts>"
+                  }
+                ]
+              },
+              "s11": {
+                "error": "Record mac_private not found"
+              },
+              "s12": {
+                "error": "value.toISOString is not a function"
+              },
+              "s13": {
+                "error": "Unknown entity type: spaceship. Available: lead, crm_lead, customer, company, contact, person, opportunity, crm_opportunity, activity, crm_activity, pipeline_stage, ticket, helpdesk_ticket, ticket_message, department, helpdesk_department, canned_response, order, product, category, project, task, milestone, time_entry, project_file, project_member, mail_account, mail_message, mail_folder, mail_template, workflow, workflow_execution, workflow_schedule, workflow_variable, workflow_webhook, workflow_integration, host_domain"
+              },
+              "s14": {
+                "deleted": true,
+                "id": "mac_private"
+              },
+              "s15": {
+                "deleted": true,
+                "id": "mac_shared"
+              },
+              "s16": {
+                "count": 0,
+                "records": []
+              },
+              "s2": {
+                "record": {
+                  "color": null,
+                  "createdAt": "<ts>",
+                  "deletedAt": null,
+                  "description": null,
+                  "id": "<id:pst>",
+                  "isDefault": false,
+                  "isLost": false,
+                  "isWon": false,
+                  "name": "Qualified",
+                  "pipeline": "default",
+                  "position": 2,
+                  "probability": 60,
+                  "updatedAt": "<ts>"
+                },
+                "updated": true
+              },
+              "s3": {
+                "count": 1,
+                "records": [
+                  {
+                    "color": null,
+                    "createdAt": "<ts>",
+                    "deletedAt": null,
+                    "description": null,
+                    "id": "<id:pst>",
+                    "isDefault": false,
+                    "isLost": false,
+                    "isWon": false,
+                    "name": "Qualified",
+                    "pipeline": "default",
+                    "position": 2,
+                    "probability": 60,
+                    "updatedAt": "<ts>"
+                  }
+                ]
+              },
+              "s4": {
+                "deleted": true,
+                "id": "<id:pst>"
+              },
+              "s5": {
+                "count": 1,
+                "records": [
+                  {
+                    "color": null,
+                    "createdAt": "<ts>",
+                    "deletedAt": null,
+                    "description": null,
+                    "id": "stg_seed",
+                    "isDefault": false,
+                    "isLost": false,
+                    "isWon": false,
+                    "name": "Seed",
+                    "pipeline": "default",
+                    "position": 0,
+                    "probability": 10,
+                    "updatedAt": "<ts>"
+                  }
+                ]
+              },
+              "s6": {
+                "error": "A workflow can only write a shared mail account: there is no workspace member to assign a private one to"
+              },
+              "s7": {
+                "error": "Cannot set apiKey, passwordHash on mail_account through a generic record action"
+              },
+              "s8": {
+                "created": true,
+                "record": {
+                  "aiSettings": null,
+                  "assignedUserIds": null,
+                  "authType": "password",
+                  "autoReply": null,
+                  "createdAt": "<ts>",
+                  "customFields": null,
+                  "dailySendLimit": 500,
+                  "deletedAt": null,
+                  "displayName": null,
+                  "email": "ops@acme.test",
+                  "externalAccountId": null,
+                  "forwardingEmail": null,
+                  "id": "<id:mac>",
+                  "imapHost": null,
+                  "imapPort": null,
+                  "imapSecure": true,
+                  "isDefault": false,
+                  "isShared": true,
+                  "lastSyncAt": null,
+                  "mailcowSyncedAt": null,
+                  "metadata": null,
+                  "name": "Ops",
+                  "provider": "imap",
+                  "receiveProvider": null,
+                  "sendProvider": null,
+                  "sentToday": 0,
+                  "signature": null,
+                  "smtpHost": null,
+                  "smtpPort": null,
+                  "smtpSecure": true,
+                  "status": "active",
+                  "storageLimit": null,
+                  "storageUsed": 0,
+                  "syncEnabled": true,
+                  "syncError": null,
+                  "syncFrequency": 5,
+                  "syncStatus": "idle",
+                  "tags": null,
+                  "updatedAt": "<ts>"
+                }
+              },
+              "s9": {
+                "error": "Mail account mac_private is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 16,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_records_generic",
+            "workflow_name": "Flow wf_records_generic",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [
+          [
+            {
+              "deleted": true,
+              "is_won": false,
+              "name": "Qualified",
+              "probability": 60
+            },
+            {
+              "deleted": false,
+              "is_won": false,
+              "name": "Seed",
+              "probability": 10
+            }
+          ],
+          [
+            {
+              "email": "me@acme.test",
+              "id": "mac_private",
+              "is_shared": false,
+              "name": "Private"
+            },
+            {
+              "email": "ops@acme.test",
+              "id": "<id:mac>",
+              "is_shared": true,
+              "name": "Ops"
+            }
+          ]
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-9-s10-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-10-s11-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-11-s12-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-12-s13-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-13-s14-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-14-s15-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-15-s16-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 16,
+                "workflowId": "wf_records_generic",
+                "workflowName": "Flow wf_records_generic"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "update_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "query_data",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "delete_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "query_data",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "A workflow can only write a shared mail account: there is no workspace member to assign a private one to",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Cannot set apiKey, passwordHash on mail_account through a generic record action",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 9,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Mail account mac_private is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)",
+                "stepId": "s9",
+                "stepIndex": 9,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10",
+                "stepIndex": 10,
+                "stepType": "query_data",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10",
+                "stepIndex": 10,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s11",
+                "stepIndex": 11,
+                "stepType": "update_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Record mac_private not found",
+                "stepId": "s11",
+                "stepIndex": 11,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s12",
+                "stepIndex": 12,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "value.toISOString is not a function",
+                "stepId": "s12",
+                "stepIndex": 12,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s13",
+                "stepIndex": 13,
+                "stepType": "create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Unknown entity type: spaceship. Available: lead, crm_lead, customer, company, contact, person, opportunity, crm_opportunity, activity, crm_activity, pipeline_stage, ticket, helpdesk_ticket, ticket_message, department, helpdesk_department, canned_response, order, product, category, project, task, milestone, time_entry, project_file, project_member, mail_account, mail_message, mail_folder, mail_template, workflow, workflow_execution, workflow_schedule, workflow_variable, workflow_webhook, workflow_integration, host_domain",
+                "stepId": "s13",
+                "stepIndex": 13,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s14",
+                "stepIndex": 14,
+                "stepType": "delete_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s14",
+                "stepIndex": 14,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s15",
+                "stepIndex": 15,
+                "stepType": "delete_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s15",
+                "stepIndex": 15,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s16",
+                "stepIndex": 16,
+                "stepType": "query_data",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s16",
+                "stepIndex": 16,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (create_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "record": {
+                "color": null,
+                "createdAt": "<ts>",
+                "deletedAt": null,
+                "description": null,
+                "id": "<id:pst>",
+                "isDefault": false,
+                "isLost": false,
+                "isWon": false,
+                "name": "Qualified",
+                "pipeline": "default",
+                "position": 2,
+                "probability": 40,
+                "updatedAt": "<ts>"
+              }
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (update_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "record": {
+                "color": null,
+                "createdAt": "<ts>",
+                "deletedAt": null,
+                "description": null,
+                "id": "<id:pst>",
+                "isDefault": false,
+                "isLost": false,
+                "isWon": false,
+                "name": "Qualified",
+                "pipeline": "default",
+                "position": 2,
+                "probability": 60,
+                "updatedAt": "<ts>"
+              },
+              "updated": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "update_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (query_data)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 1,
+              "records": [
+                {
+                  "color": null,
+                  "createdAt": "<ts>",
+                  "deletedAt": null,
+                  "description": null,
+                  "id": "<id:pst>",
+                  "isDefault": false,
+                  "isLost": false,
+                  "isWon": false,
+                  "name": "Qualified",
+                  "pipeline": "default",
+                  "position": 2,
+                  "probability": 60,
+                  "updatedAt": "<ts>"
+                }
+              ]
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "query_data"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (delete_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "deleted": true,
+              "id": "<id:pst>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "delete_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (query_data)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 1,
+              "records": [
+                {
+                  "color": null,
+                  "createdAt": "<ts>",
+                  "deletedAt": null,
+                  "description": null,
+                  "id": "stg_seed",
+                  "isDefault": false,
+                  "isLost": false,
+                  "isWon": false,
+                  "name": "Seed",
+                  "pipeline": "default",
+                  "position": 0,
+                  "probability": 10,
+                  "updatedAt": "<ts>"
+                }
+              ]
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "query_data"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "A workflow can only write a shared mail account: there is no workspace member to assign a private one to"
+            },
+            "logs": [
+              "Started s6 (create_record)",
+              "Failed: A workflow can only write a shared mail account: there is no workspace member to assign a private one to (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Cannot set apiKey, passwordHash on mail_account through a generic record action"
+            },
+            "logs": [
+              "Started s7 (create_record)",
+              "Failed: Cannot set apiKey, passwordHash on mail_account through a generic record action (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (create_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "record": {
+                "aiSettings": null,
+                "assignedUserIds": null,
+                "authType": "password",
+                "autoReply": null,
+                "createdAt": "<ts>",
+                "customFields": null,
+                "dailySendLimit": 500,
+                "deletedAt": null,
+                "displayName": null,
+                "email": "ops@acme.test",
+                "externalAccountId": null,
+                "forwardingEmail": null,
+                "id": "<id:mac>",
+                "imapHost": null,
+                "imapPort": null,
+                "imapSecure": true,
+                "isDefault": false,
+                "isShared": true,
+                "lastSyncAt": null,
+                "mailcowSyncedAt": null,
+                "metadata": null,
+                "name": "Ops",
+                "provider": "imap",
+                "receiveProvider": null,
+                "sendProvider": null,
+                "sentToday": 0,
+                "signature": null,
+                "smtpHost": null,
+                "smtpPort": null,
+                "smtpSecure": true,
+                "status": "active",
+                "storageLimit": null,
+                "storageUsed": 0,
+                "syncEnabled": true,
+                "syncError": null,
+                "syncFrequency": 5,
+                "syncStatus": "idle",
+                "tags": null,
+                "updatedAt": "<ts>"
+              }
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Mail account mac_private is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)"
+            },
+            "logs": [
+              "Started s9 (create_record)",
+              "Failed: Mail account mac_private is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003) (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s9",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10 (query_data)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 2,
+              "records": [
+                {
+                  "aiSettings": null,
+                  "assignedUserIds": null,
+                  "authType": "password",
+                  "autoReply": null,
+                  "createdAt": "<ts>",
+                  "customFields": null,
+                  "dailySendLimit": 500,
+                  "deletedAt": null,
+                  "displayName": null,
+                  "email": "shared@acme.test",
+                  "externalAccountId": null,
+                  "forwardingEmail": null,
+                  "id": "mac_shared",
+                  "imapHost": null,
+                  "imapPort": null,
+                  "imapSecure": true,
+                  "isDefault": false,
+                  "isShared": true,
+                  "lastSyncAt": null,
+                  "mailcowSyncedAt": null,
+                  "metadata": null,
+                  "name": "Shared",
+                  "provider": "imap",
+                  "receiveProvider": null,
+                  "sendProvider": null,
+                  "sentToday": 0,
+                  "signature": null,
+                  "smtpHost": null,
+                  "smtpPort": null,
+                  "smtpSecure": true,
+                  "status": "active",
+                  "storageLimit": null,
+                  "storageUsed": 0,
+                  "syncEnabled": true,
+                  "syncError": null,
+                  "syncFrequency": 5,
+                  "syncStatus": "idle",
+                  "tags": null,
+                  "updatedAt": "<ts>"
+                },
+                {
+                  "aiSettings": null,
+                  "assignedUserIds": null,
+                  "authType": "password",
+                  "autoReply": null,
+                  "createdAt": "<ts>",
+                  "customFields": null,
+                  "dailySendLimit": 500,
+                  "deletedAt": null,
+                  "displayName": null,
+                  "email": "ops@acme.test",
+                  "externalAccountId": null,
+                  "forwardingEmail": null,
+                  "id": "<id:mac>",
+                  "imapHost": null,
+                  "imapPort": null,
+                  "imapSecure": true,
+                  "isDefault": false,
+                  "isShared": true,
+                  "lastSyncAt": null,
+                  "mailcowSyncedAt": null,
+                  "metadata": null,
+                  "name": "Ops",
+                  "provider": "imap",
+                  "receiveProvider": null,
+                  "sendProvider": null,
+                  "sentToday": 0,
+                  "signature": null,
+                  "smtpHost": null,
+                  "smtpPort": null,
+                  "smtpSecure": true,
+                  "status": "active",
+                  "storageLimit": null,
+                  "storageUsed": 0,
+                  "syncEnabled": true,
+                  "syncError": null,
+                  "syncFrequency": 5,
+                  "syncStatus": "idle",
+                  "tags": null,
+                  "updatedAt": "<ts>"
+                }
+              ]
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10",
+            "step_index": 10,
+            "step_name": null,
+            "step_type": "query_data"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Record mac_private not found"
+            },
+            "logs": [
+              "Started s11 (update_record)",
+              "Failed: Record mac_private not found (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s11",
+            "step_index": 11,
+            "step_name": null,
+            "step_type": "update_record"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "value.toISOString is not a function"
+            },
+            "logs": [
+              "Started s12 (create_record)",
+              "Failed: value.toISOString is not a function (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s12",
+            "step_index": 12,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Unknown entity type: spaceship. Available: lead, crm_lead, customer, company, contact, person, opportunity, crm_opportunity, activity, crm_activity, pipeline_stage, ticket, helpdesk_ticket, ticket_message, department, helpdesk_department, canned_response, order, product, category, project, task, milestone, time_entry, project_file, project_member, mail_account, mail_message, mail_folder, mail_template, workflow, workflow_execution, workflow_schedule, workflow_variable, workflow_webhook, workflow_integration, host_domain"
+            },
+            "logs": [
+              "Started s13 (create_record)",
+              "Failed: Unknown entity type: spaceship. Available: lead, crm_lead, customer, company, contact, person, opportunity, crm_opportunity, activity, crm_activity, pipeline_stage, ticket, helpdesk_ticket, ticket_message, department, helpdesk_department, canned_response, order, product, category, project, task, milestone, time_entry, project_file, project_member, mail_account, mail_message, mail_folder, mail_template, workflow, workflow_execution, workflow_schedule, workflow_variable, workflow_webhook, workflow_integration, host_domain (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s13",
+            "step_index": 13,
+            "step_name": null,
+            "step_type": "create_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s14 (delete_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "deleted": true,
+              "id": "mac_private"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s14",
+            "step_index": 14,
+            "step_name": null,
+            "step_type": "delete_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s15 (delete_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "deleted": true,
+              "id": "mac_shared"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s15",
+            "step_index": 15,
+            "step_name": null,
+            "step_type": "delete_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s16 (query_data)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "count": 0,
+              "records": []
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s16",
+            "step_index": 16,
+            "step_name": null,
+            "step_type": "query_data"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_records_generic",
             "ran": true,
             "success_count": 1
           }

@@ -64,7 +64,7 @@ fn is_seeded(text: &str) -> bool {
 }
 
 fn generated_ids(text: &str) -> String {
-    let pattern = regex_lite(r"(?-u:\b)(wex|wes|wel|notif|msg)_[0-9A-Za-z]{24}(?-u:\b)");
+    let pattern = regex_lite(r"(?-u:\b)([a-z]+)_[0-9A-Za-z]{24}(?-u:\b)");
     let text = pattern.replace_all(text, "<id:$1>");
     // `generateId(prefix)`: the prefix, `_`, 16 base-36 characters.
     let short = regex_lite(r"(?-u:\b)([a-z]+)_[0-9a-z]{16}(?-u:\b)");

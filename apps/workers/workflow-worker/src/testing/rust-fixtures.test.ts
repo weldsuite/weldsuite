@@ -54,7 +54,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
 const SEEDED = /^2026-10-0[1-3][T ]09:00:00/;
 /** A Message-ID a send made: `<hex32@domain>`. */
 const MESSAGE_ID = /^<[0-9a-f]{32}@[^>]+>$/;
-const GENERATED = /\b(wex|wes|wel|notif|msg)_[0-9A-Za-z]{24}\b/g;
+const GENERATED = /\b([a-z]+)_[0-9A-Za-z]{24}\b/g;
 /** `generateId(prefix)`: the prefix, `_`, 16 base-36 characters. */
 const GENERATED_SHORT = /\b([a-z]+)_[0-9a-z]{16}\b/g;
 const VOLATILE_NUMBERS = new Set(['duration', 'ts', 'durationMs_measured']);
@@ -117,8 +117,9 @@ const CLEAR = [
   'delete from helpdesk_conversation_messages',
   'delete from helpdesk_conversations',
   'delete from helpdesk_agents',
+  'delete from mail_folders',
   'delete from mail_correspondents',
-  'delete from mail_accounts',
+  'truncate mail_accounts cascade',
 ];
 
 const MEMBERS = `insert into workspace_members (id, user_id, email, name, role)
@@ -702,6 +703,78 @@ const CASES: Case[] = [
       `select content, author_type, author_id, author_name, type, is_public, is_internal, status
          from helpdesk_conversation_messages order by type`,
       'select id, tickets_assigned, current_active_tickets from helpdesk_agents order by id',
+    ],
+  },
+  {
+    name: 'generic record steps: create, update, query, delete, and the mail and Drizzle refusals',
+    instanceId: 'inst_records_generic',
+    seed: [
+      MEMBERS,
+      `insert into crm_pipeline_stages (id, name, pipeline, position, probability) values ('stg_seed', 'Seed', 'default', 0, 10)`,
+      `insert into mail_accounts (id, name, email, status, is_shared)
+        values ('mac_shared', 'Shared', 'shared@acme.test', 'active', true),
+               ('mac_private', 'Private', 'me@acme.test', 'active', false)`,
+      workflowRow('wf_records_generic', [
+        {
+          id: 's1',
+          type: 'create_record',
+          config: { entity: 'pipeline-stage', data: { name: 'Qualified', pipeline: 'default', position: 2, probability: 40, extra: 'ignored' } },
+        },
+        {
+          id: 's2',
+          type: 'update_record',
+          config: { entityType: 'pipeline_stage', id: '{{steps.s1.record.id}}', data: { probability: 60, isWon: false } },
+        },
+        { id: 's3', type: 'query_data', config: { entity: 'pipeline_stage', filters: { probability: { operator: 'gt', value: 50 } } } },
+        { id: 's4', type: 'delete_record', config: { entity: 'pipeline_stage', id: '{{steps.s1.record.id}}' } },
+        { id: 's5', type: 'query_data', config: { entity: 'pipeline_stage', where: { pipeline: 'default' }, limit: 10 } },
+        {
+          id: 's6',
+          type: 'create_record',
+          continueOnError: true,
+          retryPolicy: { maxAttempts: 1 },
+          config: { entity: 'mail_account', data: { name: 'Ops', email: 'ops@acme.test', isShared: false } },
+        },
+        {
+          id: 's7',
+          type: 'create_record',
+          continueOnError: true,
+          retryPolicy: { maxAttempts: 1 },
+          config: { entity: 'mail_account', data: { name: 'Ops', email: 'ops@acme.test', apiKey: 'k', passwordHash: 'h' } },
+        },
+        { id: 's8', type: 'create_record', config: { entity: 'mail_account', fields: { name: 'Ops', email: 'ops@acme.test' } } },
+        {
+          id: 's9',
+          type: 'create_record',
+          continueOnError: true,
+          retryPolicy: { maxAttempts: 1 },
+          config: { entity: 'mail_folder', data: { name: 'Inbox', accountId: 'mac_private' } },
+        },
+        { id: 's10', type: 'query_data', config: { entity: 'mail_account', filters: { email: { operator: 'contains', value: 'acme' } } } },
+        {
+          id: 's11',
+          type: 'update_record',
+          continueOnError: true,
+          retryPolicy: { maxAttempts: 1 },
+          config: { entity: 'mail_account', id: 'mac_private', data: { name: 'Mine now' } },
+        },
+        {
+          id: 's12',
+          type: 'create_record',
+          continueOnError: true,
+          retryPolicy: { maxAttempts: 1 },
+          config: { entity: 'task', data: { title: 'T', dueDate: '2026-12-01' } },
+        },
+        { id: 's13', type: 'create_record', continueOnError: true, retryPolicy: { maxAttempts: 1 }, config: { entity: 'spaceship' } },
+        { id: 's14', type: 'delete_record', config: { entity: 'mail_account', id: 'mac_private', hardDelete: true } },
+        { id: 's15', type: 'delete_record', config: { entity: 'mail_account', id: 'mac_shared', hardDelete: true } },
+        { id: 's16', type: 'query_data', config: { entity: 'mail-account', limit: 1, offset: 1 } },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_records_generic', triggerType: 'manual' },
+    inspect: [
+      'select name, probability, is_won, (deleted_at is not null) as deleted from crm_pipeline_stages order by name',
+      'select id, name, email, is_shared from mail_accounts order by email',
     ],
   },
 ];

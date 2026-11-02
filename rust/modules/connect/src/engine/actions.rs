@@ -15,6 +15,7 @@ use super::{EngineDeps, engine_id, now_ms, now_text};
 use crate::js::{as_text, js_number, js_string, truthy};
 
 mod comms;
+mod data;
 mod helpdesk;
 mod providers;
 mod records;
@@ -89,15 +90,6 @@ pub(crate) struct ActionCtx<'a> {
 
 type ActionResult = Result<Value, ActionError>;
 
-/// The step types the Kubernetes editions don't run yet. A run reaching
-/// one fails that step, without retries, with a message that says so.
-const NOT_YET: &[&str] = &[
-    "create_record",
-    "update_record",
-    "delete_record",
-    "query_data",
-];
-
 /// The AI steps: Workers AI, which the Kubernetes editions lack
 /// (`weldconnect-ai` is unavailable there).
 const AI_STEPS: &[&str] = &["ai_generate", "ai_classify"];
@@ -130,6 +122,10 @@ pub(crate) async fn execute_action(
         "post_chat_message" => records::post_chat_message(inputs, ctx).await,
         "create_task" => records::create_task(inputs, ctx).await,
         "send_email" => comms::send_email(inputs, ctx).await,
+        "create_record" => data::create_record(inputs, ctx).await,
+        "update_record" => data::update_record(inputs, ctx).await,
+        "delete_record" => data::delete_record(inputs, ctx).await,
+        "query_data" => data::query_data(inputs, ctx).await,
         "create_conversation" => helpdesk::create_conversation(inputs, ctx),
         "assign_conversation" => helpdesk::assign_conversation(inputs, ctx).await,
         "tag_conversation" => helpdesk::tag_conversation(inputs, ctx).await,
@@ -157,9 +153,6 @@ pub(crate) async fn execute_action(
         _ if AI_STEPS.contains(&kind) => Err(ActionError::fatal(
             "AI steps are not available on this deployment",
         )),
-        _ if NOT_YET.contains(&kind) => Err(ActionError::fatal(&format!(
-            "Step type \"{kind}\" is not available on this deployment yet"
-        ))),
         _ => Err(ActionError::fatal(&format!(
             "Step type \"{kind}\" is not supported by the workflow engine"
         ))),
