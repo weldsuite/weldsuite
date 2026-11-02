@@ -139,7 +139,7 @@ export default function VoiceAgentsPage() {
 
         <p className="text-sm text-muted-foreground">
           {tv.assignHint}{' '}
-          <Link href="/welddesk/settings/phone" className="underline underline-offset-2">
+          <Link href="/settings/apps/welddesk/phone" className="underline underline-offset-2">
             {tv.phoneSettings}
           </Link>
           .

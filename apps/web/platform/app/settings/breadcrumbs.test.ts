@@ -81,3 +81,27 @@ describe('buildBreadcrumbSegments', () => {
     expect(labels('/settings/some-new-page')).toEqual([en.settings.title, 'Some new page']);
   });
 });
+
+describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
+  const pageLabels = { '/settings/apps/welddesk/chat-widget': 'Chat widget', '/settings/apps/welddesk/email': 'Email' };
+
+  it('names a WeldDesk page by its own title, under WeldDesk', () => {
+    expect(buildBreadcrumbSegments('/settings/apps/welddesk/email', en.settings.title, en.settings.menu, pageLabels)).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: en.settings.menu.apps, href: '/settings/apps' },
+      { label: 'WeldDesk', href: '/settings/apps/welddesk' },
+      { label: 'Email' },
+    ]);
+  });
+
+  it('leaves a chat widget\'s id out of the trail', () => {
+    expect(
+      buildBreadcrumbSegments('/settings/apps/welddesk/chat-widget/wgt_123', en.settings.title, en.settings.menu, pageLabels),
+    ).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: en.settings.menu.apps, href: '/settings/apps' },
+      { label: 'WeldDesk', href: '/settings/apps/welddesk' },
+      { label: 'Chat widget', href: '/settings/apps/welddesk/chat-widget' },
+    ]);
+  });
+});

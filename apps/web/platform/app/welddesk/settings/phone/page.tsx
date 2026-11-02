@@ -258,7 +258,7 @@ export function PhoneSettingsClient() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" asChild>
-              <Link href="/welddesk/ai-agents">{tp.voiceAgents}</Link>
+              <Link href="/settings/apps/welddesk/voice-agents">{tp.voiceAgents}</Link>
             </Button>
             <Button variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
               {syncMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

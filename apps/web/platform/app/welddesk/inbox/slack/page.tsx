@@ -99,7 +99,7 @@ export default function SlackInboxPage() {
           variant="compact"
         />
         <Link
-          href="/welddesk/settings/integrations/slack"
+          href="/settings/integrations/slack"
           className="inline-flex items-center justify-center rounded-md text-sm font-medium h-8 w-8 hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
           title={ip.slackSettingsTitle}
         >

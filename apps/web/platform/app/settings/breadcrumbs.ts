@@ -110,10 +110,14 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
 
 // Build breadcrumb segments from the current path. The last segment is a leaf
 // (no href); the /settings index page is the profile editor, shown as a leaf.
+// `pageLabels` names an app's own settings pages by path
+// ('/settings/apps/welddesk/email'), where the bare slug would read like a
+// workspace page ("Email").
 export function buildBreadcrumbSegments(
   pathname: string,
   settingsTitle: string,
   menu: BreadcrumbMenuLabels,
+  pageLabels: Record<string, string> = {},
 ): BreadcrumbSegment[] {
   const segments: BreadcrumbSegment[] = [{ label: settingsTitle, href: '/settings' }];
   const pathParts = pathname.split('/').filter(Boolean);
@@ -129,15 +133,20 @@ export function buildBreadcrumbSegments(
   if (templateTrail) return [...segments, ...templateTrail];
 
   const underEntities = pathParts[1] === 'entities';
+  const underDeskWidget = pathParts[2] === 'welddesk' && pathParts[3] === 'chat-widget';
 
   for (let i = 1; i < pathParts.length; i++) {
     // An entity's id adds nothing to the trail: Settings > Entities > Edit entity.
     if (underEntities && i === 2 && pathParts[3] === 'edit') continue;
+    // Nor does a chat widget's: Settings > Apps > WeldDesk > Chat widget.
+    if (underDeskWidget && i === 4) continue;
     const part = pathParts[i];
     const key = part.toLowerCase();
-    // Translated menu title, else a known module slug with its own internal
-    // capitalization, else capitalize and space out the raw segment.
+    // The app's own page title, else a translated menu title, else a known
+    // module slug with its own internal capitalization, else capitalize and
+    // space out the raw segment.
     const label =
+      pageLabels['/' + pathParts.slice(0, i + 1).join('/')] ??
       (underEntities && key === 'add' ? menu.newEntity : undefined) ??
       (underEntities && key === 'edit' ? menu.editEntity : undefined) ??
       segmentLabels[key] ??

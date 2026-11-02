@@ -637,17 +637,18 @@ function SidebarSubItemRow({ subItem, pathname }: Readonly<{ subItem: MenuItemPr
   );
 }
 
-function SidebarItemWithSubItems({ item, pathname }: Readonly<{ item: MenuItemProps; pathname: string }>) {
+function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: MenuItemProps; pathname: string; isActive: boolean }>) {
   const Icon = item.icon;
   return (
     <Collapsible defaultOpen className="group/collapsible">
       <SidebarMenuItem>
-        <div className="group/item flex items-center justify-between rounded-md transition-colors hover:bg-accent py-1">
-          <div className="flex items-center flex-1 min-w-0">
+        <div className={cn("group/item flex items-center justify-between rounded-md transition-colors hover:bg-accent py-1", isActive && "bg-sidebar-accent")}>
+          {/* The parent row opens its own page; the chevron folds the sub-items. */}
+          <Link href={item.href} aria-current={pathname === item.href ? 'page' : undefined} className="flex items-center flex-1 min-w-0">
             <Icon className="h-4 w-4 ml-2 shrink-0" />
-            <span className={cn("ml-2 truncate", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
+            <span className={cn("ml-2 truncate", item.bold || isActive ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
             {item.badge && <span className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
-          </div>
+          </Link>
           <div className="flex items-center gap-0">
             {item.actions && item.actions.length > 0 && (
               <DropdownMenu>
@@ -1078,7 +1079,7 @@ function renderSidebarItem(
   if (hasSubItems) {
     return (
       <MaybeSortable key={item.href}>
-      <SidebarItemWithSubItems item={item} pathname={pathname} />
+      <SidebarItemWithSubItems item={item} pathname={pathname} isActive={isActive} />
       </MaybeSortable>
     );
   }

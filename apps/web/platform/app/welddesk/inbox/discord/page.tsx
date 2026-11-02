@@ -99,7 +99,7 @@ export default function DiscordInboxPage() {
           variant="compact"
         />
         <Link
-          href="/welddesk/settings/integrations/discord"
+          href="/settings/integrations/discord"
           className="inline-flex items-center justify-center rounded-md text-sm font-medium h-8 w-8 hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
           title={ip.discordSettingsTitle}
         >

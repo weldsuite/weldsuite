@@ -299,7 +299,7 @@ export function TicketFields({ conversation }: Readonly<{ conversation: DeskConv
     <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-ticket-fields">
       <div className="flex items-center justify-between mb-1">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.ticket.title}</p>
-        <Link href="/welddesk/settings/ticket-types" className="text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/settings/apps/welddesk/ticket-types" className="text-xs text-muted-foreground hover:text-foreground">
           {t.ticket.manageTypes}
         </Link>
       </div>

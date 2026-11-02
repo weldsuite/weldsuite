@@ -77,7 +77,7 @@ export default function EmailInboxPage() {
             </ol>
           </div>
           <Button asChild className="w-full">
-            <Link href="/welddesk/settings/integrations/email">
+            <Link href="/settings/apps/welddesk/email">
               <Settings className="h-4 w-4 mr-2" />
               {ip.setUpEmail}
             </Link>
