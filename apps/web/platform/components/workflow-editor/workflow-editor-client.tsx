@@ -61,6 +61,7 @@ import {
   MessageSquareText,
   ListChecks,
   ClipboardList,
+  Inbox,
   Sparkles,
   Tags,
   Plug,
@@ -338,6 +339,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   'gmail.send_email': { icon: Mail, color: 'text-red-600', bgColor: 'bg-red-100 dark:bg-red-900/30' },
   'google_calendar.create_event': { icon: Calendar, color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_conversation: { icon: Inbox, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -446,6 +448,7 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', icon: Move, category: 'data' },
   { id: 'log_activity', name: 'Log Activity', description: 'Log a call, email, meeting, task or note', icon: Activity, category: 'data' },
   { id: 'create_task', name: 'Create Task', description: 'Create a project task in WeldFlow', icon: ClipboardList, category: 'data' },
+  { id: 'create_conversation', name: 'Open Inbox Conversation', description: 'Open a WeldDesk inbox conversation, or add to the one with the same external id', icon: Inbox, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },

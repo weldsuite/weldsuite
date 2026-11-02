@@ -31,6 +31,8 @@ function as(userId: string, keys: string[]) {
   return {
     create: (body: Record<string, unknown>) => send('POST', '', body),
     update: (id: string, body: Record<string, unknown>) => send('PATCH', `/${id}`, body),
+    put: (id: string, body: Record<string, unknown>) => send('PUT', `/${id}`, body),
+    page: (query: string) => send('GET', query),
     remove: (id: string) => send('DELETE', `/${id}`),
     get: (id: string) => send('GET', `/${id}`),
     list: async () => {
@@ -135,5 +137,17 @@ describe('shared signatures', () => {
     await idOf(await admin.create({ name: 'Co', content: 'Co', type: 'company', isDefault: true }));
 
     expect((await erin.list()).find((s) => s.id === personal)?.isDefault).toBe(true);
+  });
+
+  it('PUT replaces the same fields PATCH does, and personal ones a member pages through', async () => {
+    const admin = as('user_admin4', ADMIN);
+    const frank = as('user_frank', MEMBER);
+    const id = await idOf(await admin.create({ name: 'Co', content: 'Co', type: 'company', accountIds: ['acc_x'], position: 'above' }));
+    expect((await admin.put(id, { name: 'Co 2', isDefault: true, includeInReplies: false })).status).toBe(200);
+    expect((await admin.put(id, { content: '' })).status).toBe(400);
+    for (const name of ['One', 'Two', 'Three']) await idOf(await frank.create({ name, content: name, tags: ['t'] }));
+    expect((await frank.page('?limit=2')).status).toBe(200);
+    expect((await frank.page('?type=personal')).status).toBe(200);
+    expect((await frank.page('?type=bogus')).status).toBe(400);
   });
 });

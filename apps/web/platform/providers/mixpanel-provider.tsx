@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { useUser, useOrganization } from '@clerk/clerk-react'
+import { useUser, useOrganization } from '@/lib/auth'
 import { initMixpanel, identify, setUserProperties } from '@/lib/analytics'
+import { publicEnv } from '@/lib/runtime-config'
 
-const MIXPANEL_TOKEN = import.meta.env.VITE_MIXPANEL_TOKEN ?? ''
+const MIXPANEL_TOKEN = publicEnv('VITE_MIXPANEL_TOKEN') ?? ''
 
 export function MixpanelIdentifier() {
   const { user, isLoaded } = useUser()

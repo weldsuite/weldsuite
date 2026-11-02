@@ -1,0 +1,162 @@
+{{- if .Values.signPortal.enabled }}
+{{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "SIGN_PORTAL_SECRET")) }}
+{{- fail "signPortal.enabled needs SIGN_PORTAL_SECRET in the Secret (secret.values or secret.existingSecret): the portal and the server share it" }}
+{{- end }}
+# The WeldSign signer portal (ADR FE-017): TanStack Start's Node build, which
+# calls the server's /public/sign-portal/* endpoints with the shared
+# SIGN_PORTAL_SECRET and the signer's IP from the ingress.
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "weldsuite.signPortal.fullname" . }}
+  labels:
+    {{- include "weldsuite.signPortal.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weldsuite.signPortal.fullname" . }}
+  labels:
+    {{- include "weldsuite.signPortal.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.signPortal.replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.signPortal.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if not .Values.secret.existingSecret }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- end }}
+      labels:
+        {{- include "weldsuite.signPortal.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if .Values.serviceAccount.create }}{{ include "weldsuite.signPortal.fullname" . }}{{ else }}{{ include "weldsuite.serviceAccountName" . }}{{ end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: sign-portal
+          image: "{{ .Values.signPortal.image.repository }}:{{ .Values.signPortal.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.signPortal.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: SIGN_PORTAL_BACKEND
+              value: rust
+            - name: SIGN_PORTAL_BACKEND_URL
+              value: {{ include "weldsuite.signPortal.backendUrl" . | quote }}
+            - name: SIGN_PORTAL_TRUSTED_PROXIES
+              value: {{ .Values.signPortal.trustedProxies | quote }}
+            - name: SIGN_PORTAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" . }}
+                  key: SIGN_PORTAL_SECRET
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.signPortal.resources | nindent 12 }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "weldsuite.signPortal.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.signPortal.fullname" . }}
+  labels:
+    {{- include "weldsuite.signPortal.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "weldsuite.signPortal.selectorLabels" . | nindent 4 }}
+{{- with .Values.signPortal.ingress }}
+{{- if .enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "weldsuite.signPortal.fullname" $ }}
+  labels:
+    {{- include "weldsuite.signPortal.labels" $ | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "weldsuite.signPortal.fullname" $ }}
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

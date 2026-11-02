@@ -1,8 +1,6 @@
 
 import { useState } from 'react';
-import { useUser, useReverification } from '@clerk/clerk-react';
-import { isReverificationCancelledError } from '@clerk/clerk-react/errors';
-import type { PasskeyResource } from '@clerk/types';
+import { useClerkUser, useReverification, isReverificationCancelledError, type PasskeyResource } from '@/lib/auth/clerk';
 import { formatDistanceToNow, format } from 'date-fns';
 import { EllipsisVertical, Fingerprint, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -42,7 +40,7 @@ import { getPasskeyErrorCode, isPasskeyDismissed, isPasskeySupported } from '@/l
  * the session is not fresh enough).
  */
 export function PasskeysSection() {
-  const { user } = useUser();
+  const { user } = useClerkUser();
   const { t } = useI18n();
   const tp = t.settings.security.passkeys;
 

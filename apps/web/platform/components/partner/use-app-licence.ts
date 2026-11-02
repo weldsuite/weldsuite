@@ -4,7 +4,7 @@
  */
 
 import { useCallback } from 'react';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 import { useI18n } from '@/lib/i18n/provider';

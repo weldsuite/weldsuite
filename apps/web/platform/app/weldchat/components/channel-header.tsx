@@ -9,11 +9,14 @@ import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
+import { ACTIVE_CALLS_KEY, withChannelCall, type ActiveCallEntry } from '../lib/active-calls';
 import { getRecordChatTypeInfo, openRecordPanel } from '../lib/record-chat-types';
+import { isFeatureAvailable } from '@/lib/edition';
 import { RecordChatFollowButton } from './record-chat-follow-button';
 
 function VideoCameraIcon({ className, strokeWidth = 1.5 }: Readonly<{ className?: string; strokeWidth?: number }>) {
@@ -121,6 +124,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
     openObjectPanel({ type: 'channel', id: channel.id, initialTab: 'people' });
   };
 
+  const callsAvailable = isFeatureAvailable('chat-calls');
   const { data: activeCallData } = useQuery({
     queryKey: weldchatKeys.activeCall(channel.id),
     queryFn: async () => {
@@ -128,8 +132,19 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
       return client.get<{ data: ChatCall | null }>(`/chat-calls/active/${channel.id}`);
     },
     refetchInterval: 10000,
+    enabled: callsAvailable,
   });
   const hasActiveCall = !!activeCallData?.data;
+
+  // This check is the truth for this conversation: put it on the sidebar's
+  // list too, which only hears of a call ending by push (see lib/active-calls).
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!activeCallData) return;
+    queryClient.setQueryData<ActiveCallEntry[]>(ACTIVE_CALLS_KEY, (prev) =>
+      prev ? withChannelCall(prev, channel.id, activeCallData.data ?? null) : prev,
+    );
+  }, [activeCallData, channel.id, queryClient]);
   const callButtonsDisabled = hasActiveCall;
 
   const openPanel = isDm ? onOpenMemberPanel : openChannelPanel;
@@ -180,7 +195,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
           {isRecordChat && <RecordChatActions channel={channel} />}
-          {channel.videoCallsEnabled !== false && (
+          {callsAvailable && channel.videoCallsEnabled !== false && (
             <Button
               variant="ghost"
               size="icon"
@@ -193,7 +208,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
               <VideoCameraIcon className="!h-[21px] !w-[21px]" strokeWidth={1.8} />
             </Button>
           )}
-          {channel.voiceCallsEnabled !== false && (
+          {callsAvailable && channel.voiceCallsEnabled !== false && (
             <Button
               variant="ghost"
               size="icon"

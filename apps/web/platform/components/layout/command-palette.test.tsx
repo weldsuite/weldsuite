@@ -41,7 +41,7 @@ vi.mock('@/lib/router', () => ({
 
 vi.mock('@clerk/clerk-react', () => ({
   useOrganization: () => ({ organization: { id: 'org_test' } }),
-  useClerk: () => ({ signOut }),
+  useAuth: () => ({ signOut }),
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({

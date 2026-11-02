@@ -183,6 +183,19 @@ export interface AuthPayload {
   avatar?: string;
   metadata?: Record<string, any>;
   token?: string;
+  /** Server-signed identity JWT (see AuthConfig.identityToken); only ever sent to the widget iframe. */
+  identityToken?: string;
+}
+
+/**
+ * `weld:init` payload, sent to each iframe once it has loaded. `auth` only
+ * goes to the widget iframe, and only when the host passed something.
+ */
+export interface InitPayload {
+  widgetId: string;
+  iframeType: string;
+  config: { api: unknown };
+  auth?: Pick<AuthPayload, 'identityToken' | 'userId' | 'email' | 'name'>;
 }
 
 /**

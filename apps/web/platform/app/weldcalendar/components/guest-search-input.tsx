@@ -10,6 +10,7 @@ import { usePeople, type Person } from '@/components/objects/person/use-person-d
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { inviteEmailFromQuery, inviteGuestId } from './guest-invite';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import { isModuleOffered } from '@/lib/edition';
 
 /** Minimal shape this field reads off `/team-members` rows (the query itself is untyped). */
 interface WorkspaceMemberLite {
@@ -145,7 +146,8 @@ export function GuestSearchInput({
       }
     }
 
-    if (!membersOnly && value.trim()) {
+    // Edition flags (4.F3): people are WeldCRM's.
+    if (!membersOnly && value.trim() && isModuleOffered('crm')) {
       listed.push({
         id: '__create_person__',
         name: value.trim(),

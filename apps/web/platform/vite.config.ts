@@ -1,8 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import path from 'node:path';
+import { bootMode } from './src/boot/mode';
 
 function i18nChunkName(normalizedId: string): string | undefined {
   const i18nMatch = /\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/.exec(normalizedId);
@@ -58,8 +59,12 @@ function vendorChunkName(pkg: string): string | undefined {
   return VENDOR_CHUNKS_PREFIX.find(([prefix]) => pkg.startsWith(prefix))?.[1];
 }
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ mode }) => {
   const { visualizer } = await import('rollup-plugin-visualizer');
+  // VITE_RUNTIME_CONFIG=on (Kubernetes builds) reads /config.json before the
+  // app starts; unset or off (Global, the Pages deploys) doesn't. See
+  // src/boot/mode.ts. From the shell or a .env file.
+  const boot = bootMode(loadEnv(mode, __dirname, 'VITE_').VITE_RUNTIME_CONFIG);
   return {
   plugins: [
     tanstackRouter({
@@ -134,7 +139,10 @@ export default defineConfig(async () => {
     },
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, '.') },
+    alias: {
+      '@boot': path.resolve(__dirname, 'src/boot', boot === 'runtime' ? 'runtime.tsx' : 'global.tsx'),
+      '@': path.resolve(__dirname, '.'),
+    },
     // Packages that keep module-level state and must exist once in the bundle.
     //
     // The workspace installs with `node-linker=hoisted`, and the root slot for

@@ -1,7 +1,12 @@
 /**
- * Step 3: place fields on the pages. Pick a signer and a field type, then click
- * on a page; drag a field to move it, drag its corner to resize it. The field
- * set is saved as a whole with "Save fields" and when you leave this step.
+ * Placing fields on the pages. Pick a signer and a field type, then click on a
+ * page; drag a field to move it, drag its corner to resize it. The field set is
+ * saved as a whole with "Save" and when the editor is left.
+ *
+ * `useFieldEditor` holds the field set; `FieldTools` (signer, types, selected
+ * field) and `FieldPages` (the pages) show it. A request puts the tools in its
+ * side panel and the pages in its preview; a template's step puts them side by
+ * side (`FieldsStep`).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -44,7 +49,7 @@ import { openPdf } from '../lib/pdf';
 import { apiErrorMessage } from '../lib/errors';
 import { PdfPage } from './pdf-page';
 
-type DraftField = SignFieldInput & { id: string };
+export type DraftField = SignFieldInput & { id: string };
 
 const FIELD_ICONS: Record<SignFieldType, LucideIcon> = {
   signature: Signature,
@@ -56,6 +61,9 @@ const FIELD_ICONS: Record<SignFieldType, LucideIcon> = {
   checkbox: CheckSquare,
 };
 
+/** The id of a document's pages in the preview, to scroll to. */
+export const documentAnchor = (documentId: string) => `sign-document-${documentId}`;
+
 /** Widest a page is drawn, in pixels. */
 const MAX_PAGE_WIDTH = 900;
 
@@ -66,12 +74,39 @@ function toDraft(fields: SignEnvelopeDetail['fields']): DraftField[] {
   return fields.map((f) => ({ ...f, label: f.label ?? null }));
 }
 
-export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
-  const { t, format } = useI18n();
-  const tf = t.weldsign.editor.fields;
+/** The field set being edited, shared by the tools that change it and the pages that show it. */
+export interface FieldEditor {
+  envelope: SignEnvelopeDetail;
+  target: SignTarget;
+  editable: boolean;
+  /** Editable and not saving: the field set is frozen while a save is in flight. */
+  canEdit: boolean;
+  fields: DraftField[];
+  dirty: boolean;
+  saving: boolean;
+  signers: SignRecipientDto[];
+  signerId: string | null;
+  setSignerId: (id: string) => void;
+  armed: SignFieldType | null;
+  setArmed: (type: SignFieldType | null) => void;
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
+  colorOf: (recipientId: string) => RecipientColor;
+  place: (doc: SignDocumentDto, page: number, at: { x: number; y: number }) => void;
+  updateField: (id: string, patch: Partial<DraftField>) => void;
+  removeField: (id: string) => void;
+  /** Saves the whole field set; rejects when the save fails (which is reported already). */
+  save: () => Promise<void>;
+}
+
+/**
+ * The fields of a request or template while they are placed. Changes stay local
+ * until `save`, and are saved when the editor goes away.
+ */
+export function useFieldEditor(envelope: SignEnvelopeDetail, editable: boolean): FieldEditor {
+  const { t } = useI18n();
   const target = targetOf(envelope);
-  const isTemplate = envelope.kind === 'template';
-  const save = useSaveSignFields(target, (err) => toast.error(`${t.weldsign.editor.saveFailed}: ${apiErrorMessage(err)}`));
+  const saveFields = useSaveSignFields(target, (err) => toast.error(`${t.weldsign.editor.saveFailed}: ${apiErrorMessage(err)}`));
 
   const signers = envelope.recipientList.filter((r) => r.role === 'signer');
   const colorOf = useMemo(() => {
@@ -86,12 +121,27 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // While a save is in flight the field set is frozen: the save replaces the
   // list with the server's copy, which would drop anything changed meanwhile.
-  const canEdit = editable && !save.isPending;
+  const canEdit = editable && !saveFields.isPending;
 
   // Keep the active signer valid when recipients change.
   useEffect(() => {
     if (!signerId || !signers.some((s) => s.id === signerId)) setSignerId(signers[0]?.id ?? null);
   }, [signers, signerId]);
+
+  // Removing a document or a recipient removes its fields on the server. Without
+  // unsaved changes the server's set is taken over; with them, the fields that
+  // lost their document or recipient are dropped.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    if (!dirtyRef.current) {
+      setFields(toDraft(envelope.fields));
+      return;
+    }
+    const documents = new Set(envelope.documents.map((d) => d.id));
+    const recipients = new Set(envelope.recipientList.map((r) => r.id));
+    setFields((prev) => prev.filter((f) => documents.has(f.documentId) && recipients.has(f.recipientId)));
+  }, [envelope.fields, envelope.documents, envelope.recipientList]);
 
   const change = useCallback((next: (prev: DraftField[]) => DraftField[]) => {
     setFields(next);
@@ -100,19 +150,19 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
 
   const persist = useCallback(
     (list: DraftField[]) =>
-      save.mutateAsync(list).then((saved) => {
+      saveFields.mutateAsync(list).then((saved) => {
         setFields(toDraft(saved));
         setDirty(false);
         setSelectedId(null);
       }),
-    [save],
+    [saveFields],
   );
 
-  // Save on the way out of this step.
+  // Save on the way out.
   const latest = useRef({ fields, dirty, editable });
   latest.current = { fields, dirty, editable };
-  const saveRef = useRef(save);
-  saveRef.current = save;
+  const saveRef = useRef(saveFields);
+  saveRef.current = saveFields;
   useEffect(
     () => () => {
       const { fields: last, dirty: unsaved, editable: canSave } = latest.current;
@@ -138,117 +188,171 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedId, canEdit, change]);
 
-  if (envelope.documents.length === 0) return <Notice text={tf.needDocuments} />;
-  if (signers.length === 0) return <Notice text={isTemplate ? tf.needRoles : tf.needSigners} />;
-
-  const selected = fields.find((f) => f.id === selectedId) ?? null;
-
-  const place = (doc: SignDocumentDto, page: number, at: { x: number; y: number }) => {
-    if (!armed || !signerId) return;
-    const box = placeField(armed, at, doc.pageSizes[page]!);
-    const field: DraftField = { id: tempId(), documentId: doc.id, recipientId: signerId, type: armed, page, ...box, required: armed !== 'checkbox', label: null };
-    change((prev) => [...prev, field]);
-    setSelectedId(field.id);
+  return {
+    envelope,
+    target,
+    editable,
+    canEdit,
+    fields,
+    dirty,
+    saving: saveFields.isPending,
+    signers,
+    signerId,
+    setSignerId,
+    armed,
+    setArmed,
+    selectedId,
+    setSelectedId,
+    colorOf,
+    place: (doc, page, at) => {
+      if (!armed || !signerId) return;
+      const box = placeField(armed, at, doc.pageSizes[page]!);
+      const field: DraftField = { id: tempId(), documentId: doc.id, recipientId: signerId, type: armed, page, ...box, required: armed !== 'checkbox', label: null };
+      change((prev) => [...prev, field]);
+      setSelectedId(field.id);
+    },
+    updateField: (id, patch) => change((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
+    removeField: (id) => {
+      change((prev) => prev.filter((f) => f.id !== id));
+      setSelectedId(null);
+    },
+    save: () => persist(fields),
   };
+}
 
-  const updateField = (id: string, patch: Partial<DraftField>) => change((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+/** The template editor's step: the tools on the left, the pages on the right. */
+export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
+  const { t, format } = useI18n();
+  const tf = t.weldsign.editor.fields;
+  const editor = useFieldEditor(envelope, editable);
+
+  if (envelope.documents.length === 0) return <Notice text={tf.needDocuments} />;
+  if (editor.signers.length === 0) return <Notice text={envelope.kind === 'template' ? tf.needRoles : tf.needSigners} />;
 
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <aside className="flex w-full shrink-0 flex-col gap-5 border-b p-4 lg:w-72 lg:overflow-y-auto lg:border-r lg:border-b-0">
-        <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isTemplate ? tf.role : tf.signer}</h3>
-          {signers.map((signer) => (
-            <SignerButton
-              key={signer.id}
-              label={recipientLabel(signer, envelope.kind)}
-              color={colorOf(signer.id)}
-              active={signer.id === signerId}
-              onClick={() => setSignerId(signer.id)}
-            />
-          ))}
-        </section>
-
-        {editable && (
-          <section className="flex flex-col gap-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tf.fieldTypes}</h3>
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
-              {SIGN_FIELD_TYPES.map((type) => {
-                const Icon = FIELD_ICONS[type];
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    aria-pressed={armed === type}
-                    onClick={() => setArmed(armed === type ? null : type)}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors',
-                      armed === type ? 'border-primary bg-primary/10 text-foreground' : 'hover:bg-muted',
-                    )}
-                  >
-                    <Icon className="size-4 text-muted-foreground" />
-                    {tf.types[type]}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {selected && (
-          <SelectedFieldPanel
-            field={selected}
-            signers={signers}
-            kind={envelope.kind}
-            editable={canEdit}
-            onChange={(patch) => updateField(selected.id, patch)}
-            onDelete={() => {
-              change((prev) => prev.filter((f) => f.id !== selected.id));
-              setSelectedId(null);
-            }}
-          />
-        )}
+        <FieldTools editor={editor} />
 
         {editable && (
           <div className="mt-auto flex flex-col gap-2">
-            {dirty && <p className="text-xs text-muted-foreground">{tf.unsaved}</p>}
+            {editor.dirty && <p className="text-xs text-muted-foreground">{tf.unsaved}</p>}
             <Button
               size="sm"
-              disabled={!dirty || save.isPending}
+              disabled={!editor.dirty || editor.saving}
               // The mutation's own onError reports the failure.
-              onClick={() => persist(fields).catch(() => undefined)}
+              onClick={() => editor.save().catch(() => undefined)}
             >
-              {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-              {save.isPending ? t.weldsign.editor.saving : tf.save}
+              {editor.saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {editor.saving ? t.weldsign.editor.saving : tf.save}
             </Button>
           </div>
         )}
       </aside>
 
       <div className="min-h-0 flex-1 overflow-auto bg-muted/40">
-        {armed && (
+        {editor.armed && (
           <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2 text-sm backdrop-blur">
-            {format(tf.placing, { type: tf.types[armed] })}
+            {format(tf.placing, { type: tf.types[editor.armed] })}
           </div>
         )}
-        <div className="flex flex-col items-center gap-8 p-4 sm:p-8">
-          {envelope.documents.map((doc) => (
-            <DocumentPages
-              key={doc.id}
-              target={target}
-              doc={doc}
-              fields={fields.filter((f) => f.documentId === doc.id)}
-              colorOf={colorOf}
-              selectedId={selectedId}
-              placing={canEdit && armed !== null}
-              editable={canEdit}
-              onPlace={(page, at) => place(doc, page, at)}
-              onSelect={setSelectedId}
-              onBoxChange={(id, box) => updateField(id, box)}
-            />
-          ))}
+        <div className="p-4 sm:p-8">
+          <FieldPages editor={editor} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Who fills in the next field, the field types, and the selected field. In a
+ * side panel (`panel`) the types sit two by two under the panel's own heading.
+ */
+export function FieldTools({ editor, panel = false }: Readonly<{ editor: FieldEditor; panel?: boolean }>) {
+  const { t } = useI18n();
+  const tf = t.weldsign.editor.fields;
+  const { envelope, signers, editable, armed } = editor;
+  const isTemplate = envelope.kind === 'template';
+
+  if (envelope.documents.length === 0) return <p className="text-sm text-muted-foreground">{tf.needDocuments}</p>;
+  if (signers.length === 0) return <p className="text-sm text-muted-foreground">{isTemplate ? tf.needRoles : tf.needSigners}</p>;
+
+  const selected = editor.fields.find((f) => f.id === editor.selectedId) ?? null;
+
+  return (
+    <>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isTemplate ? tf.role : tf.signer}</h3>
+        {signers.map((signer) => (
+          <SignerButton
+            key={signer.id}
+            label={recipientLabel(signer, envelope.kind)}
+            color={editor.colorOf(signer.id)}
+            active={signer.id === editor.signerId}
+            onClick={() => editor.setSignerId(signer.id)}
+          />
+        ))}
+      </section>
+
+      {editable && (
+        <section className="flex flex-col gap-2">
+          {!panel && <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tf.fieldTypes}</h3>}
+          <div className={cn('grid grid-cols-2 gap-2', !panel && 'lg:grid-cols-1')}>
+            {SIGN_FIELD_TYPES.map((type) => {
+              const Icon = FIELD_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  aria-pressed={armed === type}
+                  onClick={() => editor.setArmed(armed === type ? null : type)}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                    armed === type ? 'border-primary bg-primary/10 text-foreground' : 'hover:bg-muted',
+                  )}
+                >
+                  <Icon className="size-4 text-muted-foreground" />
+                  {tf.types[type]}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {selected && (
+        <SelectedFieldPanel
+          field={selected}
+          signers={signers}
+          kind={envelope.kind}
+          editable={editor.canEdit}
+          onChange={(patch) => editor.updateField(selected.id, patch)}
+          onDelete={() => editor.removeField(selected.id)}
+        />
+      )}
+    </>
+  );
+}
+
+/** Every document's pages, with the fields on top: click to place, drag to move. */
+export function FieldPages({ editor }: Readonly<{ editor: FieldEditor }>) {
+  return (
+    <div className="flex flex-col items-center gap-8">
+      {editor.envelope.documents.map((doc) => (
+        <DocumentPages
+          key={doc.id}
+          target={editor.target}
+          doc={doc}
+          fields={editor.fields.filter((f) => f.documentId === doc.id)}
+          colorOf={editor.colorOf}
+          selectedId={editor.selectedId}
+          placing={editor.canEdit && editor.armed !== null && editor.signerId !== null}
+          editable={editor.canEdit}
+          onPlace={(page, at) => editor.place(doc, page, at)}
+          onSelect={editor.setSelectedId}
+          onBoxChange={(id, box) => editor.updateField(id, box)}
+        />
+      ))}
     </div>
   );
 }
@@ -397,7 +501,7 @@ function DocumentPages({
   }, []);
 
   return (
-    <section ref={containerRef} className="flex w-full max-w-[900px] flex-col items-center gap-4">
+    <section ref={containerRef} id={documentAnchor(doc.id)} className="flex w-full max-w-[900px] scroll-mt-6 flex-col items-center gap-4">
       <h3 className="self-start text-sm font-medium">{doc.name}</h3>
       {(content.isError || failed) && <p className="text-sm text-destructive">{format(tf.documentFailed, { name: doc.name })}</p>}
       {!pdf && !content.isError && !failed && (

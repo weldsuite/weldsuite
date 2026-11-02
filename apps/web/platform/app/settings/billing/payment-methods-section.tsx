@@ -51,13 +51,14 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { useI18n } from '@/lib/i18n/provider';
+import { publicEnv } from '@/lib/runtime-config';
 
 /**
  * Stripe.js is loaded once per page load and shared by every dialog mount.
  * `loadStripe` is deliberately called outside the component — calling it on
  * each render would re-inject the script tag.
  */
-const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
+const publishableKey = publicEnv('VITE_STRIPE_PUBLISHABLE_KEY');
 const stripePromise: Promise<Stripe | null> | null = publishableKey
   ? loadStripe(publishableKey)
   : null;

@@ -72,3 +72,16 @@ export interface PersonCompany {
     avatarUrl?: string | null;
   } | null;
 }
+
+/** A `person_companies` row as the routes return it (the `PersonCompany` shape). */
+export const personCompanySchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  personId: z.string(),
+  companyId: z.string(),
+  role: z.string().nullish(),
+  isPrimary: z.boolean(),
+  startedAt: z.string().nullish(),
+  endedAt: z.string().nullish(),
+});

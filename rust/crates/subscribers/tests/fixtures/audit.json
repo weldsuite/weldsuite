@@ -1,0 +1,306 @@
+{
+  "seed": [
+    "delete from audit_logs where metadata->>'eventId' like 'evt_fx%'",
+    "delete from workspace_members where user_id like 'fx_%'",
+    "insert into workspace_members (id, user_id, name) values ('fxm_1', 'fx_user_1', 'Jane Doe'), ('fxm_2', 'fx_user_2', '')"
+  ],
+  "events": [
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"action\":\"created\",\"data\":{\"id\":\"cus_1\",\"name\":\"Acme\",\"companyName\":\"Acme BV\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a01\"}",
+    "{\"eventType\":\"project_task:updated\",\"entityType\":\"project_task\",\"entityId\":\"tsk_1\",\"action\":\"updated\",\"data\":{\"id\":\"tsk_1\",\"title\":\"Fix login bug\",\"status\":\"done\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a02\",\"changes\":{\"status\":{\"old\":\"todo\",\"new\":\"done\"},\"priority\":{\"old\":1,\"new\":2},\"assigneeId\":{\"old\":null,\"new\":\"usr_9\"}}}",
+    "{\"eventType\":\"opportunity:stage_changed\",\"entityType\":\"opportunity\",\"entityId\":\"opp_1\",\"action\":\"stage_changed\",\"data\":{\"name\":\"Zeta renewal\",\"amount\":1200.5},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_9\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"api\"},\"id\":\"evt_fx_a03\"}",
+    "{\"eventType\":\"contact:created\",\"entityType\":\"contact\",\"entityId\":\"per_1\",\"action\":\"created\",\"data\":{\"firstName\":\"Jane\",\"lastName\":\"Doe\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"mobile\"},\"id\":\"evt_fx_a04\"}",
+    "{\"eventType\":\"invoice:paid\",\"entityType\":\"invoice\",\"entityId\":\"inv_1\",\"action\":\"paid\",\"data\":{\"invoiceNumber\":1001,\"total\":99},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_2\",\"timestamp\":\"2026-10-29T12:00:00.000Z\"},\"id\":\"evt_fx_a05\"}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"action\":\"created\",\"data\":{\"id\":\"cus_1\",\"name\":\"Acme again\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a01\"}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a07\"}",
+    "{\"eventType\":\"vat_return:updated\",\"entityType\":\"vat_return\",\"entityId\":\"vat_1\",\"action\":\"updated\",\"data\":{\"periodLabel\":\"Q3 2026\",\"status\":\"draft\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a08\",\"changes\":{}}",
+    "{\"eventType\":\"ticket:updated\",\"entityType\":\"ticket\",\"entityId\":\"tic_9\",\"action\":\"updated\",\"data\":{\"subject\":\"Broken\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a09\",\"changes\":{\"status\":null}}",
+    "{\"eventType\":\"helpdesk_ticket:created\",\"entityType\":\"helpdesk_ticket\",\"entityId\":\"tic_1\",\"action\":\"created\",\"data\":null,\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a10\"}",
+    "{\"eventType\":\"meeting_session:some-new_thing\",\"entityType\":\"meeting_session\",\"entityId\":\"ms_1\",\"action\":\"some-new_thing\",\"data\":{\"title\":\"  Ünïcødé ✓ review  \"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a11\"}",
+    "{\"eventType\":\"company:updated\",\"entityType\":\"company\",\"entityId\":\"co_1\",\"action\":\"updated\",\"data\":{\"displayName\":\"\",\"name\":\"Acme Holding\",\"tradingName\":\"Acme\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a12\",\"changes\":{\"tradingName\":{\"old\":\"A\",\"new\":\"Acme\"},\"website_url\":{\"old\":null}}}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_missing\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a13\"}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_locked\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a14\"}"
+  ],
+  "outcomes": [
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "retry",
+    {
+      "defer": 60
+    }
+  ],
+  "rows": [
+    {
+      "action": "created",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": {
+        "companyName": "Acme BV",
+        "id": "cus_1",
+        "name": "Acme"
+      },
+      "description": "'Acme' was created by Jane Doe",
+      "entity_id": "cus_1",
+      "entity_type": "customer",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a01",
+        "source": "web",
+        "translationKey": "audit.created",
+        "translationParams": {
+          "entityName": "Acme",
+          "entityType": "customer"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    },
+    {
+      "action": "updated",
+      "changes": {
+        "assigneeId": {
+          "from": null,
+          "to": "usr_9"
+        },
+        "priority": {
+          "from": 1,
+          "to": 2
+        },
+        "status": {
+          "from": "todo",
+          "to": "done"
+        }
+      },
+      "created_at": "<ts>",
+      "data": {
+        "id": "tsk_1",
+        "status": "done",
+        "title": "Fix login bug"
+      },
+      "description": "Jane Doe changed Status, Priority, and Assignee Id",
+      "entity_id": "tsk_1",
+      "entity_type": "project_task",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a02",
+        "source": "web",
+        "translationKey": "audit.updated",
+        "translationParams": {
+          "changedFields": [
+            "status",
+            "priority",
+            "assigneeId"
+          ],
+          "entityName": "Fix login bug",
+          "entityType": "task"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    },
+    {
+      "action": "stage_changed",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": {
+        "amount": 1200.5,
+        "name": "Zeta renewal"
+      },
+      "description": "'Zeta renewal' was moved to another stage by System",
+      "entity_id": "opp_1",
+      "entity_type": "opportunity",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a03",
+        "source": "api",
+        "translationKey": "audit.stage_changed",
+        "translationParams": {
+          "entityName": "Zeta renewal",
+          "entityType": "opportunity"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_9",
+      "performed_by_name": null
+    },
+    {
+      "action": "created",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": {
+        "firstName": "Jane",
+        "lastName": "Doe"
+      },
+      "description": "'Jane Doe' was created by System",
+      "entity_id": "per_1",
+      "entity_type": "contact",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a04",
+        "source": "mobile",
+        "translationKey": "audit.created",
+        "translationParams": {
+          "entityName": "Jane Doe",
+          "entityType": "contact"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "",
+      "performed_by_name": null
+    },
+    {
+      "action": "paid",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": {
+        "invoiceNumber": 1001,
+        "total": 99
+      },
+      "description": "'1001' was marked as paid by System",
+      "entity_id": "inv_1",
+      "entity_type": "invoice",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a05",
+        "translationKey": "audit.paid",
+        "translationParams": {
+          "entityName": "1001",
+          "entityType": "invoice"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_2",
+      "performed_by_name": null
+    },
+    {
+      "action": "updated",
+      "changes": {},
+      "created_at": "<ts>",
+      "data": {
+        "periodLabel": "Q3 2026",
+        "status": "draft"
+      },
+      "description": "Jane Doe updated 'Q3 2026'",
+      "entity_id": "vat_1",
+      "entity_type": "vat_return",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a08",
+        "source": "web",
+        "translationKey": "audit.updated",
+        "translationParams": {
+          "changedFields": [],
+          "entityName": "Q3 2026",
+          "entityType": "vat_return"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    },
+    {
+      "action": "created",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": null,
+      "description": "Ticket was created by Jane Doe",
+      "entity_id": "tic_1",
+      "entity_type": "helpdesk_ticket",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a10",
+        "source": "web",
+        "translationKey": "audit.created",
+        "translationParams": {
+          "entityName": null,
+          "entityType": "ticket"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    },
+    {
+      "action": "some-new_thing",
+      "changes": null,
+      "created_at": "<ts>",
+      "data": {
+        "title": "  Ünïcødé ✓ review  "
+      },
+      "description": "'Ünïcødé ✓ review' was some new thing by Jane Doe",
+      "entity_id": "ms_1",
+      "entity_type": "meeting_session",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a11",
+        "source": "web",
+        "translationKey": "audit.some-new_thing",
+        "translationParams": {
+          "entityName": "Ünïcødé ✓ review",
+          "entityType": "meeting_session"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    },
+    {
+      "action": "updated",
+      "changes": {
+        "tradingName": {
+          "from": "A",
+          "to": "Acme"
+        },
+        "website_url": {
+          "from": null
+        }
+      },
+      "created_at": "<ts>",
+      "data": {
+        "displayName": "",
+        "name": "Acme Holding",
+        "tradingName": "Acme"
+      },
+      "description": "Jane Doe changed Trading Name and Website Url",
+      "entity_id": "co_1",
+      "entity_type": "company",
+      "id": "<id:aud>",
+      "ip_address": null,
+      "metadata": {
+        "eventId": "evt_fx_a12",
+        "source": "web",
+        "translationKey": "audit.updated",
+        "translationParams": {
+          "changedFields": [
+            "tradingName",
+            "website_url"
+          ],
+          "entityName": "Acme Holding",
+          "entityType": "company"
+        },
+        "workspaceId": "org_fx"
+      },
+      "performed_by": "fx_user_1",
+      "performed_by_name": "Jane Doe"
+    }
+  ]
+}

@@ -14,7 +14,8 @@
  * without a ClerkProvider.
  */
 import { useCallback } from 'react';
-import { useReverification, useUser } from '@clerk/clerk-react';
+import { getAuthProvider } from '@/lib/auth';
+import { useClerkUser, useReverification } from '@/lib/auth/clerk';
 import { isBankFeedRequestError } from '@/lib/api/domains/weldbooks-bank-feeds';
 
 export const MFA_REQUIRED = 'MFA_REQUIRED';
@@ -52,7 +53,21 @@ function stillRefused(): Error {
  * `reverification_cancelled` error (`isReverificationCancelledError`).
  */
 export function useWithSecondFactor<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
-  const { user } = useUser();
+  const useImpl = getAuthProvider() === 'clerk' ? useClerkSecondFactor<A, R> : usePassThrough<A, R>;
+  return useImpl(call);
+}
+
+/**
+ * Other providers: step-up verification is the provider's (an `acr` /
+ * `max_age` sign-in), not Clerk's dialog, so the call goes out as it is and a
+ * refusal surfaces like any other books-api error.
+ */
+function usePassThrough<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  return call;
+}
+
+function useClerkSecondFactor<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  const { user } = useClerkUser();
   const hasSecondFactor = user?.twoFactorEnabled ?? false;
   const verified = useReverification(async (...args: A): Promise<R | Hint> => {
     try {

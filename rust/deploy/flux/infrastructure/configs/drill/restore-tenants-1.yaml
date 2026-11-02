@@ -1,0 +1,22 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tenants-1
+  namespace: postgres
+spec:
+  bootstrap:
+    initdb: null
+    recovery:
+      source: production
+  externalClusters:
+    - name: production
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: tenants-1-backups
+          serverName: tenants-1
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: drill-tenants-1-backups

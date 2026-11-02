@@ -86,7 +86,7 @@ function SiteLayout() {
   // renders this component, without loader data.
   if (!site) return <NotFound />
 
-  const { config, folders } = site
+  const { config, folders, portal } = site
   const accent = accentColor(config.primaryColor)
 
   return (
@@ -94,7 +94,7 @@ function SiteLayout() {
       className="flex min-h-full w-full flex-col"
       style={accent ? ({ '--hc-accent': accent } as React.CSSProperties) : undefined}
     >
-      <Header config={config} />
+      <Header config={config} portal={portal} />
 
       <div className="mx-auto flex w-full max-w-7xl flex-auto px-4 sm:px-6 lg:px-8">
         {folders.length > 0 && (

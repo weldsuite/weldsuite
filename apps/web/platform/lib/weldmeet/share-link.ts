@@ -1,3 +1,4 @@
+import { publicEnv } from '@/lib/runtime-config';
 /**
  * Public share link of a WeldMeet meeting.
  *
@@ -11,7 +12,7 @@
 export const DEFAULT_MEETING_PORTAL_URL = 'https://meet.weldsuite.org';
 
 export function getMeetingPortalUrl(): string {
-  const configured = (import.meta.env.VITE_MEETING_PORTAL_URL as string | undefined)?.trim();
+  const configured = publicEnv('VITE_MEETING_PORTAL_URL')?.trim();
   return (configured || DEFAULT_MEETING_PORTAL_URL).replace(/(?<!\/)\/+$/, '');
 }
 

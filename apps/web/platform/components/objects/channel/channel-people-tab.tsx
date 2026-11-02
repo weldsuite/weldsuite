@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Bot, Crown, MoreHorizontal, Plus, ShieldCheck, UserMinus, UserRound, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useCan } from '@weldsuite/permissions/react';
 import {
   useChannel,

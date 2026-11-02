@@ -24,3 +24,33 @@ export const updateTicketMessageSchema = createTicketMessageSchema.partial();
 
 export type CreateTicketMessageInput = z.infer<typeof createTicketMessageSchema>;
 export type UpdateTicketMessageInput = z.infer<typeof updateTicketMessageSchema>;
+
+/** A `helpdesk_ticket_messages` row, as /api/ticket-messages returns it. */
+export const ticketMessageSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    ticketId: z.string(),
+    authorId: z.string().nullable(),
+    authorName: z.string(),
+    authorEmail: z.string(),
+    authorType: z.string(),
+    subject: z.string().nullable(),
+    body: z.string(),
+    htmlBody: z.string().nullable(),
+    plainBody: z.string().nullable(),
+    type: z.string(),
+    isPublic: z.boolean(),
+    isInternal: z.boolean().nullable(),
+    status: z.string().nullable(),
+    readAt: z.string().nullable(),
+    messageId: z.string().nullable(),
+    inReplyTo: z.string().nullable(),
+    cc: z.unknown(),
+    bcc: z.unknown(),
+    attachments: z.unknown(),
+    metadata: z.unknown(),
+  })
+  .passthrough();

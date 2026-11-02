@@ -83,6 +83,16 @@ export interface AuthConfig {
   avatar?: string;
   metadata?: Record<string, any>;
   token?: string;
+  /**
+   * Identity verification: a JWT (HS256) your server signs with the widget's
+   * identity secret, claims `sub` (your user id, required), `email`, `name`
+   * and `exp` (required, at most 30 days ahead). The visitor is then signed in
+   * as that user: their name and email come from the token, and they see
+   * their conversations on every device. Never sign it in the browser: the
+   * secret must stay on your server. Passed to the widget by postMessage,
+   * never in a URL.
+   */
+  identityToken?: string;
 }
 
 /**

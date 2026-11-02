@@ -262,3 +262,146 @@ export interface MemberActivityItem {
   createdAt: string;
   changes: Record<string, { from: unknown; to: unknown }> | null;
 }
+
+// ----------------------------------------------------------------------------
+// Response schemas (what the directory routes answer), for clients that parse
+// and for the Rust conformance suite.
+// ----------------------------------------------------------------------------
+
+/** GET /api/team-members/me: the caller's own member row. */
+export const teamMemberSelfSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  email: z.string().nullable(),
+  name: z.string().nullable(),
+  picture: z.string().nullable(),
+  role: z.string(),
+  roleId: z.string().nullable(),
+  permissions: z.array(z.string()).nullable(),
+  status: z.string(),
+  memberType: z.string(),
+});
+
+/**
+ * A directory row, projected by visibility: the public fields always, the
+ * viewer's own row adds email / roleId / permissions, admins see the invite
+ * fields too.
+ */
+export const teamMemberListItemSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string().nullable(),
+  picture: z.string().nullable(),
+  role: z.string(),
+  status: z.string(),
+  memberType: z.string(),
+  email: z.string().nullable().optional(),
+  roleId: z.string().nullable().optional(),
+  permissions: z.array(z.string()).nullable().optional(),
+  invitedBy: z.string().nullable().optional(),
+  invitedAt: z.string().nullable().optional(),
+  acceptedAt: z.string().nullable().optional(),
+  createdAt: z.string().optional(),
+});
+
+/** GET /api/team-members/:id/permissions. */
+export const memberPermissionsBreakdownSchema = z.object({
+  effective: z.array(z.string()),
+  rolePermissions: z.array(z.string()),
+  memberOverrides: z.array(z.string()),
+  memberDenies: z.array(z.string()),
+  inheritedPermissions: z.array(z.string()),
+  role: z.string(),
+  roleId: z.string().nullable(),
+});
+
+/** One item of GET /api/team-members/:id/apps. */
+export const memberAppAssignmentSchema = z.object({
+  appCode: z.string(),
+  appName: z.string(),
+  isAssigned: z.boolean(),
+  assignedAt: z.string().nullable(),
+  assignedBy: z.string().nullable(),
+});
+
+/** POST /api/team-members/:id/apps/toggle. */
+export const memberAppToggleResultSchema = z.object({
+  appCode: z.string(),
+  enabled: z.boolean(),
+});
+
+/** GET|PATCH /api/team-members/user/:userId/profile. */
+export const memberProfileSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  picture: z.string().nullable(),
+  role: z.string(),
+  status: z.string(),
+  title: z.string().nullable(),
+  bio: z.string().nullable(),
+  phone: z.string().nullable(),
+  location: z.string().nullable(),
+  pronouns: z.string().nullable(),
+  links: z.array(z.object({ label: z.string(), url: z.string() })).nullable(),
+  hoursPerWeek: z.string().nullable(),
+  workingHours: z.record(z.string(), z.unknown()).nullable(),
+  timezone: z.string(),
+  canEdit: z.boolean(),
+});
+
+/** A private note (`MemberNote`). */
+export const memberNoteSchema = z.object({
+  id: z.string(),
+  authorUserId: z.string(),
+  subjectUserId: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** GET /api/team-members/user/:userId/common. */
+export const commonConceptsResponseSchema = z.object({
+  channels: z.array(z.object({ id: z.string(), name: z.string(), type: z.string(), memberCount: z.number() })),
+  projects: z.array(
+    z.object({ id: z.string(), name: z.string(), status: z.string().nullable(), color: z.string().nullable() }),
+  ),
+  tasks: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+      projectId: z.string().nullable(),
+      dueDate: z.string().nullable(),
+      role: z.enum(['shared_assignee', 'shared_watcher', 'delegated']),
+    }),
+  ),
+  crm: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(['opportunity', 'activity']),
+      name: z.string(),
+      status: z.string().nullable(),
+    }),
+  ),
+  helpdesk: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(['conversation', 'ticket']),
+      subject: z.string(),
+      status: z.string(),
+    }),
+  ),
+});
+
+/** One item of GET /api/team-members/user/:userId/activity. */
+export const memberActivityItemSchema = z.object({
+  id: z.string(),
+  action: z.string(),
+  entityType: z.string(),
+  entityId: z.string(),
+  description: z.string(),
+  createdAt: z.string(),
+  changes: z.record(z.string(), z.unknown()).nullable(),
+});

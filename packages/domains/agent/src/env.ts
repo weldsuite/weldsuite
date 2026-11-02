@@ -15,6 +15,11 @@ export interface WeldAgentEnv extends DbEnv, NotificationEnv {
   /** Entity-events hub queue (records agents create publish like any mutation). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /**
+   * helpdesk-workflow-worker: the AssignmentRouter that hands out a WeldDesk
+   * conversation the agent opens (ADR DESK-005). Without it the pick runs locally.
+   */
+  HELPDESK_WORKFLOW?: Fetcher;
+  /**
    * D1 schedule index (shared with workflow-worker). Routine writes keep it in
    * sync so the hourly routine sweep only opens due workspaces.
    */

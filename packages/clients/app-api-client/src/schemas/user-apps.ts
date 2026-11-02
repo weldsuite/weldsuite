@@ -335,3 +335,170 @@ export function isAllowedDevSessionUrl(raw: string): boolean {
 
 /** How long a preview session stays valid without a CLI heartbeat. */
 export const DEV_SESSION_TTL_MS = 5 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Responses (app-api /api/user-apps): the master rows as Drizzle returns them
+// ---------------------------------------------------------------------------
+
+const scopeListSchema = z.array(z.string());
+const jsonObjectSchema = z.record(z.unknown());
+
+/** A `user_apps` row. */
+export const userAppSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  icon: z.string(),
+  category: z.string(),
+  ownerWorkspaceId: z.string(),
+  createdBy: z.string(),
+  publisherType: z.string(),
+  visibility: z.enum(['private', 'public']),
+  reviewStatus: z.enum(['draft', 'submitted', 'approved', 'rejected']),
+  reviewNotes: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+  reviewedAt: z.string().nullable(),
+  currentVersionId: z.string().nullable(),
+  manifest: jsonObjectSchema.nullable(),
+  requestedScopes: scopeListSchema.nullable(),
+  pricingType: z.enum(['free', 'subscription']),
+  /** `numeric`, as a string ("9.99"). */
+  priceMonthly: z.string().nullable(),
+  currency: z.string(),
+  platformFeePercent: z.number().int(),
+  stripeProductId: z.string().nullable(),
+  stripePriceId: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  privacyUrl: z.string().nullable(),
+  screenshots: z.array(z.string()).nullable(),
+  webhookUrl: z.string().nullable(),
+  installCount: z.number().int(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** An app as the store lists it: no lifecycle webhook or Stripe ids, plus this workspace's install state. */
+export const userAppStoreListingSchema = userAppSchema
+  .omit({ webhookUrl: true, stripeProductId: true, stripePriceId: true })
+  .extend({
+    isInstalled: z.boolean(),
+    pendingScopes: scopeListSchema.nullable(),
+  });
+
+/** A `user_app_versions` row. */
+export const userAppVersionSchema = z.object({
+  id: z.string(),
+  appId: z.string(),
+  version: z.string(),
+  manifest: jsonObjectSchema.nullable(),
+  requestedScopes: scopeListSchema.nullable(),
+  bundleKey: z.string(),
+  entrypoint: z.string(),
+  bundleSize: z.number().int(),
+  fileCount: z.number().int(),
+  status: z.enum(['draft', 'published', 'superseded', 'rejected']),
+  changelog: z.string().nullable(),
+  createdBy: z.string(),
+  publishedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** A `user_app_installs` row (a workspace's consent grant). */
+export const userAppInstallSchema = z.object({
+  id: z.string(),
+  appId: z.string(),
+  workspaceId: z.string(),
+  status: z.enum(['active', 'revoked']),
+  grantedScopes: scopeListSchema.nullable(),
+  pendingScopes: scopeListSchema.nullable(),
+  installedBy: z.string(),
+  installedAt: z.string(),
+  revokedAt: z.string().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  subscriptionStatus: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** `POST /api/user-apps/:id/install`: the grant and the install token, shown once. */
+export const userAppInstallResultSchema = z.object({
+  install: userAppInstallSchema,
+  token: z.string(),
+});
+
+/** `GET /api/user-apps/installed`: the tenant's install row with the app's sidenav fields. */
+export const installedUserAppSchema = z.object({
+  id: z.string(),
+  appCode: z.string(),
+  isActive: z.boolean(),
+  displayOrder: z.number().int().nullable(),
+  appType: z.string(),
+  userAppId: z.string().nullable(),
+  grantedScopes: scopeListSchema.nullable(),
+  settings: jsonObjectSchema.nullable(),
+  installedAt: z.string().nullable(),
+  installedBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+  app: z.object({
+    id: z.string(),
+    code: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    icon: z.string(),
+    category: z.string(),
+    manifest: jsonObjectSchema.nullable(),
+    currentVersionId: z.string().nullable(),
+    publisherType: z.string(),
+  }),
+});
+
+/** `GET /api/user-apps/developer-account`: the Stripe Connect payout account, or null. */
+export const appDeveloperAccountSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    stripeConnectAccountId: z.string().nullable(),
+    payoutsEnabled: z.boolean(),
+    onboardedAt: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .nullable();
+
+/** `POST /api/user-apps/code/:code/session-token` (bridge protocol 1). */
+export const userAppSessionTokenSchema = z.object({
+  token: z.string(),
+  expiresAt: z.string().nullable(),
+  apiBaseUrl: z.string(),
+});
+
+/** `POST /api/user-apps/code/:code/bundle-url`: the plain or signed bundle path. */
+export const userAppBundleUrlSchema = z.object({
+  path: z.string(),
+  signed: z.boolean(),
+  expiresAt: z.string().nullable(),
+});
+
+/** `GET|PUT /api/user-apps/code/:code/dev-session`: the caller's preview session. */
+export const userAppDevSessionViewSchema = z.object({
+  url: z.string(),
+  origin: z.string(),
+  expiresAt: z.string(),
+});
+
+/** `GET /api/user-apps/:id/oauth-client`. */
+export const userAppOauthClientSchema = z.object({
+  clientId: z.string(),
+  createdAt: z.string(),
+});
+
+/** `POST /api/user-apps/:id/oauth-client`: the secret is shown once. */
+export const userAppOauthClientSecretSchema = z.object({
+  clientId: z.string(),
+  clientSecret: z.string(),
+});

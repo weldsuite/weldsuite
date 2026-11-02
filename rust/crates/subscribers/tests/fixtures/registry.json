@@ -1,0 +1,182 @@
+{
+  "subscribers": [
+    {
+      "id": "audit",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "analytics",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "search-index",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "webhooks",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "weldconnect",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "weldagent",
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "realtime",
+      "topics": [
+        "*"
+      ]
+    }
+  ],
+  "matches": [
+    {
+      "eventType": "customer:created",
+      "subscribers": [
+        "audit",
+        "analytics",
+        "search-index",
+        "webhooks",
+        "weldconnect",
+        "weldagent",
+        "realtime"
+      ],
+      "patterns": {
+        "*": true,
+        "customer:*": true,
+        "customer:created": true,
+        "ticket:*": false
+      }
+    },
+    {
+      "eventType": "ticket:updated",
+      "subscribers": [
+        "audit",
+        "analytics",
+        "search-index",
+        "webhooks",
+        "weldconnect",
+        "weldagent",
+        "realtime"
+      ],
+      "patterns": {
+        "*": true,
+        "customer:*": false,
+        "customer:created": false,
+        "ticket:*": true
+      }
+    },
+    {
+      "eventType": "co_machine:deleted",
+      "subscribers": [
+        "audit",
+        "analytics",
+        "search-index",
+        "webhooks",
+        "weldconnect",
+        "weldagent",
+        "realtime"
+      ],
+      "patterns": {
+        "*": true,
+        "customer:*": false,
+        "customer:created": false,
+        "ticket:*": false
+      }
+    },
+    {
+      "eventType": "customer",
+      "subscribers": [],
+      "patterns": {
+        "*": false,
+        "customer:*": false,
+        "customer:created": false,
+        "ticket:*": false
+      }
+    },
+    {
+      "eventType": ":created",
+      "subscribers": [],
+      "patterns": {
+        "*": false,
+        "customer:*": false,
+        "customer:created": false,
+        "ticket:*": false
+      }
+    },
+    {
+      "eventType": "customer:",
+      "subscribers": [],
+      "patterns": {
+        "*": false,
+        "customer:*": false,
+        "customer:created": false,
+        "ticket:*": false
+      }
+    }
+  ],
+  "queues": {
+    "audit": {
+      "queue": "audit-events",
+      "maxRetries": 3,
+      "maxBatchSize": 10,
+      "maxBatchTimeout": 1,
+      "maxConcurrency": null,
+      "deadLetterQueue": "audit-events-dlq"
+    },
+    "analytics": {
+      "queue": "analytics-events",
+      "maxRetries": 3,
+      "maxBatchSize": 25,
+      "maxBatchTimeout": 5,
+      "maxConcurrency": null,
+      "deadLetterQueue": "analytics-events-dlq"
+    },
+    "search-index": {
+      "queue": "search-index",
+      "maxRetries": 3,
+      "maxBatchSize": 25,
+      "maxBatchTimeout": 10,
+      "maxConcurrency": 4,
+      "deadLetterQueue": "search-index-dlq"
+    },
+    "webhooks": {
+      "queue": "entity-webhooks",
+      "maxRetries": 3,
+      "maxBatchSize": 10,
+      "maxBatchTimeout": 5,
+      "maxConcurrency": 4,
+      "deadLetterQueue": "entity-webhooks-dlq"
+    },
+    "realtime": {
+      "queue": "entity-realtime",
+      "maxRetries": 3,
+      "maxBatchSize": 10,
+      "maxBatchTimeout": 1,
+      "maxConcurrency": 4,
+      "deadLetterQueue": "entity-realtime-dlq"
+    },
+    "hub": {
+      "queue": "entity-events",
+      "maxRetries": 3,
+      "maxBatchSize": 10,
+      "maxBatchTimeout": 1,
+      "maxConcurrency": null,
+      "deadLetterQueue": "entity-events-dlq"
+    }
+  }
+}

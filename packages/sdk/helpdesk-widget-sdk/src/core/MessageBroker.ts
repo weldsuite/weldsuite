@@ -7,6 +7,7 @@ import type {
   WeldMessage,
   MessageType,
   PayloadMessage,
+  InitPayload,
 } from '../types/messages';
 import {
   MessageOrigin,
@@ -408,7 +409,7 @@ export class MessageBroker {
     const iframe = this.iframeManager.getIframe(iframeType);
     if (!iframe) return;
 
-    const initPayload = {
+    const initPayload: InitPayload = {
       widgetId: this.config.widgetId,
       iframeType,
       config: {
@@ -416,9 +417,25 @@ export class MessageBroker {
       },
     };
 
+    // Who the visitor is goes to the widget only, and by postMessage: an
+    // identity token must never end up in an iframe URL or a log line.
+    const auth = iframeType === IframeType.WIDGET ? this.initAuth() : undefined;
+    if (auth) initPayload.auth = auth;
+
     const message = createMessage('weld:init' as MessageType, MessageOrigin.PARENT, initPayload);
     this.postMessage(iframe.element, message);
-    this.logger.debug(`Sent weld:init to ${iframeType}`, initPayload);
+    this.logger.debug(`Sent weld:init to ${iframeType}`, {
+      widgetId: initPayload.widgetId,
+      iframeType,
+      auth: auth ? { userId: auth.userId, identityToken: auth.identityToken ? '[redacted]' : undefined } : undefined,
+    });
+  }
+
+  /** The visitor from `auth` in the SDK config, if the host passed one. */
+  private initAuth(): InitPayload['auth'] {
+    const { identityToken, userId, email, name } = this.config.auth ?? {};
+    if (!identityToken && !userId && !email && !name) return undefined;
+    return { identityToken, userId, email, name };
   }
 
   /**

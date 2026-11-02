@@ -1,0 +1,39 @@
+# The ingress controller. The Hetzner ingress load balancer (hetzner/
+# loadbalancer.tf) forwards 80/443 to these NodePorts over the private network
+# with the PROXY protocol, so requests keep the client's address.
+deployment:
+  replicas: 2
+service:
+  type: NodePort
+ports:
+  web:
+    nodePort: 30080
+    proxyProtocol:
+      trustedIPs: ["10.10.0.0/16"]
+    forwardedHeaders:
+      trustedIPs: ["10.10.0.0/16"]
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    nodePort: 30443
+    proxyProtocol:
+      trustedIPs: ["10.10.0.0/16"]
+    forwardedHeaders:
+      trustedIPs: ["10.10.0.0/16"]
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+providers:
+  kubernetesIngress:
+    enabled: true
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik

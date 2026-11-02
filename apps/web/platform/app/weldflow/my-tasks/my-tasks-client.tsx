@@ -24,7 +24,7 @@ import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/o
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useQueryClient } from '@tanstack/react-query';
 import { taskKeys } from '@/hooks/queries/use-task-queries';
 import {

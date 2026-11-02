@@ -116,6 +116,9 @@ describe('GET|PUT /api/files/:id/content · tenant keys (TASK-620)', () => {
       objects.set(k, new TextDecoder().decode(body));
       return { key: k };
     },
+    delete: async (keys: string | string[]) => {
+      for (const k of Array.isArray(keys) ? keys : [keys]) objects.delete(k);
+    },
   } as unknown as R2Bucket;
   const withStorage = () =>
     createTestApp('/api/files', filesRoutes, {

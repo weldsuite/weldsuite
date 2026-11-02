@@ -24,6 +24,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/desk-domain": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/flow-domain": "workspace:*",

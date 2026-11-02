@@ -8,6 +8,14 @@ interface InlineTextEditorProps {
   onSave: (next: string) => void;
   /** Typography/colour classes shared by the idle and the editing state. */
   className?: string;
+  /**
+   * One line that hugs its text, for a bar such as a document header: the
+   * editor is as wide as the idle text and grows as you type, instead of
+   * wrapping and filling the row.
+   */
+  singleLine?: boolean;
+  /** Accessible name of the text field while editing ("Request title"). */
+  label?: string;
 }
 
 /**
@@ -18,10 +26,12 @@ interface InlineTextEditorProps {
  * committed value so nothing flashes back to a stale prop while the API
  * update is in flight.
  */
-export function InlineTextEditor({ value, onSave, className }: Readonly<InlineTextEditorProps>) {
+export function InlineTextEditor({ value, onSave, className, singleLine = false, label }: Readonly<InlineTextEditorProps>) {
   const [isEditing, setIsEditing] = useState(false);
   const [local, setLocal] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // `singleLine`: an unseen copy of the text, styled like the editor, to measure its width by.
+  const mirrorRef = useRef<HTMLSpanElement>(null);
   const idleButtonRef = useRef<HTMLButtonElement>(null);
   // Set when edit mode was left with the keyboard so focus returns to the
   // re-mounted idle button instead of dropping to <body>.
@@ -41,8 +51,15 @@ export function InlineTextEditor({ value, onSave, className }: Readonly<InlineTe
   const resize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
+    const mirror = mirrorRef.current;
+    if (mirror) {
+      mirror.textContent = el.value || ' ';
+      el.style.width = `${mirror.getBoundingClientRect().width}px`;
+    }
     el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    // scrollHeight leaves out the border, which border-box sizing counts in the height: without
+    // it the textarea comes out 2px shorter than the idle button it replaces.
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, []);
 
   // Seed the editor with the current local value and put the caret at the end.
@@ -91,6 +108,7 @@ export function InlineTextEditor({ value, onSave, className }: Readonly<InlineTe
         className={cn(
           baseClassName,
           'block max-w-full text-left border-transparent hover:border-border transition-colors focus-visible:ring-1 focus-visible:ring-primary',
+          singleLine && 'overflow-hidden text-ellipsis whitespace-nowrap',
           className,
         )}
       >
@@ -100,25 +118,36 @@ export function InlineTextEditor({ value, onSave, className }: Readonly<InlineTe
   }
 
   return (
-    <textarea
-      ref={textareaRef}
-      rows={1}
-      defaultValue={local}
-      onInput={resize}
-      onBlur={() => finish(true, false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          finish(true, true);
-        } else if (e.key === 'Escape') {
-          finish(false, true);
-        }
-      }}
-      className={cn(
-        baseClassName,
-        'block w-full resize-none overflow-hidden bg-transparent border-border focus:ring-1 focus:ring-primary',
-        className,
+    <>
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        aria-label={label}
+        defaultValue={local}
+        onInput={resize}
+        onBlur={() => finish(true, false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            finish(true, true);
+          } else if (e.key === 'Escape') {
+            finish(false, true);
+          }
+        }}
+        className={cn(
+          baseClassName,
+          'block w-full resize-none overflow-hidden bg-transparent border-border focus:ring-1 focus:ring-primary',
+          singleLine && 'w-auto max-w-full whitespace-nowrap',
+          className,
+        )}
+      />
+      {singleLine && (
+        <span
+          ref={mirrorRef}
+          aria-hidden
+          className={cn(baseClassName, className, 'pointer-events-none invisible fixed left-0 top-0 whitespace-pre')}
+        />
       )}
-    />
+    </>
   );
 }

@@ -45,6 +45,7 @@
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/crm-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/desk-domain": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/flow-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",

@@ -17,3 +17,39 @@ export const updateHelpdeskDepartmentSchema = createHelpdeskDepartmentSchema.par
 
 export type CreateHelpdeskDepartmentInput = z.infer<typeof createHelpdeskDepartmentSchema>;
 export type UpdateHelpdeskDepartmentInput = z.infer<typeof updateHelpdeskDepartmentSchema>;
+
+/** A `helpdesk_departments` row, as GET /api/helpdesk-departments/:id returns it. */
+export const helpdeskDepartmentSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    name: z.string(),
+    description: z.string().nullable(),
+    email: z.string().nullable(),
+    managerId: z.string().nullable(),
+    managerName: z.string().nullable(),
+    agentIds: z.array(z.string()).nullable(),
+    /** The stored column; the list replaces it with a live count. */
+    agentCount: z.number().nullable(),
+    autoAssignment: z.boolean().nullable(),
+    roundRobinAssignment: z.boolean().nullable(),
+    escalationRules: z.unknown(),
+    businessHours: z.unknown(),
+    replyTime: z.string().nullable(),
+    categories: z.array(z.string()).nullable(),
+    defaultPriority: z.string().nullable(),
+    isActive: z.boolean(),
+    sortOrder: z.number().nullable(),
+  })
+  .passthrough();
+
+/** A row of GET /api/helpdesk-departments: the department with its live agent count. */
+export const helpdeskDepartmentListItemSchema = helpdeskDepartmentSchema.extend({ agentCount: z.number() });
+
+/** GET /api/helpdesk-departments/inbox-counts: open conversations per department. */
+export const helpdeskDepartmentInboxCountSchema = z.object({
+  departmentId: z.string(),
+  activeCount: z.number(),
+});

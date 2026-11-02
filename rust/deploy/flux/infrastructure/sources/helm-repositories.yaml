@@ -1,0 +1,78 @@
+# Where the charts come from. Versions are pinned in each HelmRelease.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cnpg
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://cloudnative-pg.github.io/charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://charts.jetstack.io
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: traefik
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://traefik.github.io/charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: openebs-localpv
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://openebs.github.io/dynamic-localpv-provisioner
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: nats
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://nats-io.github.io/k8s/helm/charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: valkey
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://valkey.io/valkey-helm
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: zitadel
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://charts.zitadel.com
+---
+# Restate publishes its chart as an OCI artifact only.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: restate
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: oci://ghcr.io/restatedev/restate-helm
+  ref:
+    tag: 1.7.13
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy

@@ -1,0 +1,14 @@
+# Valkey: the cache and realtime pub/sub (weldsuite's VALKEY_URL). Both
+# degrade gracefully when it restarts, so one primary on local storage is the
+# starting point; replicas with failover are an open decision (README.md).
+auth:
+  enabled: true
+  usersExistingSecret: valkey-users
+  aclUsers:
+    default:
+      permissions: "~* &* +@all"
+dataStorage:
+  enabled: true
+  requestedSize: 5Gi
+  className: openebs-hostpath
+  keepPvc: true

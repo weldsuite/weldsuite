@@ -15,15 +15,19 @@ import {
   getConversationQuerySchema,
   replyToConversationSchema,
   manageConversationSchema,
+  updateConversationAttributesSchema,
 } from '@weldsuite/core-api-client/schemas/desk-conversations';
 import {
   appendDeskMessage,
   deskAuthorFromMember,
   getDeskConversation,
+  getDeskConversationCustomFields,
   isPublicDeskMessage,
   listDeskConversations,
   toPublicDeskConversation,
   toPublicDeskMessage,
+  updateDeskConversationAttributes,
+  DeskAttributeRejectedError,
   DeskConversationNotFoundError,
   isDeskSchemaMissing,
   type DeskAuthorInfo,
@@ -38,6 +42,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { sendDeskEmailReply } from '../../lib/desk-email';
 import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
+import { markDeskSlaDue } from '../../lib/sla-due';
+import { getDeskAttributeOptions } from '../../services/desk-attributes';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -135,6 +141,16 @@ app.get('/', requirePermission('conversations:read'), zValidator('query', listCo
   }
 });
 
+/** Ticket types, their fields, teams and tags in use, for the details panel. */
+app.get('/attributes', requirePermission('conversations:read'), async (c) => {
+  try {
+    return success(c, await getDeskAttributeOptions(c.get('tenantDb')));
+  } catch (err) {
+    console.error('[desk-api/desk-conversations] attribute options failed:', err);
+    return error.internal(c, 'Failed to load conversation attributes');
+  }
+});
+
 app.get('/:id', requirePermission('conversations:read'), zValidator('query', getConversationQuerySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -142,7 +158,9 @@ app.get('/:id', requirePermission('conversations:read'), zValidator('query', get
   try {
     const result = await getDeskConversation(db, id, { includeMessages: include === 'messages' });
     if (!result) return error.notFound(c, 'Conversation', id);
-    return success(c, include === 'messages' ? { ...result.conversation, messages: result.messages } : result.conversation);
+    const customFields = await getDeskConversationCustomFields(db, result.conversation);
+    const conversation = { ...result.conversation, customFields };
+    return success(c, include === 'messages' ? { ...conversation, messages: result.messages } : conversation);
   } catch (err) {
     console.error('[app-api/desk-conversations] get failed:', err);
     return error.internal(c, 'Failed to fetch conversation');
@@ -247,7 +265,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
     }
   }
   try {
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: data.kind,
@@ -270,6 +288,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
+    markDeskSlaDue(c, slaCheckAt);
     const authors = await loadAuthor(db, userId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (conversation.channel === 'email' && data.kind === 'message') {
@@ -315,7 +334,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       assigneeId = null;
     }
 
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'event',
@@ -340,6 +359,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
+    markDeskSlaDue(c, slaCheckAt);
     const authors = await loadAuthor(db, conversation.assigneeId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (eventType === 'assigned') {
@@ -357,6 +377,53 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
     console.error('[app-api/desk-conversations] manage failed:', err);
+    return error.internal(c, 'Failed to update conversation');
+  }
+});
+
+/**
+ * Set the conversation's ticket fields: type, priority, tags, team and the
+ * type's custom fields. The change goes on the timeline as an internal event
+ * (never to the visitor); a request that changes nothing writes nothing.
+ */
+app.patch('/:id', requirePermission('conversations:update'), zValidator('json', updateConversationAttributesSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const { conversation, message, customFields, slaCheckAt } = await updateDeskConversationAttributes(db, {
+      generateId,
+      conversationId: id,
+      authorType: 'agent',
+      authorId: userId,
+      ...data,
+    });
+    // Other agents' open threads take the field values from the hub event.
+    const withFields = { ...conversation, customFields };
+    if (message) {
+      publishEntityEvent({
+        c,
+        entityType: 'desk_conversation',
+        action: 'updated',
+        entityId: conversation.id,
+        data: withFields as unknown as Record<string, unknown>,
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'desk_message',
+        action: 'created',
+        entityId: message.id,
+        data: message as unknown as Record<string, unknown>,
+      });
+      c.executionCtx.waitUntil(publishDeskChange(c, withFields, message, new Map()));
+      markDeskSlaDue(c, slaCheckAt);
+    }
+    return success(c, { conversation: withFields, message });
+  } catch (err) {
+    if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
+    if (err instanceof DeskAttributeRejectedError) return error.badRequest(c, err.message, { field: err.field });
+    console.error('[desk-api/desk-conversations] attribute update failed:', err);
     return error.internal(c, 'Failed to update conversation');
   }
 });

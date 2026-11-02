@@ -27,7 +27,7 @@ import {
   useCustomerComments,
   useCreateCustomerComment,
 } from '@/hooks/queries/use-customer-notes-queries';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';

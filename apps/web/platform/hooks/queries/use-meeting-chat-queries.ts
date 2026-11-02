@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type InfiniteData } from '@tanstack/react-query';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 // ============================================================================

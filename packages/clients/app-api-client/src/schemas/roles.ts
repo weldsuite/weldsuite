@@ -54,3 +54,63 @@ export interface InstallableApp {
   appCode: string;
   appName: string;
 }
+
+// The same shapes as Zod schemas, for checking responses (the conformance
+// suite validates the Rust backend's answers with them).
+
+export const roleSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  isSystemRole: z.boolean(),
+  canDelete: z.boolean(),
+  canModify: z.boolean(),
+  memberCount: z.number().int(),
+  permissions: z.array(z.string()),
+  apps: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** GET /api/roles: the roles, not paginated. */
+export const roleListSchema = z.array(roleSummarySchema);
+
+export const installableAppSchema = z.object({
+  appCode: z.string(),
+  appName: z.string(),
+});
+
+/** GET /api/roles/installable-apps. */
+export const installableAppListSchema = z.array(installableAppSchema);
+
+/** One permission of the role editor's catalog. */
+export const permissionCatalogEntrySchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  action: z.string(),
+  isGranted: z.boolean(),
+});
+
+/** One object of the catalog and its permissions. */
+export const permissionCatalogObjectSchema = z.object({
+  object: z.string(),
+  objectName: z.string(),
+  permissions: z.array(permissionCatalogEntrySchema),
+});
+
+/** GET /api/roles/permission-catalog. */
+export const permissionCatalogSchema = z.object({
+  objects: z.array(permissionCatalogObjectSchema),
+  customObjects: z.array(permissionCatalogObjectSchema),
+  apps: z.array(
+    z.object({
+      app: z.string(),
+      appName: z.string(),
+      objects: z.array(permissionCatalogObjectSchema),
+    }),
+  ),
+  workspace: z.array(permissionCatalogObjectSchema),
+});
+
+export type PermissionCatalog = z.infer<typeof permissionCatalogSchema>;

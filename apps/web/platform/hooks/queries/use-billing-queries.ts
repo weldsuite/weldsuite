@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type {
   BillingPaymentMethodResponse,
@@ -59,6 +60,9 @@ export function useSubscription() {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: billingKeys.subscription(),
+    // Edition flags (4.F3): no Stripe billing, so no subscription (and no
+    // post-trial lock, which reads this on every page).
+    enabled: isFeatureAvailable('billing'),
     queryFn: async () => {
       const client = await getClient();
       // Unwrapped: the legacy worker returned the subscription at the top level, and

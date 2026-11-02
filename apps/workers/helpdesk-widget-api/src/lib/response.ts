@@ -98,11 +98,11 @@ export const error = {
   /**
    * 401 Unauthorized - Missing or invalid widget authentication
    */
-  unauthorized: (c: Context, message = 'Unauthorized') =>
+  unauthorized: (c: Context, message = 'Unauthorized', code = 'UNAUTHORIZED') =>
     c.json(
       {
         success: false,
-        error: { code: 'UNAUTHORIZED', message },
+        error: { code, message },
       },
       401
     ),
@@ -146,6 +146,30 @@ export const error = {
         error: { code: 'CONFLICT', message },
       },
       409
+    ),
+
+  /**
+   * 429 Too Many Requests
+   */
+  tooManyRequests: (c: Context, message = 'Too many requests, try again later') =>
+    c.json(
+      {
+        success: false,
+        error: { code: 'RATE_LIMITED', message },
+      },
+      429
+    ),
+
+  /**
+   * 503 Service Unavailable - A dependency (rate-limit counter, mail) is down
+   */
+  unavailable: (c: Context, message = 'Temporarily unavailable, try again shortly') =>
+    c.json(
+      {
+        success: false,
+        error: { code: 'UNAVAILABLE', message },
+      },
+      503
     ),
 
   /**

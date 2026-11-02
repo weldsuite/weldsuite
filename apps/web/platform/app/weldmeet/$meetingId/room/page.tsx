@@ -3,7 +3,7 @@ import { useEffect, useRef, lazy, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { getTranslations } from '@/lib/i18n';
 import { peekStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';

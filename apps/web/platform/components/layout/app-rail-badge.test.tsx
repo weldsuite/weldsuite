@@ -21,20 +21,20 @@ describe('AppRailBadge', () => {
     render(<AppRailBadge count={7} />);
     const badge = screen.getByTestId('app-rail-badge');
     expect(badge).toHaveTextContent('7');
-    expect(badge).toHaveClass('w-[22px]');
+    expect(badge).toHaveClass('w-[18px]', 'rounded-full');
     expect(screen.getByText('7 unread')).toHaveClass('sr-only');
   });
 
   it('widens for two digits', () => {
     render(<AppRailBadge count={42} />);
-    expect(screen.getByTestId('app-rail-badge')).toHaveClass('min-w-[26px]');
+    expect(screen.getByTestId('app-rail-badge')).toHaveClass('min-w-[24px]');
   });
 
   it('caps the visible count at 99+ but keeps the real count for screen readers', () => {
     render(<AppRailBadge count={150} />);
     expect(screen.getByText('99+')).toBeInTheDocument();
     expect(screen.getByText('150 unread')).toBeInTheDocument();
-    expect(screen.getByTestId('app-rail-badge')).toHaveClass('min-w-[32px]');
+    expect(screen.getByTestId('app-rail-badge')).toHaveClass('min-w-[30px]');
   });
 });
 

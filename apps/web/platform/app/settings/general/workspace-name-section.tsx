@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';

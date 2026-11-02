@@ -16,7 +16,7 @@
  */
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { apiUrl } from '@/lib/api/public-env';
 

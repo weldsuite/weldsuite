@@ -3,6 +3,11 @@
  * index: requests past their expiry close (unless everyone signed), due
  * reminders go out once per interval up to the maximum, and the workspace's
  * next due time is stored.
+ *
+ * In conformance mode (CONFORMANCE_TARGET=rust) each tick also runs on the
+ * Rust server (`weldsuite cron sign-lifecycle`), through `conformanceSweep`
+ * (@weldsuite/worker-kit/testing/conformance-cron): result, events, mail and
+ * due index must match, and the assertions below check Rust's run.
  */
 
 import { readFileSync } from 'node:fs';
@@ -15,6 +20,8 @@ import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1
 import { generateId } from '@weldsuite/worker-kit/id';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
 import type { Env } from '../types';
 
 const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
@@ -64,6 +71,31 @@ vi.mock('@weldsuite/sign-domain/lifecycle', async (importOriginal) => {
 });
 
 import { runLifecycleSweep } from './lifecycle-sweep';
+
+/** `runLifecycleSweep`, on both backends in conformance mode. */
+function sweep(env: Env, now: Date) {
+  return conformanceSweep({
+    job: 'sign-lifecycle',
+    now,
+    tenantDb: db,
+    masterDb: master as unknown as Database,
+    env: env as unknown as Record<string, unknown>,
+    dueIndex: { d1: env.SCHEDULE_INDEX as never, kind: 'sign_lifecycle' },
+    kv: env.WORKSPACE_CACHE as object,
+    workspaces: { ws_sweep: ORG },
+    runTypeScript: async (tenantDb) => {
+      dbs.tenant = tenantDb;
+      try {
+        return await runLifecycleSweep(env, now);
+      } finally {
+        dbs.tenant = db;
+      }
+    },
+    takeTypeScriptEvents: () => published.splice(0) as unknown as Array<Record<string, unknown>>,
+    // The assertions on `published` then check Rust's events.
+    onRustEvents: (events) => void published.push(...(events as unknown as typeof published)),
+  });
+}
 
 const ORG = 'org_sweep';
 const DAY = 86_400_000;
@@ -141,7 +173,7 @@ describe('lifecycle sweep', () => {
     const nextDue = async () =>
       (await d1.prepare("SELECT next_due_at FROM workspace_due_index WHERE kind = 'sign_lifecycle'").first<{ next_due_at: number }>())?.next_due_at;
 
-    const first = await runLifecycleSweep(env, now);
+    const first = await sweep(env, now);
     expect(first).toMatchObject({ seeded: 1, processed: 1, expired: 1, reminded: 1 });
     expect((await envelope('sgn_b')).status).toBe('expired');
     expect((await envelope('sgn_c')).status).toBe('in_progress');
@@ -156,17 +188,20 @@ describe('lifecycle sweep', () => {
 
     // The same tick again finds nothing due: once per interval.
     mail.transport = memoryTransport();
-    expect(await runLifecycleSweep(env, now)).toMatchObject({ due: 0, reminded: 0 });
+    expect(await sweep(env, now)).toMatchObject({ due: 0, reminded: 0 });
     expect(mail.transport.sent).toHaveLength(0);
 
     const later = new Date(now.getTime() + 3 * DAY + 60_000);
-    expect(await runLifecycleSweep(env, later)).toMatchObject({ reminded: 1 });
+    expect(await sweep(env, later)).toMatchObject({ reminded: 1 });
     expect((await recipient(ann)).remindersSent).toBe(2);
     // The maximum is reached; what is left is A's expiry.
     expect(await nextDue()).toBe(now.getTime() + 10 * DAY);
   });
 
-  it('still publishes the expiry when the reminders fail later in the tick', async () => {
+  // It makes the reminders throw through a vi.mock of the TypeScript domain
+  // module, which the Rust server can't see; Rust's order (publish, then
+  // remind) is the same code path the first test checks.
+  it.skipIf(conformanceTarget())('still publishes the expiry when the reminders fail later in the tick', async () => {
     const now = new Date('2026-11-06T09:00:00Z');
     await request('sgn_e', { status: 'sent', expiresAt: new Date(now.getTime() - 3_600_000) });
     await signer('sgn_e', 'Eve', { status: 'sent', sentAt: new Date(now.getTime() - 5 * DAY) });
@@ -174,7 +209,7 @@ describe('lifecycle sweep', () => {
 
     reminders.fail = true;
     try {
-      expect(await runLifecycleSweep(env, now)).toMatchObject({ failed: 1, expired: 1 });
+      expect(await sweep(env, now)).toMatchObject({ failed: 1, expired: 1 });
     } finally {
       reminders.fail = false;
     }

@@ -1639,6 +1639,34 @@
       "when": 1793186477065,
       "tag": "0233_mighty_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "7",
+      "when": 1793382534580,
+      "tag": "0234_desk_conversation_ticket_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1793387107360,
+      "tag": "0235_desk_conversation_external_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793456638439,
+      "tag": "0236_desk_sla_clocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "7",
+      "when": 1793466334679,
+      "tag": "0237_desk_portal_identity",
+      "breakpoints": true
     }
   ]
 }

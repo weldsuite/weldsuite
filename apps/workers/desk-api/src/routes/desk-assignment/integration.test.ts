@@ -26,10 +26,10 @@ let db: Database;
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   await db.insert(schema.workspaceMembers).values([
-    { id: generateId('wm'), userId: 'user_ann', name: 'Ann' },
-    { id: generateId('wm'), userId: 'user_bob', name: 'Bob' },
-    { id: generateId('wm'), userId: 'user_cat', name: 'Cat' },
-    { id: generateId('wm'), userId: 'user_gone', name: 'Gone', status: 'REMOVED' },
+    { id: 'wm_ann', userId: 'user_ann', name: 'Ann' },
+    { id: 'wm_bob', userId: 'user_bob', name: 'Bob' },
+    { id: 'wm_cat', userId: 'user_cat', name: 'Cat' },
+    { id: 'wm_gone', userId: 'user_gone', name: 'Gone', status: 'REMOVED' },
   ]);
 }, 60_000);
 
@@ -162,6 +162,97 @@ describe('/api/desk/assignment', () => {
     const [row] = await db.select().from(schema.helpdeskSettings);
     expect(row?.automation?.enabled).toBe(true);
     expect(row?.automation?.deskAssignment?.memberIds).toEqual(['user_ann']);
+  });
+});
+
+describe('/api/desk/assignment refusals and edges', () => {
+  it('needs conversations:read to read the settings', async () => {
+    const res = await app('user_ann', 'settings:update', 'conversations:update')('/api/desk/assignment');
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects an unknown mode, bad member ids and a cap out of range', async () => {
+    const admin = app('user_ann', 'settings:update');
+    for (const body of [
+      { mode: 'random', memberIds: [], maxOpenPerMember: null },
+      { mode: 'balanced', memberIds: [''], maxOpenPerMember: null },
+      { mode: 'balanced', memberIds: ['x'.repeat(256)], maxOpenPerMember: null },
+      { mode: 'balanced', memberIds: Array.from({ length: 501 }, (_, i) => `user_${i}`), maxOpenPerMember: null },
+      { mode: 'balanced', memberIds: 'user_ann', maxOpenPerMember: null },
+      { mode: 'balanced', memberIds: [], maxOpenPerMember: 0 },
+      { mode: 'balanced', memberIds: [], maxOpenPerMember: 1001 },
+      { mode: 'balanced', memberIds: [], maxOpenPerMember: 2.5 },
+      { mode: 'balanced', memberIds: [] },
+    ]) {
+      const res = await admin('/api/desk/assignment', json('PUT', body));
+      expect(res.status).toBe(400);
+    }
+    expect(await db.select().from(schema.helpdeskSettings)).toHaveLength(0);
+  });
+
+  it('creates the settings row on the first save and answers where the caller stands', async () => {
+    const res = await app('user_cat', 'settings:update')(
+      '/api/desk/assignment',
+      json('PUT', { mode: 'round_robin', memberIds: ['user_ann', 'user_bob'], maxOpenPerMember: 1000 }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: {
+        mode: 'round_robin',
+        memberIds: ['user_ann', 'user_bob'],
+        awayMemberIds: [],
+        maxOpenPerMember: 1000,
+        me: { inRotation: false, away: false },
+      },
+    });
+    const [row] = await db.select().from(schema.helpdeskSettings);
+    expect(row?.automation).toMatchObject({ enabled: false, deskAssignment: { mode: 'round_robin', maxOpenPerMember: 1000 } });
+  });
+
+  it('reads saved settings, a member in the rotation who is away included', async () => {
+    await saveDeskAssignmentSettings(db, generateId, { mode: 'balanced', memberIds: ['user_ann', 'user_bob'], maxOpenPerMember: 3 });
+    await setDeskMemberAway(db, generateId, 'user_bob', true);
+    const res = await app('user_bob', 'conversations:read')('/api/desk/assignment');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: {
+        mode: 'balanced',
+        memberIds: ['user_ann', 'user_bob'],
+        awayMemberIds: ['user_bob'],
+        maxOpenPerMember: 3,
+        me: { inRotation: true, away: true },
+      },
+    });
+  });
+
+  it('away needs conversations:update and a boolean', async () => {
+    expect((await app('user_ann', 'conversations:read', 'settings:update')('/api/desk/assignment/away', json('POST', { away: true }))).status).toBe(403);
+    for (const body of [{}, { away: 'yes' }, { away: 1 }]) {
+      const res = await app('user_ann', 'conversations:update')('/api/desk/assignment/away', json('POST', body));
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('coming back without any settings saved answers the defaults and writes nothing', async () => {
+    const res = await app('user_ann', 'conversations:update')('/api/desk/assignment/away', json('POST', { away: false }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { mode: 'off', memberIds: [], awayMemberIds: [], maxOpenPerMember: null, me: { inRotation: false, away: false } },
+    });
+    expect(await db.select().from(schema.helpdeskSettings)).toHaveLength(0);
+  });
+
+  it('going away without any settings saved creates the row', async () => {
+    const res = await app('user_ann', 'conversations:update')('/api/desk/assignment/away', json('POST', { away: true }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { mode: 'off', memberIds: [], awayMemberIds: ['user_ann'], maxOpenPerMember: null, me: { inRotation: false, away: true } },
+    });
+    expect(await db.select().from(schema.helpdeskSettings)).toHaveLength(1);
+
+    // Going away twice keeps one entry.
+    const again = await app('user_ann', 'conversations:update')('/api/desk/assignment/away', json('POST', { away: true }));
+    expect(((await again.json()) as { data: { awayMemberIds: string[] } }).data.awayMemberIds).toEqual(['user_ann']);
   });
 });
 

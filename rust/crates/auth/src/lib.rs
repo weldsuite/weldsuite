@@ -2,12 +2,17 @@
 //! `clerkMiddleware()` and `requireSecondFactor()` in worker-kit
 //! (`packages/core/worker-kit/src/middleware/{clerk,second-factor}.ts`).
 //!
-//! Today this verifies Clerk session tokens, the Global edition's identity
-//! provider. The EU and self-hosted editions verify OIDC tokens from Zitadel
-//! or the customer's provider (ADR SEC-012); those rules join this crate when
-//! the identity port lands.
+//! Two providers (ADR SEC-012), picked by configuration, behind one
+//! [`SessionVerifier`] and one middleware:
 //!
-//! A request carries `Authorization: Bearer <token>`. The token must:
+//! - **Clerk**, the Global edition's provider and the default: its session
+//!   tokens, with the rules below.
+//! - **OIDC**, the EU and self-hosted editions' provider (Zitadel, or the
+//!   customer's own): access or ID tokens checked against the issuer, the
+//!   audience and the provider's JWKS found through discovery, with the
+//!   claims mapped onto the same [`AuthContext`] (`oidc.rs`).
+//!
+//! A request carries `Authorization: Bearer <token>`. A Clerk token must:
 //!
 //! - be an RS256/RS384/RS512 JWT (`typ`, when present, is `JWT`) signed by
 //!   the configured key;
@@ -19,11 +24,17 @@
 
 mod keys;
 mod middleware;
+mod oidc;
 mod second_factor;
 mod verifier;
 
 pub use keys::{CLERK_JWKS_URL, SessionVerifier};
 pub use middleware::clerk_auth;
+/// [`clerk_auth`] under the name that fits both providers.
+pub use middleware::clerk_auth as session_auth;
+pub use oidc::{
+    OIDC_CLOCK_SKEW_SECONDS, OidcSettings, ZITADEL_ORG_CLAIM, factor_verification_age, organization,
+};
 pub use second_factor::{
     DEFAULT_SECOND_FACTOR_MAX_AGE_MINUTES, MFA_REQUIRED, REVERIFICATION_REQUIRED,
     SecondFactorCheck, check_second_factor, require_second_factor,

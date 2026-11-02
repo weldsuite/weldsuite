@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { setWeldbooksTokenGetter } from './weldbooks-client';
 import { setAppApiTokenGetter } from './app-api-browser-client';
 import { setProjectsApiTokenProvider } from '@/app/weldflow/lib/api-client';

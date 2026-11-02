@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ListChecks } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';

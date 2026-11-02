@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - releases.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: openebs-localpv-values
+    namespace: openebs
+    files: [values.yaml=values/openebs-localpv.yaml]
+  - name: cert-manager-values
+    namespace: cert-manager
+    files: [values.yaml=values/cert-manager.yaml]
+  - name: traefik-values
+    namespace: traefik
+    files: [values.yaml=values/traefik.yaml]
+  - name: cloudnative-pg-values
+    namespace: cnpg-system
+    files: [values.yaml=values/cloudnative-pg.yaml]
+  - name: plugin-barman-cloud-values
+    namespace: cnpg-system
+    files: [values.yaml=values/plugin-barman-cloud.yaml]

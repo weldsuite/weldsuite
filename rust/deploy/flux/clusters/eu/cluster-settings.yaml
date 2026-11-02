@@ -1,0 +1,28 @@
+# Per-cluster settings, substituted into the layers below (${NAME}). Not
+# secret: secrets go in rust/deploy/flux/secrets/eu, encrypted with SOPS.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-settings
+  namespace: flux-system
+data:
+  DOMAIN: eu.example.org
+  ACME_EMAIL: ops@example.org
+  # Postgres backups: object storage at a second EU provider.
+  BACKUP_S3_ENDPOINT: https://s3.example-second-provider.eu
+  BACKUP_S3_BUCKET: weldsuite-eu-pg-backups
+  # Files (the workers' R2 buckets): Hetzner Object Storage.
+  FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
+  FILES_S3_REGION: fsn1
+  FILES_BUCKET_PRIVATE: weldsuite-eu-private
+  # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
+  # audience) and the platform's web application's client id (PKCE). Made in
+  # Zitadel's console after its first start (Hetzner runbook, step 7).
+  ZITADEL_PROJECT_ID: "000000000000000000"
+  ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # Mapbox's public token (pk.…) for maps and address search in the
+  # platform, served in /config.json; empty for none.
+  MAPBOX_PUBLIC_TOKEN: ""
+  # The release this cluster runs: the chart from this tag, the image tag.
+  WELDSUITE_GIT_TAG: weldsuite-v0.0.0
+  WELDSUITE_IMAGE_TAG: 0.0.0

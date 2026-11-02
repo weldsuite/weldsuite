@@ -500,3 +500,105 @@ export interface CompanyAttributes {
     ownerId: string | null;
   }>;
 }
+
+const moneyRowSchema = z.object({ amount: z.number(), currency: z.string() });
+
+/** A `companies` row as the routes return it (the `Company` shape). */
+export const companyRowSchema = z.object({
+  id: z.string(),
+  version: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullish(),
+  archivedAt: z.string().nullish(),
+  name: z.string(),
+  tradingName: z.string().nullish(),
+  displayName: z.string(),
+  registrationNumber: z.string().nullish(),
+  vatNumber: z.string().nullish(),
+  industry: z.string().nullish(),
+  employeeCount: z.string().nullish(),
+  website: z.string().nullish(),
+  description: z.string().nullish(),
+  annualRevenue: moneyRowSchema.nullish(),
+  fundingRaised: moneyRowSchema.nullish(),
+  foundationDate: z.string().nullish(),
+  email: z.string().nullish(),
+  alternateEmails: z.array(z.string()).nullish(),
+  phone: z.string().nullish(),
+  mobile: z.string().nullish(),
+  fax: z.string().nullish(),
+  primaryAddress: z.record(z.unknown()).nullish(),
+  addresses: z.array(z.record(z.unknown())).nullish(),
+  avatarUrl: z.string().nullish(),
+  createdBy: z.string().nullish(),
+  ownerId: z.string().nullish(),
+  accountManagerId: z.string().nullish(),
+  status: z.string(),
+  lifecycleStage: z.string().nullish(),
+  isSupplier: z.boolean(),
+  isLead: z.boolean(),
+  isFavorite: z.boolean(),
+  leadScore: z.number().nullish(),
+  tags: z.array(z.string()).nullish(),
+  customFields: z.record(z.unknown()).nullish(),
+  partyCode: z.string().nullish(),
+  attributes: z
+    .object({
+      team: z.array(z.object({ id: z.string(), name: z.string() })),
+      firstInteraction: z.object({ at: z.string(), type: z.string() }).nullable(),
+      lastInteraction: z.object({ at: z.string(), type: z.string() }).nullable(),
+      nextInteraction: z.object({ at: z.string(), type: z.string() }).nullable(),
+      connectionStrength: z.enum(CONNECTION_STRENGTHS),
+      strongestConnectionUserId: z.string().nullable(),
+      nextDueTask: z.object({ id: z.string(), title: z.string(), dueDate: z.string() }).nullable(),
+      deals: z.array(z.object({ id: z.string(), name: z.string() })),
+    })
+    .optional(),
+});
+
+/** `POST /api/companies/import` (the `ImportResult` shape). */
+export const importResultSchema = z.object({
+  imported: z.number(),
+  updated: z.number(),
+  failed: z.number(),
+  total: z.number(),
+  errors: z.array(z.object({ row: z.number(), ref: z.string(), error: z.string() })),
+});
+
+/** `POST /api/companies/bulk-update` and `/api/people/bulk-update`. */
+export const bulkUpdateResultSchema = z.object({
+  updated: z.number(),
+  failed: z.array(z.object({ id: z.string(), reason: z.string() })),
+});
+
+/** A person ↔ company link with the person's card (`GET /api/companies/:id/people`). */
+export const companyPersonLinkSchema = z.object({
+  id: z.string(),
+  personId: z.string(),
+  companyId: z.string(),
+  isPrimary: z.boolean(),
+  person: z.object({ id: z.string(), displayName: z.string() }),
+});
+
+/** `GET /api/companies/:id/detail`. */
+export const companyDetailSchema = z.object({
+  company: companyRowSchema,
+  people: z.array(companyPersonLinkSchema),
+  activities: z.array(z.object({ id: z.string() })),
+  opportunities: z.array(z.object({ id: z.string() })),
+  orders: z.array(z.object({ id: z.string() })),
+  invoices: z.array(z.unknown()),
+  lists: z.array(z.object({ id: z.string(), name: z.string() })),
+  counts: z.record(z.number()),
+  lastActivity: z.string().nullable(),
+});
+
+/** `GET /api/companies/:id/navigation` and `/api/people/:id/navigation`. */
+export const recordNavigationSchema = z.object({
+  currentIndex: z.number(),
+  totalCount: z.number(),
+  previousId: z.string().nullable(),
+  nextId: z.string().nullable(),
+  contextName: z.string(),
+});

@@ -1,3 +1,4 @@
+import { publicEnv } from '@/lib/runtime-config';
 /**
  * Where a result sits, as the Search Box API reports it. Only the parts a
  * postal address needs; every part is optional (a country has no place).
@@ -54,7 +55,7 @@ export async function searchLocation(
   sessionToken: string,
   options?: { limit?: number; language?: string; country?: string; types?: string },
 ): Promise<MapboxSuggestion[]> {
-  const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+  const token = publicEnv('VITE_MAPBOX_ACCESS_TOKEN');
   if (!token) return [];
 
   const params = new URLSearchParams({
@@ -87,7 +88,7 @@ export async function searchLocation(
  * there is no token or the call fails.
  */
 export async function retrieveLocation(mapboxId: string, sessionToken: string): Promise<MapboxSuggestion | null> {
-  const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+  const token = publicEnv('VITE_MAPBOX_ACCESS_TOKEN');
   if (!token) return null;
   const params = new URLSearchParams({ access_token: token, session_token: sessionToken });
   try {

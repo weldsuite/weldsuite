@@ -1,8 +1,9 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';
 import { getAppApiUrl } from '@/lib/api/public-env';
@@ -157,6 +158,14 @@ export function useMyUserApps() {
   });
 }
 
+/**
+ * Edition flags (4.F3): without paid apps (their subscriptions are Stripe's),
+ * a paid app can't be installed, so the store leaves it out unless it is
+ * already installed.
+ */
+const selectInstallableApps = (apps: StoreUserApp[]) =>
+  apps.filter((app) => app.pricingType !== 'subscription' || Boolean(app.isInstalled ?? app.installed));
+
 /** Installable apps for the App Store's "Custom apps" section. */
 export function useUserAppStore() {
   const { getClient } = useAppApiClient();
@@ -167,6 +176,7 @@ export function useUserAppStore() {
       const result = await client.get<{ data: StoreUserApp[] }>('/user-apps/store');
       return result.data;
     },
+    select: isFeatureAvailable('paid-apps') ? undefined : selectInstallableApps,
   });
 }
 

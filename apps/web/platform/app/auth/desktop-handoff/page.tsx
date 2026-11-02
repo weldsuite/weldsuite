@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { Loader2, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 
 type Phase = 'minting' | 'redirecting' | 'error' | 'done';
 
@@ -39,6 +40,27 @@ function PhaseIcon({ phase }: Readonly<{ phase: Phase }>) {
  * shell's navigation interceptor keeps /auth/* in the browser.
  */
 export default function DesktopHandoffPage() {
+  // Edition flags (4.F3): no ticket to mint where the backend can't sign the desktop app in.
+  if (!isFeatureAvailable('desktop-sign-in')) return <DesktopSignInUnavailable />;
+  return <DesktopHandoff />;
+}
+
+function DesktopSignInUnavailable() {
+  const t = getTranslations('common');
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white px-6">
+      <div className="w-full max-w-md text-center space-y-6">
+        <div className="flex justify-center">
+          <PhaseIcon phase="error" />
+        </div>
+        <h1 className="text-xl font-semibold text-gray-900">{t.edition.unavailableTitle}</h1>
+        <p className="text-sm text-gray-600">{t.edition.desktopSignInUnavailable}</p>
+      </div>
+    </div>
+  );
+}
+
+function DesktopHandoff() {
   const t = getTranslations('common');
   const { isLoaded, isSignedIn } = useAuth();
   const { getClient } = useAppApiClient();

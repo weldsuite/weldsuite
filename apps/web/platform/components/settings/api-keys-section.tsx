@@ -34,6 +34,7 @@ import {
   useUpdateWorkspaceApiKey,
 } from "@/hooks/queries/use-settings-queries"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
+import { publicEnv } from '@/lib/runtime-config'
 
 // Entity-based permissions grouped by module.
 // IMPORTANT: every scope below must correspond to a scope enforced by the
@@ -921,7 +922,7 @@ export function ApiKeysSection() {
             <div>
               <strong>{t('sweep.settings.apiKeys.docs.baseUrlLabel')}</strong>{" "}
               <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
-                {import.meta.env.VITE_EXTERNAL_API_URL || "https://api.weldsuite.org"}
+                {publicEnv('VITE_EXTERNAL_API_URL') ?? "https://api.weldsuite.org"}
               </code>
             </div>
             <div>

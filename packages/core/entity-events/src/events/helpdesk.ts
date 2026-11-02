@@ -7,7 +7,8 @@
  * (tagged, priority_changed).
  */
 export const HELPDESK_ENTITY_EVENTS = {
-  desk_conversation: ['created', 'updated', 'state_changed', 'assigned'],
+  /** sla_warning / sla_breached: an SLA clock is close to / past its due time (the desk-api SLA sweep). */
+  desk_conversation: ['created', 'updated', 'state_changed', 'assigned', 'sla_warning', 'sla_breached'],
   desk_message: ['created'],
   /** A file an agent uploaded to a conversation (before it is sent in a reply). */
   desk_attachment: ['created'],

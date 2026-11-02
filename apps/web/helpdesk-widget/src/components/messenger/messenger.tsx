@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, MessageCircle } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import { DRAFT_ID, useMessenger } from '@/hooks/use-messenger';
@@ -7,6 +7,7 @@ import { HomeView } from './home-view';
 import { MessagesView } from './messages-view';
 import { ConversationView } from './conversation-view';
 import { Branding } from './parts';
+import { SignInRequired } from './sign-in-required';
 
 type View =
   | { name: 'home' | 'messages' }
@@ -48,6 +49,13 @@ export function Messenger({
     onUnreadChange?.(messenger.unreadCount);
   }, [messenger.unreadCount, onUnreadChange]);
 
+  // Signed in or out on the site: the previous visitor's conversation must not stay open.
+  const shownVisitor = useRef(messenger.visitorId);
+  useEffect(() => {
+    if (shownVisitor.current && shownVisitor.current !== messenger.visitorId) setView({ name: 'home' });
+    shownVisitor.current = messenger.visitorId;
+  }, [messenger.visitorId]);
+
   const from = view.name === 'messages' ? 'messages' : 'home';
   const openConversation = useCallback(
     (id: string) => setView({ name: 'conversation', id, from }),
@@ -61,6 +69,15 @@ export function Messenger({
 
   const color = config.branding.primaryColor;
   const showNav = view.name !== 'conversation';
+
+  if (messenger.status === 'identity-required') {
+    return (
+      <div className="helpdesk-widget flex h-full w-full flex-col overflow-hidden bg-white" data-testid="widget-container">
+        <SignInRequired config={config} onClose={onClose} />
+        {config.showBranding && <Branding />}
+      </div>
+    );
+  }
 
   return (
     <div className="helpdesk-widget flex h-full w-full flex-col overflow-hidden bg-white" data-testid="widget-container">

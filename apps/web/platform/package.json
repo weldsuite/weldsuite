@@ -64,6 +64,7 @@
     "mammoth": "^1.9.0",
     "mixpanel-browser": "^2.56.0",
     "nanoid": "^5.1.16",
+    "oidc-client-ts": "3.5.0",
     "openai": "^4.79.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "5.7.284",

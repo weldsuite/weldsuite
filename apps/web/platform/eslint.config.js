@@ -34,4 +34,25 @@ export default [
       ],
     },
   },
+  {
+    // SEC-012 / P4 4.F1: the platform reaches its identity provider through
+    // the auth facade, so a deployment can swap Clerk for OIDC. Only the
+    // facade itself imports Clerk. (The shared config makes every rule a
+    // warning; lib/auth/no-direct-clerk-imports.test.ts is the blocking check.)
+    ignores: ["lib/auth/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@clerk/*"],
+              message:
+                "Import auth from @/lib/auth (Clerk-only screens: @/lib/auth/clerk inside <ClerkOnly>).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]

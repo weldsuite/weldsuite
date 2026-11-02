@@ -7,6 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 import type {
   TicketSettingsData,
   SatisfactionSettingsData,
@@ -92,7 +93,10 @@ export function useMailAppSettings() {
         mailAccounts
           .list({ limit: 100, scope: 'manage' })
           .catch(() => ({ data: [] as MailAccountRow[] })),
-        mailDomains.list().catch(() => ({ data: [] as MailDomainRow[] })),
+        // Custom mail domains are not served on the Kubernetes editions (`mail-domains`).
+        isFeatureAvailable('mail-domains')
+          ? mailDomains.list().catch(() => ({ data: [] as MailDomainRow[] }))
+          : Promise.resolve({ data: [] as MailDomainRow[] }),
       ]);
       return {
         accounts: (accountsRes?.data || []).map(toEmailAccount),

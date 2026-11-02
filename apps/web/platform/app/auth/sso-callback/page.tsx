@@ -1,12 +1,14 @@
 
 import { useEffect, useRef } from 'react';
-import { useClerk, useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList, ClerkOnly } from '@/lib/auth';
+import { useClerk } from '@/lib/auth/clerk';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { useOpenAIPixel } from '@/hooks/use-openai-pixel';
 import { consumeSignupIntent, measureRegistrationCompleted } from '@/lib/openai-ads';
+import { HostedSignInCallback } from '@/components/auth/identity-provider-screens';
 
-export default function SSOCallbackPage() {
+function ClerkSSOCallbackPage() {
   const t = getTranslations('common');
   const { handleRedirectCallback } = useClerk();
   const { isSignedIn, isLoaded: authLoaded, userId } = useAuth();
@@ -78,4 +80,13 @@ export default function SSOCallbackPage() {
   }, [authLoaded, orgsLoaded, isSignedIn, userId, userMemberships]);
 
   return <PageLoader label={t.auth.ssoCallback.completingSignIn} />;
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in callback instead. */
+export default function SSOCallbackPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInCallback />}>
+      <ClerkSSOCallbackPage />
+    </ClerkOnly>
+  );
 }

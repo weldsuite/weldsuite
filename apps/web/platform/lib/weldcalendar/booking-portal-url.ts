@@ -1,3 +1,4 @@
+import { publicEnv } from '@/lib/runtime-config';
 /**
  * Public link of a booking page.
  *
@@ -43,7 +44,7 @@ export function resolveBookingPortalUrl(
 
 /** Booking portal origin for the current environment (no trailing slash). */
 export function getBookingPortalUrl(): string {
-  const configured = import.meta.env.VITE_BOOKING_PORTAL_URL as string | undefined;
+  const configured = publicEnv('VITE_BOOKING_PORTAL_URL');
   const hostname = typeof window === 'undefined' ? undefined : window.location.hostname;
   return resolveBookingPortalUrl(configured, hostname);
 }

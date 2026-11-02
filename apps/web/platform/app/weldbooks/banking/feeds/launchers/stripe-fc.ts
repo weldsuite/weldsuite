@@ -12,11 +12,12 @@
  * first use instead of on import, so the banking pages do not pull it in.
  */
 import { BankFeedLaunchError, type Launcher } from './types';
+import { publicEnv } from '@/lib/runtime-config';
 
 /** The publishable key of the Stripe account that serves Financial Connections, or null. */
 export function stripeFcPublishableKey(): string | null {
-  const dedicated = import.meta.env.VITE_STRIPE_FC_PUBLISHABLE_KEY as string | undefined;
-  const billing = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
+  const dedicated = publicEnv('VITE_STRIPE_FC_PUBLISHABLE_KEY');
+  const billing = publicEnv('VITE_STRIPE_PUBLISHABLE_KEY');
   return dedicated?.trim() || billing?.trim() || null;
 }
 

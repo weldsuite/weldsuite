@@ -19,6 +19,7 @@ import { mailAttachmentsRoutes } from './index';
 import { mailMessagesRoutes } from '../mail-messages';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -58,14 +59,8 @@ const objects = new Map<string, string>([
   [FOREIGN_INBOUND_KEY, 'other workspace inbound'],
 ]);
 
-const storage = {
-  get: async (key: string) => {
-    const body = objects.get(key);
-    return body === undefined
-      ? null
-      : { body: new Response(body).body, size: body.length, httpMetadata: { contentType: 'text/plain' } };
-  },
-} as unknown as R2Bucket;
+// A real (memory) bucket, so the conformance harness can share it with Rust.
+const storage = createMemoryR2();
 
 async function seedMember(userId: string, role: string) {
   const now = new Date();
@@ -138,6 +133,7 @@ const json = (body: unknown): RequestInit => ({
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  for (const [key, body] of objects) await storage.put(key, body, { httpMetadata: { contentType: 'text/plain' } });
   await seedMember(ASSIGNEE, 'MEMBER');
   await seedMember(MEMBER, 'MEMBER');
 
@@ -254,7 +250,7 @@ describe('GET /:id/download', () => {
 
   it("answers 404 for an attachment whose owning message has since been soft-deleted, even though the attachment row itself has no deletedAt", async () => {
     const key = `workspaces/${ORG}/mail/attachments/msg/3_softdeleted.txt`;
-    objects.set(key, 'hello soft-deleted');
+    await storage.put(key, 'hello soft-deleted');
     const account = await seedAccount({ isShared: true });
     const message = await seedMessage(account);
     const attachment = await seedAttachment(message, key);

@@ -19,7 +19,7 @@ import {
   useAgentApprovals,
   useDecidedApprovals,
 } from '@/hooks/queries/use-agent-parity-queries';
-import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
+import { AgentComposer } from '@/components/weldagent/agent-chat-input';
 import {
   AssistantMessage,
   TypingIndicator,
@@ -34,7 +34,7 @@ import { ChatSkeleton } from './chat-skeleton';
 import { DelegationSteps } from './delegation-steps';
 import { RoutineNotice } from './routine-notice';
 import { browserTimezone } from '../routine-schedule';
-import { SetupWelcome } from './setup-welcome';
+import { SetupWelcome, getSetupStarters } from './setup-welcome';
 import { agentChangesIn, buildThread, mergeMessages, openQuestion, type ThreadItem } from './thread';
 import { errorMessage } from './labels';
 
@@ -362,7 +362,7 @@ export function AgentChat({
       <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 sm:px-6">
           {loadingChat && <ChatSkeleton />}
-          {empty && needsSetup && <SetupWelcome disabled={busy} onPick={(text) => void send(text)} />}
+          {empty && needsSetup && <SetupWelcome />}
           {empty && !needsSetup && (
             <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-16 text-center">
               <p className="text-lg font-medium">{t.chat.emptyTitle}</p>
@@ -418,13 +418,15 @@ export function AgentChat({
         <div className="mx-auto w-full max-w-3xl">
           {error && <p className="mb-2 px-1 text-sm text-destructive animate-in fade-in">{error}</p>}
           <ApprovalBar agentId={agentId} />
-          <AgentChatInput
+          <AgentComposer
             value={input}
             onChange={setInput}
             onSubmit={(text) => void send(text)}
             placeholder={placeholder}
             isSending={isWaiting}
             disabled={!conversationId}
+            suggestions={empty && needsSetup ? getSetupStarters() : undefined}
+            variant="stacked"
             autoFocus
           />
           {question && <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">{t.questions.keyboardHint}</p>}

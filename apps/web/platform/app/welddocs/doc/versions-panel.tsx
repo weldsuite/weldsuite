@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { MoreVertical, X } from 'lucide-react';

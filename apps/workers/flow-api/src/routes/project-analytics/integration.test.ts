@@ -11,6 +11,7 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 
 const analyticsMock = vi.hoisted(() => ({ queryAnalytics: vi.fn() }));
 vi.mock('@weldsuite/core-domain/analytics-query', () => analyticsMock);
@@ -156,10 +157,17 @@ const chart = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/**
+ * What the analytics store answers. In conformance mode it is what a
+ * deployment without one answers (no points): the Kubernetes editions have no
+ * Cloudflare analytics store, so the Rust backend serves every chart empty.
+ */
+const POINTS = conformanceTarget() ? [] : [{ label: '2026-10-01', value: 3 }];
+
 describe('POST /reports/:id/charts-data', () => {
   beforeEach(() => {
     analyticsMock.queryAnalytics.mockReset();
-    analyticsMock.queryAnalytics.mockResolvedValue([{ label: '2026-10-01', value: 3 }]);
+    analyticsMock.queryAnalytics.mockResolvedValue(POINTS);
   });
 
   beforeAll(async () => {
@@ -176,7 +184,7 @@ describe('POST /reports/:id/charts-data', () => {
     const res = await chartsData(appAs('user_an_member'), [chart()]);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { c1: [{ label: '2026-10-01', value: 3 }] } });
+    expect(await res.json()).toEqual({ data: { c1: POINTS } });
   });
 
   it('rejects another module’s entities, a non-integer limit and a malformed metric', async () => {
@@ -257,5 +265,184 @@ describe('report ownership', () => {
     const legacy = await seedReport(null);
     expect((await put(appAs('user_an_other'), legacy)).status).toBe(200);
     expect((await put(appAs('user_an_other'), 'rpt_missing')).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reports and charts
+// ---------------------------------------------------------------------------
+
+describe('reports and charts', () => {
+  const owner = () => appAs('user_rc_owner');
+  const json = (method: string, body: unknown): RequestInit => ({
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  it('creates, lists, reads and duplicates a report with its charts', async () => {
+    const request = owner();
+    expect((await request('/api/project-analytics/reports', json('POST', { title: '' }))).status).toBe(400);
+    const created = await request('/api/project-analytics/reports', json('POST', { title: 'Delivery', description: 'Weekly' }));
+    expect(created.status).toBe(201);
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    const first = await request(
+      `/api/project-analytics/reports/${data.id}/charts`,
+      postInit({ ...chartBody, layout: { x: 0, y: 0, w: 4, h: 3, extra: 1 }, limit: 0 }),
+    );
+    expect(first.status).toBe(201);
+    const second = await request(
+      `/api/project-analytics/reports/${data.id}/charts`,
+      postInit({ ...chartBody, title: 'Hours', entity: 'time_entries', color: '', smoothCurve: false, limit: 5 }),
+    );
+    expect(second.status).toBe(201);
+
+    const list = await request('/api/project-analytics/reports');
+    expect(list.status).toBe(200);
+    const reports = (await list.json()) as { data: { id: string; chartCount: number }[] };
+    expect(reports.data.find((report) => report.id === data.id)?.chartCount).toBe(2);
+
+    const detail = await request(`/api/project-analytics/reports/${data.id}`);
+    expect(detail.status).toBe(200);
+    const body = (await detail.json()) as {
+      data: { report: { title: string }; charts: { title: string; sortIndex: number }[] };
+    };
+    expect(body.data.report.title).toBe('Delivery');
+    expect(body.data.charts.map((chart) => chart.sortIndex)).toEqual([0, 1]);
+    expect((await request('/api/project-analytics/reports/rpt_missing')).status).toBe(404);
+
+    const copy = await request(`/api/project-analytics/reports/${data.id}/duplicate`, { method: 'POST' });
+    expect(copy.status).toBe(201);
+    const { data: copied } = (await copy.json()) as { data: { id: string } };
+    const copiedCharts = await request(`/api/project-analytics/reports/${copied.id}/charts`);
+    expect(((await copiedCharts.json()) as { data: unknown[] }).data).toHaveLength(2);
+    expect((await request('/api/project-analytics/reports/rpt_missing/duplicate', { method: 'POST' })).status).toBe(404);
+  });
+
+  it('moves, duplicates and deletes charts', async () => {
+    const request = owner();
+    const created = await request('/api/project-analytics/reports', json('POST', { title: 'Board' }));
+    const { data: report } = (await created.json()) as { data: { id: string } };
+    const chart = await request(`/api/project-analytics/reports/${report.id}/charts`, postInit(chartBody));
+    const { data } = (await chart.json()) as { data: { id: string } };
+
+    const moved = await request(
+      `/api/project-analytics/reports/${report.id}/charts/layouts`,
+      json('PATCH', { layouts: [{ chartId: data.id, layout: { x: 6, y: 2, w: 6, h: 5 } }] }),
+    );
+    expect(moved.status).toBe(200);
+    expect(await moved.json()).toEqual({ data: { updated: 1 } });
+    const invalid = await request(
+      `/api/project-analytics/reports/${report.id}/charts/layouts`,
+      json('PATCH', { layouts: [{ chartId: data.id }] }),
+    );
+    expect(invalid.status).toBe(400);
+
+    const copy = await request(`/api/project-analytics/reports/${report.id}/charts/${data.id}/duplicate`, {
+      method: 'POST',
+    });
+    expect(copy.status).toBe(201);
+    const missing = await request(`/api/project-analytics/reports/${report.id}/charts/cht_missing/duplicate`, {
+      method: 'POST',
+    });
+    expect(missing.status).toBe(404);
+    const charts = (await (await request(`/api/project-analytics/reports/${report.id}/charts`)).json()) as {
+      data: { title: string; layout: { y: number } }[];
+    };
+    expect(charts.data.map((c) => c.title)).toEqual(['Total tasks', 'Total tasks (Copy)']);
+    expect(charts.data[1]?.layout.y).toBe(7);
+
+    const removed = await request(`/api/project-analytics/reports/${report.id}/charts/${data.id}`, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ success: true });
+    const after = (await (await request(`/api/project-analytics/reports/${report.id}`)).json()) as {
+      data: { report: { chartCount: number } };
+    };
+    expect(after.data.report.chartCount).toBe(1);
+
+    // A colleague cannot change the owner's report.
+    const other = appAs('user_rc_other');
+    expect((await other(`/api/project-analytics/reports/${report.id}/charts/${data.id}`, { method: 'DELETE' })).status).toBe(
+      403,
+    );
+    expect(
+      (await other(`/api/project-analytics/reports/${report.id}/charts/layouts`, json('PATCH', { layouts: [] }))).status,
+    ).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KPI summaries
+// ---------------------------------------------------------------------------
+
+describe('KPI summaries', () => {
+  const SUMMARY_PROJECT = 'prj_kpi_member';
+  const OTHER_PROJECT = 'prj_kpi_other';
+
+  beforeAll(async () => {
+    await seedProjectWithMember(SUMMARY_PROJECT, 'user_kpi');
+    await seedProjectWithMember(OTHER_PROJECT, null);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12));
+    const yesterday = new Date(today.getTime() - 86_400_000);
+    await db.insert(schema.tasks).values([
+      {
+        id: 'task_kpi_done',
+        title: 'Done',
+        projectId: SUMMARY_PROJECT,
+        status: 'done',
+        priority: 'high',
+        completedDate: yesterday,
+      },
+      { id: 'task_kpi_today', title: 'Today', projectId: SUMMARY_PROJECT, status: 'todo', priority: 'medium', dueDate: today },
+      { id: 'task_kpi_late', title: 'Late', projectId: SUMMARY_PROJECT, status: 'in_progress', dueDate: yesterday },
+      { id: 'task_kpi_other', title: 'Other', projectId: OTHER_PROJECT, status: 'todo', priority: 'low' },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+    const date = today.toISOString().slice(0, 10);
+    await db.insert(schema.timeEntries).values([
+      { id: 'time_kpi_1', projectId: SUMMARY_PROJECT, userId: 'user_kpi', date, duration: '90', billable: true, status: 'draft' },
+      { id: 'time_kpi_2', projectId: SUMMARY_PROJECT, userId: 'user_kpi', date, duration: '30.5', billable: false, status: 'draft' },
+      { id: 'time_kpi_3', projectId: OTHER_PROJECT, userId: 'user_x', date, duration: '45', billable: true, status: 'draft' },
+    ] as (typeof schema.timeEntries.$inferInsert)[]);
+  });
+
+  type Summary = {
+    totalTasks: number;
+    tasksDueToday: number;
+    overdueTasks: number;
+    hoursLoggedMinutes: number;
+    throughputByDay: unknown[];
+  };
+
+  it('counts what the caller can see, for the workspace and for one project', async () => {
+    const member = appAs('user_kpi');
+    const mine = await member('/api/project-analytics/summary?period=7d');
+    expect(mine.status).toBe(200);
+    const { data } = (await mine.json()) as { data: Summary };
+    expect(data.totalTasks).toBe(3);
+    expect(data.tasksDueToday).toBe(1);
+    expect(data.overdueTasks).toBe(1);
+    expect(data.hoursLoggedMinutes).toBe(121);
+    expect(data.throughputByDay).toHaveLength(7);
+
+    const all = await appAs('user_kpi_admin', 'projects:scope:all')('/api/project-analytics/summary');
+    expect(((await all.json()) as { data: Summary }).data.totalTasks).toBeGreaterThanOrEqual(4);
+
+    const one = await member(`/api/project-analytics/projects/${SUMMARY_PROJECT}/summary?period=90d`);
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { data: Summary }).data.throughputByDay).toHaveLength(90);
+    const narrowed = await member(`/api/project-analytics/summary?projectId=${SUMMARY_PROJECT}`);
+    expect(((await narrowed.json()) as { data: Summary }).data.totalTasks).toBe(3);
+  });
+
+  it('refuses projects the caller is not in, and a bad period', async () => {
+    const member = appAs('user_kpi');
+    expect((await member(`/api/project-analytics/summary?projectId=${OTHER_PROJECT}`)).status).toBe(403);
+    expect((await member(`/api/project-analytics/projects/${OTHER_PROJECT}/summary`)).status).toBe(403);
+    expect((await member('/api/project-analytics/summary?period=1y')).status).toBe(400);
+    // A member of no project sees an empty summary.
+    const none = await appAs('user_kpi_nobody')('/api/project-analytics/summary');
+    expect(((await none.json()) as { data: Summary }).data.throughputByDay).toEqual([]);
   });
 });

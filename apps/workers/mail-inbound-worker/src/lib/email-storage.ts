@@ -40,6 +40,7 @@ import { messageIdVariants } from './thread-match';
 import { scoreInboundSpam } from './spam-filter';
 import { classifyPromotion } from './promotion-filter';
 import { parseListUnsubscribe } from '@weldsuite/email/list-unsubscribe';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import {
   expandCatchAllCandidates,
   isCatchAllRegistryEmail,
@@ -1883,6 +1884,10 @@ async function ingestHelpdeskInboxEmail(
       attachments: attachments.length > 0 ? attachments : undefined,
     });
     const { message, created } = ingested;
+    // The SLA sweep (desk-api) only opens workspaces the due index lists. Best-effort.
+    if (ingested.slaCheckAt && inbox.clerkOrgId) {
+      await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', inbox.clerkOrgId, ingested.slaCheckAt);
+    }
 
     console.log(
       `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${ingested.conversation.id} from email`,

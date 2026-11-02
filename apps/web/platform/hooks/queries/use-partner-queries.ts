@@ -5,7 +5,7 @@
  */
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import type { PartnerWorkspaceRequestBody } from '@weldsuite/app-api-client/domains/partners';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { partnerKeys } from '@/lib/partner/partner-keys';

@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useOrganizationList } from '@clerk/clerk-react';
+import { useOrganizationList } from '@/lib/auth';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';

@@ -1,0 +1,17 @@
+# Control-plane nodes: the API answers on the load balancer's addresses, etcd
+# peers over the private network, and no workloads run here.
+machine:
+  certSANs:
+%{ for san in cert_sans ~}
+    - ${san}
+%{ endfor ~}
+cluster:
+  apiServer:
+    certSANs:
+%{ for san in cert_sans ~}
+      - ${san}
+%{ endfor ~}
+  etcd:
+    advertisedSubnets:
+      - ${nodes_subnet}
+  allowSchedulingOnControlPlanes: false

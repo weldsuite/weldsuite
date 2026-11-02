@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Check, Hash, MessageSquare, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';

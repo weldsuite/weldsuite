@@ -1,0 +1,152 @@
+[
+  {
+    "page": 0,
+    "x": 50,
+    "y": 100,
+    "width": 160,
+    "height": 40,
+    "type": "signature",
+    "value": null,
+    "image": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAKUlEQVR4nGMQkdP4LyKn0cDAwMBwgovrPwOQw2Bk4/afkYnZgZOT8z8AfFkHfLLsPTgAAAAASUVORK5CYII="
+  },
+  {
+    "page": 0,
+    "x": 50,
+    "y": 150,
+    "width": 160,
+    "height": 22,
+    "type": "date_signed",
+    "value": "2026-11-02",
+    "image": null
+  },
+  {
+    "page": 0,
+    "x": 50,
+    "y": 180,
+    "width": 60,
+    "height": 14,
+    "type": "text",
+    "value": "Director of Operations and Strategic Partnerships Europe",
+    "image": null
+  },
+  {
+    "page": 0,
+    "x": 50,
+    "y": 200,
+    "width": 220,
+    "height": 22,
+    "type": "name",
+    "value": "Zoë Ångström 名前 — “quotes” €\tand\nmore",
+    "image": null
+  },
+  {
+    "page": 0,
+    "x": 300,
+    "y": 100,
+    "width": 120,
+    "height": 30,
+    "type": "email",
+    "value": "ann.de.vries@example.com",
+    "image": null
+  },
+  {
+    "page": 0,
+    "x": 300,
+    "y": 140,
+    "width": 100,
+    "height": 20,
+    "type": "text",
+    "value": "",
+    "image": null
+  },
+  {
+    "page": 1,
+    "x": 100,
+    "y": 100,
+    "width": 16,
+    "height": 16,
+    "type": "checkbox",
+    "value": "true",
+    "image": null
+  },
+  {
+    "page": 1,
+    "x": 130,
+    "y": 100,
+    "width": 16,
+    "height": 16,
+    "type": "checkbox",
+    "value": "false",
+    "image": null
+  },
+  {
+    "page": 1,
+    "x": 200,
+    "y": 300,
+    "width": 60,
+    "height": 30,
+    "type": "initials",
+    "value": null,
+    "image": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAAAAAC4HznGAAAAEElEQVR4nGNgaPjP8L+BAQAMAAL/qg5+vgAAAABJRU5ErkJggg=="
+  },
+  {
+    "page": 2,
+    "x": 60,
+    "y": 80,
+    "width": 180,
+    "height": 24,
+    "type": "text",
+    "value": "Turned with the page",
+    "image": null
+  },
+  {
+    "page": 2,
+    "x": 60,
+    "y": 120,
+    "width": 120,
+    "height": 50,
+    "type": "signature",
+    "value": null,
+    "image": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAGklEQVR4nGP4z8DAAMIM/7lE5Bg0jGzcAqIANZQEwNlCMeoAAAAASUVORK5CYII="
+  },
+  {
+    "page": 3,
+    "x": 30,
+    "y": 40,
+    "width": 150,
+    "height": 20,
+    "type": "text",
+    "value": "Cropped and turned",
+    "image": null
+  },
+  {
+    "page": 3,
+    "x": 30,
+    "y": 70,
+    "width": 20,
+    "height": 20,
+    "type": "checkbox",
+    "value": "true",
+    "image": null
+  },
+  {
+    "page": 4,
+    "x": 100,
+    "y": 200,
+    "width": 200,
+    "height": 30,
+    "type": "company",
+    "value": "WeldSuite B.V.",
+    "image": null
+  },
+  {
+    "page": 9,
+    "x": 1,
+    "y": 1,
+    "width": 10,
+    "height": 10,
+    "type": "text",
+    "value": "No such page",
+    "image": null
+  }
+]

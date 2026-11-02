@@ -15,3 +15,25 @@ export const updateHelpdeskFaqSchema = createHelpdeskFaqSchema.partial();
 
 export type CreateHelpdeskFaqInput = z.infer<typeof createHelpdeskFaqSchema>;
 export type UpdateHelpdeskFaqInput = z.infer<typeof updateHelpdeskFaqSchema>;
+
+/** A `helpdesk_faqs` row, as /api/helpdesk-faqs returns it. */
+export const helpdeskFaqSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    question: z.string(),
+    answer: z.string(),
+    category: z.string().nullable(),
+    order: z.number().nullable(),
+    isPublished: z.boolean(),
+    publishedAt: z.string().nullable(),
+    viewCount: z.number().nullable(),
+    helpfulCount: z.number().nullable(),
+    notHelpfulCount: z.number().nullable(),
+    relatedFAQs: z.unknown(),
+    relatedArticles: z.unknown(),
+    tags: z.unknown(),
+  })
+  .passthrough();

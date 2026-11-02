@@ -11,7 +11,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { weldchatKeys, updateClipTranscriptInCache, affectsRecordChats } from '../queries/use-weldchat-queries';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { RoomClient } from '@weldsuite/realtime/client';

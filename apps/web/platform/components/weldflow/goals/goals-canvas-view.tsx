@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';

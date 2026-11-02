@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
+// The Workers runtime runs in UTC, and so does the calendar code that reads
+// local time (the auto-scheduler's working hours, `new Date('2030-03-01T10:00')`).
+// The tests run there too, so they agree with production and with the Rust
+// backend in conformance mode, whatever the machine's zone.
+process.env.TZ = 'UTC';
+
 export default defineConfig({
   test: {
     environment: 'node',

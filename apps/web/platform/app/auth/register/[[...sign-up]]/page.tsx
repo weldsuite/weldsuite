@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
-import { useSignUp, useAuth } from '@clerk/clerk-react';
+import { useAuth, ClerkOnly } from '@/lib/auth';
+import { useSignUp } from '@/lib/auth/clerk';
 import { useSearchParams, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -11,6 +12,7 @@ import { getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 import { useOpenAIPixel } from '@/hooks/use-openai-pixel';
 import { markSignupIntent, measureRegistrationCompleted } from '@/lib/openai-ads';
+import { HostedSignInRedirect } from '@/components/auth/identity-provider-screens';
 
 function GoogleIcon({ className }: Readonly<{ className?: string }>) {
   return (
@@ -25,7 +27,7 @@ function GoogleIcon({ className }: Readonly<{ className?: string }>) {
 
 type RegisterStep = 'form' | 'verify';
 
-export default function RegisterPage() {
+function ClerkRegisterPage() {
   const t = getTranslations('common');
   const searchParams = useSearchParams();
   const prefillEmail = searchParams.get('email');
@@ -329,7 +331,7 @@ export default function RegisterPage() {
       <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
         <div className="w-full max-w-[448px] mx-auto">
           <div className="mb-[32px]">
-            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
+            <h1 className="text-[26px] leading-tight font-semibold text-gray-900 mb-0.5">
               {prefillEmail ? t.auth.register.titleWithInvite : t.auth.register.title}
             </h1>
             <p className="text-gray-600">
@@ -454,26 +456,29 @@ export default function RegisterPage() {
               </div>
 
               {/* Password requirements — same checklist as reset-password so users
-                  know why Create Account stays disabled (e.g. missing uppercase). */}
-              <div className="mt-2 space-y-1" data-testid="password-requirements">
-                {requirementKeys.map((req, i) => {
-                  const checks = [
-                    password.length >= 8,
-                    /[A-Z]/.test(password),
-                    /[a-z]/.test(password),
-                    /\d/.test(password),
-                  ];
-                  const isValid = checks[i];
-                  return (
-                    <div key={req} className="flex items-center gap-2 text-xs">
-                      <CheckCircle
-                        className={`h-3 w-3 ${isValid ? 'text-green-500' : 'text-gray-300'}`}
-                      />
-                      <span className={isValid ? 'text-gray-700' : 'text-gray-400'}>{req}</span>
-                    </div>
-                  );
-                })}
-              </div>
+                  know why Create Account stays disabled (e.g. missing uppercase).
+                  Hidden until a typed password misses one of them. */}
+              {password && passwordErrors.length > 0 && (
+                <div className="mt-2 space-y-1" data-testid="password-requirements">
+                  {requirementKeys.map((req, i) => {
+                    const checks = [
+                      password.length >= 8,
+                      /[A-Z]/.test(password),
+                      /[a-z]/.test(password),
+                      /\d/.test(password),
+                    ];
+                    const isValid = checks[i];
+                    return (
+                      <div key={req} className="flex items-center gap-2 text-xs">
+                        <CheckCircle
+                          className={`h-3 w-3 ${isValid ? 'text-green-500' : 'text-gray-300'}`}
+                        />
+                        <span className={isValid ? 'text-gray-700' : 'text-gray-400'}>{req}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
@@ -530,5 +535,14 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in redirect instead. */
+export default function RegisterPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInRedirect intent="sign-up" />}>
+      <ClerkRegisterPage />
+    </ClerkOnly>
   );
 }

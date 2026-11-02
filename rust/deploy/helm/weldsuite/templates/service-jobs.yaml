@@ -1,0 +1,21 @@
+{{- if .Values.config.jobs.restate.ingressUrl }}
+# The jobs service Restate calls (HTTP/2 without TLS). Restate holds long
+# HTTP/2 connections, so its calls may favour one pod; every pod can run any
+# job.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-jobs
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.config.jobs.port }}
+      targetPort: jobs
+      protocol: TCP
+      name: jobs
+      appProtocol: kubernetes.io/h2c
+  selector:
+    {{- include "weldsuite.selectorLabels" . | nindent 4 }}
+{{- end }}

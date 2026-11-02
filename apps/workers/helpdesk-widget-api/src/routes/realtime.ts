@@ -11,40 +11,17 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { getDeskConversation } from '@weldsuite/db/lib/desk';
+import { canAccessDeskConversation } from '@weldsuite/db/lib/desk-portal';
 import type { Env, Variables } from '../index';
 import { success, error } from '../lib/response';
 import { visitorDisplayName } from '../lib/desk-live';
+import { signJwt } from '../lib/tokens';
 
 const tokenSchema = z.object({
-  visitorId: z.string().min(1).max(64),
   conversationId: z.string().min(1).max(64),
 });
 
 const TOKEN_TTL_SECONDS = 3600;
-
-function base64Url(input: string | ArrayBuffer): string {
-  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCodePoint(...bytes.subarray(i, i + 0x8000));
-  }
-  const raw = btoa(binary);
-  return raw.replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
-}
-
-async function signToken(secret: string, payload: Record<string, unknown>): Promise<string> {
-  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = base64Url(JSON.stringify(payload));
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${header}.${body}`));
-  return `${header}.${body}.${base64Url(signature)}`;
-}
 
 export const realtimeRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -59,16 +36,17 @@ realtimeRoutes.post('/token', zValidator('json', tokenSchema), async (c) => {
     return error.internal(c, 'WIDGET_TOKEN_SECRET not configured');
   }
 
+  const visitorId = c.get('visitor').id;
   const result = await getDeskConversation(db, data.conversationId);
-  if (!result || result.conversation.visitorId !== data.visitorId) {
+  if (!result || !(await canAccessDeskConversation(db, result.conversation, c.get('principal')))) {
     return error.notFound(c, 'Conversation', data.conversationId);
   }
 
-  const visitorName = await visitorDisplayName(db, data.visitorId, result.conversation);
+  const visitorName = await visitorDisplayName(db, visitorId, result.conversation);
   const now = Math.floor(Date.now() / 1000);
-  const token = await signToken(secret, {
-    sub: data.visitorId,
-    customerId: data.visitorId,
+  const token = await signJwt(secret, {
+    sub: visitorId,
+    customerId: visitorId,
     customerName: visitorName,
     workspaceId,
     widgetId,

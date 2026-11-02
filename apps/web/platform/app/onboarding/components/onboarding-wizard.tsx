@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useOrganizationList } from "@clerk/clerk-react";
+import { useOrganizationList } from "@/lib/auth";
 import { getTranslations } from "@/lib/i18n";
 import { track } from "@/lib/analytics";
 import { useCompleteOnboarding } from "@/hooks/use-onboarding";

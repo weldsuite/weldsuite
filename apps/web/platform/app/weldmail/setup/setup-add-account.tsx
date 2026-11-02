@@ -53,6 +53,7 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
+import { isFeatureAvailable } from '@/lib/edition';
 
 type AccountType = 'select' | 'resend' | 'weldmail';
 
@@ -349,8 +350,14 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
     }
   };
 
+  // Free WeldMail addresses and custom domains each need a route the Kubernetes
+  // editions lack (`mail-free-addresses`, `mail-domains`): an unavailable
+  // method is not offered, and with neither there is nothing to add.
+  const weldmailAvailable = isFeatureAvailable('mail-free-addresses');
+  const customDomainAvailable = isFeatureAvailable('mail-domains');
+
   // Hide the entire "Add Email" entry point for members without create rights.
-  if (!canCreateAccount) {
+  if (!canCreateAccount || (!weldmailAvailable && !customDomainAvailable)) {
     return null;
   }
 
@@ -388,35 +395,39 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
               <p className="text-sm font-medium text-muted-foreground">
                 {t.mail.addAccount.createNewEmailAddress}
               </p>
-              <Button
-                variant="outline"
-                className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-                onClick={() => setAccountType('weldmail')}
-              >
-                <svg viewBox="0 0 937.21 669.01" className="size-7" fill="#f6663e">
-                  <path d="M787.08,0H150.13C67.22,0,0,67.21,0,150.12v368.76c0,82.91,67.22,150.13,150.13,150.13h636.95c82.91,0,150.13-67.22,150.13-150.13V150.12C937.21,67.21,869.99,0,787.08,0ZM780.05,230.53l-180.95,138.23c-39.2,29.91-86.23,44.87-133.25,44.87s-93.98-14.96-133.19-44.87c-.11-.06-.17-.11-.28-.17l-175.45-136.42c-15.98-12.41-18.87-35.41-6.46-51.38,12.46-15.98,35.46-18.81,51.38-6.41l175.34,136.26c52.29,39.77,125.26,39.77,177.49-.06l180.95-138.23c16.04-12.3,39.04-9.18,51.27,6.85,12.3,16.09,9.24,39.03-6.85,51.33Z"/>
-                </svg>
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">{t.mail.addAccount.weldMailAddress}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {t.mail.addAccount.getFreeWeldMailAddress}
-                  </span>
-                </div>
-              </Button>
+              {weldmailAvailable && (
+                <Button
+                  variant="outline"
+                  className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+                  onClick={() => setAccountType('weldmail')}
+                >
+                  <svg viewBox="0 0 937.21 669.01" className="size-7" fill="#f6663e">
+                    <path d="M787.08,0H150.13C67.22,0,0,67.21,0,150.12v368.76c0,82.91,67.22,150.13,150.13,150.13h636.95c82.91,0,150.13-67.22,150.13-150.13V150.12C937.21,67.21,869.99,0,787.08,0ZM780.05,230.53l-180.95,138.23c-39.2,29.91-86.23,44.87-133.25,44.87s-93.98-14.96-133.19-44.87c-.11-.06-.17-.11-.28-.17l-175.45-136.42c-15.98-12.41-18.87-35.41-6.46-51.38,12.46-15.98,35.46-18.81,51.38-6.41l175.34,136.26c52.29,39.77,125.26,39.77,177.49-.06l180.95-138.23c16.04-12.3,39.04-9.18,51.27,6.85,12.3,16.09,9.24,39.03-6.85,51.33Z"/>
+                  </svg>
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">{t.mail.addAccount.weldMailAddress}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.mail.addAccount.getFreeWeldMailAddress}
+                    </span>
+                  </div>
+                </Button>
+              )}
 
-              <Button
-                variant="outline"
-                className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-                onClick={() => setAccountType('resend')}
-              >
-                <Globe className="size-7 text-gray-500" />
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">{t.mail.addAccount.customDomainEmail}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {t.mail.addAccount.useYourOwnDomain}
-                  </span>
-                </div>
-              </Button>
+              {customDomainAvailable && (
+                <Button
+                  variant="outline"
+                  className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+                  onClick={() => setAccountType('resend')}
+                >
+                  <Globe className="size-7 text-gray-500" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">{t.mail.addAccount.customDomainEmail}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.mail.addAccount.useYourOwnDomain}
+                    </span>
+                  </div>
+                </Button>
+              )}
             </div>
           </div>
         )}

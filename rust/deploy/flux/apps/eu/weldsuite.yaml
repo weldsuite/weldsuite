@@ -1,0 +1,32 @@
+# The weldsuite server (rust/deploy/helm/weldsuite), wired to the cluster's
+# Postgres pooler, Valkey, NATS and object storage. Its secrets come from
+# the weldsuite-env Secret (secrets/examples/weldsuite-env.yaml), whose keys
+# are the server's environment variables (rust/bins/weldsuite/src/config.rs).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: weldsuite
+  namespace: weldsuite
+spec:
+  interval: 10m
+  # Covers the migration Job (a pre-install/pre-upgrade hook, deadline 25
+  # minutes in values/weldsuite.yaml) and the rollout after it.
+  timeout: 30m
+  chart:
+    spec:
+      chart: ./rust/deploy/helm/weldsuite
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: weldsuite
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  valuesFrom:
+    - kind: ConfigMap
+      name: weldsuite-values

@@ -9,6 +9,7 @@
  */
 
 import { apiUrl } from '@/lib/api/public-env';
+import { getAuthToken } from '@/lib/auth';
 
 const API_PREFIX = '/api';
 
@@ -41,26 +42,9 @@ export function setWeldbooksTokenGetter(getter: (() => Promise<string | null>) |
   browserTokenGetter = getter;
 }
 
-/** Same pre-provider fallback as worker-client: pull the token from window.Clerk. */
-async function getClerkBrowserToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const start = Date.now();
-  while (Date.now() - start < 5000) {
-    const Clerk = (window as { Clerk?: { loaded?: boolean; session?: { getToken: () => Promise<string | null> } } }).Clerk;
-    if (Clerk?.loaded) {
-      try {
-        return (await Clerk.session?.getToken()) ?? null;
-      } catch {
-        return null;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return null;
-}
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = browserTokenGetter ? await browserTokenGetter() : await getClerkBrowserToken();
+  const token = browserTokenGetter ? await browserTokenGetter() : await getAuthToken({ waitForLoad: true }); // before the provider mounts
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

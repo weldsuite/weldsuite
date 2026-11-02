@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { Navigate } from '@tanstack/react-router';
 import { InviteClient } from './invite-client';
 

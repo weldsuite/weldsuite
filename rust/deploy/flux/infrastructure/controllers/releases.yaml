@@ -1,0 +1,119 @@
+# Operators and cluster services that later layers build on. Each release's
+# values are in values/<name>.yaml (a ConfigMap generated next to it), so
+# rust/deploy/validate.sh renders every chart with exactly these values.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: openebs-localpv
+  namespace: openebs
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: localpv-provisioner
+      version: 4.6.0
+      sourceRef:
+        kind: HelmRepository
+        name: openebs-localpv
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: openebs-localpv-values
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.21.2
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  valuesFrom:
+    - kind: ConfigMap
+      name: cert-manager-values
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: traefik
+      version: 41.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: traefik
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  valuesFrom:
+    - kind: ConfigMap
+      name: traefik-values
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cloudnative-pg
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: cloudnative-pg
+      version: 0.29.1
+      sourceRef:
+        kind: HelmRepository
+        name: cnpg
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  valuesFrom:
+    - kind: ConfigMap
+      name: cloudnative-pg-values
+---
+# WAL archiving and base backups to object storage, as a CNPG-I plugin (the
+# in-tree barmanObjectStore is deprecated). Needs cert-manager.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: plugin-barman-cloud
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  dependsOn:
+    - name: cloudnative-pg
+    - name: cert-manager
+      namespace: cert-manager
+  chart:
+    spec:
+      chart: plugin-barman-cloud
+      version: 0.8.1
+      sourceRef:
+        kind: HelmRepository
+        name: cnpg
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  valuesFrom:
+    - kind: ConfigMap
+      name: plugin-barman-cloud-values

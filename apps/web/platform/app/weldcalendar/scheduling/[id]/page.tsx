@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { useParams } from '@/lib/router';
-import { useUser, useOrganization } from '@clerk/clerk-react';
+import { useUser, useOrganization } from '@/lib/auth';
 import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, type BookingPage, type BookingQuestion } from '@/hooks/queries/use-calendar-queries';
 import { getBookingPortalUrl } from '@/lib/weldcalendar/booking-portal-url';
 import { useSetAtom } from 'jotai';

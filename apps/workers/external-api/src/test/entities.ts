@@ -27,7 +27,10 @@ import { createChatBookmarkSchema, updateChatBookmarkSchema } from '@weldsuite/c
 import { createChatDraftSchema, updateChatDraftSchema } from '@weldsuite/core-api-client/schemas/chat-drafts';
 import { createChatMessageSchema, updateChatMessageSchema } from '@weldsuite/core-api-client/schemas/chat-messages';
 import { createChatSectionSchema, updateChatSectionSchema } from '@weldsuite/core-api-client/schemas/chat-sections';
-import { createConversationSchema, updateConversationSchema } from '@weldsuite/core-api-client/schemas/conversations';
+import {
+  openDeskConversationSchema,
+  updateDeskConversationSchema,
+} from '@weldsuite/core-api-client/schemas/desk-conversations';
 import { createDomainSchema, updateDomainSchema } from '@weldsuite/core-api-client/schemas/domains';
 import { createFileSchema, updateFileSchema } from '@weldsuite/core-api-client/schemas/files';
 import { createFolderSchema, updateFolderSchema } from '@weldsuite/core-api-client/schemas/folders';
@@ -187,7 +190,7 @@ export const CRUD_ENTITIES: CrudEntity[] = [
   e('chat-messages', createChatMessageSchema, updateChatMessageSchema),
   e('chat-sections', createChatSectionSchema, updateChatSectionSchema),
   e('companies', createCompanySchema, updateCompanySchema),
-  e('conversations', createConversationSchema, updateConversationSchema),
+  e('conversations', openDeskConversationSchema, updateDeskConversationSchema), // the live inbox: conversations.test.ts
   e('domains', createDomainSchema, updateDomainSchema),
   e('files', createFileSchema, updateFileSchema),
   e('folders', createFolderSchema, updateFolderSchema),

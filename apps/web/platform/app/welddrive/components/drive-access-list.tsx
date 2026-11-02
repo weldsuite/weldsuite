@@ -1,4 +1,4 @@
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Building2, Eye, Loader2, Lock } from 'lucide-react';
 import {
   Select,

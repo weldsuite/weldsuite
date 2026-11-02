@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useLists, useAddListMembers, type ListKind } from '@/hooks/queries/use-lists-queries';

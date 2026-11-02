@@ -1,0 +1,340 @@
+{
+  "appAccess": {
+    "company": "Bedrijf",
+    "consent": "Toestemmingsregels",
+    "consentValue": "{countries}: ook voor zakelijke adressen is voorafgaande toestemming nodig",
+    "contact": "Contactpersoon",
+    "countries": "Landen",
+    "email": "E-mail",
+    "kicker": "Nieuwe toegangsaanvraag voor {app}",
+    "listSource": "Herkomst lijst",
+    "listSourceDetails": "Toelichting lijst",
+    "listSources": {
+      "bought_list": "Gekochte lijst",
+      "other": "Anders",
+      "own_customers": "Eigen klanten",
+      "own_research": "Eigen onderzoek"
+    },
+    "preview": "{company} vraagt toegang tot {app}.",
+    "review": "Aanvraag beoordelen",
+    "subject": "Toegangsaanvraag: {app} voor {workspace}",
+    "terms": "Versie voorwaarden",
+    "useCase": "Toepassing",
+    "volume": "Verzendingen per dag",
+    "website": "Website",
+    "workspace": "Werkruimte",
+    "workspaceId": "Werkruimte-id"
+  },
+  "booking": {
+    "date": "Datum",
+    "host": "Organisator",
+    "intro": {
+      "cancelled": "Hoi {name}, je afspraak met {host} is geannuleerd.",
+      "confirmed": "Hoi {name}, je afspraak met {host} is bevestigd. De uitnodiging zit in de bijlage, zodat je hem aan je agenda kunt toevoegen.",
+      "guest": "{booker} heeft je als gast toegevoegd aan een afspraak met {host}. De uitnodiging zit in de bijlage.",
+      "rescheduled": "Hoi {name}, je afspraak met {host} is naar een nieuw tijdstip verplaatst. De bijgewerkte uitnodiging zit in de bijlage."
+    },
+    "joinVideoCall": "Deelnemen aan videogesprek",
+    "kicker": {
+      "cancelled": "Afspraak geannuleerd",
+      "confirmed": "Afspraak bevestigd",
+      "guest": "Je bent uitgenodigd",
+      "rescheduled": "Afspraak verplaatst"
+    },
+    "location": "Locatie",
+    "manage": {
+      "cancel": "annuleren",
+      "cancelled": "Was dit een vergissing, of wil je opnieuw boeken? Beantwoord deze e-mail om {host} te bereiken.",
+      "guest": "Vragen? Beantwoord deze e-mail om {host} te bereiken.",
+      "reschedule": "verplaatsen",
+      "withLinks": "Iets wijzigen? Je kunt deze afspraak {reschedule} of {cancel}, of beantwoord deze e-mail om {host} te bereiken.",
+      "withoutLinks": "Iets wijzigen? Beantwoord deze e-mail om {host} te bereiken."
+    },
+    "messageFrom": "Een bericht van {host}",
+    "phone": "Telefoon",
+    "preview": {
+      "cancelled": "Je afspraak met {host} op {date} is geannuleerd.",
+      "confirmed": "Je afspraak met {host} op {date} is bevestigd.",
+      "guest": "{booker} heeft je toegevoegd aan een afspraak met {host} op {date}.",
+      "rescheduled": "Je afspraak met {host} is verplaatst naar {date}."
+    },
+    "subject": {
+      "cancelled": "Afspraak geannuleerd: {page} op {date}",
+      "confirmed": "Afspraak bevestigd: {page} op {date}",
+      "guest": "Uitnodiging: {page} op {date}",
+      "rescheduled": "Afspraak verplaatst: {page} op {date}"
+    },
+    "time": "Tijd",
+    "videoCall": "Videogesprek"
+  },
+  "calendar": {
+    "footer": "Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.",
+    "intro": {
+      "cancel": "{organizer} heeft een afspraak geannuleerd.",
+      "invite": "{organizer} heeft je uitgenodigd voor een afspraak.",
+      "removed": "{organizer} heeft je verwijderd uit een afspraak.",
+      "reschedule": "{organizer} heeft een afspraak naar een nieuw tijdstip verplaatst.",
+      "restored": "{organizer} laat een geannuleerde afspraak toch doorgaan.",
+      "update": "{organizer} heeft een afspraak gewijzigd."
+    },
+    "joinVideo": "Deelnemen aan videovergadering",
+    "joinWeldMeet": "Deelnemen aan WeldMeet-vergadering",
+    "preview": {
+      "cancel": "{organizer} heeft {title} geannuleerd",
+      "invite": "{organizer} heeft je uitgenodigd voor {title}",
+      "removed": "{organizer} heeft je verwijderd uit {title}",
+      "reschedule": "{organizer} heeft {title} naar een nieuw tijdstip verplaatst",
+      "restored": "{organizer} laat {title} toch doorgaan",
+      "update": "{organizer} heeft {title} gewijzigd"
+    },
+    "subject": {
+      "cancel": "Geannuleerd: {title}",
+      "invite": "Uitnodiging: {title}",
+      "removed": "Je bent verwijderd uit: {title}",
+      "reschedule": "Verplaatst: {title}",
+      "restored": "Gaat toch door: {title}",
+      "update": "Gewijzigd: {title}"
+    },
+    "viewInCalendar": "Bekijken in WeldCalendar",
+    "when": "Wanneer",
+    "where": "Waar"
+  },
+  "dates": {
+    "allDay": "{date} (hele dag)"
+  },
+  "deletion": {
+    "cancelled": {
+      "body": "De geplande verwijdering van {workspace} is geannuleerd. De werkruimte is weer actief.",
+      "kicker": "Verwijdering geannuleerd",
+      "preview": "De verwijdering van {workspace} is geannuleerd.",
+      "subject": "Je WeldSuite-werkruimte \"{workspace}\" is weer actief"
+    },
+    "scheduled": {
+      "body": "{workspace} is geschorst en wordt op {date} definitief verwijderd. Zolang de schorsing duurt, is de werkruimte niet toegankelijk.",
+      "contact": "Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-support. Daarna worden de werkruimte en alle gegevens definitief verwijderd.",
+      "kicker": "Werkruimte geschorst",
+      "preview": "{workspace} wordt op {date} verwijderd.",
+      "reason": "Reden",
+      "subject": "Je WeldSuite-werkruimte \"{workspace}\" wordt verwijderd"
+    }
+  },
+  "digest": {
+    "footer": "Je ontvangt deze e-mail als lid van {workspace}.",
+    "heading": "Je taken",
+    "intro": "Hoi {name}, dit staat er voor je klaar.",
+    "kicker": "Dagelijks overzicht · {date}",
+    "manage": "Instellingen overzicht",
+    "overdue": "Te laat",
+    "personal": "Persoonlijk",
+    "preview": "{overdue} te laat, {today} vandaag, {week} deze week.",
+    "subject": {
+      "overdue": "Je taken: {count} te laat",
+      "upcoming": "Je taken voor vandaag: {count}"
+    },
+    "today": "Vandaag",
+    "viewAll": "Alle taken bekijken",
+    "week": "Deze week"
+  },
+  "enterprise": {
+    "contact": "Contactpersoon",
+    "email": "E-mail",
+    "kicker": "Nieuwe enterprise-aanvraag",
+    "org": "Clerk-organisatie",
+    "plan": "Huidig abonnement",
+    "replyHint": "Beantwoord deze e-mail om {contact} direct te bereiken.",
+    "source": "Bron",
+    "subject": "Enterprise-aanvraag: {company} ({size})",
+    "teamSize": "Teamgrootte",
+    "useCase": "Toepassing",
+    "user": "Clerk-gebruiker",
+    "workspace": "Werkruimte"
+  },
+  "hrBank": {
+    "byHr": "De bankgegevens waarop {employer} je salaris betaalt zijn door HR gewijzigd, op {when}.",
+    "byYou": "Je hebt de bankgegevens waarop {employer} je salaris betaalt gewijzigd, op {when}.",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "Je bankgegevens zijn gewijzigd",
+    "kicker": "Salaris",
+    "notYou": "Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.",
+    "preview": "De rekening waarop je salaris wordt betaald is gewijzigd.",
+    "privacy": "Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.",
+    "subject": "Je bankgegevens voor de salarisbetaling zijn gewijzigd"
+  },
+  "hrPayslip": {
+    "body": "Je loonstrook van {employer} voor de betaling van {date} staat klaar. Je kunt hem lezen en downloaden in Mijn HR.",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "Je loonstrook staat klaar",
+    "kicker": "Loonstrook",
+    "open": "Mijn loonstrook openen",
+    "preview": "Er staat een nieuwe loonstrook van {employer} voor je klaar.",
+    "privacy": "Uit privacyoverwegingen sturen we nooit loongegevens per e-mail.",
+    "subject": "Je loonstrook van {employer} staat klaar"
+  },
+  "layout": {
+    "linkFallback": "Of open deze link:",
+    "sentVia": "Verzonden via {product}"
+  },
+  "meet": {
+    "footer": "Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.",
+    "intro": "{organizer} heeft je uitgenodigd voor een videovergadering.",
+    "join": "Deelnemen",
+    "noAccount": "Je hebt geen account nodig. De link opent de vergadering in je browser.",
+    "subject": "{organizer} heeft je uitgenodigd voor {title}",
+    "when": "Wanneer"
+  },
+  "notifications": {
+    "footer": "Je ontvangt deze e-mail omdat e-mailmeldingen aan staan.",
+    "manage": "Meldingsinstellingen",
+    "open": "Openen in WeldSuite"
+  },
+  "outboundAlert": {
+    "domains": "Domeinen ontvangers",
+    "kicker": "Melding uitgaande mail",
+    "preview": "{summary}",
+    "recipients": "Nieuwe ontvangers vandaag",
+    "review": "Openen in de beheerconsole",
+    "riskScore": "Risicoscore",
+    "severities": {
+      "info": "Info",
+      "urgent": "Urgent",
+      "warning": "Waarschuwing"
+    },
+    "severity": "Ernst",
+    "sources": "Verzonden via",
+    "state": "Verzendstatus",
+    "subject": "[{severity}] Uitgaande mail: {trigger} in {workspace}",
+    "templateSubject": "Onderwerp sjabloon",
+    "trigger": "Aanleiding",
+    "triggers": {
+      "bounce_rate": "Veel bounces",
+      "cold_outreach_template": "Sjabloon voor koude acquisitie",
+      "complaints": "Spamklachten",
+      "phishing": "Phishing of oplichting",
+      "platform_budget": "Verzendbudget platform",
+      "risk_score": "Hoge risicoscore",
+      "staff_review": "Beoordeling door medewerker"
+    },
+    "verdict": "AI-oordeel",
+    "workspace": "Werkruimte",
+    "workspaceId": "Werkruimte-id"
+  },
+  "portal": {
+    "expiresCode": "De code verloopt over {minutes} minuten.",
+    "expiresLink": "De link en code verlopen over {minutes} minuten.",
+    "footer": "Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.",
+    "kickerCode": "Je inlogcode",
+    "kickerLink": "Inloggen",
+    "preview": "Je inlogcode is {code}.",
+    "signIn": "Inloggen",
+    "subject": {
+      "code": "Je inlogcode voor {portal}: {code}",
+      "link": "Inloggen bij {portal}"
+    },
+    "useCode": "Vul deze code in om in te loggen:",
+    "useLink": "Of vul deze code in:"
+  },
+  "reachApproved": {
+    "body": "We hebben {workspace} goedgekeurd voor WeldReach. Open WeldReach om je afzendergegevens in te vullen, een betaalmethode voor inboxen toe te voegen en je eerste domein te koppelen.",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "WeldReach is klaar",
+    "kicker": "Toegang goedgekeurd",
+    "limits": "Om te beginnen kun je maximaal {domains} domeinen en {mailboxes} inboxen koppelen en maximaal {sends} e-mails per dag versturen. Vraag het ons als je meer nodig hebt.",
+    "open": "WeldReach openen",
+    "preview": "Je toegang tot WeldReach is goedgekeurd.",
+    "subject": "WeldReach is klaar voor {workspace}",
+    "terms": "Verzenden blijft onderhevig aan de voorwaarden die je hebt geaccepteerd: alleen zakelijke adressen, je identiteit en een afmeldlink in elke e-mail, en afmeldingen blijvend respecteren. WeldSuite kan het verzenden pauzeren bij veel klachten of bounces."
+  },
+  "reachRejected": {
+    "again": "Verandert je situatie, dan kun je in de appstore opnieuw toegang aanvragen. Vragen? Neem contact op met WeldSuite-support.",
+    "body": "We hebben de toegangsaanvraag voor WeldReach van {workspace} beoordeeld en kunnen die op dit moment niet goedkeuren.",
+    "greeting": "Hoi {name},",
+    "greetingNoName": "Hoi,",
+    "heading": "We konden je aanvraag niet goedkeuren",
+    "kicker": "Toegangsaanvraag",
+    "open": "De appstore openen",
+    "preview": "We konden je toegangsaanvraag voor WeldReach niet goedkeuren.",
+    "reason": "Reden",
+    "subject": "Je toegangsaanvraag voor WeldReach van {workspace}"
+  },
+  "sign": {
+    "code": {
+      "body": "Vul deze code in op de ondertekenpagina:",
+      "expires": "De code verloopt over {minutes} minuten.",
+      "footer": "Heb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.",
+      "kicker": "Je code om het document te openen",
+      "preview": "Je code is {code}.",
+      "subject": "Je code om \"{title}\" te openen: {code}"
+    },
+    "completed": {
+      "attached": "Het ondertekende document zit in de bijlage, met een certificaat van voltooiing waarin staat wie wanneer heeft getekend.",
+      "button": "Ondertekende pdf downloaden",
+      "download": "Download het ondertekende document met het certificaat van voltooiing:",
+      "footer": "Bewaar deze e-mail of de pdf als jouw exemplaar van het ondertekende document.",
+      "kicker": "Iedereen heeft getekend",
+      "open": "Het verzoek openen",
+      "preview": "Iedereen heeft \"{title}\" ondertekend.",
+      "signers": "Getekend door",
+      "subject": "\"{title}\" is ondertekend"
+    },
+    "declined": {
+      "body": "Het verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.",
+      "kicker": "{name} heeft geweigerd te ondertekenen",
+      "open": "Het verzoek openen",
+      "preview": "{name} heeft geweigerd te ondertekenen.",
+      "reason": "De reden",
+      "subject": "{name} heeft geweigerd \"{title}\" te ondertekenen"
+    },
+    "expired": {
+      "body": "Niet iedereen heeft voor de vervaldatum getekend. Het verzoek is daarom gesloten en de links werken niet meer. Stuur een nieuw verzoek als je de handtekeningen nog nodig hebt.",
+      "kicker": "Je ondertekenverzoek is verlopen",
+      "open": "Het verzoek openen",
+      "preview": "Niet iedereen heeft \"{title}\" op tijd ondertekend.",
+      "subject": "\"{title}\" is verlopen voordat iedereen had getekend",
+      "unsigned": "Niet getekend door"
+    },
+    "request": {
+      "button": "Bekijken en ondertekenen",
+      "expires": "Onderteken voor {date}. Daarna werkt de link niet meer.",
+      "footer": "De link in deze e-mail is persoonlijk. Stuur hem niet door: iedereen met de link kan het document openen en als jou ondertekenen.",
+      "kicker": "{sender} heeft je een document gestuurd om te ondertekenen",
+      "messageFrom": "Bericht van {sender}",
+      "preview": "Bekijk en onderteken \"{title}\".",
+      "reminderKicker": "Herinnering: {sender} wacht nog op je handtekening",
+      "reminderPreview": "Een herinnering om \"{title}\" te bekijken en te ondertekenen.",
+      "reminderSubject": "Herinnering: {sender} wacht nog op je handtekening voor \"{title}\"",
+      "subject": "{sender} heeft je \"{title}\" gestuurd om te ondertekenen"
+    },
+    "voided": {
+      "body": "Je hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.",
+      "kicker": "{sender} heeft dit ondertekenverzoek ingetrokken",
+      "preview": "{sender} heeft dit ondertekenverzoek ingetrokken.",
+      "reason": "De reden",
+      "subject": "\"{title}\" is ingetrokken"
+    }
+  },
+  "task": {
+    "due": "Deadline",
+    "intro": "{assigner} heeft je een taak toegewezen.",
+    "priorities": {
+      "high": "Hoog",
+      "low": "Laag",
+      "medium": "Gemiddeld",
+      "urgent": "Urgent"
+    },
+    "priority": "Prioriteit",
+    "project": "Project",
+    "subject": "{assigner} heeft je toegewezen: {title}",
+    "view": "Taak bekijken"
+  },
+  "workspaceInvite": {
+    "accept": "Uitnodiging accepteren",
+    "body": "Je bent uitgenodigd voor {workspace} op WeldSuite als {role}. Accepteer de uitnodiging om te beginnen.",
+    "footer": "Deze uitnodiging is verstuurd naar {email}. Had je hem niet verwacht? Dan kun je deze e-mail negeren.",
+    "intro": "{inviter} heeft je uitgenodigd voor",
+    "preview": "Word lid van {workspace} op WeldSuite.",
+    "subject": "{inviter} heeft je uitgenodigd voor {workspace} op WeldSuite"
+  }
+}

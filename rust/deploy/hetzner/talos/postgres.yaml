@@ -1,0 +1,5 @@
+# The CloudNativePG pool: only Postgres (and its poolers' replicas, which
+# tolerate the taint) runs here, on the node's local NVMe.
+machine:
+  nodeTaints:
+    node.weldsuite.org/postgres: "true:NoSchedule"

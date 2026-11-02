@@ -74,7 +74,7 @@ export function TicketTypesSettings() {
 
   useBreadcrumbs([
     { label: ttp.helpdeskBreadcrumb, href: '/welddesk' },
-    { label: ttp.settingsBreadcrumb, href: '/welddesk/settings' },
+    { label: ttp.settingsBreadcrumb },
     { label: ttp.breadcrumb },
   ]);
 
@@ -230,7 +230,7 @@ export function TicketTypesSettings() {
         {/* Header */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild className="shrink-0">
-            <Link href="/welddesk/settings">
+            <Link href="/welddesk/inbox">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>

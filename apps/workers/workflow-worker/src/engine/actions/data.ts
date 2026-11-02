@@ -19,11 +19,20 @@ import {
 } from '../entity-tables';
 import { generateId } from '../../lib/id';
 import { asText } from '@weldsuite/text';
+import { createTicketAsConversation } from './desk';
+
+/** Entity types whose new records are tickets: they open a WeldDesk inbox conversation instead. */
+const TICKET_ENTITIES = new Set(['ticket', 'helpdesk_ticket']);
 
 export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
   const entityType = asText(inputs.entity || inputs.entityType || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
+
+  // helpdesk_tickets has no screen: a ticket written there would reach nobody.
+  if (TICKET_ENTITIES.has(entityType.toLowerCase().replaceAll('-', '_'))) {
+    return createTicketAsConversation(data, ctx);
+  }
 
   // MAIL-009: a workspace whose mail lives in the mailbox object refuses a
   // generic mail_message action outright, before anything touches Postgres.

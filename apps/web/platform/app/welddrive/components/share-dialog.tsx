@@ -1,6 +1,6 @@
 import { Check, ChevronsUpDown, Copy, Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import {
   Dialog,

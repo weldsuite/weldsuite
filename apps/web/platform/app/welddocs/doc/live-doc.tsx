@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';

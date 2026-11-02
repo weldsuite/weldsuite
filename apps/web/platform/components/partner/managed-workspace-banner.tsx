@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { TriangleAlert, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';

@@ -12,6 +12,7 @@
 
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { isFeatureAvailable, type EditionFeature } from '@/lib/edition';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
 import { mailKeys } from '@/hooks/queries/mail-keys';
 import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
@@ -748,14 +749,24 @@ export function useMailAttachments(messageId: string, enabled = true) {
     enabled: !!messageId && enabled,
   });
 }// =============================================================================
-// Domains
+// Domains (`mail-domains`: not served on the Kubernetes editions)
 // =============================================================================
+
+/**
+ * Guard for the calls of an edition feature. The UI hides every entry point of
+ * a feature the backend lacks; this keeps a stray call from reaching the
+ * missing route (`lib/edition.ts`).
+ */
+function assertFeature(feature: EditionFeature): void {
+  if (!isFeatureAvailable(feature)) throw new Error(`${feature} is not available in this edition`);
+}
 
 export function useMailDomains() {
   const { mailDomains } = useAppApi();
   return useQuery({
     queryKey: mailKeys.domains(),
     queryFn: () => mailDomains.list(),
+    enabled: isFeatureAvailable('mail-domains'),
   });
 }
 
@@ -769,7 +780,10 @@ export function useUpdateMailDomain() {
     }: {
       id: string;
       data: import('@weldsuite/app-api-client/schemas/mail-domains').UpdateMailDomainInput;
-    }) => mailDomains.update(id, data),
+    }) => {
+      assertFeature('mail-domains');
+      return mailDomains.update(id, data);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.domains() });
       qc.invalidateQueries({ queryKey: appSettingsKeys.mail() });
@@ -777,7 +791,7 @@ export function useUpdateMailDomain() {
   });
 }
 // =============================================================================
-// WeldMail (shared {slug}.weldmail.com addresses)
+// WeldMail (shared {slug}.weldmail.com addresses; `mail-free-addresses`)
 // =============================================================================
 
 export function useWeldMailDomain() {
@@ -785,12 +799,16 @@ export function useWeldMailDomain() {
   return useQuery({
     queryKey: mailKeys.weldmailDomain(),
     queryFn: () => mailWeldMail.domain(),
+    enabled: isFeatureAvailable('mail-free-addresses'),
   });
 }
 export function useCheckWeldMailAvailability() {
   const { mailWeldMail } = useAppApi();
   return useMutation({
-    mutationFn: (data: CheckWeldMailAddressInput) => mailWeldMail.check(data),
+    mutationFn: (data: CheckWeldMailAddressInput) => {
+      assertFeature('mail-free-addresses');
+      return mailWeldMail.check(data);
+    },
   });
 }
 
@@ -798,7 +816,10 @@ export function useReserveWeldMailAddress() {
   const { mailWeldMail } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: ReserveWeldMailAddressInput) => mailWeldMail.reserve(data),
+    mutationFn: (data: ReserveWeldMailAddressInput) => {
+      assertFeature('mail-free-addresses');
+      return mailWeldMail.reserve(data);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.weldmail() });
       qc.invalidateQueries({ queryKey: mailKeys.accounts() });
@@ -851,7 +872,7 @@ export function useScheduledEmails(accountId?: string, enabled = true) {
 }
 
 // =============================================================================
-// AI — `app-api/mail-ai` proxies to agent-worker `/dispatch/mail-ai/*`,
+// AI (`mail-ai`: not served on the Kubernetes editions) — `app-api/mail-ai` proxies to agent-worker `/dispatch/mail-ai/*`,
 // which returns the legacy `{ success, data }` envelope shape the
 // platform consumers already destructure. The `mailAi.*` client returns
 // the raw `Response` (so streaming endpoints would work), so we
@@ -876,6 +897,7 @@ export function useGenerateEmailDraft() {
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiDraftResponse> => {
+      assertFeature('mail-ai');
       const res = await mailAi.draft(data as Parameters<typeof mailAi.draft>[0]);
       return res.json();
     },
@@ -886,6 +908,7 @@ export function useGenerateAutoDraft() {
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiDraftResponse> => {
+      assertFeature('mail-ai');
       const res = await mailAi.autoDraft(data as Parameters<typeof mailAi.autoDraft>[0]);
       return res.json();
     },
@@ -896,6 +919,7 @@ export function useGenerateAIReply() {
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Record<string, unknown>): Promise<AiReplyResponse> => {
+      assertFeature('mail-ai');
       const res = await mailAi.reply(data as Parameters<typeof mailAi.reply>[0]);
       // The endpoint returns `body` at the top level (compose panel +
       // message-detail read `result.body`); `data.body` mirrors it. Lift
@@ -928,6 +952,7 @@ export function useInboxSummary() {
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Parameters<typeof mailAi.inboxSummary>[0]): Promise<AiInboxSummaryResponse> => {
+      assertFeature('mail-ai');
       const res = await mailAi.inboxSummary(data);
       return res.json();
     },
@@ -942,6 +967,7 @@ export function useSmartReplies() {
   const { mailAi } = useAppApi();
   return useMutation({
     mutationFn: async (data: Parameters<typeof mailAi.smartReplies>[0]): Promise<AiSmartRepliesResponse> => {
+      assertFeature('mail-ai');
       const res = await mailAi.smartReplies(data);
       return res.json();
     },

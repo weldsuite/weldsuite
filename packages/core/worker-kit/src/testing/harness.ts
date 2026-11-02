@@ -27,6 +27,8 @@ import {
   recordOnlyTarget,
 } from './conformance';
 
+export { conformanceMasterDb, conformanceTenantDb } from './conformance';
+
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
 // on the context (see `createTestApp`), so the factory is never actually
@@ -56,6 +58,19 @@ export interface TestContext {
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
   /**
+   * The master database, when the routes under test use one (the test mocks
+   * `getMasterDb` to return it). Only conformance mode reads it here: it is
+   * served to the Rust server like `tenantDb`.
+   */
+  masterDb?: Database;
+  /**
+   * Other workspaces' tenant databases, by the reference the routes resolve
+   * them with (the Clerk org id), for a route that reads across workspaces
+   * (the test mocks its tenant lookup to return them). Only conformance mode
+   * reads it here: each is served to the Rust server like `tenantDb`.
+   */
+  tenantDbs?: Record<string, Database>;
+  /**
    * Pre-resolved permissions cached on the context. When set, the
    * `requirePermission` middleware short-circuits its DB query and uses
    * this value directly. Use `permissions('*')` to grant everything.
@@ -76,6 +91,15 @@ export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
   context?: Partial<TestContext>;
   /** Override individual env bindings. */
   env?: Partial<E>;
+  /**
+   * Where the Rust server serves this router, when that differs from the
+   * worker's own paths. A worker on a host of its own answers at the root
+   * (`helpdesk-widget-api`'s `/api/config`), but the one Rust server mounts
+   * it under a prefix (`/public/helpdesk-widget/api/config`). Conformance
+   * mode sends Rust this prefix plus the test's path; the test and the Hono
+   * app keep the worker's paths.
+   */
+  rustBasePath?: string;
 }
 
 /**
@@ -133,6 +157,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     ...(sideEffects?.bindings ?? {}),
     ...options.env,
   } as E;
+  // A test's own REALTIME binding is recorded too: its publishes are side
+  // effects both backends must agree on.
+  const ownRealtime = (options.env as Record<string, unknown> | undefined)?.REALTIME as
+    | { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }
+    | undefined;
+  if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
+    (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
+  }
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
@@ -151,13 +183,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
       // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
       if (ctx.flags) set('flags', ctx.flags);
       await next();
-      // Conformance mode reports which route answered: the last matched
-      // handler that isn't a middleware.
+      // Conformance mode reports which route answered: the handler Hono ran
+      // last (`routeIndex`), not the last route that matched, since
+      // `/pages/tree` and `/pages/:id` both match and the first one answers.
+      // A route's own middleware (a 403 from requirePermission) shares its
+      // path; an app-wide one (`ALL`, e.g. nothing matched) is no route.
       if (target || recorder) {
-        const endpoint = matchedRoutes(c)
-          .filter((r) => r.method !== 'ALL')
-          .at(-1);
-        if (endpoint) c.res.headers.set(ROUTE_HEADER, endpoint.path);
+        const endpoint = matchedRoutes(c)[c.req.routeIndex];
+        if (endpoint && endpoint.method !== 'ALL') c.res.headers.set(ROUTE_HEADER, endpoint.path);
       }
     });
 
@@ -202,9 +235,15 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
           env: env as unknown as Record<string, unknown>,
           input,
           init,
-          runTypeScript: async (tenantDb, path, requestInit) =>
-            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          runTypeScript: async (tenantDb, path, requestInit, runEnv) =>
+            buildApp(tenantDb).request(
+              path,
+              requestInit,
+              runEnv ?? (env as unknown as Record<string, unknown>),
+              executionCtx,
+            ),
           sideEffects: sideEffects!,
+          rustBasePath: options.rustBasePath,
         });
       }
       if (recorder) {

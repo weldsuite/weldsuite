@@ -1,0 +1,489 @@
+{
+  "model": "@cf/baai/bge-m3",
+  "seed": [
+    "delete from search_index where entity_id like 'fx%'",
+    "delete from custom_field_values where id like 'fx%'",
+    "delete from custom_field_definitions where id like 'fx%'",
+    "delete from custom_object_records where id like 'fx%'",
+    "delete from custom_objects where id like 'fx%'",
+    "delete from knowledge_pages where id like 'fx%'",
+    "delete from knowledge_spaces where id like 'fx%'",
+    "delete from helpdesk_tickets where id like 'fx%'",
+    "delete from helpdesk_articles where id like 'fx%'",
+    "delete from tasks where id like 'fx%'",
+    "delete from projects where id like 'fx%'",
+    "delete from people where id like 'fx%'",
+    "delete from crm_opportunities where id like 'fx%'",
+    "delete from crm_leads where id like 'fx%'",
+    "delete from companies where id like 'fx%'",
+    "insert into knowledge_spaces (id, name, kind, visibility) values ('fx_space_open', 'Engineering', 'team', 'open'), ('fx_space_private', 'Board', 'team', 'private')",
+    "insert into knowledge_pages (id, space_id, title, content_text) values ('fx_kp_1', 'fx_space_open', 'Deploy guide', 'Paragraph 1: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 2: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 3: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 4: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 5: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 6: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 7: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 8: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. \n\nParagraph 9: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. '), ('fx_kp_2', 'fx_space_private', 'Secret plans', 'Not for everyone')",
+    "insert into helpdesk_tickets (id, ticket_number, customer_name, customer_email, subject, description) values ('fx_t1', 'T-100', 'Acme', 'a@acme.test', 'Printer jams', 'It jams  a lot\tdaily.\n\nEvery morning.')",
+    "insert into helpdesk_articles (id, title, slug, content, author_id, excerpt, category_name) values ('fx_a1', 'Reset your password', 'reset', 'Open settings and press reset.', 'u', 'How to reset', 'Accounts')",
+    "insert into projects (id, name, code, description, created_at, updated_at) values ('fx_p1', 'Website', 'WEB', 'The new site', now(), now()), ('fx_p2', 'Broken', null, 'FAIL_EMBED', now(), now())",
+    "insert into tasks (id, title, number, description) values ('fx_task1', '', 42, 'Write the copy')",
+    "insert into people (id, display_name, first_name, last_name, email, title) values ('fx_person1', 'Jane Doe', 'Jane', 'Doe', 'jane@acme.test', 'CTO'), ('fx_person2', 'Nobody', null, null, null, null)",
+    "insert into companies (id, name, display_name, trading_name, email) values ('fx_co1', 'Acme BV', 'Acme BV', 'Acme', 'info@acme.test')",
+    "insert into crm_leads (id, email, first_name, company_name) values ('fx_lead1', 'bob@bobco.test', 'Bob', 'Bobco')",
+    "insert into crm_opportunities (id, name, customer_id, owner_id, customer_name, stage) values ('fx_opp1', 'Big deal', 'fx_co1', 'u', 'Acme', 'proposal')",
+    "insert into custom_objects (id, slug, entity_key, label_singular, label_plural, enable_search) values ('fx_obj1', 'machine', 'co_machine', 'Machine', 'Machines', true), ('fx_obj2', 'widget', 'co_widget', 'Widget', 'Widgets', false)",
+    "insert into custom_object_records (id, object_id, entity_key, title) values ('fx_rec1', 'fx_obj1', 'co_machine', 'CNC-4100'), ('fx_rec2', 'fx_obj2', 'co_widget', 'W-1')",
+    "insert into custom_field_definitions (id, entity_type, name, slug, field_type, sort_order) values ('fx_def_serial', 'co_machine', 'Serial', 'serial', 'text', 2), ('fx_def_tags', 'co_machine', 'Tags', 'tags', 'multi_select', 1), ('fx_def_power', 'co_machine', 'Power', 'power', 'number', 0)",
+    "insert into custom_field_values (id, field_id, entity_type, entity_id, value_text, value_json, value_number) values ('fx_v1', 'fx_def_serial', 'co_machine', 'fx_rec1', 'SN-1', null, null), ('fx_v2', 'fx_def_tags', 'co_machine', 'fx_rec1', null, '[\"lathe\",\"cnc\"]', null), ('fx_v3', 'fx_def_power', 'co_machine', 'fx_rec1', null, null, 7.5)",
+    "insert into search_index (id, entity_type, entity_id, chunk_index, content, content_hash, embedding, embed_model) values ('fx_old', 'contact', 'fx_person2', 0, 'old', 'old', '[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]', '@cf/baai/bge-m3')"
+  ],
+  "batches": [
+    {
+      "before": [],
+      "events": [
+        "{\"eventType\":\"knowledge_page:created\",\"entityType\":\"knowledge_page\",\"entityId\":\"fx_kp_1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s01\"}",
+        "{\"eventType\":\"knowledge_page:updated\",\"entityType\":\"knowledge_page\",\"entityId\":\"fx_kp_2\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s02\"}",
+        "{\"eventType\":\"ticket:created\",\"entityType\":\"ticket\",\"entityId\":\"fx_t1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s03\"}",
+        "{\"eventType\":\"ticket:updated\",\"entityType\":\"ticket\",\"entityId\":\"fx_t1\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s04\"}",
+        "{\"eventType\":\"article:created\",\"entityType\":\"article\",\"entityId\":\"fx_a1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s05\"}",
+        "{\"eventType\":\"project:created\",\"entityType\":\"project\",\"entityId\":\"fx_p1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s06\"}",
+        "{\"eventType\":\"task:created\",\"entityType\":\"task\",\"entityId\":\"fx_task1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s07\"}",
+        "{\"eventType\":\"person:created\",\"entityType\":\"person\",\"entityId\":\"fx_person1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s08\"}",
+        "{\"eventType\":\"contact:updated\",\"entityType\":\"contact\",\"entityId\":\"fx_person2\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s09\"}",
+        "{\"eventType\":\"company:created\",\"entityType\":\"company\",\"entityId\":\"fx_co1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s10\"}",
+        "{\"eventType\":\"lead:created\",\"entityType\":\"lead\",\"entityId\":\"fx_lead1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s11\"}",
+        "{\"eventType\":\"opportunity:created\",\"entityType\":\"opportunity\",\"entityId\":\"fx_opp1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s12\"}",
+        "{\"eventType\":\"co_machine:created\",\"entityType\":\"co_machine\",\"entityId\":\"fx_rec1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s13\"}",
+        "{\"eventType\":\"co_widget:created\",\"entityType\":\"co_widget\",\"entityId\":\"fx_rec2\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s14\"}",
+        "{\"eventType\":\"invoice:created\",\"entityType\":\"invoice\",\"entityId\":\"fx_inv1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s15\"}",
+        "{\"eventType\":\"ticket:created\",\"entityType\":\"ticket\",\"entityId\":\"\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s16\"}",
+        "{\"eventType\":\"project:updated\",\"entityType\":\"project\",\"entityId\":\"fx_p2\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s18\"}",
+        "{\"eventType\":\"ticket:created\",\"entityType\":\"ticket\",\"entityId\":\"fx_t1\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_gone\",\"userId\":\"u\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_s17\"}"
+      ],
+      "outcomes": [
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "ack",
+        "retry",
+        "ack"
+      ],
+      "embedCalls": [
+        [
+          "Deploy guide\nParagraph 1: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 2: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 3: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 4: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 5: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 6: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 7: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 8: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 9: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods."
+        ],
+        [
+          "Printer jams\nAcme\nIt jams a lot daily.\n\nEvery morning."
+        ],
+        [
+          "Reset your password\nHow to reset\nOpen settings and press reset."
+        ],
+        [
+          "Website\nWEB\nThe new site"
+        ],
+        [
+          "Write the copy"
+        ],
+        [
+          "Jane Doe\nCTO\njane@acme.test"
+        ],
+        [
+          "Acme BV\nAcme\ninfo@acme.test"
+        ],
+        [
+          "Bob\nBobco\nbob@bobco.test"
+        ],
+        [
+          "Big deal\nAcme\nproposal"
+        ],
+        [
+          "Machine: CNC-4100\nTags: lathe, cnc\nSerial: SN-1"
+        ],
+        [
+          "Broken\nFAIL_EMBED"
+        ]
+      ],
+      "rows": [
+        {
+          "chunk_index": 0,
+          "content": "Reset your password\nHow to reset\nOpen settings and press reset.",
+          "content_hash": "679961a3d418e71aea3872c4cdee73659c3268675b84bf06a08d137a265cacba",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:419>",
+          "entity_id": "fx_a1",
+          "entity_type": "article",
+          "id": "<id:sidx>",
+          "subtitle": "Accounts",
+          "title": "Reset your password",
+          "updated_at": "<ts>",
+          "url": "/welddesk/help-center/articles/fx_a1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Machine: CNC-4100\nTags: lathe, cnc\nSerial: SN-1",
+          "content_hash": "ad40e00a196de5b6e041e3e1b5e7326353acb84a80dbc08f61f71078bac04deb",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:10>",
+          "entity_id": "fx_rec1",
+          "entity_type": "co_machine",
+          "id": "<id:sidx>",
+          "subtitle": "Machine",
+          "title": "CNC-4100",
+          "updated_at": "<ts>",
+          "url": "/objects/machine/fx_rec1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Jane Doe\nCTO\njane@acme.test",
+          "content_hash": "ed1deda3a14680c8c14ed3aad386ea4fd3dd7292613c3267c4c51684468b3409",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:419>",
+          "entity_id": "fx_person1",
+          "entity_type": "contact",
+          "id": "<id:sidx>",
+          "subtitle": "CTO",
+          "title": "Jane Doe",
+          "updated_at": "<ts>",
+          "url": "/weldcrm/people?stack=person:fx_person1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Acme BV\nAcme\ninfo@acme.test",
+          "content_hash": "a35733fa63673d725797a45971d4a9efe98062d11f421c44872912f56104d403",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:1018>",
+          "entity_id": "fx_co1",
+          "entity_type": "customer",
+          "id": "<id:sidx>",
+          "subtitle": "Acme",
+          "title": "Acme BV",
+          "updated_at": "<ts>",
+          "url": "/weldcrm/companies?stack=company:fx_co1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Deploy guide\nParagraph 1: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 2: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "content_hash": "c67c7dca798e2a63018c4cee394345b0d4d0c3ff7bda4407ce25d10cd0882b40",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:458>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 1,
+          "content": "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 3: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 4: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "content_hash": "018e6237e0985603c70aa0b197177f71a07efc077e465e5975f0aa0780335a34",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:567>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 2,
+          "content": "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 5: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 6: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "content_hash": "c14c324706155ce600ac101f269b8b00907b8c18931fa3767e5954d5ec82be74",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:583>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 3,
+          "content": "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 7: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 8: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "content_hash": "da5b4ff5794c8957e839b3db14397c119eeb0254c3662c836c1a9eaa05c1bbad",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:1013>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 4,
+          "content": "pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.\nParagraph 9: The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods. The deploy pipeline builds the image, runs the migrations and rolls the pods.",
+          "content_hash": "10de5232f14d227df1cc1057810fcc490bd77f43e61a88b445fcf8d27c1f937f",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:562>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Bob\nBobco\nbob@bobco.test",
+          "content_hash": "d3b967378650b71b0ac093794179c235f4e092026be5f0ca2ce3362ff5168885",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:823>",
+          "entity_id": "fx_lead1",
+          "entity_type": "lead",
+          "id": "<id:sidx>",
+          "subtitle": "Bobco",
+          "title": "Bob",
+          "updated_at": "<ts>",
+          "url": "/weldcrm?entity=lead:fx_lead1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Big deal\nAcme\nproposal",
+          "content_hash": "f987d1d60bc58d9723b9ac4545e72ec2171c6ef8291788746683f61c0f9226dc",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:470>",
+          "entity_id": "fx_opp1",
+          "entity_type": "opportunity",
+          "id": "<id:sidx>",
+          "subtitle": "Acme",
+          "title": "Big deal",
+          "updated_at": "<ts>",
+          "url": "/weldcrm?entity=opportunity:fx_opp1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Website\nWEB\nThe new site",
+          "content_hash": "929a2ff81ff8578a00d915716a3567a4616347f57200d2ecaf9a95b90786226f",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:1016>",
+          "entity_id": "fx_p1",
+          "entity_type": "project",
+          "id": "<id:sidx>",
+          "subtitle": "WEB",
+          "title": "Website",
+          "updated_at": "<ts>",
+          "url": "/weldflow/project/fx_p1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Write the copy",
+          "content_hash": "81c18ee83db0dda5aa38a188685fd6a49b1ea5a1be2aed682fe1bfc19779ad42",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:744>",
+          "entity_id": "fx_task1",
+          "entity_type": "task",
+          "id": "<id:sidx>",
+          "subtitle": "42",
+          "title": "Task",
+          "updated_at": "<ts>",
+          "url": "/weldflow/task/fx_task1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Printer jams\nAcme\nIt jams a lot daily.\n\nEvery morning.",
+          "content_hash": "c703a59f9d469225cdd71d4d40c0cd66044c7d153aaca4522e548f584b43cc75",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:415>",
+          "entity_id": "fx_t1",
+          "entity_type": "ticket",
+          "id": "<id:sidx>",
+          "subtitle": "#T-100",
+          "title": "Printer jams",
+          "updated_at": "<ts>",
+          "url": "/welddesk/inbox?entity=ticket:fx_t1"
+        }
+      ]
+    },
+    {
+      "before": [
+        "update knowledge_pages set content_text = 'Short now' where id = 'fx_kp_1'",
+        "update helpdesk_tickets set deleted_at = now() where id = 'fx_t1'"
+      ],
+      "events": [
+        "{\"eventType\":\"knowledge_page:updated\",\"entityType\":\"knowledge_page\",\"entityId\":\"fx_kp_1\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s21\"}",
+        "{\"eventType\":\"ticket:deleted\",\"entityType\":\"ticket\",\"entityId\":\"fx_t1\",\"action\":\"deleted\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s22\"}",
+        "{\"eventType\":\"project:updated\",\"entityType\":\"project\",\"entityId\":\"fx_p1\",\"action\":\"updated\",\"data\":{},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_s23\"}"
+      ],
+      "outcomes": [
+        "ack",
+        "ack",
+        "ack"
+      ],
+      "embedCalls": [
+        [
+          "Deploy guide\nShort now"
+        ]
+      ],
+      "rows": [
+        {
+          "chunk_index": 0,
+          "content": "Reset your password\nHow to reset\nOpen settings and press reset.",
+          "content_hash": "679961a3d418e71aea3872c4cdee73659c3268675b84bf06a08d137a265cacba",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:419>",
+          "entity_id": "fx_a1",
+          "entity_type": "article",
+          "id": "<id:sidx>",
+          "subtitle": "Accounts",
+          "title": "Reset your password",
+          "updated_at": "<ts>",
+          "url": "/welddesk/help-center/articles/fx_a1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Machine: CNC-4100\nTags: lathe, cnc\nSerial: SN-1",
+          "content_hash": "ad40e00a196de5b6e041e3e1b5e7326353acb84a80dbc08f61f71078bac04deb",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:10>",
+          "entity_id": "fx_rec1",
+          "entity_type": "co_machine",
+          "id": "<id:sidx>",
+          "subtitle": "Machine",
+          "title": "CNC-4100",
+          "updated_at": "<ts>",
+          "url": "/objects/machine/fx_rec1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Jane Doe\nCTO\njane@acme.test",
+          "content_hash": "ed1deda3a14680c8c14ed3aad386ea4fd3dd7292613c3267c4c51684468b3409",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:419>",
+          "entity_id": "fx_person1",
+          "entity_type": "contact",
+          "id": "<id:sidx>",
+          "subtitle": "CTO",
+          "title": "Jane Doe",
+          "updated_at": "<ts>",
+          "url": "/weldcrm/people?stack=person:fx_person1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Acme BV\nAcme\ninfo@acme.test",
+          "content_hash": "a35733fa63673d725797a45971d4a9efe98062d11f421c44872912f56104d403",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:1018>",
+          "entity_id": "fx_co1",
+          "entity_type": "customer",
+          "id": "<id:sidx>",
+          "subtitle": "Acme",
+          "title": "Acme BV",
+          "updated_at": "<ts>",
+          "url": "/weldcrm/companies?stack=company:fx_co1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Deploy guide\nShort now",
+          "content_hash": "3eca3046976ee6d289a8af5fa472147c131f00d427c024507e59c97e175e97e4",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:70>",
+          "entity_id": "fx_kp_1",
+          "entity_type": "knowledge_page",
+          "id": "<id:sidx>",
+          "subtitle": "Engineering",
+          "title": "Deploy guide",
+          "updated_at": "<ts>",
+          "url": "/weldknow/page/fx_kp_1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Bob\nBobco\nbob@bobco.test",
+          "content_hash": "d3b967378650b71b0ac093794179c235f4e092026be5f0ca2ce3362ff5168885",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:823>",
+          "entity_id": "fx_lead1",
+          "entity_type": "lead",
+          "id": "<id:sidx>",
+          "subtitle": "Bobco",
+          "title": "Bob",
+          "updated_at": "<ts>",
+          "url": "/weldcrm?entity=lead:fx_lead1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Big deal\nAcme\nproposal",
+          "content_hash": "f987d1d60bc58d9723b9ac4545e72ec2171c6ef8291788746683f61c0f9226dc",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:470>",
+          "entity_id": "fx_opp1",
+          "entity_type": "opportunity",
+          "id": "<id:sidx>",
+          "subtitle": "Acme",
+          "title": "Big deal",
+          "updated_at": "<ts>",
+          "url": "/weldcrm?entity=opportunity:fx_opp1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Website\nWEB\nThe new site",
+          "content_hash": "929a2ff81ff8578a00d915716a3567a4616347f57200d2ecaf9a95b90786226f",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:1016>",
+          "entity_id": "fx_p1",
+          "entity_type": "project",
+          "id": "<id:sidx>",
+          "subtitle": "WEB",
+          "title": "Website",
+          "updated_at": "<ts>",
+          "url": "/weldflow/project/fx_p1"
+        },
+        {
+          "chunk_index": 0,
+          "content": "Write the copy",
+          "content_hash": "81c18ee83db0dda5aa38a188685fd6a49b1ea5a1be2aed682fe1bfc19779ad42",
+          "created_at": "<ts>",
+          "embed_model": "@cf/baai/bge-m3",
+          "embedding": "<one-hot:744>",
+          "entity_id": "fx_task1",
+          "entity_type": "task",
+          "id": "<id:sidx>",
+          "subtitle": "42",
+          "title": "Task",
+          "updated_at": "<ts>",
+          "url": "/weldflow/task/fx_task1"
+        }
+      ]
+    }
+  ]
+}

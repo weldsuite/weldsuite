@@ -20,7 +20,7 @@ import { useMemo } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import { toast } from 'sonner';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';

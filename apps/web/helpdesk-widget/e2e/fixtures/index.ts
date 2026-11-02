@@ -339,7 +339,12 @@ export interface MessengerApiOptions {
   config?: Record<string, unknown>;
   /** Start with one conversation the team already closed, ready to rate. */
   closedConversation?: boolean;
+  /** The widget only talks to signed-in visitors: anonymous sessions get 401 IDENTITY_REQUIRED. */
+  identityRequired?: boolean;
 }
+
+/** The visitor token the mocked `POST /api/visitor` hands out. */
+export const MESSENGER_VISITOR_TOKEN = 'vt_test';
 
 export interface MessengerApiStats {
   configRequests: number;
@@ -347,21 +352,42 @@ export interface MessengerApiStats {
   identifyRequests: number;
   /** Bodies POSTed to /api/conversations/:id/rating. */
   ratings: Array<{ rating?: number; comment?: string }>;
+  /** Bodies POSTed to /api/visitor, in order. */
+  sessionRequests: Array<Record<string, unknown>>;
+  /** Visitor calls without `Authorization: Bearer <visitor token>` (answered 401 like the API). */
+  unauthorizedCalls: number;
+  /** Visitor calls that still sent a `visitorId` (body or query); the API no longer takes one. */
+  bodiesWithVisitorId: number;
 }
 
 /**
  * Mock the current helpdesk-widget-api surface (`/api/config`,
- * `/api/conversations/...`) with its `{ success, data }` envelope, so the
- * messenger actually renders. Returns live request counters.
+ * `/api/visitor`, `/api/conversations/...`) with its `{ success, data }`
+ * envelope, so the messenger actually renders. Like the API, every
+ * conversation call needs the visitor token as a Bearer. Returns live
+ * request counters.
  */
 export async function setupMessengerApi(page: Page, options: MessengerApiOptions = {}): Promise<MessengerApiStats> {
-  const stats: MessengerApiStats = { configRequests: 0, sendRequests: 0, identifyRequests: 0, ratings: [] };
+  const stats: MessengerApiStats = {
+    configRequests: 0,
+    sendRequests: 0,
+    identifyRequests: 0,
+    ratings: [],
+    sessionRequests: [],
+    unauthorizedCalls: 0,
+    bodiesWithVisitorId: 0,
+  };
   const ok = (data: unknown) => ({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ success: true, data }),
   });
   const fail = { status: 500, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Server error' } }) };
+  const unauthorized = (code: string) => ({
+    status: 401,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: false, error: { code, message: 'Unauthorized' } }),
+  });
   const now = () => new Date().toISOString();
   const conversation = () => ({
     id: 'conv-123',
@@ -417,14 +443,37 @@ export async function setupMessengerApi(page: Page, options: MessengerApiOptions
     await route.fulfill(ok({ ...messengerConfig, ...options.config }));
   });
 
+  await page.route((url) => url.pathname === '/api/visitor', async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    stats.sessionRequests.push(body);
+    if (options.identityRequired && !body.identityToken) {
+      await route.fulfill(unauthorized('IDENTITY_REQUIRED'));
+      return;
+    }
+    await route.fulfill(
+      ok({
+        visitorToken: MESSENGER_VISITOR_TOKEN,
+        visitor: { id: 'visitor-1', name: null, email: null, verified: false },
+      }),
+    );
+  });
+
   await page.route((url) => url.pathname.startsWith('/api/conversations'), async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
-    const input = (request.postDataJSON() ?? {}) as { body?: string; clientId?: string; email?: string };
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const input = (request.postDataJSON() ?? {}) as { body?: string; clientId?: string; email?: string; visitorId?: string };
+
+    if (request.headers()['authorization'] !== `Bearer ${MESSENGER_VISITOR_TOKEN}`) {
+      stats.unauthorizedCalls++;
+      await route.fulfill(unauthorized('VISITOR_TOKEN_REQUIRED'));
+      return;
+    }
+    if (input.visitorId !== undefined || url.searchParams.has('visitorId')) stats.bodiesWithVisitorId++;
 
     if (path === '/api/conversations/identify') {
       stats.identifyRequests++;
-      await route.fulfill(ok({ visitor: { id: 'visitor-1', name: null, email: input.email ?? null } }));
+      await route.fulfill(ok({ visitor: { id: 'visitor-1', name: null, email: input.email ?? null, verified: false } }));
       return;
     }
     if (closed && path === `/api/conversations/${closed.id}/rating`) {

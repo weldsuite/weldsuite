@@ -6,14 +6,19 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { sharedKv } from '../../test/user-apps-fixtures';
+
+// Conformance mode runs every write on both backends, each on a fresh copy.
+vi.setConfig({ testTimeout: 120_000 });
 
 const state = vi.hoisted(() => ({ db: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.db };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.db) };
 });
 
 import { userAppsRoutes } from './index';
@@ -23,6 +28,7 @@ const { userApps, userAppInstalls, userAppDevSessions } = masterSchema;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for postgres-js
 let db: any;
+let tenantDb: Database;
 
 const SECRET = 'internal-secret-for-tests';
 const OWNER = 'ws_owner';
@@ -40,9 +46,9 @@ interface CallerOptions {
 }
 
 function caller({ workspaceId = OWNER, userId = 'user_dev', perms = DEVELOP, env = {} }: CallerOptions = {}) {
-  const kv = { delete: vi.fn(async () => undefined), get: vi.fn(async () => null), put: vi.fn(async () => undefined) };
+  const kv = sharedKv();
   const { request } = createTestApp('/api/user-apps', userAppsRoutes, {
-    context: { workspaceId, userId, orgId: null, permissions: perms },
+    context: { workspaceId, userId, orgId: null, permissions: perms, tenantDb, masterDb: db },
     env: { WORKSPACE_CACHE: kv as unknown as KVNamespace, INTERNAL_API_SECRET: SECRET, ...env } as never,
   });
   return request;
@@ -54,6 +60,7 @@ const future = () => new Date(Date.now() + 5 * 60 * 1000);
 beforeAll(async () => {
   db = (await createMasterPgliteDb()).db;
   state.db = db;
+  tenantDb = (await createPgliteDb()).db;
 
   await db.insert(userApps).values([
     { id: 'uapp_pub', code: 'pubapp', name: 'Public', ownerWorkspaceId: OWNER, createdBy: 'user_dev', visibility: 'public', reviewStatus: 'approved', currentVersionId: 'uav_pub' },
@@ -69,7 +76,7 @@ beforeAll(async () => {
     status: 'active',
     installedBy: 'user_installer',
   });
-}, 60_000);
+}, 180_000);
 
 beforeEach(async () => {
   await db.delete(userAppDevSessions);

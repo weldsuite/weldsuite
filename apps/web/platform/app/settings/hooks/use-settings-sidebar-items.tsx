@@ -27,6 +27,7 @@ import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useI18n } from '@/lib/i18n/provider';
+import { isRouteOffered } from '@/lib/edition-routes';
 
 function makeAppLogoIcon(appCode: string, name: string) {
   return function AppLogoIcon({ className }: { className?: string }) {
@@ -97,7 +98,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
         })),
     ];
 
-    return [
+    const groups: MenuGroupProps[] = [
       {
         group: ts.general,
         items: [
@@ -137,6 +138,9 @@ export function useSettingsSidebarItems(enabled: boolean) {
         items: appsItems,
       },
     ];
+    // Edition flags (4.F3): only pages this deployment serves (no billing,
+    // SSO, integrations, … where the backend lacks them).
+    return groups.map((group) => ({ ...group, items: group.items.filter((item) => isRouteOffered(item.href)) }));
   }, [enabled, ts, pathname, installedAppCodes, hasEntityApps]);
 
   const sidebarProps = React.useMemo(

@@ -80,3 +80,38 @@ export interface SharedWithMe {
   files: SharedDriveFile[];
   folders: SharedDriveFolder[];
 }
+
+// ============================================================================
+// Response schemas (Zod), matching the interfaces above
+// ============================================================================
+
+export const driveShareRoleSchema = z.enum(DRIVE_SHARE_ROLES);
+export const driveAccessRoleSchema = z.enum(['owner', ...DRIVE_SHARE_ROLES]);
+
+export const driveSharePersonSchema = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  picture: z.string().nullable(),
+});
+
+export const driveShareEntrySchema = driveSharePersonSchema.extend({
+  role: driveShareRoleSchema,
+  sharedBy: z.string(),
+  createdAt: z.string(),
+});
+
+export const inheritedDriveShareEntrySchema = driveShareEntrySchema.extend({
+  folderId: z.string(),
+  folderName: z.string(),
+});
+
+/** GET /api/files/:id/shares and /api/folders/:id/shares. */
+export const driveItemSharingSchema = z.object({
+  owner: driveSharePersonSchema.nullable(),
+  generalAccess: driveGeneralAccessSchema,
+  effectiveGeneralAccess: driveGeneralAccessSchema,
+  accessRole: driveAccessRoleSchema,
+  shares: z.array(driveShareEntrySchema),
+  inherited: z.array(inheritedDriveShareEntrySchema),
+});

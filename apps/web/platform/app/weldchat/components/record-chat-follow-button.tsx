@@ -1,5 +1,5 @@
 import { Check, Plus } from 'lucide-react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';

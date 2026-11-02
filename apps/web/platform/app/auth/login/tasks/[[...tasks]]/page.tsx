@@ -1,6 +1,6 @@
 
 import { useEffect, useRef } from 'react';
-import { useAuth, useOrganizationList, useOrganization } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList, useOrganization } from '@/lib/auth';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 

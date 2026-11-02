@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';

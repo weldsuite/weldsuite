@@ -248,11 +248,12 @@ app.route('/api/support', supportRoutes);
 app.route('/api/custom-fields', customFieldsRoutes);
 // WeldObjects — definition surface (weldobjects:manage) and record data
 // surface (weldobjects:<slug>:<action>) are separate mounts on purpose.
-// Link routes mount onto the SAME two prefixes; Hono merges the route tables,
-// and the link paths (/:id/links, /:slug/records/:id/links) don't collide with
-// the base routes above.
-app.route('/api/custom-objects', customObjectsRoutes);
+// Link routes mount onto the SAME two prefixes; Hono merges the route tables
+// and answers with the first registered route that matches. The definition
+// links go first: their static GET /link-targets was shadowed by the base
+// routes' GET /:id (a 404 for an object called 'link-targets').
 app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
+app.route('/api/custom-objects', customObjectsRoutes);
 app.route('/api/objects', customObjectRecordsRoutes);
 app.route('/api/objects', customObjectLinkTraversalRoutes);
 app.route('/api/related', customObjectReverseRoutes);

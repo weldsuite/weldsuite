@@ -25,6 +25,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient, useAppApi } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
 import { useRouter } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 
 interface PrepaidSeatsInfo {
@@ -421,6 +422,8 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
 
   // Check if user can invite (has available seats for paid plan)
   const noSeatsAvailable = isPaidPlan && prepaidSeats && !prepaidSeats.canAddMore;
+  // Edition flags (4.F3): plans and seats are bought through billing.
+  const billingAvailable = isFeatureAvailable('billing');
 
   // Render the invite form body: upgrade / buy-seats prompt or the form itself
   const renderInviteBody = () => {
@@ -434,9 +437,11 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
           >
             {tCancel}
           </Button>
-          <Button onClick={handleUpgrade}>
-            {ti.upgradePlan}
-          </Button>
+          {billingAvailable && (
+            <Button onClick={handleUpgrade}>
+              {ti.upgradePlan}
+            </Button>
+          )}
         </DialogFooter>
       );
     }
@@ -450,9 +455,11 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
           >
             {tCancel}
           </Button>
-          <Button onClick={handleBuyMoreSeats}>
-            {ti.buyMoreSeats}
-          </Button>
+          {billingAvailable && (
+            <Button onClick={handleBuyMoreSeats}>
+              {ti.buyMoreSeats}
+            </Button>
+          )}
         </DialogFooter>
       );
     }

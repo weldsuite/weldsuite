@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { getAppApiUrl } from '@/lib/api/public-env';
 
 /**

@@ -17,3 +17,26 @@ export const updateTicketTypeSchema = createTicketTypeSchema.partial();
 
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeSchema>;
 export type UpdateTicketTypeInput = z.infer<typeof updateTicketTypeSchema>;
+
+/** A `helpdesk_ticket_types` row, as /api/ticket-types returns it. */
+export const helpdeskTicketTypeSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    name: z.string(),
+    description: z.string().nullable(),
+    icon: z.string().nullable(),
+    color: z.string().nullable(),
+    category: z.string().nullable(),
+    fields: z.unknown(),
+    states: z.unknown(),
+    disableAiAutofill: z.boolean().nullable(),
+    defaultPriority: z.string().nullable(),
+    defaultAssigneeId: z.string().nullable(),
+    defaultDepartmentId: z.string().nullable(),
+    sortOrder: z.number().nullable(),
+    isActive: z.boolean(),
+  })
+  .passthrough();

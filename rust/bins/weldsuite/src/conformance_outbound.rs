@@ -1,0 +1,1059 @@
+//! Conformance mode's third-party calls: the [`Identity`] port as Clerk's
+//! Backend API, sent through the test harness's outbound bridge
+//! (`packages/core/worker-kit/src/testing/outbound-bridge.ts`), which replays
+//! each call into the test's own `fetch` stub. Both backends then get the same
+//! answers from the same stub, and the harness compares the calls each made.
+//! Expo's push API and DNS-over-HTTPS lookups go the same way.
+//!
+//! This is test infrastructure, not a Clerk adapter for the Kubernetes
+//! editions (they get Zitadel in P5, ADR SEC-012): its job is to make exactly
+//! the requests the TypeScript routes make, so a port that drifts shows up as
+//! a side-effect difference.
+//!
+//! `<METHOD> {bridge}/fetch?url=<the Clerk URL>`; the bridge answers with the
+//! stub's status and body, or 502 with `x-outbound-error` when the stub threw.
+
+use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use reqwest::{Client, Method};
+use serde_json::{Map, Value, json};
+use weldsuite_ports::{
+    BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, MemberUser,
+    Membership, NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, Session, User, UserChanges, UserProfile,
+};
+
+const CLERK_API: &str = "https://api.clerk.com/v1";
+
+/// JavaScript's `encodeURIComponent`.
+fn encode_uri_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let unreserved = byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            );
+        if unreserved {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+/// `?limit=…&offset=…` (after `prefix`, the parameters already there), in
+/// the order the workers write them.
+fn query(prefix: &[(&str, String)], page: ListPage) -> String {
+    let mut parts: Vec<String> = prefix.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    if let Some(limit) = page.limit {
+        parts.push(format!("limit={limit}"));
+    }
+    if let Some(offset) = page.offset {
+        parts.push(format!("offset={offset}"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
+}
+
+/// Clerk's Backend API through the bridge.
+pub(crate) struct BridgedClerk {
+    bridge: String,
+    client: Client,
+}
+
+impl BridgedClerk {
+    fn new(bridge: &str, client: Client) -> Self {
+        Self {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client,
+        }
+    }
+
+    /// One call; `Ok(body)` on a 2xx (`Value::Null` when empty or not JSON).
+    async fn call(&self, method: Method, path: &str, body: Option<Value>) -> IdentityResult<Value> {
+        let url = format!("{CLERK_API}{path}");
+        let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+        let mut request = self
+            .client
+            .request(method, format!("{}/fetch?url={encoded}", self.bridge))
+            .header("authorization", "Bearer conformance");
+        if let Some(body) = body {
+            request = request
+                .header("content-type", "application/json")
+                .body(body.to_string());
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+        if response.headers().contains_key("x-outbound-error") {
+            return Err(IdentityError::Unavailable(
+                "the test's fetch stub threw".to_owned(),
+            ));
+        }
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+        let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        if status.is_success() {
+            return Ok(json);
+        }
+        let first = &json["errors"][0];
+        Err(IdentityError::Rejected {
+            status: status.as_u16(),
+            code: first["code"].as_str().map(str::to_owned),
+            message: first["long_message"]
+                .as_str()
+                .or_else(|| first["message"].as_str())
+                .map(str::to_owned),
+            body: Some(text),
+        })
+    }
+}
+
+fn text(value: &Value) -> String {
+    value.as_str().unwrap_or_default().to_owned()
+}
+
+fn optional_text(value: &Value) -> Option<String> {
+    value.as_str().map(str::to_owned)
+}
+
+fn organization_from(value: &Value) -> Organization {
+    Organization {
+        id: text(&value["id"]),
+        name: text(&value["name"]),
+        slug: optional_text(&value["slug"]),
+        max_memberships: value["max_allowed_memberships"].as_i64(),
+        public_metadata: value["public_metadata"].clone(),
+        private_metadata: value["private_metadata"].clone(),
+    }
+}
+
+fn membership_from(value: &Value) -> Membership {
+    let user = &value["public_user_data"];
+    let organization = &value["organization"];
+    Membership {
+        id: text(&value["id"]),
+        role: text(&value["role"]),
+        created_at: value["created_at"].as_i64(),
+        public_metadata: value["public_metadata"].clone(),
+        user: MemberUser {
+            user_id: text(&user["user_id"]),
+            first_name: optional_text(&user["first_name"]),
+            last_name: optional_text(&user["last_name"]),
+            identifier: text(&user["identifier"]),
+            image_url: optional_text(&user["image_url"]),
+        },
+        organization: organization.is_object().then(|| OrganizationRef {
+            id: text(&organization["id"]),
+            name: text(&organization["name"]),
+            slug: text(&organization["slug"]),
+        }),
+    }
+}
+
+fn invitation_from(value: &Value) -> Invitation {
+    Invitation {
+        id: text(&value["id"]),
+        email_address: text(&value["email_address"]),
+        role: text(&value["role"]),
+        status: text(&value["status"]),
+        public_metadata: value["public_metadata"].clone(),
+        created_at: value["created_at"].as_i64(),
+        expires_at: value["expires_at"].as_i64(),
+    }
+}
+
+fn listing<T>(body: &Value, item: fn(&Value) -> T) -> Listing<T> {
+    Listing {
+        data: body["data"]
+            .as_array()
+            .map(|items| items.iter().map(item).collect())
+            .unwrap_or_default(),
+        total_count: body["total_count"].as_u64(),
+    }
+}
+
+impl Identity for BridgedClerk {
+    fn organization<'a>(&'a self, org: &'a str) -> BoxFuture<'a, IdentityResult<Organization>> {
+        Box::pin(async move {
+            let body = self
+                .call(Method::GET, &format!("/organizations/{org}"), None)
+                .await?;
+            Ok(organization_from(&body))
+        })
+    }
+
+    fn update_organization<'a>(
+        &'a self,
+        org: &'a str,
+        changes: &'a OrganizationChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(name) = &changes.name {
+                body.insert("name".to_owned(), json!(name));
+            }
+            if let Some(slug) = &changes.slug {
+                body.insert("slug".to_owned(), json!(slug));
+            }
+            if let Some(cap) = changes.max_memberships {
+                body.insert(
+                    "max_allowed_memberships".to_owned(),
+                    if cap > 0 { json!(cap) } else { Value::Null },
+                );
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/organizations/{org}"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn delete_organization<'a>(&'a self, org: &'a str) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            self.call(Method::DELETE, &format!("/organizations/{org}"), None)
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn memberships<'a>(
+        &'a self,
+        org: &'a str,
+        page: ListPage,
+    ) -> BoxFuture<'a, IdentityResult<Listing<Membership>>> {
+        Box::pin(async move {
+            let path = format!("/organizations/{org}/memberships{}", query(&[], page));
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(listing(&body, membership_from))
+        })
+    }
+
+    fn add_membership<'a>(
+        &'a self,
+        org: &'a str,
+        membership: &'a NewMembership,
+    ) -> BoxFuture<'a, IdentityResult<Membership>> {
+        Box::pin(async move {
+            let mut body = json!({ "user_id": membership.user_id, "role": membership.role });
+            if let Some(metadata) = &membership.public_metadata {
+                body["public_metadata"] = metadata.clone();
+            }
+            let created = self
+                .call(
+                    Method::POST,
+                    &format!("/organizations/{org}/memberships"),
+                    Some(body),
+                )
+                .await?;
+            Ok(membership_from(&created))
+        })
+    }
+
+    fn set_membership_role<'a>(
+        &'a self,
+        org: &'a str,
+        user_id: &'a str,
+        role: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let path = format!(
+                "/organizations/{org}/memberships/{}",
+                encode_uri_component(user_id)
+            );
+            self.call(Method::PATCH, &path, Some(json!({ "role": role })))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn remove_membership<'a>(
+        &'a self,
+        org: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let path = format!(
+                "/organizations/{org}/memberships/{}",
+                encode_uri_component(user_id)
+            );
+            self.call(Method::DELETE, &path, None).await.map(|_| ())
+        })
+    }
+
+    fn invitations<'a>(
+        &'a self,
+        org: &'a str,
+        status: Option<&'a str>,
+        page: ListPage,
+    ) -> BoxFuture<'a, IdentityResult<Listing<Invitation>>> {
+        Box::pin(async move {
+            let prefix: Vec<(&str, String)> = status
+                .map(|status| vec![("status", status.to_owned())])
+                .unwrap_or_default();
+            let path = format!("/organizations/{org}/invitations{}", query(&prefix, page));
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(listing(&body, invitation_from))
+        })
+    }
+
+    fn invitation<'a>(
+        &'a self,
+        org: &'a str,
+        invitation_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Invitation>> {
+        Box::pin(async move {
+            let path = format!("/organizations/{org}/invitations/{invitation_id}");
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(invitation_from(&body))
+        })
+    }
+
+    fn invite<'a>(
+        &'a self,
+        org: &'a str,
+        invitation: &'a NewInvitation,
+    ) -> BoxFuture<'a, IdentityResult<Invitation>> {
+        Box::pin(async move {
+            let mut body = json!({
+                "email_address": invitation.email_address,
+                "role": invitation.role,
+            });
+            if let Some(inviter) = &invitation.inviter_user_id {
+                body["inviter_user_id"] = json!(inviter);
+            }
+            if let Some(redirect) = &invitation.redirect_url {
+                body["redirect_url"] = json!(redirect);
+            }
+            if let Some(metadata) = &invitation.public_metadata {
+                body["public_metadata"] = metadata.clone();
+            }
+            let created = self
+                .call(
+                    Method::POST,
+                    &format!("/organizations/{org}/invitations"),
+                    Some(body),
+                )
+                .await?;
+            Ok(invitation_from(&created))
+        })
+    }
+
+    fn revoke_invitation<'a>(
+        &'a self,
+        org: &'a str,
+        invitation_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let path = format!("/organizations/{org}/invitations/{invitation_id}/revoke");
+            self.call(Method::POST, &path, Some(json!({})))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn users_by_email<'a>(
+        &'a self,
+        email: &'a str,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<Vec<User>>> {
+        Box::pin(async move {
+            let path = format!(
+                "/users?email_address={}&limit={limit}",
+                encode_uri_component(email)
+            );
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(body
+                .as_array()
+                .map(|users| {
+                    users
+                        .iter()
+                        .map(|user| User {
+                            id: text(&user["id"]),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default())
+        })
+    }
+
+    fn user_memberships<'a>(
+        &'a self,
+        user_id: &'a str,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<Vec<Membership>>> {
+        Box::pin(async move {
+            let path = format!("/users/{user_id}/organization_memberships?limit={limit}");
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(listing(&body, membership_from).data)
+        })
+    }
+
+    fn delete_user<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            self.call(Method::DELETE, &format!("/users/{user_id}"), None)
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn sessions<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<Vec<Session>>> {
+        Box::pin(async move {
+            let path = format!(
+                "/sessions?user_id={}&status=active&limit=100",
+                encode_uri_component(user_id)
+            );
+            let body = self.call(Method::GET, &path, None).await?;
+            // Clerk answers a bare array or `{ data }`.
+            let items = body.as_array().or_else(|| body["data"].as_array());
+            Ok(items
+                .map(|items| items.iter().map(session_from).collect())
+                .unwrap_or_default())
+        })
+    }
+
+    fn session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<Session>> {
+        Box::pin(async move {
+            let path = format!("/sessions/{}", encode_uri_component(session_id));
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(session_from(&body))
+        })
+    }
+
+    fn revoke_session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let path = format!("/sessions/{}/revoke", encode_uri_component(session_id));
+            self.call(Method::POST, &path, None).await.map(|_| ())
+        })
+    }
+
+    fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
+        Box::pin(async move {
+            let body = self
+                .call(Method::GET, &format!("/users/{user_id}"), None)
+                .await?;
+            Ok(UserProfile {
+                id: text(&body["id"]),
+                email_addresses: body["email_addresses"]
+                    .as_array()
+                    .map(|addresses| {
+                        addresses
+                            .iter()
+                            .map(|a| (text(&a["id"]), text(&a["email_address"])))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                primary_email_address_id: optional_text(&body["primary_email_address_id"]),
+                first_name: optional_text(&body["first_name"]),
+                last_name: optional_text(&body["last_name"]),
+                image_url: optional_text(&body["image_url"]),
+            })
+        })
+    }
+
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(first) = &changes.first_name {
+                body.insert("first_name".to_owned(), json!(first));
+            }
+            if let Some(last) = &changes.last_name {
+                body.insert("last_name".to_owned(), json!(last));
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}/metadata"),
+                Some(json!({ "public_metadata": public_metadata })),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        Box::pin(async move {
+            let mut body = json!({ "name": organization.name });
+            if let Some(creator) = &organization.created_by {
+                body["created_by"] = json!(creator);
+            }
+            if let Some(metadata) = &organization.public_metadata {
+                body["public_metadata"] = metadata.clone();
+            }
+            if let Some(metadata) = &organization.private_metadata {
+                body["private_metadata"] = metadata.clone();
+            }
+            if let Some(slug) = &organization.slug {
+                body["slug"] = json!(slug);
+            }
+            let created = self
+                .call(Method::POST, "/organizations", Some(body))
+                .await?;
+            Ok(organization_from(&created))
+        })
+    }
+
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(metadata) = public_metadata {
+                body.insert("public_metadata".to_owned(), metadata.clone());
+            }
+            if let Some(metadata) = private_metadata {
+                body.insert("private_metadata".to_owned(), metadata.clone());
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/organizations/{org}/metadata"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn create_sign_in_token<'a>(
+        &'a self,
+        user_id: &'a str,
+        expires_in_seconds: u32,
+    ) -> BoxFuture<'a, IdentityResult<String>> {
+        Box::pin(async move {
+            let body = self
+                .call(
+                    Method::POST,
+                    "/sign_in_tokens",
+                    Some(json!({ "user_id": user_id, "expires_in_seconds": expires_in_seconds })),
+                )
+                .await?;
+            Ok(text(&body["token"]))
+        })
+    }
+}
+
+fn session_from(value: &Value) -> Session {
+    Session {
+        id: text(&value["id"]),
+        user_id: text(&value["user_id"]),
+        status: text(&value["status"]),
+    }
+}
+
+/// A WeldApps outbound call (the app gateway's forward to external-api, an
+/// app's lifecycle webhook) through the bridge into the test's fetch stub.
+pub(crate) struct BridgedHttp {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_apps::HttpTransport for BridgedHttp {
+    fn send(
+        &self,
+        request: weldsuite_core_apps::OutboundRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_core_apps::OutboundResponse, String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method =
+                Method::from_bytes(request.method.as_bytes()).map_err(|error| error.to_string())?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing.send().await.map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
+            let body = response
+                .bytes()
+                .await
+                .map_err(|error| error.to_string())?
+                .to_vec();
+            Ok(weldsuite_core_apps::OutboundResponse {
+                status,
+                headers,
+                body,
+            })
+        })
+    }
+}
+
+impl weldsuite_calendar::GoogleHttp for BridgedHttp {
+    fn send(
+        &self,
+        request: weldsuite_calendar::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_calendar::HttpResponse, String>> {
+        Box::pin(async move {
+            let response = weldsuite_core_apps::HttpTransport::send(
+                self,
+                weldsuite_core_apps::OutboundRequest {
+                    method: request.method,
+                    url: request.url,
+                    headers: request.headers,
+                    body: request.body,
+                    timeout: None,
+                },
+            )
+            .await?;
+            Ok(weldsuite_calendar::HttpResponse {
+                status: response.status,
+                body: response.body,
+            })
+        })
+    }
+}
+
+/// Expo's push API through the bridge: the POST goes to the test's fetch
+/// stub, which answers for Expo.
+pub(crate) struct BridgedExpo {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_team::ExpoTransport for BridgedExpo {
+    fn post<'a>(
+        &'a self,
+        url: &'a str,
+        body: String,
+    ) -> BoxFuture<'a, Result<(u16, String), String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+            let response = self
+                .client
+                .post(format!("{}/fetch?url={encoded}", self.bridge))
+                .header("content-type", "application/json")
+                .body(body)
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let text = response.text().await.map_err(|error| error.to_string())?;
+            Ok((status, text))
+        })
+    }
+}
+
+/// WeldPass's deploy-target calls (Cloudflare's API as the SDK makes them,
+/// Vercel's) through the bridge into the test's fetch stub. A stub that
+/// threw comes back as a failure carrying `String(error)`, which the SDK's
+/// timeout check and Vercel's message read.
+pub(crate) struct BridgedPass {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_pass::HttpTransport for BridgedPass {
+    fn send(
+        &self,
+        request: weldsuite_pass::OutboundRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_pass::OutboundResponse, weldsuite_pass::TransportError>>
+    {
+        use weldsuite_pass::TransportError;
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method = Method::from_bytes(request.method.as_bytes())
+                .map_err(|error| TransportError::Failed(error.to_string()))?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing
+                .send()
+                .await
+                .map_err(|error| TransportError::Failed(error.to_string()))?;
+            if response.headers().contains_key("x-outbound-error") {
+                let thrown = response.text().await.unwrap_or_default();
+                return Err(TransportError::Failed(thrown));
+            }
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
+            let body = response
+                .bytes()
+                .await
+                .map_err(|error| TransportError::Failed(error.to_string()))?
+                .to_vec();
+            Ok(weldsuite_pass::OutboundResponse {
+                status,
+                headers,
+                body,
+            })
+        })
+    }
+}
+
+/// Generic third-party HTTP (`weldsuite_ports::OutboundHttp`) through the
+/// bridge: Expo push, APNs. Method, headers and body as sent.
+pub(crate) struct BridgedOutbound {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_ports::DynOutboundHttp for BridgedOutbound {
+    fn send(
+        &self,
+        request: weldsuite_ports::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method = Method::from_bytes(request.method.as_bytes())
+                .map_err(weldsuite_ports::PortError::backend)?;
+            let mut call = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                call = call.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                call = call.body(body);
+            }
+            let response = call
+                .send()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err(weldsuite_ports::PortError::backend(
+                    "the test's fetch stub threw",
+                ));
+            }
+            let status = response.status().as_u16();
+            let body = response
+                .bytes()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?
+                .to_vec();
+            Ok(weldsuite_ports::HttpResponse { status, body })
+        })
+    }
+}
+
+/// `{ users: { userId: presence } }`, the users in the order sent.
+#[derive(serde::Deserialize)]
+struct PresenceSnapshot {
+    #[serde(default)]
+    users: Option<OrderedUsers>,
+}
+
+/// A JSON object's string entries in their order (`Object.entries`).
+struct OrderedUsers(Vec<(String, String)>);
+
+impl<'de> serde::Deserialize<'de> for OrderedUsers {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries;
+        impl<'de> serde::de::Visitor<'de> for Entries {
+            type Value = OrderedUsers;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<OrderedUsers, A::Error> {
+                let mut entries = Vec::new();
+                while let Some((key, value)) = map.next_entry::<String, Value>()? {
+                    if let Value::String(presence) = value {
+                        entries.push((key, presence));
+                    }
+                }
+                Ok(OrderedUsers(entries))
+            }
+        }
+        deserializer.deserialize_map(Entries)
+    }
+}
+
+/// Live presence from the test's `REALTIME` binding, through the harness's
+/// realtime bridge (`realtime-bridge.ts`).
+pub(crate) struct BridgedPresence {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_ports::DynPresence for BridgedPresence {
+    fn presence<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_ids: &'a [String],
+    ) -> BoxFuture<'a, Result<Vec<(String, String)>, weldsuite_ports::PortError>> {
+        let mut query = form_urlencoded::Serializer::new(String::new());
+        query.append_pair("workspaceId", workspace_id);
+        for id in user_ids {
+            query.append_pair("userId", id);
+        }
+        let url = format!("{}/internal/presence?{}", self.bridge, query.finish());
+        Box::pin(async move {
+            let response = self
+                .client
+                .get(url)
+                .send()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?;
+            if !response.status().is_success() {
+                return Err(weldsuite_ports::PortError::backend(format!(
+                    "[realtime presence] {}",
+                    response.status().as_u16()
+                )));
+            }
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?;
+            let snapshot: PresenceSnapshot =
+                serde_json::from_slice(&bytes).unwrap_or(PresenceSnapshot { users: None });
+            Ok(snapshot.users.map(|users| users.0).unwrap_or_default())
+        })
+    }
+}
+
+/// WeldDesk's Discord and Slack calls through the bridge into the test's
+/// fetch stub; a stub that threw is a failed `fetch`.
+pub(crate) struct BridgedDesk {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_desk_domain::http::DeskHttp for BridgedDesk {
+    fn send(
+        &self,
+        request: weldsuite_desk_domain::http::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_desk_domain::http::HttpResponse, String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method =
+                Method::from_bytes(request.method.as_bytes()).map_err(|error| error.to_string())?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing.send().await.map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err(response.text().await.unwrap_or_default());
+            }
+            let status = response.status().as_u16();
+            let body = response.text().await.map_err(|error| error.to_string())?;
+            Ok(weldsuite_desk_domain::http::HttpResponse { status, body })
+        })
+    }
+}
+
+/// DNS-over-HTTPS lookups (`/api/sso/domain/verify`) through the bridge: the
+/// GET goes to the test's fetch stub, which answers for the resolver.
+pub(crate) struct BridgedDns {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_platform::DnsTransport for BridgedDns {
+    fn get<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<(u16, String), String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+            let response = self
+                .client
+                .get(format!("{}/fetch?url={encoded}", self.bridge))
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let text = response.text().await.map_err(|error| error.to_string())?;
+            Ok((status, text))
+        })
+    }
+}
+
+/// The bridged providers by bridge URL, made once per test process.
+#[derive(Default)]
+pub(crate) struct OutboundBridges {
+    identities: Mutex<HashMap<String, Arc<dyn Identity>>>,
+    client: Client,
+}
+
+impl OutboundBridges {
+    /// WeldApps' outbound HTTP behind the test's bridge.
+    pub(crate) fn apps_http(&self, bridge: &str) -> weldsuite_core_apps::AppsHttp {
+        weldsuite_core_apps::AppsHttp(Arc::new(BridgedHttp {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Generic third-party HTTP behind the test's bridge.
+    pub(crate) fn outbound_http(&self, bridge: &str) -> weldsuite_ports::OutboundHttp {
+        weldsuite_ports::OutboundHttp(Arc::new(BridgedOutbound {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Live presence behind the test's realtime bridge.
+    pub(crate) fn presence(&self, bridge: &str) -> weldsuite_ports::PresenceReader {
+        weldsuite_ports::PresenceReader(Arc::new(BridgedPresence {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldCalendar's Google Calendar API behind the test's bridge.
+    pub(crate) fn calendar_http(&self, bridge: &str) -> weldsuite_calendar::CalendarHttp {
+        weldsuite_calendar::CalendarHttp(Arc::new(BridgedHttp {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Expo's push API behind the test's bridge.
+    pub(crate) fn expo(&self, bridge: &str) -> weldsuite_core_team::ExpoGateway {
+        weldsuite_core_team::ExpoGateway(Arc::new(BridgedExpo {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldPass's deploy targets behind the test's bridge.
+    pub(crate) fn pass_http(&self, bridge: &str) -> weldsuite_pass::PassHttp {
+        weldsuite_pass::PassHttp(Arc::new(BridgedPass {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldDesk's Discord and Slack calls behind the test's bridge.
+    pub(crate) fn desk_http(&self, bridge: &str) -> weldsuite_desk_domain::http::RequestHttp {
+        weldsuite_desk_domain::http::RequestHttp(Arc::new(BridgedDesk {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Every bridged provider as a request extension: the [`Identity`]
+    /// provider, Expo's push API (`POST /api/push-tokens/test`),
+    /// DNS-over-HTTPS (`POST /api/sso/domain/verify`) and WeldApps' gateway
+    /// forwards and lifecycle webhooks.
+    pub(crate) fn extend(&self, extensions: &mut axum::http::Extensions, bridge: &str) {
+        extensions.insert(weldsuite_ports::IdentityProvider(self.identity(bridge)));
+        extensions.insert(self.expo(bridge));
+        extensions.insert(self.dns(bridge));
+        extensions.insert(self.apps_http(bridge));
+    }
+
+    /// The DNS-over-HTTPS resolver behind the test's bridge.
+    pub(crate) fn dns(&self, bridge: &str) -> weldsuite_core_platform::DnsGateway {
+        weldsuite_core_platform::DnsGateway(Arc::new(BridgedDns {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// The [`Identity`] provider behind the test's bridge.
+    pub(crate) fn identity(&self, bridge: &str) -> Arc<dyn Identity> {
+        let mut identities = self
+            .identities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(
+            identities
+                .entry(bridge.to_owned())
+                .or_insert_with(|| Arc::new(BridgedClerk::new(bridge, self.client.clone()))),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_like_encode_uri_component() {
+        assert_eq!(encode_uri_component("user_1"), "user_1");
+        assert_eq!(encode_uri_component("a b+c@d.e"), "a%20b%2Bc%40d.e");
+        assert_eq!(encode_uri_component("é!*'()~"), "%C3%A9!*'()~");
+    }
+
+    #[test]
+    fn queries_keep_the_workers_order() {
+        assert_eq!(query(&[], ListPage::default()), "");
+        assert_eq!(query(&[], ListPage::limit(500)), "?limit=500");
+        assert_eq!(
+            query(&[("status", "pending".to_owned())], ListPage::at(100, 0)),
+            "?status=pending&limit=100&offset=0"
+        );
+    }
+}

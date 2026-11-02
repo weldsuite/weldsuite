@@ -46,6 +46,14 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+# Schedule-index D1 (shared with workflow-worker and the API workers). Visitor
+# messages mark when the conversation's SLA clock next comes due
+# (workspace_due_index, kind desk_sla), read by desk-api's SLA sweep.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
@@ -70,6 +78,24 @@ service = "helpdesk-workflow-worker-dev"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# Cloudflare Email Sending: the help-center sign-in code emails. Without the
+# binding no code is sent (in development the code is logged instead).
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Atomic counters for the help-center sign-in limits (/api/portal/auth/*):
+# one PortalRateLimiter Durable Object per limiter key; KV has no atomic
+# increment. Sign-in is refused when the binding is missing, so it must exist
+# in every environment. Durable Object bindings and migrations are NOT
+# inherited by [env.*].
+[[durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -90,6 +116,11 @@ PUBLIC_APP_URL = "https://app-test.weldsuite.org"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -106,6 +137,20 @@ service = "helpdesk-workflow-worker-test"
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Sign-in rate-limit counters (see the top-level block).
+[[env.test.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.test.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -140,6 +185,11 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
 
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -156,6 +206,20 @@ service = "helpdesk-workflow-worker"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Sign-in rate-limit counters (see the top-level block).
+[[env.production.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.production.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

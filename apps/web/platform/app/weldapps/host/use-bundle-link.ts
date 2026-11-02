@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { bundleSrcFromPath } from './frame-src';
 

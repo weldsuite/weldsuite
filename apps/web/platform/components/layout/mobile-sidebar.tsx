@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import type { InstalledApp } from '@/lib/api/apps';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useClerk, useOrganization, useOrganizationList } from '@clerk/clerk-react';
+import { useOrganization, useOrganizationList, useAuth } from '@/lib/auth';
 import { useSettings } from '@/providers/settings-provider';
 import { useAppRailBadges } from '@/hooks/use-sidebar-badges';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
@@ -39,6 +39,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { PartnerPortalMobileEntry } from '@/components/partner/partner-portal-link';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
+import { isModuleOffered } from '@/lib/edition';
 
 const iconMap: Record<string, React.ReactNode> = {
   wms: <Warehouse className="h-5 w-5" />,
@@ -116,7 +117,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { isOpen, setIsOpen, moduleMenuItems, moduleInfo } = useMobileNav();
-  const { signOut } = useClerk();
+  const { signOut } = useAuth();
   const { organization } = useOrganization();
   const { userMemberships, setActive } = useOrganizationList({ userMemberships: true });
   const { openSettings } = useSettings();
@@ -307,8 +308,8 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
 
           <div className="flex-1" />
 
-          {/* AI Agents */}
-          {renderRailButton({
+          {/* AI Agents (edition flag: needs the agent module) */}
+          {isModuleOffered('agent') && renderRailButton({
             isActive: isAppActive('/agents'),
             onClick: () => handleAppClick('agents', '/agents'),
             title: t.navigation.aiAgents,

@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (git-ignored) or pass with -var / TF_VAR_*.
+# hcloud_token is best set as TF_VAR_hcloud_token, never written to a file.
+
+cluster_name = "weldsuite-eu"
+domain       = "eu.example.org"
+
+# Operators and the drill runner only.
+admin_cidrs = ["203.0.113.10/32"]
+
+# api_hostname = "k8s.eu.example.org"
+
+# Defaults: three control-plane nodes (fsn1, nbg1, hel1), three general
+# workers over fsn1 + nbg1, two Postgres nodes (fsn1, nbg1).
+# worker_count  = 3
+# worker_type   = "cpx32"
+# postgres_type = "ccx23"

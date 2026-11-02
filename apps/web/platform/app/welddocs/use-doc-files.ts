@@ -6,7 +6,7 @@
 
 import { useCallback } from 'react';
 import { toast } from 'sonner';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useNavigate } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
 import type { CommentText, DocModel, DocxImportWarning } from '@weldsuite/docs-engine';

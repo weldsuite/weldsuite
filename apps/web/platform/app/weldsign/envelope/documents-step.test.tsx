@@ -16,10 +16,12 @@ vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (permission: string) => state.permissions.has(permission) }));
 vi.mock('@/hooks/queries/use-drive-queries', () => ({
   useDriveFiles: () => ({ data: { success: true, data: state.files, pagination: { hasMore: false } }, isLoading: false, isError: false }),
+  useDriveFolders: () => ({ data: undefined, isLoading: false, isError: false }),
+  useSharedWithMe: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 vi.mock('sonner', () => ({ toast }));
 
-import { DocumentsStep } from './documents-step';
+import { DocumentDialogs, DocumentList, DocumentsStep, useDocuments } from './documents-step';
 
 const td = en.weldsign.editor.documents;
 
@@ -56,6 +58,28 @@ function renderStep(envelope: SignEnvelopeDetail, editable = true) {
   );
 }
 
+/** A request's side panel: the list with its add button, and the dialogs it opens. */
+function PanelDocuments({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) {
+  const docs = useDocuments(envelope, true);
+  return (
+    <>
+      <DocumentList docs={docs} onOpen={() => undefined} />
+      <DocumentDialogs docs={docs} />
+    </>
+  );
+}
+
+function renderPanel(envelope: SignEnvelopeDetail) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <I18nProvider initialLanguage="en">
+        <PanelDocuments envelope={envelope} />
+      </I18nProvider>
+    </QueryClientProvider>,
+  );
+}
+
 const fromDriveButton = () => screen.queryByRole('button', { name: td.fromDrive });
 
 beforeAll(() => {
@@ -84,7 +108,7 @@ describe('documents step: add from WeldDrive', () => {
   it('offers it next to the upload, with files:read', () => {
     renderStep(draft());
     expect(fromDriveButton()).toBeInTheDocument();
-    expect(screen.getByText(td.drop)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: td.upload })).toBeInTheDocument();
   });
 
   it('leaves it out without files:read', () => {
@@ -92,7 +116,7 @@ describe('documents step: add from WeldDrive', () => {
     renderStep(draft());
     expect(fromDriveButton()).toBeNull();
     // Uploading from the computer is not affected.
-    expect(screen.getByText(td.drop)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: td.upload })).toBeInTheDocument();
   });
 
   it('leaves it out for a request that can not be changed, and when the request is full', () => {
@@ -167,10 +191,55 @@ describe('documents step: add from WeldDrive', () => {
     renderStep(draft());
 
     await user.click(fromDriveButton()!);
-    await user.click(screen.getByRole('button', { name: en.common.actions.cancel }));
+    await user.click(screen.getByRole('button', { name: en.common.actions.close }));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(calls.envelope.addDocumentFromDrive).not.toHaveBeenCalled();
+  });
+});
+
+describe('side panel: one add button with a menu', () => {
+  it('asks where the PDFs come from, and opens the WeldDrive picker from it', async () => {
+    const user = userEvent.setup();
+    renderPanel(draft());
+    expect(screen.queryByRole('button', { name: td.upload })).toBeNull();
+    expect(fromDriveButton()).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: td.add }));
+    expect(screen.getByRole('menuitem', { name: td.source.computer })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: td.source.drive }));
+
+    expect(screen.getByText(td.drive.title, { selector: '[data-slot="dialog-title"]' })).toBeInTheDocument();
+  });
+
+  it('opens the file chooser for "From your computer"', async () => {
+    const choose = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    renderPanel(draft());
+
+    await user.click(screen.getByRole('button', { name: td.add }));
+    await user.click(screen.getByRole('menuitem', { name: td.source.computer }));
+
+    expect(choose).toHaveBeenCalledTimes(1);
+    choose.mockRestore();
+  });
+
+  it('uploads straight away without files:read, as there is nothing to choose', async () => {
+    state.permissions = new Set();
+    const choose = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    renderPanel(draft());
+
+    await user.click(screen.getByRole('button', { name: td.upload }));
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(choose).toHaveBeenCalledTimes(1);
+    choose.mockRestore();
+  });
+
+  it('is left out when the request is full', () => {
+    renderPanel(draft({ documents: Array.from({ length: SIGN_LIMITS.maxDocuments }, (_, i) => pdfDocument(i)) }));
+    expect(screen.queryByRole('button', { name: td.add })).toBeNull();
   });
 });
 
@@ -187,7 +256,7 @@ describe('documents step: the rest still works', () => {
 
   it('lists the documents of the request, in order', () => {
     renderStep(draft({ documents: [pdfDocument(1), pdfDocument(2)] }));
-    expect(screen.getAllByRole('listitem').map((item) => item.querySelector('p')?.textContent)).toEqual(['Doc 1.pdf', 'Doc 2.pdf']);
+    expect(screen.getAllByText(/^Doc \d\.pdf$/).map((name) => name.textContent)).toEqual(['Doc 1.pdf', 'Doc 2.pdf']);
   });
 });
 

@@ -12,6 +12,10 @@ declare namespace Cloudflare {
     DESK_API?: Fetcher
     /** Upstream origin when there is no DESK_API binding (local dev). */
     HELPCENTER_API_URL?: string
+    /** helpdesk-widget-api, which serves /api/portal/* (sign-in, my requests). Absent in local dev. */
+    WIDGET_API?: Fetcher
+    /** helpdesk-widget-api origin when there is no WIDGET_API binding (local dev). */
+    WIDGET_API_URL?: string
     /** Help center shown on hosts that name none (localhost, workers.dev). Empty = none. */
     FALLBACK_DOMAIN?: string
   }

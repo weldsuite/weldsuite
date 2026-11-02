@@ -54,6 +54,16 @@ export const deskWidgetSettings = pgTable(
     /** Shown to visitors outside office hours; the widget has a default. */
     awayMessage: varchar('away_message', { length: 1000 }),
     expectedReplyTime: varchar('expected_reply_time', { length: 20 }).$type<DeskExpectedReplyTime>(),
+
+    /**
+     * Identity verification: the customer's server signs an HS256 identity
+     * token (sub, email, name) with this secret and hands it to the widget.
+     * Null = not set up, every visitor is anonymous. Never returned with the
+     * settings; read and rotated through its own endpoint.
+     */
+    identitySecret: varchar('identity_secret', { length: 128 }),
+    /** With a secret: refuse visitors who arrive without a valid identity token. */
+    identityRequired: boolean('identity_required').notNull().default(false),
   },
   (table) => [
     uniqueIndex('desk_widget_settings_widget_id_idx').on(table.widgetId),

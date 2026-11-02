@@ -2566,6 +2566,69 @@ function CreateTaskForm({
   );
 }
 
+/**
+ * create_conversation (WeldDesk inbox). Opens a conversation agents work in,
+ * or, when `externalId` matches one, adds the message to it (reopening it if
+ * closed), so repeated alerts stay on one conversation — see
+ * apps/workers/workflow-worker/src/engine/actions/desk.ts.
+ */
+function CreateConversationForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: VariableStepFormProps) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.conversationFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const textInput = (key: 'title' | 'name' | 'email' | 'externalId') => (
+    <VariableInput
+      value={(config[key] as string | undefined) || ''}
+      onChange={(v) => onChange({ ...config, [key]: v })}
+      placeholder={cf.placeholders[key]}
+      {...variableProps}
+    />
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{acf.customerVariablesHint}</p>
+
+      <FormField label={cf.labels.title} description={cf.titleDesc}>
+        {textInput('title')}
+      </FormField>
+
+      <FormField label={cf.labels.message} required description={cf.messageDesc}>
+        <VariableInput
+          value={(config.message as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, message: v })}
+          placeholder={cf.placeholders.message}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.labels.name} description={cf.nameDesc}>
+        {textInput('name')}
+      </FormField>
+
+      <FormField label={cf.labels.email} description={cf.emailDesc}>
+        {textInput('email')}
+      </FormField>
+
+      <FormField label={cf.labels.externalId}>
+        {textInput('externalId')}
+        <p className="text-xs text-muted-foreground mt-1">{cf.externalIdDesc}</p>
+      </FormField>
+    </div>
+  );
+}
+
 type DelayUnit = 'seconds' | 'minutes' | 'hours' | 'days';
 
 /** The largest unit the saved config uses, so an existing delay reopens as entered. */
@@ -4368,6 +4431,7 @@ const VARIABLE_STEP_FORMS = new Map<string, ComponentType<VariableStepFormProps>
   ['log_activity', LogActivityForm],
   ['post_chat_message', PostChatMessageForm],
   ['slack.post_message', SlackPostMessageForm],
+  ['create_conversation', CreateConversationForm],
   // Re-enabled AI action types (see apps/workers/workflow-worker/src/engine/actions/ai.ts).
   // Only these two — ai_extract/ai_summarize/ai_auto_reply/ai_agent stay unavailable.
   ['ai_generate', AiGenerateForm],

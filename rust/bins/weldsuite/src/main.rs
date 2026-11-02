@@ -1,6 +1,6 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve` today; `consume`, `cron <job>` and the admin commands as they are
-//! ported.
+//! `serve`, `consume`, `cron <job>` and `migrate` today; the admin commands as
+//! they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
@@ -8,9 +8,28 @@
 mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
+#[cfg(feature = "conformance")]
+mod conformance_files;
+#[cfg(feature = "conformance")]
+mod conformance_kv;
+#[cfg(feature = "conformance")]
+mod conformance_mail;
+#[cfg(feature = "conformance")]
+mod conformance_outbound;
+#[cfg(feature = "conformance")]
+mod conformance_portal;
+#[cfg(feature = "conformance")]
+mod conformance_workflows;
+mod consume;
+mod cron;
+mod desk_http;
+mod edition;
 mod infra;
+mod migrate;
+mod realtime;
 mod routes;
 mod server;
+mod spa;
 mod telemetry;
 
 use std::process::ExitCode;
@@ -20,7 +39,7 @@ use std::sync::atomic::AtomicBool;
 use weldsuite_auth::{ClerkVerifier, SessionVerifier};
 use weldsuite_db::{Workspaces, master_pool};
 
-use crate::config::{ClerkKey, Config};
+use crate::config::{AuthConfig, ClerkKey, Config};
 use crate::server::{AppState, router, shutdown_signal};
 
 const USAGE: &str = "\
@@ -28,6 +47,12 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
+  consume    run the entity-event subscribers on NATS JetStream
+  cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
+             workspace-deletion, workspace-teardown, mail-outbound-ledgers,
+             calendar-replan, flow-file-purge
+  migrate    apply the database migrations to the master and every tenant
+             database (weldsuite migrate --help)
   version    print the version and exit
   help       print this message and exit";
 
@@ -43,9 +68,12 @@ fn version() -> String {
 }
 
 fn main() -> ExitCode {
-    let command = std::env::args().nth(1);
-    match command.as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         Some("serve") => serve(),
+        Some("consume") => consume::run(),
+        Some("cron") => cron::main(args.get(1).map(String::as_str)),
+        Some("migrate") => migrate::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -69,7 +97,7 @@ fn serve() -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    let telemetry = telemetry::init(config.log_format);
+    let telemetry = telemetry::init(config.log_format, "info");
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -93,13 +121,8 @@ fn serve() -> ExitCode {
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let parties = config.authorized_parties.clone();
-    let verifier: SessionVerifier = match &config.clerk_key {
-        ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, parties.as_deref())?.into(),
-        ClerkKey::Jwks(jwks) => ClerkVerifier::from_jwks(jwks, parties.as_deref())?.into(),
-        ClerkKey::JwksUrl(url) => SessionVerifier::remote(url.clone(), None, parties)?,
-        ClerkKey::SecretKey(secret) => SessionVerifier::clerk_backend_api(secret.clone(), parties)?,
-    };
+    let (verifier, public_auth) = session_verifier(&config.auth)?;
+    tracing::info!(provider = verifier.provider(), "sign-in");
 
     // Lazy: the pod starts and reports not-ready until the database answers,
     // instead of crash-looping while it comes up.
@@ -108,7 +131,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = infra::connect(&config.infra, workspaces.master(), tracker.clone()).await?;
+    let infra = infra::connect(
+        &config.infra,
+        workspaces.master(),
+        &config.keyring,
+        tracker.clone(),
+    )
+    .await?;
     #[cfg(feature = "conformance")]
     let (infra, recorders) = conformance::infra(tracker.clone());
     let flags = Arc::new(weldsuite_pipeline::FlagGate::new(
@@ -117,10 +146,21 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         config.infra.test_fixtures_token.clone(),
     ));
 
+    let spa = config
+        .spa_dir
+        .as_deref()
+        .map(spa::Spa::load)
+        .transpose()?
+        .map(Arc::new);
+    if let Some(spa) = &spa {
+        tracing::info!(dir = %spa.root().display(), "serving the SPA");
+    }
+
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
         service: "weldsuite",
         environment: config.environment.clone(),
+        edition: Arc::new(config.edition.clone()),
         workspaces: Arc::new(workspaces),
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,
@@ -128,15 +168,42 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         infra,
         permissions: AppState::permission_gate(config.permissions_app_enforce),
         flags,
+        sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
+        sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
+        sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
+        files_public_url: config.files_public_url.as_deref().map(Arc::from),
+        widget_token_secret: config
+            .realtime
+            .widget_token_secret
+            .as_deref()
+            .map(Arc::from),
+        trusted_proxies: config.trusted_proxies,
+        storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
+        public_auth,
+        realtime: realtime::PublicRealtime::from_config(&config),
         #[cfg(feature = "conformance")]
         recorders,
+        #[cfg(feature = "conformance")]
+        conformance_pools: Arc::default(),
     };
+
+    let (stopping, stop) = tokio::sync::watch::channel(false);
+    let jobs = serve_jobs(&config, &state, stop);
+    let gateway = realtime::start(&config, &state).await?;
+    let app = realtime::mount(router(state), gateway.as_ref());
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown_signal(draining, config.shutdown_delay))
+    axum::serve(listener, spa::mount(app, spa))
+        .with_graceful_shutdown(async move {
+            shutdown_signal(draining, config.shutdown_delay).await;
+            realtime::stop(gateway.as_ref()).await;
+            let _ = stopping.send(true);
+        })
         .await?;
+    if let Some(jobs) = jobs {
+        let _ = jobs.await;
+    }
     // Let fire-and-forget publishes finish before the process exits.
     tracker.close();
     if tokio::time::timeout(std::time::Duration::from_secs(10), tracker.wait())
@@ -147,6 +214,88 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The session verifier for the configured provider, and what `/config.json`
+/// tells the frontends about sign-in (nothing for Clerk, whose frontends
+/// carry their own key).
+fn session_verifier(
+    auth: &AuthConfig,
+) -> Result<(SessionVerifier, Option<Arc<serde_json::Value>>), weldsuite_auth::KeyError> {
+    match auth {
+        AuthConfig::Clerk {
+            key,
+            authorized_parties,
+        } => {
+            let parties = authorized_parties.clone();
+            let verifier = match key {
+                ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, parties.as_deref())?.into(),
+                ClerkKey::Jwks(jwks) => ClerkVerifier::from_jwks(jwks, parties.as_deref())?.into(),
+                ClerkKey::JwksUrl(url) => SessionVerifier::remote(url.clone(), None, parties)?,
+                ClerkKey::SecretKey(secret) => {
+                    SessionVerifier::clerk_backend_api(secret.clone(), parties)?
+                }
+            };
+            Ok((verifier, None))
+        }
+        AuthConfig::Oidc {
+            settings,
+            web_client_id,
+        } => {
+            let public = serde_json::json!({
+                "provider": "oidc",
+                "issuer": settings.issuer,
+                "clientId": web_client_id,
+                "audience": settings.audiences.first(),
+                "orgClaim": settings.org_claim,
+            });
+            Ok((
+                SessionVerifier::oidc(settings.clone())?,
+                Some(Arc::new(public)),
+            ))
+        }
+    }
+}
+
+/// With Restate configured: serve the jobs service on `JOBS_PORT` until
+/// `stop` turns true, and register it with the admin API in the background.
+fn serve_jobs(
+    config: &Config,
+    state: &AppState,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let jobs = &config.infra.jobs;
+    jobs.restate_ingress_url.as_ref()?;
+    let registry = state.infra.job_registry.clone();
+    let address = std::net::SocketAddr::new(config.listen.ip(), jobs.port);
+    if let (Some(admin), Some(uri)) = (
+        jobs.restate_admin_url.clone(),
+        jobs.restate_deployment_uri.clone(),
+    ) {
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let wait = std::time::Duration::from_secs(300);
+            if let Err(error) =
+                weldsuite_adapters_oss::register_deployment(&client, &admin, &uri, wait).await
+            {
+                tracing::error!(%error, "jobs: not registered with restate; jobs will not run");
+            }
+        });
+    }
+    Some(tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(address).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::error!(%error, %address, "jobs: cannot listen for restate");
+                return;
+            }
+        };
+        tracing::info!(%address, jobs = ?registry.names(), "jobs: serving the restate endpoint");
+        weldsuite_adapters_oss::serve_endpoint(registry, listener, async move {
+            let _ = stop.wait_for(|stopping| *stopping).await;
+        })
+        .await;
+    }))
 }
 
 #[cfg(test)]

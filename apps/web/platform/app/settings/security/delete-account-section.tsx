@@ -1,6 +1,6 @@
 
 import { useState } from 'react';
-import { useClerk } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -26,7 +26,7 @@ import { DELETE_ACCOUNT_CONFIRMATION } from '@weldsuite/app-api-client/schemas/a
  */
 export function DeleteAccountSection() {
   const appApi = useAppApi();
-  const { signOut } = useClerk();
+  const { signOut } = useAuth();
   const { t } = useI18n();
   const td = t.settings.security.deleteAccount;
 

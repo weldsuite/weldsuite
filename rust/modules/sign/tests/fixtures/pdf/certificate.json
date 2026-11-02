@@ -1,0 +1,102 @@
+{
+  "envelopeId": "sgn_0fixture00001",
+  "title": "Service agreement between WeldSuite B.V. and Ångström Consulting — with an annex that makes this title wrap onto a second line",
+  "senderName": "Gert",
+  "senderEmail": "gert@example.com",
+  "workspaceName": "Acme Staffing",
+  "sentAt": "2026-11-01T08:00:00.000Z",
+  "completedAt": "2026-11-02T10:30:00.000Z",
+  "documents": [
+    {
+      "name": "agreement.pdf",
+      "pageCount": 2,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "annex.pdf",
+      "pageCount": 1,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "recipients": [
+    {
+      "name": "Signer 1",
+      "email": "signer1@example.com",
+      "role": "signer",
+      "authMode": "email_code",
+      "signatureKind": "typed",
+      "ip": "203.0.113.1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.1",
+      "sentAt": "2026-11-01T08:00:00.000Z",
+      "openedAt": "2026-11-01T09:15:30.123Z",
+      "consentedAt": "2026-11-01T09:16:00.000Z",
+      "signedAt": "2026-11-01T09:20:45.999Z"
+    },
+    {
+      "name": null,
+      "email": "signer2@example.com",
+      "role": "signer",
+      "authMode": "access_code",
+      "signatureKind": "drawn",
+      "ip": "203.0.113.2",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.2",
+      "sentAt": "2026-11-01T08:00:00.000Z",
+      "openedAt": "2026-11-01T09:15:30.123Z",
+      "consentedAt": "2026-11-01T09:16:00.000Z",
+      "signedAt": "2026-11-01T09:20:45.999Z"
+    },
+    {
+      "name": "Carl",
+      "email": "carl@example.com",
+      "role": "cc",
+      "authMode": "link",
+      "signatureKind": null,
+      "ip": null,
+      "userAgent": null,
+      "sentAt": null,
+      "openedAt": null,
+      "consentedAt": null,
+      "signedAt": null
+    },
+    {
+      "name": "Signer 4",
+      "email": "signer4@example.com",
+      "role": "signer",
+      "authMode": "email_code",
+      "signatureKind": null,
+      "ip": null,
+      "userAgent": null,
+      "sentAt": "2026-11-01T08:00:00.000Z",
+      "openedAt": null,
+      "consentedAt": null,
+      "signedAt": "2026-11-01T09:20:45.999Z"
+    },
+    {
+      "name": "Zoë 名前",
+      "email": "signer5@example.com",
+      "role": "signer",
+      "authMode": "access_code",
+      "signatureKind": "typed",
+      "ip": "203.0.113.5",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.5",
+      "sentAt": "2026-11-01T08:00:00.000Z",
+      "openedAt": "2026-11-01T09:15:30.123Z",
+      "consentedAt": "2026-11-01T09:16:00.000Z",
+      "signedAt": "2026-11-01T09:20:45.999Z"
+    },
+    {
+      "name": "Signer 6",
+      "email": "signer6@example.com",
+      "role": "signer",
+      "authMode": "link",
+      "signatureKind": "drawn",
+      "ip": "203.0.113.6",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.6",
+      "sentAt": "2026-11-01T08:00:00.000Z",
+      "openedAt": "2026-11-01T09:15:30.123Z",
+      "consentedAt": "2026-11-01T09:16:00.000Z",
+      "signedAt": "2026-11-01T09:20:45.999Z"
+    }
+  ],
+  "disclosureVersion": "2026-10-24"
+}

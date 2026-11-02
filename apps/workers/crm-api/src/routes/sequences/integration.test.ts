@@ -669,12 +669,12 @@ describe('/api/sequences · pglite integration', () => {
   it('POST /:id/enroll does not fail the call (or double-start) when a run cannot be created', async () => {
     const sequenceId = await insertSequence({ steps: STEP, status: 'active' });
     const personIds = [await insertPerson({ email: 'x1@e2e.test' }), await insertPerson({ email: 'x2@e2e.test' })];
-    let calls = 0;
+    // The first person's run cannot be created. Chosen by person, not by call
+    // order, so a second backend run against the same fake gets the same answers.
     const binding = fakeBinding({
-      create: vi.fn(async () => {
-        calls += 1;
-        if (calls === 1) throw new Error('boom');
-        return { id: 'ok' };
+      create: vi.fn(async (opts: { id: string; params: { customerId: string } }) => {
+        if (opts.params.customerId === personIds[0]) throw new Error('boom');
+        return { id: opts.id };
       }),
     });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

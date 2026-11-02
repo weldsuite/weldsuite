@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "exports": {
-    "./helpdesk-integrations": "./src/helpdesk-integrations.ts"
+    "./helpdesk-integrations": "./src/helpdesk-integrations.ts",
+    "./inbox": "./src/inbox.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -15,11 +16,13 @@
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",

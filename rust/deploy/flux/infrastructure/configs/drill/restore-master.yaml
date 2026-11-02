@@ -1,0 +1,22 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: master
+  namespace: postgres
+spec:
+  bootstrap:
+    initdb: null
+    recovery:
+      source: production
+  externalClusters:
+    - name: production
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: master-backups
+          serverName: master
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: drill-master-backups

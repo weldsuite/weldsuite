@@ -23,7 +23,7 @@ import { usePathname } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
 import {
@@ -41,13 +41,14 @@ import { useRegisterActiveCall } from '@/contexts/active-call-context';
 import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-superseded-notice';
 import { meetingCallLabel } from '@/lib/call-switch-labels';
 import { enableMicrophone, isMicrophonePermissionDenied, useLeaveCallGuard, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
+import { publicEnv } from '@/lib/runtime-config';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
 // set VITE_NOISE_SUPPRESSION=false to disable. (Legacy alias:
 // VITE_DF3_NOISE_SUPPRESSION=false still disables it.)
 const NOISE_SUPPRESSION_ENABLED =
-  import.meta.env.VITE_NOISE_SUPPRESSION !== 'false' &&
-  import.meta.env.VITE_DF3_NOISE_SUPPRESSION !== 'false';
+  publicEnv('VITE_NOISE_SUPPRESSION') !== 'false' &&
+  publicEnv('VITE_DF3_NOISE_SUPPRESSION') !== 'false';
 
 /**
  * Explicitly stop the local camera/mic MediaStreamTracks held by the RTK

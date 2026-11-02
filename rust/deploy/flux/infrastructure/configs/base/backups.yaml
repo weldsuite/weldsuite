@@ -1,0 +1,111 @@
+# Backups to object storage at a second EU provider (not the cluster's own
+# Hetzner location: Hetzner Object Storage was degraded for ~145 hours in
+# August 2026). WAL is archived continuously; base backups run nightly. The
+# monthly drill restores from here (rust/deploy/hetzner/DRILL.md).
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: master-backups
+  namespace: postgres
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/master
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: tenants-1-backups
+  namespace: postgres
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/tenants-1
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: zitadel-backups
+  namespace: zitadel
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/zitadel-db
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: master-nightly
+  namespace: postgres
+spec:
+  schedule: "0 30 2 * * *"
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  cluster:
+    name: master
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: tenants-1-nightly
+  namespace: postgres
+spec:
+  schedule: "0 0 3 * * *"
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  cluster:
+    name: tenants-1
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: zitadel-nightly
+  namespace: zitadel
+spec:
+  schedule: "0 30 3 * * *"
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  cluster:
+    name: zitadel-db

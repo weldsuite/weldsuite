@@ -1,0 +1,41 @@
+{
+  "fields": [
+    "title",
+    "declined_by",
+    "reason",
+    "url"
+  ],
+  "flags": [],
+  "id": "sign.declined",
+  "multiline": [
+    "reason"
+  ],
+  "variants": {
+    "en": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">{{ declined_by }} declined to sign</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Their reason</p><p style=\"font-size:15px;line-height:1.6;margin:0;padding:2px 0 2px 16px;border-left:2px solid #e4e4e7;color:#3f3f46;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0\">{{ reason|multiline }}</p></td></tr></tbody></table><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The request is closed; nobody else can sign it. You can send a new request once you have sorted it out.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-id=\"__react-email-column\" style=\"width:1%;padding-right:8px;white-space:nowrap\"><a href=\"{{ url }}\" style=\"line-height:1;text-decoration:none;display:inline-block;max-width:100%;mso-padding-alt:0px;padding:11px 18px;border-radius:6px;background-color:#09090b;color:#ffffff;font-size:14px;font-weight:500;padding-top:11px;padding-right:18px;padding-bottom:11px;padding-left:18px\" target=\"_blank\"><span><!--[if mso]><i style=\"mso-font-width:450%;mso-text-raise:16.5\" hidden>&#8202;&#8202;</i><![endif]--></span><span style=\"max-width:100%;display:inline-block;line-height:120%;mso-padding-alt:0px;mso-text-raise:8.25px\">Open the request</span><span><!--[if mso]><i style=\"mso-font-width:450%\" hidden>&#8202;&#8202;&#8203;</i><![endif]--></span></a></td><td data-id=\"__react-email-column\"></td></tr></tbody></table></td></tr></tbody></table>",
+        "preview": "{{ declined_by }} declined to sign.",
+        "subject": "{{ declined_by }} declined to sign \"{{ title }}\"",
+        "text": {
+          "weldsuite": "{{ declined_by|collapse }} declined to sign\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nThe request is closed; nobody else can sign it. You can send a new request once you have sorted it out.\n\nOpen the request {{ url|collapse }}\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\n{{ declined_by|collapse }} declined to sign\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nThe request is closed; nobody else can sign it. You can send a new request once you have sorted it out.\n\nOpen the request {{ url|collapse }}\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "{{ declined_by|collapse }} declined to sign\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nThe request is closed; nobody else can sign it. You can send a new request once you have sorted it out.\n\nOpen the request {{ url|collapse }}\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">{{ declined_by }} heeft geweigerd te ondertekenen</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">De reden</p><p style=\"font-size:15px;line-height:1.6;margin:0;padding:2px 0 2px 16px;border-left:2px solid #e4e4e7;color:#3f3f46;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0\">{{ reason|multiline }}</p></td></tr></tbody></table><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Het verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.</p><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-id=\"__react-email-column\" style=\"width:1%;padding-right:8px;white-space:nowrap\"><a href=\"{{ url }}\" style=\"line-height:1;text-decoration:none;display:inline-block;max-width:100%;mso-padding-alt:0px;padding:11px 18px;border-radius:6px;background-color:#09090b;color:#ffffff;font-size:14px;font-weight:500;padding-top:11px;padding-right:18px;padding-bottom:11px;padding-left:18px\" target=\"_blank\"><span><!--[if mso]><i style=\"mso-font-width:450%;mso-text-raise:16.5\" hidden>&#8202;&#8202;</i><![endif]--></span><span style=\"max-width:100%;display:inline-block;line-height:120%;mso-padding-alt:0px;mso-text-raise:8.25px\">Het verzoek openen</span><span><!--[if mso]><i style=\"mso-font-width:450%\" hidden>&#8202;&#8202;&#8203;</i><![endif]--></span></a></td><td data-id=\"__react-email-column\"></td></tr></tbody></table></td></tr></tbody></table>",
+        "preview": "{{ declined_by }} heeft geweigerd te ondertekenen.",
+        "subject": "{{ declined_by }} heeft geweigerd \"{{ title }}\" te ondertekenen",
+        "text": {
+          "weldsuite": "{{ declined_by|collapse }} heeft geweigerd te ondertekenen\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nHet verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.\n\nHet verzoek openen {{ url|collapse }}\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\n{{ declined_by|collapse }} heeft geweigerd te ondertekenen\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nHet verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.\n\nHet verzoek openen {{ url|collapse }}\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "{{ declined_by|collapse }} heeft geweigerd te ondertekenen\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nHet verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.\n\nHet verzoek openen {{ url|collapse }}\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

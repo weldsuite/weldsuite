@@ -108,6 +108,7 @@ export const nl: Translations = {
     whatsapp: 'WhatsApp',
     sms: 'Sms',
     api: 'API',
+    portal: 'Helpcentrum',
   },
 
   conversation: {

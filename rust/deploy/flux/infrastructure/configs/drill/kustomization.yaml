@@ -1,0 +1,44 @@
+# The monthly drill (rust/deploy/hetzner/DRILL.md): every Postgres cluster
+# starts from the latest backup of production instead of an empty initdb, and
+# archives its own WAL under drill/ so it never writes into production's
+# backup history.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - drill-object-stores.yaml
+patches:
+  - path: restore-master.yaml
+    target:
+      kind: Cluster
+      name: master
+  - path: restore-tenants-1.yaml
+    target:
+      kind: Cluster
+      name: tenants-1
+  - path: restore-zitadel.yaml
+    target:
+      kind: Cluster
+      name: zitadel-db
+  # The drill's backups go to its own paths; its scheduled backups are off.
+  - patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: ScheduledBackup
+      metadata:
+        name: master-nightly
+        namespace: postgres
+  - patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: ScheduledBackup
+      metadata:
+        name: tenants-1-nightly
+        namespace: postgres
+  - patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: ScheduledBackup
+      metadata:
+        name: zitadel-nightly
+        namespace: zitadel

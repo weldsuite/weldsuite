@@ -1,0 +1,21 @@
+# The weldsuite chart, from this repository. Production should pull it (and
+# the image) from the EU registry instead (P5 work package 5.4, Harbor or
+# Zot), so nothing in the EU path depends on GitHub; until then the cluster
+# reads it with the read-only deploy key flux bootstrap created (flux-system),
+# pinned to a release tag rather than the branch the bootstrap follows.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: weldsuite
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: ssh://git@github.com/weldsuite/weldsuite
+  ref:
+    # A release tag; the drill and the test environment may follow a branch.
+    tag: ${WELDSUITE_GIT_TAG}
+  secretRef:
+    name: flux-system
+  ignore: |
+    /*
+    !/rust/deploy/helm/

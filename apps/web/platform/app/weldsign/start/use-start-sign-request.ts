@@ -3,10 +3,9 @@
  * company, person or opportunity. It makes a draft that remembers where it
  * came from (so the signed PDF is filed back there) and opens it:
  *
- * - from a file: the PDF is copied in as the first document and the draft
- *   opens on Recipients; if the PDF is refused the draft still opens, on
- *   Documents, with the server's reason in a toast;
- * - from a record: the draft opens on Documents.
+ * - from a file: the PDF is copied in as the first document; if the PDF is
+ *   refused the draft still opens, with the server's reason in a toast;
+ * - from a record: the draft opens without documents.
  *
  * `available` is false where the workspace has no WeldSign or the member may
  * not create requests; callers then leave the action out.
@@ -61,8 +60,7 @@ export function useStartSignRequest() {
         if (documentError) {
           toast.error(format(ts.documentFailed, { name: name || untitled, reason: apiErrorMessage(documentError) }));
         }
-        const step = isFile && !documentError ? '?step=recipients' : '';
-        router.push(`/weldsign/${envelope.id}${step}`);
+        router.push(`/weldsign/${envelope.id}`);
       } catch (err) {
         toast.error(`${ts.failed}: ${apiErrorMessage(err)}`);
       } finally {

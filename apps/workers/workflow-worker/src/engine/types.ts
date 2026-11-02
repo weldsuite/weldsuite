@@ -86,6 +86,8 @@ export interface WorkflowEnv extends MailStoreModeEnv {
   WORKSPACE_CACHE?: KVNamespace;
   // Cross-worker
   REALTIME?: Fetcher;
+  /** helpdesk-workflow-worker: the AssignmentRouter that hands out WeldDesk conversations (ADR DESK-005). */
+  HELPDESK_WORKFLOW?: Fetcher;
   /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
   REALTIME_INTERNAL_SECRET?: string;
   AGENT_WORKER?: Fetcher;

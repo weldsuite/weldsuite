@@ -8,14 +8,20 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import * as masterSchema from '@weldsuite/db/schema/master';
-import { createTestApp } from '@weldsuite/worker-kit/testing';
-import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { FakeBucket } from '../../test/user-apps-fixtures';
+
+// Conformance-ready (rust/conformance/suites.json): the master database, the
+// KV and the bucket are shared with the Rust backend.
+vi.setConfig({ testTimeout: 120_000 });
 
 const state = vi.hoisted(() => ({ db: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.db };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.db) };
 });
 
 import { bundleHostGuard, bundleHostRejection, publicUserAppsRoutes } from './index';
@@ -26,6 +32,7 @@ const { userApps, userAppVersions, userAppInstalls } = masterSchema;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for postgres-js
 let db: any;
+let tenantDb: Database;
 
 const SECRET = 'internal-secret-for-tests';
 const OWNER = 'ws_owner';
@@ -47,16 +54,6 @@ class FakeKv {
   }
 }
 
-/** A just-enough R2: serves the bundle files listed per app. */
-function fakeBucket(files: Record<string, string>): R2Bucket {
-  return {
-    get: async (key: string) => {
-      const body = files[key];
-      if (body === undefined) return null;
-      return { body, httpEtag: '"etag"', httpMetadata: undefined } as unknown as R2ObjectBody;
-    },
-  } as unknown as R2Bucket;
-}
 
 const FILES: Record<string, string> = {
   'user-apps/uapp_priv/v1/index.html': '<html>private</html>',
@@ -67,12 +64,17 @@ const FILES: Record<string, string> = {
 };
 
 let kv: FakeKv;
+// Read-only here: one of each for the whole file (each is served to Rust once).
+const storage = new FakeBucket(FILES);
+const privateStorage = new FakeBucket();
 
 function host(env: Partial<BundleEnv> = {}) {
   const { request } = createTestApp('/public/user-apps', publicUserAppsRoutes, {
+    context: { tenantDb, masterDb: db },
     env: {
       WORKSPACE_CACHE: kv as unknown as KVNamespace,
-      STORAGE: fakeBucket(FILES),
+      STORAGE: storage as unknown as R2Bucket,
+      PRIVATE_STORAGE: privateStorage as unknown as R2Bucket,
       INTERNAL_API_SECRET: SECRET,
       ...env,
     } as never,
@@ -89,6 +91,7 @@ async function link(appId: string, workspaceId: string, extra: { ttlSeconds?: nu
 beforeAll(async () => {
   db = (await createMasterPgliteDb()).db;
   state.db = db;
+  tenantDb = (await createPgliteDb()).db;
 
   await db.insert(userApps).values([
     {
@@ -136,7 +139,7 @@ beforeAll(async () => {
     status: 'active',
     installedBy: 'user_installer',
   });
-}, 60_000);
+}, 180_000);
 
 beforeEach(() => {
   kv = new FakeKv();

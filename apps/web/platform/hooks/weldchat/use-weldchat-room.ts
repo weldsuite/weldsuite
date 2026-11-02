@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 

@@ -37,6 +37,8 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { TranslationsType } from '@/lib/i18n/types';
+import { isModuleOffered } from '@/lib/edition';
+import { isRouteOffered } from '@/lib/edition-routes';
 import { menuPermissionAllows, type MenuPermission } from './menu-permission';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
 
@@ -122,7 +124,10 @@ export function navigationCommandsForApps(
     seenApps.add(app.appCode);
 
     const root = appHref(app);
-    const pages = pagesForApp(app.appCode).filter((page) => menuPermissionAllows(page.permission, canSee));
+    // Edition flags (4.F3): a module's menu may link into one this deployment doesn't serve.
+    const pages = pagesForApp(app.appCode).filter(
+      (page) => menuPermissionAllows(page.permission, canSee) && isRouteOffered(page.href),
+    );
     const rootPage = pages.find((page) => page.href === root);
 
     commands.push({
@@ -158,8 +163,9 @@ export function navigationCommandsForApps(
   return commands;
 }
 
+/** Companies and people are WeldCRM's API, whichever installed app lists them (edition flags, 4.F3). */
 function workspaceHasObject(object: string, installedCodes: ReadonlySet<string>): boolean {
-  return getAppsForObject(object).some((code) => installedCodes.has(code));
+  return isModuleOffered('crm') && getAppsForObject(object).some((code) => installedCodes.has(code));
 }
 
 export function actionCommands(
@@ -442,11 +448,14 @@ export function settingsCommands(
     });
   }
 
-  return links.map((link) => ({
-    ...link,
-    group: 'settings' as const,
-    showWhenEmpty: link.showWhenEmpty ?? false,
-  }));
+  // Edition flags (4.F3): only settings pages this deployment serves.
+  return links
+    .filter((link) => !link.href || isRouteOffered(link.href))
+    .map((link) => ({
+      ...link,
+      group: 'settings' as const,
+      showWhenEmpty: link.showWhenEmpty ?? false,
+    }));
 }
 
 export function commandMatches(

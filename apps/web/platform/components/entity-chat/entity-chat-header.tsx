@@ -1,6 +1,7 @@
 import { Phone, Video } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface EntityChatHeaderProps {
@@ -26,7 +27,7 @@ export function EntityChatHeader({ name, channelId, hideCallButtons = false }: R
   return (
     <div className="flex h-10 flex-shrink-0 items-center justify-between gap-2 border-b px-3">
       <span className="truncate text-sm font-medium">{name}</span>
-      {!hideCallButtons && (
+      {!hideCallButtons && isFeatureAvailable('chat-calls') && (
         <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"

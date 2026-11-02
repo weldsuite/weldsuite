@@ -35,7 +35,8 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs/server" = "./src/lib/clerk-shim.ts"
 "@clerk/nextjs" = "./src/lib/clerk-shim.ts"
 "next/server" = "./src/lib/next-shim.ts"
-"react" = "./src/lib/react-shim.ts"
+# No shim for react: WeldDesk notifications (@weldsuite/desk-domain/inbox)
+# render React email templates.
 
 # Durable Object lifecycle migrations.
 # v1 created the RateLimiter SQLite DO; rate limiting has since moved to the
@@ -176,6 +177,12 @@ binding = "HYPERDRIVE_MASTER"
 id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-external-api-test"
@@ -288,6 +295,12 @@ id = "02e3ecd8560540a1993883b9949f6002"
 [env.test.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -415,3 +428,9 @@ head_sampling_rate = 1
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"

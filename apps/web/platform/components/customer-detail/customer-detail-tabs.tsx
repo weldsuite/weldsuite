@@ -13,7 +13,7 @@ import {
   MessagesSquare,
   Users,
 } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useCustomerDetailContext } from './customer-detail-provider';
 import { useCrmTasks } from '@/hooks/use-crm-tasks';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';

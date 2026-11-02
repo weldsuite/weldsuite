@@ -1,0 +1,28 @@
+[package]
+name = "weldsuite-notifications"
+description = "In-app and push notifications (@weldsuite/notifications): the notifications row, realtime, Expo push and the native call ring"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+base64 = { workspace = true }
+jsonwebtoken = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

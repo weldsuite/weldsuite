@@ -1,6 +1,7 @@
 import type { HomeWidgetDefinition, HomeWidgetSlot, WidgetId, WidgetModule } from './types';
 import { WIDGET_MODULES } from './types';
 import { allWidgets } from './widgets/all';
+import { isAppOffered, isFeatureAvailable } from '@/lib/edition';
 
 export const HOME_WIDGETS: Record<WidgetId, HomeWidgetDefinition> = (
   allWidgets as unknown as HomeWidgetDefinition[]
@@ -24,7 +25,15 @@ export function emptySlots(): [NullableSlot, NullableSlot] {
   return [null, null];
 }
 
+/**
+ * Edition flags (4.F3): whether this deployment serves what the widget reads,
+ * its app's module (the analytics widget: the analytics store).
+ */
+export function isWidgetOffered(def: HomeWidgetDefinition): boolean {
+  return def.module === 'analytics' ? isFeatureAvailable('analytics') : isAppOffered(def.module);
+}
+
 export function isWidgetEnabled(id: WidgetId): boolean {
   const def = HOME_WIDGETS[id];
-  return !!def && !def.disabled;
+  return !!def && !def.disabled && isWidgetOffered(def);
 }

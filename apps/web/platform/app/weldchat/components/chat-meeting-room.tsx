@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';

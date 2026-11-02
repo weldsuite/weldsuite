@@ -1,8 +1,14 @@
 /**
  * /api/sso against a real pglite master DB with a fake Clerk, a stubbed DNS
- * lookup and a stubbed billing-worker: the permission gates, the domain claim
- * and its DNS proof, the entitlement gate on the connection, switching it on
- * and off, and the billing pass-through.
+ * lookup and a stubbed billing-worker: the flows that need Clerk (or
+ * billing-worker) to answer. Creating the SAML connection, switching it on and
+ * off, removing and recreating it, the races around those calls, and the
+ * billing pass-through.
+ *
+ * Not in the conformance suite: Clerk's SAML connections and billing-worker
+ * are Global-only, so the Rust backend never makes these calls. What it does
+ * serve (the gates, the domain and its DNS proof, the entitlement, a
+ * connection on file with Clerk unreachable) is in sso.integration.test.ts.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -174,65 +180,7 @@ async function verifiedDomain(ws: Ws, domain: string) {
   state.txt = [];
 }
 
-describe('permissions', () => {
-  it('needs sso:read to look and sso:manage to change', async () => {
-    const ws = await seedWorkspace();
-    expect((await api(ws, permissions('general:read'))('GET', '/')).status).toBe(403);
-
-    const reader = api(ws, permissions('sso:read'));
-    const view = await reader('GET', '/');
-    expect(view.status).toBe(200);
-    expect(view.json.data).toMatchObject({ canManage: false, domain: null, connection: null });
-    expect((await reader('PUT', '/domain', { domain: 'acme.com' })).status).toBe(403);
-  });
-});
-
 describe('domain', () => {
-  it('normalises what was typed and hands out the TXT record', async () => {
-    const ws = await seedWorkspace();
-
-    const { status, json } = await api(ws)('PUT', '/domain', { domain: ' https://www.Acme-Corp.com/login ' });
-
-    expect(status).toBe(200);
-    expect(json.data.domain).toMatchObject({ name: 'acme-corp.com', verified: false });
-    expect(json.data.domain.dnsRecord).toMatchObject({ type: 'TXT', name: '_weldsuite-sso.acme-corp.com' });
-    expect(json.data.domain.dnsRecord.value).toMatch(/^weldsuite-sso-verification=[0-9a-f]{32}$/);
-  });
-
-  it('refuses junk and public mailbox domains', async () => {
-    const call = api(await seedWorkspace());
-    expect((await call('PUT', '/domain', { domain: 'localhost' })).json.error?.code).toBe('SSO_DOMAIN_INVALID');
-    expect((await call('PUT', '/domain', { domain: '10.0.0.1' })).json.error?.code).toBe('SSO_DOMAIN_INVALID');
-    expect((await call('PUT', '/domain', { domain: 'Gmail.com' })).json.error?.code).toBe('SSO_DOMAIN_PUBLIC');
-  });
-
-  it('verifies only with the right TXT record', async () => {
-    const ws = await seedWorkspace();
-    const call = api(ws);
-    const claimed = await call('PUT', '/domain', { domain: 'verify.example' });
-
-    state.txt = ['v=spf1 -all', 'weldsuite-sso-verification=wrong'];
-    const missing = await call('POST', '/domain/verify');
-    expect(missing.status).toBe(422);
-    expect(missing.json.error?.code).toBe('SSO_DOMAIN_NOT_VERIFIED');
-
-    state.txt = [`"${claimed.json.data.domain.dnsRecord.value}"`];
-    const verified = await call('POST', '/domain/verify');
-    expect(verified.status).toBe(200);
-    expect(verified.json.data.domain).toMatchObject({ name: 'verify.example', verified: true });
-  });
-
-  it('keeps a verified domain to one workspace', async () => {
-    const owner = await seedWorkspace();
-    await verifiedDomain(owner, 'taken.example');
-
-    const other = await seedWorkspace();
-    const { status, json } = await api(other)('PUT', '/domain', { domain: 'taken.example' });
-
-    expect(status).toBe(409);
-    expect(json.error?.code).toBe('SSO_DOMAIN_IN_USE');
-  });
-
   it('does not verify a domain that was swapped during the DNS lookup', async () => {
     const ws = await seedWorkspace();
     const call = api(ws);
@@ -251,27 +199,6 @@ describe('domain', () => {
 });
 
 describe('connection', () => {
-  it('needs the workspace to be entitled', async () => {
-    const ws = await seedWorkspace(BUSINESS);
-    await verifiedDomain(ws, 'unpaid.example');
-
-    const { status, json } = await api(ws)('PUT', '/connection', { provider: 'saml_okta' });
-
-    expect(status).toBe(402);
-    expect(json.error?.code).toBe('SSO_NOT_ENTITLED');
-    expect(state.connections.size).toBe(0);
-  });
-
-  it('needs a verified domain', async () => {
-    const ws = await seedWorkspace();
-    await api(ws)('PUT', '/domain', { domain: 'unverified.example' });
-
-    const { status, json } = await api(ws)('PUT', '/connection', { provider: 'saml_okta' });
-
-    expect(status).toBe(409);
-    expect(json.error?.code).toBe('SSO_DOMAIN_NOT_VERIFIED');
-  });
-
   it('drops a connection whose domain was swapped while Clerk created it', async () => {
     const ws = await seedWorkspace();
     await verifiedDomain(ws, 'first.example');
@@ -418,16 +345,5 @@ describe('billing pass-through', () => {
     expect(status).toBe(402);
     expect(json.error?.code).toBe('PAYMENT_METHOD_REQUIRED');
     expect(mockedBilling).toHaveBeenCalledWith(expect.anything(), '/api/billing/sso/subscribe', { method: 'POST', body: {} });
-  });
-
-  it('answers 502 when billing-worker cannot be reached', async () => {
-    const ws = await seedWorkspace(BUSINESS);
-    mockedBilling.mockRejectedValue(new Error('timeout'));
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-
-    const { status, json } = await api(ws, permissions('sso:read'))('GET', '/billing');
-
-    expect(status).toBe(502);
-    expect(json.error?.code).toBe('BILLING_UNAVAILABLE');
   });
 });

@@ -34,7 +34,7 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { toast } from 'sonner';
 import { useFetchVoiceToken } from '@/hooks/queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 

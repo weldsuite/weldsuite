@@ -7,7 +7,7 @@ import { SidebarProvider } from '@weldsuite/ui/components/sidebar';
 import { UnifiedModuleSidebar } from './unified-module-sidebar';
 import { MainContentArea } from './main-content-area';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
-import { useUser, useOrganization, useOrganizationList } from '@clerk/clerk-react';
+import { useUser, useOrganization, useOrganizationList } from '@/lib/auth';
 import { AppAccessGuard } from '@/components/app-access-guard';
 import { cn } from '@/lib/utils';
 

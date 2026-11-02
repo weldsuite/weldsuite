@@ -18,6 +18,9 @@ export function EmailCapture({ messenger, color, away = false, className = 'mx-4
   const [email, setEmail] = useState('');
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
 
+  // The site vouched for this visitor without an email: a typed one wouldn't be kept.
+  if (messenger.verified && !messenger.profile.email) return null;
+
   if (messenger.profile.email) {
     return (
       <div className={cn('flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600', className)}>

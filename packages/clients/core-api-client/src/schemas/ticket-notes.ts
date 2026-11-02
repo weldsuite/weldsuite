@@ -17,3 +17,19 @@ export const updateTicketNoteSchema = createTicketNoteSchema.partial();
 
 export type CreateTicketNoteInput = z.infer<typeof createTicketNoteSchema>;
 export type UpdateTicketNoteInput = z.infer<typeof updateTicketNoteSchema>;
+
+/** A `helpdesk_ticket_notes` row, as /api/ticket-notes returns it. */
+export const ticketNoteSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    ticketId: z.string(),
+    authorId: z.string(),
+    authorName: z.string(),
+    content: z.string(),
+    isImportant: z.boolean().nullable(),
+    attachments: z.unknown(),
+  })
+  .passthrough();

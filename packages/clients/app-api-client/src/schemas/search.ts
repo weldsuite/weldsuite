@@ -113,6 +113,27 @@ export interface SearchUnderstanding {
   lexicalTerm: string;
 }
 
+// ============================================================================
+// Response schemas (Zod), matching the interfaces above
+// ============================================================================
+
+export const searchResultItemSchema = z.object({
+  id: z.string(),
+  type: searchEntityTypeSchema,
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  snippet: z.string().nullable().optional(),
+  url: z.string(),
+  score: z.number().nullable().optional(),
+});
+
+export const searchResultGroupSchema = z.object({
+  type: searchEntityTypeSchema,
+  items: z.array(searchResultItemSchema),
+  totalCount: z.number(),
+  hasMore: z.boolean(),
+});
+
 export interface SearchResponse {
   data: SearchResultGroup[];
   query: string;

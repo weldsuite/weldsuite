@@ -29,6 +29,7 @@ import {
 } from '../../lib/telnyx';
 import { lookupPhoneNumberRegistry, normalizeE164 } from '../../lib/phone-registry';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import {
   handlePortingCompleted,
   handlePortingException,
@@ -533,6 +534,8 @@ async function handleInboundInitiated(
   });
 
   await syncConversationCaller(db, desk, caller, now);
+  // The caller's message may start an SLA clock: tell desk-api's SLA sweep (best-effort).
+  if (desk.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', workspaceId, desk.slaCheckAt);
 
   await insertInboundCall(db, {
     callId,

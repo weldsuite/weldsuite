@@ -1,8 +1,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from '@/lib/router';
-import { useSignIn, useSignUp, useOrganizationList, useAuth, useClerk } from '@clerk/clerk-react';
-import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
+import { useAuth, ClerkOnly } from '@/lib/auth';
+import { useSignIn, useSignUp, useClerk, useClerkOrganizationList, isClerkAPIResponseError } from '@/lib/auth/clerk';
 import { Loader2, CheckCircle, XCircle, Lock, Mail, User, Clock, UserCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
@@ -10,6 +10,7 @@ import { getTranslations } from '@/lib/i18n';
 import { setPendingOrganization } from '@/lib/pending-organization';
 import { workspacePath } from '@/lib/workspace-url';
 import { pickInvitation } from './pick-invitation';
+import { ManagedByIdentityProvider } from '@/components/auth/identity-provider-screens';
 
 interface InviteClientProps {
   orgId?: string;
@@ -566,7 +567,7 @@ function InvitePreview({ orgName, email, isAuthenticated, isLoading, onAccept }:
   );
 }
 
-export function InviteClient({
+function ClerkInviteClient({
   orgId,
   orgName,
   invitationId,
@@ -587,7 +588,7 @@ export function InviteClient({
 
   const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
   const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
-  const { setActive: setOrgActive, userInvitations, isLoaded: orgListLoaded } = useOrganizationList({
+  const { setActive: setOrgActive, userInvitations, isLoaded: orgListLoaded } = useClerkOrganizationList({
     userInvitations: { infinite: true },
   });
   const { isSignedIn } = useAuth();
@@ -908,5 +909,14 @@ export function InviteClient({
       isLoading={isLoading}
       onAccept={handleAcceptInvitation}
     />
+  );
+}
+
+/** Invitations are Clerk organization invitations; elsewhere the provider manages membership. */
+export function InviteClient(props: Readonly<InviteClientProps>) {
+  return (
+    <ClerkOnly fallback={<ManagedByIdentityProvider topic="invitations" />}>
+      <ClerkInviteClient {...props} />
+    </ClerkOnly>
   );
 }

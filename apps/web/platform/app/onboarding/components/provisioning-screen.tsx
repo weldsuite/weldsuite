@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import { useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList } from '@/lib/auth';
 import { Button } from '@weldsuite/ui/components/button';
 import { motion } from 'framer-motion';
 import { Loader2, CheckCircle2 } from 'lucide-react';

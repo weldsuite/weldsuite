@@ -2,6 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { isModuleOffered } from '@/lib/edition';
 
 // =============================================================================
 // Query Keys
@@ -75,6 +76,8 @@ export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   const { weldAgent } = useAppApi();
   return useQuery({
     queryKey: weldagentKeys.conversationList(agentId),
+    // Edition flags (4.F3): the home sidebar asks on every page.
+    enabled: isModuleOffered('agent'),
     queryFn: async (): Promise<ConversationSummary[]> => {
       const result = await weldAgent.listConversations(limit, {
         ...(agentId ? { agentId } : {}),

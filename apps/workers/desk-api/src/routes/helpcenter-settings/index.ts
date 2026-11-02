@@ -68,6 +68,8 @@ const updateSettingsSchema = z.object({
   heroSubtitle: z.string().optional().nullable(),
   showSearch: z.number().min(0).max(1).optional(),
   showCategories: z.number().min(0).max(1).optional(),
+  /** Sign-in and requests on the help center (served by helpdesk-widget-api's /api/portal). */
+  portalEnabled: z.number().min(0).max(1).optional(),
   metaTitle: z.string().max(255).optional().nullable(),
   metaDescription: z.string().optional().nullable(),
   ogImage: z.string().max(500).optional().nullable(),
@@ -116,6 +118,7 @@ app.get('/', requirePermission('settings:read'), async (c) => {
         heroSubtitle: null,
         showSearch: 1,
         showCategories: 1,
+        portalEnabled: 0,
         metaTitle: null,
         metaDescription: null,
         ogImage: null,

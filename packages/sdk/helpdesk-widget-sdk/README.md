@@ -638,6 +638,60 @@ Send a custom message to the widget (for advanced integrations).
 widget.sendMessage({ type: 'custom-event', data: { foo: 'bar' } });
 ```
 
+##### `identify(identity): void`
+
+Tell the widget who the visitor is. `identity` is `{ userId, email?, name?, avatar?, metadata?, identityToken? }`.
+With `identityToken` the visitor is signed in (see below); without it, `email` and `name` are only
+stored like something the visitor typed.
+
+##### `logout(): void` / `shutdown(): void`
+
+Call when the user signs out of your site. The widget forgets the visitor, starts a fresh anonymous
+session and clears the conversations on screen. `shutdown()` also clears the SDK's persisted state.
+
+## Signed-in users (identity verification)
+
+Visitors start out anonymous: the widget gets a visitor token from the WeldDesk API and keeps it in
+the browser. If your site has its own sign-in, you can tell the widget who the user is in a way
+nobody can fake, so they see the same conversations on every device and in your help center.
+
+1. In WeldDesk, open the widget's settings and turn on identity verification. Copy the identity
+   secret. Keep it on your server only.
+2. On your server, sign a short-lived JWT (HS256) with that secret. Claims: `sub` (your user id,
+   required), `email`, `name`, `exp` (required, at most 30 days ahead).
+
+   ```javascript
+   // Node, with the `jsonwebtoken` package
+   const identityToken = jwt.sign(
+     { sub: user.id, email: user.email, name: user.name },
+     process.env.WELDDESK_IDENTITY_SECRET,
+     { algorithm: 'HS256', expiresIn: '7d' },
+   );
+   ```
+
+3. Pass the token to the widget, either when it starts or once the user signs in:
+
+   ```javascript
+   const widget = await initHelpdeskWidget({
+     widgetId: 'your-widget-id',
+     auth: { identityToken },
+   });
+
+   // or later, after sign-in
+   widget.identify({ userId: user.id, identityToken });
+
+   // and on sign-out
+   widget.logout();
+   ```
+
+The token goes to the widget iframe by `postMessage`, never in a URL. A verified visitor's name and
+email come from the token; the widget no longer asks for an email. When the widget is set to
+"signed-in users only", anonymous visitors see a short "sign in on your site to chat with us" note
+instead of the chat, and the chat opens as soon as you call `identify({ identityToken })`.
+
+An expired or wrongly signed token is refused: the widget logs a warning in the console and carries
+on as an anonymous visitor (or shows the sign-in note when signed-in users are required).
+
 ## Programmatic Control
 
 ```javascript

@@ -1,4 +1,4 @@
-import { isClerkRuntimeError } from '@clerk/clerk-react/errors';
+import { isClerkRuntimeError } from '@/lib/auth/clerk';
 
 /**
  * Passkey (WebAuthn) helpers shared by the login page and Settings → Security.

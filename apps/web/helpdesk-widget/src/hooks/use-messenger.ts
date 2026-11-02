@@ -2,6 +2,10 @@
  * Messenger state: the visitor's conversations, loaded threads, optimistic
  * sends and live updates.
  *
+ * Who the visitor is comes from the visitor session (lib/visitor-session):
+ * every API call carries its token, and when the host page signs someone in
+ * or out the session switches visitor and everything on screen is dropped.
+ *
  * Live updates come from the ConversationRoom realtime socket (one per recent
  * open conversation, so the launcher badge updates even while the widget is
  * closed). If realtime is unavailable — no URL advertised, token rejected,
@@ -9,14 +13,14 @@
  * replies still arrive.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { ConnectionState, RoomEvent } from '@weldsuite/realtime/types';
-import { widgetApi } from '@/lib/api/client';
 import type { MessageAttachment, PublicConversation, PublicMessage, ThreadMessage } from '@/lib/api/types';
-import { getCustomerProfile, getOrCreateVisitorId, saveCustomerProfile } from '@/lib/utils/customer-storage';
+import { getCustomerProfile, saveCustomerProfile } from '@/lib/utils/customer-storage';
 import { loadSeen, saveSeen } from '@/lib/utils/seen-storage';
 import { playMessageReceivedSound } from '@/lib/utils/notification-sound';
+import { getVisitorSession } from '@/lib/visitor-session';
 
 /** Thread key for a conversation that hasn't been created yet. */
 export const DRAFT_ID = '__draft__';
@@ -82,14 +86,28 @@ function isPublicMessageRecord(value: unknown): value is PublicMessage {
 }
 
 export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialName, initialEmail }: Options) {
-  const visitorId = useMemo(() => getOrCreateVisitorId(), []);
-  const [profile, setProfile] = useState(() => {
-    const stored = getCustomerProfile(widgetId);
+  const session = useMemo(() => getVisitorSession(widgetId), [widgetId]);
+  const api = session.api;
+  const { status, visitor } = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const visitorId = visitor?.id ?? null;
+  const verified = Boolean(visitor?.verified);
+
+  /** Answers for a visitor who has since been replaced (sign-in / sign-out) are dropped. */
+  const isCurrent = useCallback(
+    (before: string | null) => before === null || session.getSnapshot().visitor?.id === before,
+    [session],
+  );
+
+  // A verified visitor's name and email are the ones the site vouched for; the
+  // rest is what the visitor (or the page, unverified) typed.
+  const profile = useMemo(() => {
+    if (visitor?.verified) return { name: visitor.name ?? '', email: visitor.email ?? '' };
+    const stored = visitor ? null : getCustomerProfile(widgetId);
     return {
-      name: initialName || stored?.name || '',
-      email: initialEmail || stored?.email || '',
+      name: visitor?.name || initialName || stored?.name || '',
+      email: visitor?.email || initialEmail || stored?.email || '',
     };
-  });
+  }, [widgetId, visitor, initialName, initialEmail]);
 
   const [conversations, setConversations] = useState<PublicConversation[]>([]);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
@@ -106,57 +124,70 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
   // ---- identity ----------------------------------------------------------
 
+  // Open the session (also the moment a widget that wants signed-in users says so).
   useEffect(() => {
+    void session.getToken().catch(() => setConversationsLoaded(true));
+  }, [session]);
+
+  useEffect(() => {
+    if (!visitorId) return;
     saveCustomerProfile(widgetId, {
-      visitorId,
       name: profile.name || undefined,
       email: profile.email || undefined,
     });
   }, [widgetId, visitorId, profile]);
 
-  // Host page passed name/email (SDK identify) — tell the API once.
+  // Host page passed name/email (`?name=&email=`): tell the API once. Ignored for a verified visitor.
   useEffect(() => {
     if (!initialEmail && !initialName) return;
-    void widgetApi
-      .identify(widgetId, {
-        visitorId,
-        name: initialName || undefined,
-        email: initialEmail || undefined,
-      })
-      .catch(() => {});
-  }, [widgetId, visitorId, initialEmail, initialName]);
+    void session.identifyTyped({ name: initialName, email: initialEmail }).catch(() => {});
+  }, [session, initialEmail, initialName]);
 
   const identify = useCallback(
-    async (email: string, name?: string) => {
-      setProfile((p) => ({ email, name: name || p.name }));
-      await widgetApi.identify(widgetId, { visitorId, email, name: name || undefined });
-    },
-    [widgetId, visitorId],
+    (email: string, name?: string) => session.identifyTyped({ email, name }),
+    [session],
   );
 
   // ---- conversations list ------------------------------------------------
 
   const refreshConversations = useCallback(async () => {
+    const before = session.getSnapshot().visitor?.id ?? null;
     try {
-      const list = await widgetApi.listConversations(widgetId, visitorId);
+      const list = await api.listConversations();
+      if (!isCurrent(before)) return;
       setConversations(list);
       if (!seenInitialized.current) {
-        // First run on this device: don't flag history as unread.
+        // First run on this device (or for this visitor): don't flag history as unread.
         seenInitialized.current = true;
-        const initial: Record<string, string> = {};
-        for (const c of list) if (c.lastMessageAt) initial[c.id] = c.lastMessageAt;
-        setSeen(initial);
+        setSeen((prev) => {
+          const next = { ...prev };
+          for (const c of list) if (c.lastMessageAt && !next[c.id]) next[c.id] = c.lastMessageAt;
+          return next;
+        });
       }
     } catch {
       // keep what we have; the next poll retries
     } finally {
-      setConversationsLoaded(true);
+      if (isCurrent(before)) setConversationsLoaded(true);
     }
-  }, [widgetId, visitorId]);
+  }, [api, session, isCurrent]);
 
+  // A different visitor (signed in / out on the site): nothing of the previous one stays.
+  const shownVisitor = useRef<string | null>(null);
   useEffect(() => {
-    void refreshConversations();
-  }, [refreshConversations]);
+    if (shownVisitor.current && shownVisitor.current !== visitorId) {
+      for (const client of rooms.current.values()) client.disconnect();
+      rooms.current.clear();
+      setConversations([]);
+      setThreads({});
+      setTyping({});
+      setConnection({});
+      setConversationsLoaded(false);
+      seenInitialized.current = false;
+    }
+    shownVisitor.current = visitorId;
+    if (visitorId) void refreshConversations();
+  }, [visitorId, refreshConversations]);
 
   useEffect(() => {
     saveSeen(widgetId, seen);
@@ -167,9 +198,11 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
   const loadThread = useCallback(
     async (conversationId: string, { silent = false } = {}) => {
       if (conversationId === DRAFT_ID) return;
+      const before = session.getSnapshot().visitor?.id ?? null;
       if (!silent) setLoadingThread(conversationId);
       try {
-        const result = await widgetApi.getConversation(widgetId, conversationId, visitorId);
+        const result = await api.getConversation(conversationId);
+        if (!isCurrent(before)) return;
         setThreads((prev) => {
           const pending = (prev[conversationId] ?? []).filter((m) => m.status);
           let merged: ThreadMessage[] = result.messages;
@@ -185,7 +218,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
         if (!silent) setLoadingThread((id) => (id === conversationId ? null : id));
       }
     },
-    [widgetId, visitorId],
+    [api, session, isCurrent],
   );
 
   useEffect(() => {
@@ -287,7 +320,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
       if (current.has(id)) continue;
       const client = new RoomClient({
         url: `${realtimeUrl.replace(/\/$/, '')}/ws/conversation/${id}`,
-        getToken: async () => (await widgetApi.realtimeToken(widgetId, visitorId, id)).token,
+        getToken: async () => (await api.realtimeToken(id)).token,
       });
       current.set(id, client);
       client.on('message', (event) => handleIncoming(id, event));
@@ -303,7 +336,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
       });
       void client.connect();
     }
-  }, [watchedIds, realtimeUrl, widgetId, visitorId, handleIncoming, handleSystem, loadThread]);
+  }, [watchedIds, realtimeUrl, api, handleIncoming, handleSystem, loadThread]);
 
   useEffect(
     () => () => {
@@ -331,7 +364,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
   const activeLive = activeId ? connection[activeId] === 'connected' : false;
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || status === 'identity-required') return;
     const listTimer = setInterval(() => void refreshConversations(), LIST_POLL_MS);
     const threadTimer =
       activeId && activeId !== DRAFT_ID && !activeLive
@@ -341,7 +374,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
       clearInterval(listTimer);
       if (threadTimer) clearInterval(threadTimer);
     };
-  }, [isOpen, activeId, activeLive, refreshConversations, loadThread]);
+  }, [isOpen, status, activeId, activeLive, refreshConversations, loadThread]);
 
   // ---- typing ---------------------------------------------------------------
 
@@ -417,10 +450,10 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
       try {
         if (threadId === DRAFT_ID) {
-          const result = await widgetApi.startConversation(widgetId, {
-            visitorId,
-            name: profile.name || undefined,
-            email: profile.email || undefined,
+          const result = await api.startConversation({
+            // A verified visitor's name and email are on the visitor already.
+            name: verified ? undefined : profile.name || undefined,
+            email: verified ? undefined : profile.email || undefined,
             body: trimmed,
             clientId,
           });
@@ -434,8 +467,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
           return id;
         }
 
-        const result = await widgetApi.sendMessage(widgetId, threadId, {
-          visitorId,
+        const result = await api.sendMessage(threadId, {
           body: trimmed || undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
           clientId,
@@ -452,7 +484,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
         return null;
       }
     },
-    [widgetId, visitorId, profile, stopTyping, markSeen],
+    [api, verified, profile, stopTyping, markSeen],
   );
 
   const retry = useCallback(
@@ -469,8 +501,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
   /** Rate a closed conversation (1–5, optional comment). Throws when the API refuses. */
   const rate = useCallback(
     async (conversationId: string, rating: number, comment?: string) => {
-      const result = await widgetApi.rateConversation(widgetId, conversationId, {
-        visitorId,
+      const result = await api.rateConversation(conversationId, {
         rating,
         comment: comment?.trim() || undefined,
       });
@@ -481,14 +512,13 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
           : prev,
       );
     },
-    [widgetId, visitorId],
+    [api],
   );
 
   /** Upload one file into an existing conversation, ready to go out with the next message. */
   const uploadAttachment = useCallback(
-    (conversationId: string, file: File) =>
-      widgetApi.uploadAttachment(widgetId, { conversationId, visitorId, file }),
-    [widgetId, visitorId],
+    (conversationId: string, file: File) => api.uploadAttachment({ conversationId, file }),
+    [api],
   );
 
   // ---- derived -------------------------------------------------------------
@@ -500,7 +530,12 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
   const unreadCount = conversations.filter(isUnread).length;
 
   return {
+    /** `identity-required`: this widget only chats with users the site signed in. */
+    status,
+    /** Changes when the host page signs someone in or out; null while a session opens. */
     visitorId,
+    /** The site vouched for this visitor (identity token): name and email are fixed. */
+    verified,
     profile,
     identify,
     conversations,

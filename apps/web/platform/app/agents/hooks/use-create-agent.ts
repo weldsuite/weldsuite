@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace-agents';
 import { useRouter } from '@/lib/router';

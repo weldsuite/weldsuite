@@ -1,18 +1,25 @@
 /**
  * Nightly re-plan on the D1 due index: the sweep opens only workspaces whose
  * auto-scheduled events are due, re-plans them, and stores when the next one
- * will need it (`nextAutoScheduledReplanAt`). Tenant: pglite. Index: SQLite.
+ * will need it (`nextAutoScheduledReplanAt`). Tenant and master: pglite.
+ * Index: SQLite.
+ *
+ * In conformance mode the sweep runs on the Rust server too
+ * (`weldsuite cron calendar-replan`), through `conformanceSweep`: result and
+ * due index must match, and the assertions check Rust's run.
  */
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { eq } from 'drizzle-orm';
+import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
+import { eq, sql } from 'drizzle-orm';
 import {
   createCalendarEventForTask,
   nextAutoScheduledReplanAt,
@@ -20,16 +27,18 @@ import {
 } from '@weldsuite/db/lib/calendar-sync';
 
 let db: Database;
+let master: MasterDatabase;
 let close: () => Promise<void>;
-const tenantDbFor = vi.fn(async (_env: unknown, _orgId: string) => db);
-const activeWorkspaces = vi.fn(async () => [{ clerkOrgId: 'org_tenant' }]);
+/** The tenant database the sweep opens (a copy of `db` while TypeScript runs in conformance mode). */
+const dbs = vi.hoisted(() => ({ tenant: null as unknown, master: null as unknown }));
+const tenantDbFor = vi.fn(async (_env: unknown, _orgId: string) => dbs.tenant);
 
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
   return {
     ...actual,
     getTenantDbForWorkspace: (env: unknown, orgId: string) => tenantDbFor(env, orgId),
-    getMasterDb: () => ({ select: () => ({ from: () => ({ where: () => activeWorkspaces() }) }) }),
+    getMasterDb: () => dbs.master,
   };
 });
 
@@ -46,7 +55,17 @@ beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
   close = handle.close;
-}, 60_000);
+  master = (await createMasterPgliteDb()).db as MasterDatabase;
+  dbs.tenant = db;
+  dbs.master = master;
+  // The one active workspace the seed finds.
+  await master.insert(masterSchema.workspaces).values({
+    id: 'ws_tenant',
+    name: 'Tenant',
+    slug: 'tenant',
+    clerkOrgId: 'org_tenant',
+  } as typeof masterSchema.workspaces.$inferInsert);
+}, 120_000);
 
 afterAll(async () => {
   if (close) await close();
@@ -57,7 +76,6 @@ beforeEach(async () => {
   await db.delete(schema.tasks);
   await db.delete(schema.userPreferences);
   tenantDbFor.mockClear();
-  activeWorkspaces.mockClear();
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
 
@@ -95,6 +113,41 @@ async function seedTaskEvent(opts: {
     autoScheduled: opts.autoScheduled ?? true,
   } as typeof schema.calendarEvents.$inferInsert);
   return { taskId, eventId };
+}
+
+/** `runCalendarReplanSweep(env)`, on both backends in conformance mode. */
+function sweep(env: ReturnType<typeof makeEnv>) {
+  return conformanceSweep({
+    job: 'calendar-replan',
+    now: new Date(),
+    tenantDb: db,
+    masterDb: master as unknown as Database,
+    env: env as unknown as Record<string, unknown>,
+    dueIndex: { d1: env.SCHEDULE_INDEX as never, kind: 'calendar_replan' },
+    kv: env.WORKSPACE_CACHE as object,
+    seeded: env.WORKSPACE_CACHE.store.has(CALENDAR_REPLAN_SEED_KEY),
+    workspaces: { ws_tenant: 'org_tenant' },
+    runTypeScript: async (tenantDb) => {
+      dbs.tenant = tenantDb;
+      try {
+        return await runCalendarReplanSweep(env as never);
+      } finally {
+        dbs.tenant = db;
+      }
+    },
+    // The re-plan publishes no entity events.
+    takeTypeScriptEvents: () => [],
+  });
+}
+
+/** Mark the workspace due in the test's D1 index and, for Rust, in the master one. */
+async function markDue(env: ReturnType<typeof makeEnv>, at: number) {
+  await markWorkspaceDue(env.SCHEDULE_INDEX, 'calendar_replan', 'org_tenant', at);
+  if (conformanceTarget()) {
+    await master.execute(sql`
+      insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version)
+      values ('calendar_replan', 'ws_tenant', ${new Date(at).toISOString()}::timestamptz, now(), 1)`);
+  }
 }
 
 function makeEnv(seeded: boolean) {
@@ -266,7 +319,7 @@ describe('task auto-scheduling turned off', () => {
 describe('runCalendarReplanSweep', () => {
   it('opens no tenant when nothing is due', async () => {
     const env = makeEnv(true);
-    const res = await runCalendarReplanSweep(env as never);
+    const res = await sweep(env);
     expect(res.workspacesScanned).toBe(0);
     expect(tenantDbFor).not.toHaveBeenCalled();
   });
@@ -276,8 +329,7 @@ describe('runCalendarReplanSweep', () => {
     await seedTaskEvent({ start: staleStart });
     const env = makeEnv(false);
 
-    const res = await runCalendarReplanSweep(env as never);
-    expect(activeWorkspaces).toHaveBeenCalledTimes(1);
+    const res = await sweep(env);
     expect(res).toMatchObject({ workspacesScanned: 1, totalScanned: 1, totalRescheduled: 1 });
 
     // The event moved forward, and the row now sits at its new start. (The
@@ -294,9 +346,11 @@ describe('runCalendarReplanSweep', () => {
 
   it('drops a due workspace that has nothing left to re-plan', async () => {
     const env = makeEnv(true);
-    await markWorkspaceDue(env.SCHEDULE_INDEX, 'calendar_replan', 'org_tenant', Date.now() - 1);
+    // A first, empty tick: the harness starts both indexes empty.
+    await sweep(env);
+    await markDue(env, Date.now() - 1);
 
-    await runCalendarReplanSweep(env as never);
+    await sweep(env);
     expect(tenantDbFor).toHaveBeenCalledTimes(1);
     const remaining = await env.SCHEDULE_INDEX.prepare('SELECT COUNT(*) AS n FROM workspace_due_index').first<number>('n');
     expect(remaining).toBe(0);

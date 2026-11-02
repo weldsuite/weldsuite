@@ -54,7 +54,7 @@
       "/public/partner-territories",
       "/public/user-apps"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "app-api"
   },
   {
@@ -90,7 +90,7 @@
       "/api/pipelines",
       "/api/sequences"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "crm-api"
   },
   {
@@ -134,7 +134,7 @@
       "/api/tickets",
       "/public/helpcenter"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "desk-api"
   },
   {
@@ -166,7 +166,7 @@
       "/api/mail-weldmail",
       "/api/mailboxes"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "mail-api"
   },
   {
@@ -203,7 +203,7 @@
       "/api/time-entries",
       "/api/whiteboards"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "flow-api"
   },
   {
@@ -358,7 +358,7 @@
       "/api/calendars",
       "/api/working-hours"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "calendar-api"
   },
   {
@@ -407,7 +407,7 @@
       "/api/chat-status",
       "/public/chat-calls"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "chat-api"
   },
   {
@@ -507,7 +507,7 @@
     "prefixes": [
       "/api/knowledge"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "know-api"
   },
   {
@@ -569,7 +569,7 @@
     "prefixes": [
       "/api/weldpass"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "pass-api"
   },
   {
@@ -609,7 +609,7 @@
     "prefixes": [
       "/api/sign"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "sign-api"
   },
   {

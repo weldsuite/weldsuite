@@ -18,7 +18,7 @@ import { RecordSelectionModal, type SelectableRecord, type RecordKind } from '@/
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { useTranslations } from '@weldsuite/i18n/client';

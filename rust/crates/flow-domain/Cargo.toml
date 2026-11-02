@@ -1,0 +1,21 @@
+[package]
+name = "weldsuite-flow-domain"
+description = "WeldFlow rules other modules share: project access, task stages, stats (@weldsuite/flow-domain)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+jiff = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+
+[lints]
+workspace = true

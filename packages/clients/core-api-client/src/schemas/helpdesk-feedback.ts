@@ -16,3 +16,31 @@ export const updateHelpdeskFeedbackSchema = createHelpdeskFeedbackSchema.partial
 
 export type CreateHelpdeskFeedbackInput = z.infer<typeof createHelpdeskFeedbackSchema>;
 export type UpdateHelpdeskFeedbackInput = z.infer<typeof updateHelpdeskFeedbackSchema>;
+
+/** A `helpdesk_feedback` row, as /api/helpdesk-feedback returns it. */
+export const helpdeskFeedbackItemSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    type: z.string(),
+    status: z.string(),
+    priority: z.string(),
+    title: z.string(),
+    description: z.string(),
+    category: z.string().nullable(),
+    submitterId: z.string(),
+    submitterName: z.string(),
+    submitterEmail: z.string(),
+    votes: z.number(),
+    voters: z.unknown(),
+    attachments: z.unknown(),
+    comments: z.unknown(),
+    assigneeId: z.string().nullable(),
+    assigneeName: z.string().nullable(),
+    estimatedCompletion: z.string().nullable(),
+    completedAt: z.string().nullable(),
+    rejectionReason: z.string().nullable(),
+  })
+  .passthrough();

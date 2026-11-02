@@ -21,6 +21,37 @@ describe('conformance comparison', () => {
     expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
   });
 
+  it('normalises a new API key and its display prefix on writes', () => {
+    const minted = (hex: string) => ({ data: { id: `ak_mh2k3j4lab12${hex}`, keyPrefix: `wsk_${hex}`, key: `wsk_${hex.repeat(8)}` } });
+    const ts = minted('0011aabb');
+    const rust = minted('ffee9988');
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    // Only a key prefix: a `keyPrefix` of another shape still compares.
+    expect(normalizeForDiff({ keyPrefix: 'sk_live' }, true)).toEqual({ keyPrefix: 'sk_live' });
+  });
+
+  it("normalises a realtime room payload's Date.now() `ts` on writes only", () => {
+    const ts = { path: '/publish/support/org_1', body: { type: 'message', ts: 1793274036998, data: { size: 1793274036998 } } };
+    const rust = { path: '/publish/support/org_1', body: { type: 'message', ts: 1793274037012, data: { size: 1793274036998 } } };
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).toBe(
+      '$.body.ts: 1793274036998 vs 1793274037012',
+    );
+    // Only `ts`, and only a millisecond epoch.
+    expect(normalizeForDiff({ ts: 42, size: 1793274036998 }, true)).toEqual({ size: 1793274036998, ts: 42 });
+  });
+
+  it('normalises random hex tokens on writes only', () => {
+    const ts = { data: { value: 'weldsuite-sso-verification=0f1e2d3c4b5a69788796a5b4c3d2e1f0' } };
+    const rust = { data: { value: 'weldsuite-sso-verification=1234567890123abcdef0123456789abc' } };
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    // Longer or shorter hex runs are not tokens.
+    expect(normalizeForDiff('a'.repeat(33), true)).toBe('a'.repeat(33));
+    expect(normalizeForDiff('a'.repeat(31), true)).toBe('a'.repeat(31));
+  });
+
   it('reports missing fields, extra fields and length differences', () => {
     expect(firstDifference({ a: 1 }, { a: 1, b: 2 })).toBe('$.b: undefined vs 2');
     expect(firstDifference({ a: [1] }, { a: [1, 2] })).toBe('$.a: 1 items vs 2');

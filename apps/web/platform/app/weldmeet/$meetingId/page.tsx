@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { HostControlsPanel, type HostControlsValue } from '@weldsuite/weldmeet-ui';
 import {

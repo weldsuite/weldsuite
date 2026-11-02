@@ -14,6 +14,7 @@ import {
   useBookingPages,
 } from '@/hooks/queries/use-calendar-queries';
 import { useIntegrationConnections } from '@/hooks/queries/use-integration-queries';
+import { isModuleOffered } from '@/lib/edition';
 import { CalendarSidebarSection } from '../components/calendar-sidebar-section';
 import { MiniCalendar } from '../components/calendar-sidebar-mini-calendar';
 import { BookingPagesSidebarSection, type BookingPageSidebarItem } from '../components/booking-pages-sidebar-section';
@@ -30,8 +31,9 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
   const { data, isLoading } = useUserCalendars(enabled);
   const ensureDefault = useEnsureDefaultCalendar();
   const { data: bookingPagesData } = useBookingPages(enabled);
+  // Edition flags (4.F3): integrations are WeldConnect's.
   const { data: integrationConnectionsResult } = useIntegrationConnections(
-    enabled && canReadIntegrations,
+    enabled && canReadIntegrations && isModuleOffered('connect'),
   );
   const [ensured, setEnsured] = useState(false);
   const [createCalendarOpen, setCreateCalendarOpen] = useState(false);

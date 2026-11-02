@@ -97,3 +97,43 @@ describe('/api/milestones · pglite integration', () => {
     expect(body.error.message).toMatch(/dueDate/);
   });
 });
+
+describe('PATCH /api/milestones/:id', () => {
+  const app = (...keys: string[]) =>
+    createTestApp('/api/milestones', milestonesRoutes, {
+      context: { permissions: permissions('milestones:update', ...keys), tenantDb: db },
+    });
+  const patch = (id: string, body: unknown, ...keys: string[]) =>
+    app(...keys).request(`/api/milestones/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('renames, completes and reopens a milestone', async () => {
+    const projectId = await seedProject();
+    const id = generateId('ms');
+    await db.insert(schema.milestones).values({
+      id,
+      projectId,
+      name: 'Alpha',
+      dueDate: new Date('2026-09-01T00:00:00.000Z'),
+      status: 'pending',
+    } as typeof schema.milestones.$inferInsert);
+
+    const done = await patch(id, { name: 'Alpha done', status: 'completed' }, 'projects:scope:all');
+    expect(done.status).toBe(200);
+    let [row] = await db.select().from(schema.milestones).where(eq(schema.milestones.id, id));
+    expect(row?.name).toBe('Alpha done');
+    expect(row?.completedAt).not.toBeNull();
+
+    expect((await patch(id, { status: 'in_progress', dueDate: '2026-10-01' }, 'projects:scope:all')).status).toBe(200);
+    [row] = await db.select().from(schema.milestones).where(eq(schema.milestones.id, id));
+    expect(row?.completedAt).toBeNull();
+
+    expect((await patch(id, { dueDate: 'not a date' }, 'projects:scope:all')).status).toBe(400);
+    expect((await patch('ms_missing', { name: 'x' }, 'projects:scope:all')).status).toBe(404);
+    // Not a member of the project.
+    expect((await patch(id, { name: 'Hijacked' })).status).toBe(403);
+  });
+});

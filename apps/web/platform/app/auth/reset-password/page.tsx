@@ -1,6 +1,6 @@
 
 import { Suspense, useState } from 'react';
-import { useSignIn } from '@clerk/clerk-react';
+import { useSignIn } from '@/lib/auth/clerk';
 import { Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -9,10 +9,12 @@ import { Loader2, Lock, CheckCircle, KeyRound, ChevronLeft } from 'lucide-react'
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { getClerkErrorMessage } from '../utils';
+import { ClerkOnly } from '@/lib/auth';
+import { HostedSignInRedirect } from '@/components/auth/identity-provider-screens';
 
 type ResetStep = 'reset' | 'two-factor';
 
-export default function ResetPasswordPage() {
+function ClerkResetPasswordPage() {
   return (
     <Suspense fallback={<PageLoader />}>
       <ResetPasswordContent />
@@ -412,5 +414,14 @@ function ResetPasswordContent() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in redirect instead. */
+export default function ResetPasswordPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInRedirect />}>
+      <ClerkResetPasswordPage />
+    </ClerkOnly>
   );
 }

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { RoomEvent } from '@weldsuite/realtime/types';
 import type { WeldDeskMessage, WeldDeskEvent, WeldDeskConnectionState } from './types';

@@ -1,0 +1,13 @@
+{{- if and .Values.consume.enabled .Values.consume.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weldsuite.consume.fullname" . }}
+  labels:
+    {{- include "weldsuite.consume.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.consume.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "weldsuite.consume.selectorLabels" . | nindent 6 }}
+{{- end }}

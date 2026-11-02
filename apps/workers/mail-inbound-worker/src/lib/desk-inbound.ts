@@ -25,6 +25,7 @@ import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
 import { publishDeskAssigned } from './realtime';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
 // ---------------------------------------------------------------------------
 // Attachments
@@ -180,6 +181,8 @@ export async function autoAssignDeskEmailConversation(
       pick: deskAssignmentRouterPicker(env.HELPDESK_WORKFLOW, clerkOrgId),
     });
     if (!result) return conversation;
+    // The owner can change which SLA policy applies (desk-api's SLA sweep). Best-effort.
+    if (result.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', clerkOrgId, result.slaCheckAt);
     try {
       await publishDeskAssigned(env, clerkOrgId, result.conversation, result.message);
     } catch (err) {

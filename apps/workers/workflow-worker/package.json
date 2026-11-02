@@ -21,6 +21,7 @@
     "@weldsuite/connect-domain": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/desk-domain": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/text": "workspace:*",

@@ -8,7 +8,6 @@ import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import { getLocale, getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { cn } from '@/lib/utils';
 import { useActivateAgent, useAgent, useAgentMainChat, usePauseAgent } from '@/hooks/queries/use-agent-queries';
 import { useAgentRoutines } from '@/hooks/queries/use-agent-parity-queries';
 import { AgentAvatar } from '../components/agent-avatar';
@@ -103,12 +102,9 @@ export default function AgentDetailPage() {
   if (isLoading || (agent && agent.id !== id)) {
     return (
       <div className="flex h-full w-full flex-col bg-background" key={id}>
-        <div className="flex h-14 items-center gap-3 border-b px-4">
-          <Skeleton className="h-9 w-9 rounded-xl" />
-          <div className="space-y-1.5">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
+        <div className="flex h-[53px] items-center gap-2 border-b px-4">
+          <Skeleton className="h-[26px] w-[26px] rounded-lg" />
+          <Skeleton className="h-4 w-40" />
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
           <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
@@ -138,37 +134,32 @@ export default function AgentDetailPage() {
     setSettingsOpen(true);
   };
 
-  let subtitle = agent.description || t.list.readyPreview;
-  if (setup) subtitle = t.detail.header.settingUp;
-  else if (agent.status !== 'active') subtitle = t.detail.header.notActive;
-
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 md:hidden"
-          onClick={() => router.push('/agents')}
-          aria-label={t.actions.back}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
-          onClick={() => openSettings('general')}
-        >
-          <AgentAvatar agent={agent} />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">{agent.name}</span>
-            <span className={cn('block truncate text-xs', setup ? 'text-amber-600' : 'text-muted-foreground')}>
-              {subtitle}
-            </span>
-          </span>
-        </button>
+      {/* Same row as a WeldChat channel header. */}
+      <header className="flex shrink-0 items-center justify-between border-b px-4 py-2.5 max-md:gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 md:hidden"
+            onClick={() => router.push('/agents')}
+            aria-label={t.actions.back}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <button
+            type="button"
+            className="-mx-1.5 -my-1 flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent dark:hover:bg-accent/50"
+            onClick={() => openSettings('general')}
+            title={t.detail.settings.title}
+          >
+            <AgentAvatar agent={agent} size="sm" className="h-[26px] w-[26px] rounded-lg" />
+            <span className="truncate font-semibold">{agent.name}</span>
+          </button>
+        </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5 md:gap-1">
           <ScheduledButton agentId={agent.id} onOpen={() => openSettings('routines')} />
           <Button
             variant="ghost"

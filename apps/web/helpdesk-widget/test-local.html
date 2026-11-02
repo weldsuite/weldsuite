@@ -68,6 +68,7 @@
       color: #e2e8f0;
       padding: 8px 16px;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       z-index: 2147483647;
@@ -169,6 +170,11 @@
     <button onclick="closeWidget()">Close</button>
     <button onclick="destroyWidget()">Destroy</button>
     <button onclick="toggleConsole()">Console</button>
+    <span class="sep">|</span>
+    <label for="identityTokenInput" title="HS256 JWT signed with the widget's identity secret (sub, email, name, exp)">Identity token:</label>
+    <input type="password" id="identityTokenInput" placeholder="eyJ... (optional)" autocomplete="off">
+    <button onclick="loginVisitor()" title="weld:auth:login with this token (SDK identify)">Login</button>
+    <button onclick="logoutVisitor()" title="weld:auth:logout (SDK logout)">Logout</button>
   </div>
 
   <!-- Simulated website content -->
@@ -202,7 +208,10 @@
         1. Run <code>pnpm dev</code> in <code>apps/web/helpdesk-widget</code> to start the widget dev server on port 3100.<br>
         2. Open this file in a browser (or serve it with any static server).<br>
         3. The launcher button should appear in the bottom-right corner.<br>
-        4. Use the dev toolbar to control the widget, change the widget ID, or view the message console.
+        4. Use the dev toolbar to control the widget, change the widget ID, or view the message console.<br>
+        5. Signed-in visitor: paste an identity token (HS256 JWT signed with the widget's identity secret,
+        claims <code>sub</code>, <code>email</code>, <code>name</code>, <code>exp</code>) and press Login, or
+        Destroy + Reload to send it with <code>weld:init</code>. Logout sends <code>weld:auth:logout</code>.
       </p>
     </div>
     <div class="card">
@@ -376,7 +385,12 @@
     }
 
     // ─── Send init message (SDK handshake) ───────────────────────────
+    // Like the SDK's MessageBroker.sendInitMessage: `auth` (from initHelpdeskWidget's
+    // `auth: { identityToken }`) goes to the widget iframe only, by postMessage, never in a URL.
+    const getIdentityToken = () => document.getElementById('identityTokenInput').value.trim();
+
     function sendInit(iframe, iframeType) {
+      const identityToken = iframeType === 'widget' ? getIdentityToken() : '';
       const msg = {
         type: 'weld:init',
         payload: {
@@ -386,10 +400,31 @@
             widgetId: getWidgetId(),
             baseUrl: getBaseUrl(),
           },
+          ...(identityToken ? { auth: { identityToken } } : {}),
         },
       };
       iframe.contentWindow.postMessage(msg, '*');
-      log(`Sent weld:init to ${iframeType}`, 'info');
+      log(`Sent weld:init to ${iframeType}${identityToken ? ' (with identity token)' : ''}`, 'info');
+    }
+
+    // ─── Identity (SDK identify() / logout()) ────────────────────────
+    function loginVisitor() {
+      const identityToken = getIdentityToken();
+      if (!identityToken) { log('Paste an identity token first', 'warn'); return; }
+      if (!widgetIframe?.contentWindow) { log('Widget not created', 'warn'); return; }
+      // The SDK sends the token to the widget iframe only; the launcher gets the rest.
+      widgetIframe.contentWindow.postMessage({ type: 'weld:auth:login', payload: { identityToken } }, '*');
+      if (launcherIframe?.contentWindow) {
+        launcherIframe.contentWindow.postMessage({ type: 'weld:auth:login', payload: {} }, '*');
+      }
+      log('→ weld:auth:login (identity token)', 'info');
+    }
+
+    function logoutVisitor() {
+      for (const iframe of [widgetIframe, launcherIframe]) {
+        iframe?.contentWindow?.postMessage({ type: 'weld:auth:logout', payload: {} }, '*');
+      }
+      log('→ weld:auth:logout', 'info');
     }
 
     // ─── Widget controls ─────────────────────────────────────────────

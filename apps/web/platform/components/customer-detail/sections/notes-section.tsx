@@ -9,7 +9,7 @@ import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } fro
 import { useCreateCustomerNote, useUpdateCustomerNote, useDeleteCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';

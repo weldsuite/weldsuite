@@ -9,14 +9,11 @@
  */
 
 import { apiUrl } from '@/lib/api/public-env';
+import { getAuthToken } from '@/lib/auth';
 
 async function authHeader(): Promise<Record<string, string>> {
-  if (typeof window !== 'undefined') {
-    const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
-    const token = clerk?.session ? await clerk.session.getToken() : null;
-    if (token) return { Authorization: `Bearer ${token}` };
-  }
-  return {};
+  const token = await getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /** Load the document's BlockNote blocks, or `null` if no `docs` row exists. */

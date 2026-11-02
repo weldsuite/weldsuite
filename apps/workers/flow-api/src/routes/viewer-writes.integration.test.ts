@@ -38,7 +38,8 @@ vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
     '@weldsuite/entity-events',
   );
-  return { ...actual, publishEntityEvent: vi.fn() };
+  // A spy that still publishes: conformance mode compares the events.
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -522,5 +523,77 @@ describe('non-members stay locked out', () => {
     expect((await send('POST', '/project-labels', { name: 'L', color: '#ff0000', projectId: PROJECT })).status).toBe(
       403,
     );
+  });
+});
+
+describe('project viewer · every project resource is readable', () => {
+  it('reads the lists and the records of each resource', async () => {
+    const parent = await createTask(asScopeAll(), 'Parent task');
+    const child = await idOf(await asScopeAll()('POST', '/tasks', { title: 'Child task', projectId: PROJECT, parentTaskId: parent }));
+    const comment = await idOf(await asScopeAll()('POST', '/task-comments', { taskId: parent, content: 'Looks good' }));
+    const send = as(VIEWER);
+    const ok = async (path: string) => {
+      const res = await send('GET', path);
+      expect(res.status, path).toBe(200);
+      return res;
+    };
+
+    const subtasks = await ok(`/tasks/${parent}/subtasks`);
+    expect(((await subtasks.json()) as { data: Array<{ id: string }> }).data.map((task) => task.id)).toEqual([child]);
+    await ok('/projects/search?q=Project');
+    await ok(`/projects/${PROJECT}/gantt/tasks`);
+    await ok(`/projects/${PROJECT}/gantt/milestones`);
+    await ok(`/task-comments?taskId=${parent}`);
+    await ok(`/task-comments/${comment}`);
+    await ok(`/sprints?projectId=${PROJECT}`);
+    await ok(`/milestones/${fixtures.milestoneId}`);
+    await ok(`/goals?projectId=${PROJECT}`);
+    await ok(`/goals/${fixtures.goalId}`);
+    await ok(`/whiteboards/${fixtures.whiteboardId}`);
+    await ok(`/project-files?projectId=${PROJECT}`);
+    await ok(`/project-files/${fixtures.folderId}`);
+    await ok(`/project-messages?projectId=${PROJECT}`);
+    await ok(`/project-messages/${fixtures.messageId}`);
+    await ok(`/project-pipeline-stages?projectId=${PROJECT}`);
+    await ok(`/project-pipeline-stages/${fixtures.stageId}`);
+    expect((await send('GET', `/projects/${PROJECT}/tasks/import-jobs/job_missing`)).status).toBe(404);
+
+    // The viewer may not touch the comment; its author edits and deletes it.
+    expect((await send('PATCH', `/task-comments/${comment}`, { content: 'Mine now' })).status).toBe(403);
+    expect((await send('DELETE', `/task-comments/${comment}`)).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/task-comments/${comment}`, { content: 'Looks great' })).status).toBe(200);
+    expect((await asScopeAll()('DELETE', `/task-comments/${comment}`)).status).toBe(204);
+  });
+
+  it('only a project admin deletes a project', async () => {
+    const id = await idOf(await asScopeAll()('POST', '/projects', { name: 'Throwaway' }));
+    expect((await as(VIEWER)('DELETE', `/projects/${id}`)).status).toBe(403);
+    expect((await asScopeAll()('DELETE', `/projects/${id}`)).status).toBe(204);
+  });
+});
+
+describe('project viewer · project pages', () => {
+  it('reads the project, its workload and its labels, and edits nothing', async () => {
+    const send = as(VIEWER);
+    const ok = async (path: string) => {
+      const res = await send('GET', path);
+      expect(res.status, path).toBe(200);
+    };
+    await ok('/projects');
+    await ok(`/projects/${PROJECT}`);
+    await ok('/projects/workload/overview');
+    await ok(`/projects/${PROJECT}/workload`);
+    await ok(`/whiteboards?projectId=${PROJECT}`);
+    await ok(`/project-labels?projectId=${PROJECT}`);
+    await ok(`/project-labels/${fixtures.labelId}`);
+
+    expect((await send('PATCH', `/projects/${PROJECT}`, { description: 'Viewer edit' })).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/projects/${PROJECT}`, { description: 'Admin edit' })).status).toBe(200);
+
+    const message = await idOf(await asScopeAll()('POST', '/project-messages', { projectId: PROJECT, message: 'Draft' }));
+    expect((await send('PATCH', `/project-messages/${message}`, { message: 'Hijacked' })).status).toBe(403);
+    expect((await send('DELETE', `/project-messages/${message}`)).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/project-messages/${message}`, { message: 'Final' })).status).toBe(200);
+    expect((await asScopeAll()('DELETE', `/project-messages/${message}`)).status).toBe(204);
   });
 });

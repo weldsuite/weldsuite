@@ -51,9 +51,11 @@ export { sendNewEmailNotification } from './helpers/mail';
 export {
   sendTicketAssignedNotification,
   sendTicketReplyNotification,
+  sendDeskSlaNotification,
   isHelpdeskNotificationEnabled,
   helpdeskPreview,
   type HelpdeskEntityKind,
+  type DeskSlaNotificationMetric,
 } from './helpers/helpdesk';
 export { notificationPreview, stripMarkdown } from './helpers/preview';
 export {

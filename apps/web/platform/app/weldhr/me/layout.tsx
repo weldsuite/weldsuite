@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { UserPlus, UserRoundSearch } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';

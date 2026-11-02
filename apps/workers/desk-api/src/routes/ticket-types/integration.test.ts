@@ -1,11 +1,9 @@
 /**
- * DB-backed integration tests for /api/ticket-types.
+ * DB-backed tests of the ticket-type → custom_field_definitions sync helper.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
-import { ticketTypesRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -29,53 +27,8 @@ beforeAll(async () => {
   db = handle.db;
 }, 60_000);
 
-describe('/api/ticket-types · pglite integration', () => {
-  it('POST / writes a ticket-type row', async () => {
-    const { request } = createTestApp('/api/ticket-types', ticketTypesRoutes, {
-      context: { permissions: permissions('tickets:create'), tenantDb: db },
-    });
-
-    const res = await request('/api/ticket-types', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Bug Report',
-        color: '#ef4444',
-        icon: 'AlertTriangle',
-        sortOrder: 0,
-      }),
-    });
-
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { data: { id: string } };
-    expect(body.data.id).toBeTruthy();
-
-    const [row] = await db
-      .select()
-      .from(schema.helpdeskTicketTypes)
-      .where(eq(schema.helpdeskTicketTypes.id, body.data.id))
-      .limit(1);
-    expect(row?.name).toBe('Bug Report');
-    expect(row?.color).toBe('#ef4444');
-  });
-
-  it('POST / rejects empty name', async () => {
-    const { request } = createTestApp('/api/ticket-types', ticketTypesRoutes, {
-      context: { permissions: permissions('tickets:create'), tenantDb: db },
-    });
-    const res = await request('/api/ticket-types', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: '' }),
-    });
-    expect(res.status).toBe(400);
-  });
-});
-
-// Tests the pure sync helper + scoped resolution directly against pglite. It
-// does NOT drive the HTTP route: that route 500s in this harness on the shared
-// publishEntityEvent/executionCtx limitation (the original POST test above is
-// already red for the same reason), which is unrelated to Pile B.
+// The pure sync helper and scoped resolution, directly against pglite. The
+// routes themselves (and the sync they run) are in ./routes.test.ts.
 describe('ticket-type → custom_field_definitions sync (Pile B)', () => {
   it('mirrors non-default fields into scoped definitions', async () => {
     const typeId = generateId('tty');

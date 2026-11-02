@@ -244,7 +244,9 @@
     "created",
     "updated",
     "state_changed",
-    "assigned"
+    "assigned",
+    "sla_warning",
+    "sla_breached"
   ],
   "desk_message": [
     "created"

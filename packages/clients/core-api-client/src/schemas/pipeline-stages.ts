@@ -57,3 +57,25 @@ export interface PipelineStage {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A `crm_pipeline_stages` row as the routes return it (the `PipelineStage` shape). */
+export const pipelineStageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  position: z.number(),
+  probability: z.number().nullish(),
+  color: z.string().nullish(),
+  pipeline: z.string().nullish(),
+  isDefault: z.boolean().nullish(),
+  isWon: z.boolean().nullish(),
+  isLost: z.boolean().nullish(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** `POST /api/pipeline-stages/reorder`. */
+export const reorderPipelineStagesResultSchema = z.object({
+  pipeline: z.string(),
+  ids: z.array(z.string()),
+});

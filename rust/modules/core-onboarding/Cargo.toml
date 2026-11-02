@@ -1,0 +1,31 @@
+[package]
+name = "weldsuite-core-onboarding"
+description = "Core platform: workspace signup and provisioning (app-api's /api/onboarding, the workspace worker's onboard service, provisioning job, identity sync and sweeps)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+
+[lints]
+workspace = true

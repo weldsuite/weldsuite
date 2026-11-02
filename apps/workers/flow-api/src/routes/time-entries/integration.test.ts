@@ -23,7 +23,8 @@ vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
     '@weldsuite/entity-events',
   );
-  return { ...actual, publishEntityEvent: vi.fn() };
+  // A spy that still publishes: conformance mode compares the events.
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 let db: Database;
@@ -910,5 +911,46 @@ describe('/api/time-entries · pglite integration', () => {
       .where(eq(schema.timeEntries.id, 'time_reject_other'))
       .limit(1);
     expect(row?.status).toBe('rejected');
+  });
+});
+
+describe('/api/time-entries/timer · pglite integration', () => {
+  const timerApp = (userId: string) =>
+    createTestApp('/api/time-entries', timeEntriesRoutes, {
+      context: { permissions: permissions('time:read', 'time:create'), userId, tenantDb: db },
+    }).request;
+
+  it('reads, starts and discards the caller\'s running timer', async () => {
+    const request = timerApp('user_timer');
+
+    const none = await request('/api/time-entries/timer');
+    expect(none.status).toBe(200);
+    expect(await none.json()).toEqual({ data: null });
+
+    const started = await request('/api/time-entries/timer/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Focus block', rate: 80 }),
+    });
+    expect(started.status).toBe(201);
+
+    const running = await request('/api/time-entries/timer');
+    const { data } = (await running.json()) as { data: { userId: string; description: string; rate: string } };
+    expect(data.userId).toBe('user_timer');
+    expect(data.description).toBe('Focus block');
+
+    // One timer per user: a second start conflicts and hands back the running one.
+    const again = await request('/api/time-entries/timer/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(again.status).toBe(409);
+
+    expect((await request('/api/time-entries/timer', { method: 'DELETE' })).status).toBe(204);
+    expect(await (await request('/api/time-entries/timer')).json()).toEqual({ data: null });
+    // Discarding wrote no entry.
+    const entries = await db.select().from(schema.timeEntries).where(eq(schema.timeEntries.userId, 'user_timer'));
+    expect(entries).toHaveLength(0);
   });
 });

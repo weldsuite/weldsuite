@@ -47,6 +47,8 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'ai_generate', name: 'AI Generate', description: 'Generate text with AI', category: 'ai', icon: 'sparkles' },
   { id: 'ai_classify', name: 'AI Classify', description: 'Classify content with AI', category: 'ai', icon: 'tag' },
   { id: 'ai_auto_reply', name: 'AI Auto-Reply', description: 'Generate and send an AI-powered reply to a conversation', category: 'helpdesk', icon: 'bot' },
+  // WeldDesk inbox
+  { id: 'create_conversation', name: 'Open Inbox Conversation', description: 'Open a conversation in the WeldDesk inbox, or add to the one with the same external id', category: 'helpdesk', icon: 'inbox' },
   // Chat widget interactive steps
   { id: 'send_message', name: 'Send Bot Message', description: 'Send a message to the customer in chat', category: 'helpdesk', icon: 'message-square-text' },
   { id: 'send_choices', name: 'Send Choices', description: 'Send multiple choice options to the customer', category: 'helpdesk', icon: 'list-checks' },

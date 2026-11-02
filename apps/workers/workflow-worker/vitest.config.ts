@@ -20,6 +20,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Workers-only module; the WeldDesk inbox actions notify the team through
+      // @weldsuite/notifications, whose email channel imports @weldsuite/emails.
+      'cloudflare:email': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
+      ),
     },
   },
 });

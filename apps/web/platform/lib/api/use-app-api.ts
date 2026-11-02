@@ -6,7 +6,7 @@
  * superseding core-api and api-worker.
  */
 
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useRef, useCallback, useMemo } from 'react';
 import { createClientApi } from '@weldsuite/api-client/client';
 import type { ClientApi } from '@weldsuite/api-client/types';

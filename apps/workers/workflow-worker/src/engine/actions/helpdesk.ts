@@ -3,6 +3,10 @@
  * change_conversation_status, change_priority, send_reply, add_internal_note.
  * Ported from api-worker. Each no-ops (returns { success:false }) when no
  * conversation can be resolved.
+ *
+ * A conversation in the WeldDesk inbox (`desk_conversations`) goes through
+ * ./desk.ts instead; the rest of this file serves the legacy
+ * `helpdesk_conversations` model.
  */
 
 import { eq, and, isNull, asc, sql, type SQL } from 'drizzle-orm';
@@ -10,6 +14,14 @@ import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { ActionContext, ActionHandler } from '../types';
 import { resolveConversationId, publishRealtime } from './helpers';
+import {
+  addDeskConversationMessage,
+  assignDeskConversation,
+  changeDeskConversationState,
+  isDeskConversation,
+  setDeskConversationPriority,
+  tagDeskConversation,
+} from './desk';
 import { asText } from '@weldsuite/text';
 
 /**
@@ -52,6 +64,7 @@ async function pickAgentByLoad(
 export const handleAssignConversation: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
+  if (await isDeskConversation(ctx, conversationId)) return assignDeskConversation(ctx, conversationId, inputs);
 
   const strategy = asText(inputs.strategy || 'specific_agent');
   const departmentId = inputs.departmentId ? asText(inputs.departmentId) : undefined;
@@ -87,9 +100,9 @@ export const handleAssignConversation: ActionHandler = async (inputs, ctx) => {
 export const handleTagConversation: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
-
   const mode = asText(inputs.mode || 'add');
   const inputTags = (Array.isArray(inputs.tags) ? inputs.tags : []).map(String);
+  if (await isDeskConversation(ctx, conversationId)) return tagDeskConversation(ctx, conversationId, mode, inputTags);
   const [conversation] = await ctx.db
     .select({ tags: schema.helpdeskConversations.tags })
     .from(schema.helpdeskConversations)
@@ -121,6 +134,7 @@ export const handleChangeConversationStatus: ActionHandler = async (inputs, ctx)
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
   const status = String(inputs.status);
+  if (await isDeskConversation(ctx, conversationId)) return changeDeskConversationState(ctx, conversationId, status);
   const updateData: Record<string, unknown> = { status, updatedAt: new Date() };
   if (status === 'resolved') updateData.resolvedAt = new Date();
   if (status === 'closed') updateData.closedAt = new Date();
@@ -134,8 +148,8 @@ export const handleChangeConversationStatus: ActionHandler = async (inputs, ctx)
 export const handleChangePriority: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
-
   const priority = String(inputs.priority);
+  if (await isDeskConversation(ctx, conversationId)) return setDeskConversationPriority(ctx, conversationId, priority);
   await ctx.db
     .update(schema.helpdeskConversations)
     .set({ priority, updatedAt: new Date() })
@@ -146,6 +160,9 @@ export const handleChangePriority: ActionHandler = async (inputs, ctx) => {
 export const handleSendReply: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
+  if (await isDeskConversation(ctx, conversationId)) {
+    return addDeskConversationMessage(ctx, conversationId, 'message', asText(inputs.message || ''));
+  }
 
   const messageId = generateId('msg');
   const authorType = asText(inputs.authorType || 'system');
@@ -180,6 +197,9 @@ export const handleSendReply: ActionHandler = async (inputs, ctx) => {
 export const handleAddInternalNote: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
+  if (await isDeskConversation(ctx, conversationId)) {
+    return addDeskConversationMessage(ctx, conversationId, 'note', asText(inputs.content || inputs.note || ''));
+  }
 
   const messageId = generateId('msg');
   await ctx.db.insert(schema.helpdeskConversationMessages).values({

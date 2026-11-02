@@ -1,0 +1,95 @@
+{
+  "events": [
+    "{\"eventType\":\"ticket:updated\",\"entityType\":\"ticket\",\"entityId\":\"t1\",\"action\":\"updated\",\"data\":{\"id\":\"t1\",\"subject\":\"Hi\",\"nested\":{\"b\":1,\"a\":[1,2]}},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_r1\"}",
+    "{\"eventType\":\"ticket:created\",\"entityType\":\"ticket\",\"entityId\":\"t2\",\"action\":\"created\",\"data\":{\"id\":\"t2\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_r2\",\"accessUserIds\":[\"usr_2\",\"usr_3\"]}",
+    "{\"eventType\":\"chat_message:created\",\"entityType\":\"chat_message\",\"entityId\":\"m1\",\"action\":\"created\",\"data\":{\"id\":\"m1\"},\"metadata\":{\"workspaceId\":\"ws_fx\",\"userId\":\"\",\"timestamp\":\"t\",\"source\":\"system\"},\"id\":\"evt_fx_r3\"}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"\",\"userId\":\"u\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_r4\"}",
+    "{\"eventType\":\"task:created\",\"entityType\":\"task\",\"entityId\":\"k1\",\"action\":\"created\",\"data\":[\"a\",\"b\"],\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_r5\",\"accessUserIds\":[\"usr_4\"]}",
+    "{\"eventType\":\"boom:created\",\"entityType\":\"boom\",\"entityId\":\"b1\",\"action\":\"created\",\"data\":{\"id\":\"b1\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_r6\"}",
+    "{\"eventType\":\"note:created\",\"entityType\":\"note\",\"entityId\":\"n1\",\"action\":\"created\",\"data\":null,\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_r7\",\"accessUserIds\":[]}"
+  ],
+  "outcomes": [
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "ack",
+    "retry",
+    "ack"
+  ],
+  "publishes": [
+    {
+      "hubKey": "org_fx",
+      "body": {
+        "topic": "ticket",
+        "event": "updated",
+        "data": {
+          "id": "t1",
+          "subject": "Hi",
+          "nested": {
+            "b": 1,
+            "a": [
+              1,
+              2
+            ]
+          }
+        },
+        "userId": "fx_user_1"
+      }
+    },
+    {
+      "hubKey": "org_fx",
+      "body": {
+        "topic": "ticket",
+        "event": "created",
+        "data": {
+          "id": "t2",
+          "_access": {
+            "userIds": [
+              "usr_2",
+              "usr_3"
+            ]
+          }
+        },
+        "userId": "fx_user_1"
+      }
+    },
+    {
+      "hubKey": "ws_fx",
+      "body": {
+        "topic": "chat_message",
+        "event": "created",
+        "data": {
+          "id": "m1"
+        },
+        "userId": "system"
+      }
+    },
+    {
+      "hubKey": "org_fx",
+      "body": {
+        "topic": "task",
+        "event": "created",
+        "data": {
+          "0": "a",
+          "1": "b",
+          "_access": {
+            "userIds": [
+              "usr_4"
+            ]
+          }
+        },
+        "userId": "fx_user_1"
+      }
+    },
+    {
+      "hubKey": "org_fx",
+      "body": {
+        "topic": "note",
+        "event": "created",
+        "data": null,
+        "userId": "fx_user_1"
+      }
+    }
+  ]
+}

@@ -39,6 +39,7 @@ import { customFieldKeys } from '@/hooks/use-custom-fields';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import { teamKeys } from '@/hooks/queries/use-team-queries';
 import { asText } from '@weldsuite/text';
+import { isAppOffered, offeredModules } from '@/lib/edition';
 
 // =============================================================================
 // Query Keys
@@ -801,6 +802,9 @@ export interface AvailableApp {
  * never projected it either (the rows live in a separate master table,
  * `app_screenshots`, that no catalog read joins), and nothing renders it.
  */
+/** Edition flags (4.F3): the store lists only apps whose module this deployment serves. */
+const selectOfferedApps = (apps: AvailableApp[]) => apps.filter((app) => isAppOffered(app.code));
+
 export function useAvailableApps() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -810,6 +814,8 @@ export function useAvailableApps() {
       const result = await client.get<{ data: AvailableApp[] }>('/app-catalog?codes=canonical');
       return result.data || [];
     },
+    // Global offers every module: no filtering, the cached array as-is.
+    select: offeredModules() ? selectOfferedApps : undefined,
   });
 }
 

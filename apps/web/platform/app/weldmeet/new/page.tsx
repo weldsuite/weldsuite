@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useCreateMeeting, useJoinByCode, useMeeting, useUpcomingMeetings, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';

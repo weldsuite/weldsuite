@@ -14,7 +14,7 @@ import React, {
   useRef,
   useMemo,
 } from 'react';
-import { useUser, useOrganization } from '@clerk/clerk-react';
+import { useUser, useOrganization } from '@/lib/auth';
 import { useNotificationStore } from '@/lib/notifications/notification-store';
 import type { ConnectionStatus } from '@/lib/notifications/types';
 import { useAppApi } from '@/lib/api/use-app-api';

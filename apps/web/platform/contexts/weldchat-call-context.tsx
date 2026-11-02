@@ -18,7 +18,7 @@ import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?wo
 import { isApiError } from '@weldsuite/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
@@ -32,14 +32,15 @@ import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
 import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { publicEnv } from '@/lib/runtime-config';
 
 const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
 // (legacy alias VITE_DF3_NOISE_SUPPRESSION=false) to disable.
 const NOISE_SUPPRESSION_ENABLED =
-  import.meta.env.VITE_NOISE_SUPPRESSION !== 'false' &&
-  import.meta.env.VITE_DF3_NOISE_SUPPRESSION !== 'false';
+  publicEnv('VITE_NOISE_SUPPRESSION') !== 'false' &&
+  publicEnv('VITE_DF3_NOISE_SUPPRESSION') !== 'false';
 
 const NOISE_WORKLET_URL = '/df3-worklet-processor.js';
 

@@ -75,6 +75,12 @@ export interface Env extends KitEnv {
    *  hands /api/integrations/helpdesk/* to this worker. */
   APP_API_PUBLIC_URL?: string;
 
+  // --- SLA clocks ----------------------------------------------------------
+  /** Schedule-index D1 (`workspace_due_index`, kind `desk_sla`): when each
+   *  workspace next has an SLA warning or breach due. Written by the desk
+   *  write paths, read by the SLA sweep cron (src/cron/sla-sweep.ts). */
+  SCHEDULE_INDEX?: D1Database;
+
   // --- Inbox attachments ---------------------------------------------------
   /** Public R2 bucket for files agents attach to desk conversations. */
   STORAGE?: R2Bucket;

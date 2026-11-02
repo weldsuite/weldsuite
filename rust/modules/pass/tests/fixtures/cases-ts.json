@@ -1,0 +1,1915 @@
+{
+  "$comment": "Outputs of pass-api helpers and Zod schemas (tools/fixtures.mts); checked by rust/modules/pass/src/cases.rs.",
+  "slugify": [
+    {
+      "input": "Hello World",
+      "output": "hello-world"
+    },
+    {
+      "input": "  --Weird__Name--  ",
+      "output": "weird-name"
+    },
+    {
+      "input": "Ünïcode Straße",
+      "output": "n-code-stra-e"
+    },
+    {
+      "input": "İstanbul",
+      "output": "i-stanbul"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa b",
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-"
+    },
+    {
+      "input": "---",
+      "output": ""
+    },
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": "ABC-def-",
+      "output": "abc-def"
+    },
+    {
+      "input": "x-",
+      "output": "x"
+    },
+    {
+      "input": "-x",
+      "output": "x"
+    },
+    {
+      "input": "already-a-slug",
+      "output": "already-a-slug"
+    },
+    {
+      "input": "日本語",
+      "output": ""
+    },
+    {
+      "input": "A&B (beta) 2.0",
+      "output": "a-b-beta-2-0"
+    }
+  ],
+  "hostOf": [
+    {
+      "input": "https://example.com/login",
+      "output": "example.com"
+    },
+    {
+      "input": "example.com/login",
+      "output": "example.com"
+    },
+    {
+      "input": "https://www.Example.COM:8443/x",
+      "output": "example.com"
+    },
+    {
+      "input": "www.example.com",
+      "output": "example.com"
+    },
+    {
+      "input": "http://localhost:3000",
+      "output": "localhost"
+    },
+    {
+      "input": "localhost",
+      "output": "localhost"
+    },
+    {
+      "input": "ftp://example.com",
+      "output": null
+    },
+    {
+      "input": "mailto:carol@example.com",
+      "output": "example.com"
+    },
+    {
+      "input": "javascript:alert(1)",
+      "output": null
+    },
+    {
+      "input": "not a url",
+      "output": null
+    },
+    {
+      "input": "intranet",
+      "output": null
+    },
+    {
+      "input": "  https://app.acme-match.test  ",
+      "output": "app.acme-match.test"
+    },
+    {
+      "input": "https://münchen.de",
+      "output": "xn--mnchen-3ya.de"
+    },
+    {
+      "input": "https://[::1]:8080/",
+      "output": null
+    },
+    {
+      "input": "http://127.0.0.1/",
+      "output": "127.0.0.1"
+    },
+    {
+      "input": "http://0x7f.1/",
+      "output": "127.0.0.1"
+    },
+    {
+      "input": "https://user:pw@sub.example.org/path",
+      "output": "sub.example.org"
+    },
+    {
+      "input": "HTTPS://WWW.WWW.EXAMPLE.COM",
+      "output": "www.example.com"
+    },
+    {
+      "input": "custom+scheme://example.com",
+      "output": null
+    },
+    {
+      "input": "https://exa mple.com",
+      "output": null
+    },
+    {
+      "input": "https://example.com.",
+      "output": "example.com."
+    },
+    {
+      "input": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com"
+    },
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": "   ",
+      "output": null
+    },
+    {
+      "input": "www.",
+      "output": null
+    },
+    {
+      "input": "https://xn--mnchen-3ya.de/",
+      "output": "xn--mnchen-3ya.de"
+    },
+    {
+      "input": "https://ex%41mple.com",
+      "output": "example.com"
+    }
+  ],
+  "hostsMatch": [
+    {
+      "item": "example.com",
+      "page": "example.com",
+      "output": true
+    },
+    {
+      "item": "accounts.example.com",
+      "page": "example.com",
+      "output": true
+    },
+    {
+      "item": "example.com",
+      "page": "accounts.example.com",
+      "output": true
+    },
+    {
+      "item": "co.uk",
+      "page": "example.co.uk",
+      "output": true
+    },
+    {
+      "item": "localhost",
+      "page": "app.localhost",
+      "output": false
+    },
+    {
+      "item": "notexample.com",
+      "page": "example.com",
+      "output": false
+    },
+    {
+      "item": "a.b.c",
+      "page": "b.c",
+      "output": true
+    }
+  ],
+  "passwords": [
+    {
+      "input": "",
+      "bits": 0,
+      "strength": "weak"
+    },
+    {
+      "input": "password",
+      "bits": 0,
+      "strength": "weak"
+    },
+    {
+      "input": "PASSWORD",
+      "bits": 0,
+      "strength": "weak"
+    },
+    {
+      "input": "Tr0ub4dor&3-horse-staple!",
+      "bits": 151.1066789916118,
+      "strength": "strong"
+    },
+    {
+      "input": "x9$Kq2!vLm8@Zr4#Tn6&",
+      "bits": 131.39711216661897,
+      "strength": "strong"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaa",
+      "bits": 4.700439718141092,
+      "strength": "weak"
+    },
+    {
+      "input": "abcdefghijklmnopqrst",
+      "bits": 4.700439718141092,
+      "strength": "weak"
+    },
+    {
+      "input": "zyxwvutsrqponmlkjihg",
+      "bits": 4.700439718141092,
+      "strength": "weak"
+    },
+    {
+      "input": "1234567890123",
+      "bits": 6.643856189774724,
+      "strength": "weak"
+    },
+    {
+      "input": "correct horse battery staple",
+      "bits": 135.30079013532236,
+      "strength": "strong"
+    },
+    {
+      "input": "pässwörd😀😀",
+      "bits": 64.70907354298026,
+      "strength": "fair"
+    },
+    {
+      "input": "Welkom123",
+      "bits": 0,
+      "strength": "weak"
+    },
+    {
+      "input": "a1!",
+      "bits": 18.325573370334507,
+      "strength": "weak"
+    },
+    {
+      "input": "qwertyuiopasdfghjklzxcvbnm",
+      "bits": 94.00879436282183,
+      "strength": "strong"
+    }
+  ],
+  "dotenv": [
+    {
+      "input": "FIRST=one\nSECOND=two\n",
+      "output": {
+        "values": {
+          "FIRST": "one",
+          "SECOND": "two"
+        },
+        "skipped": []
+      },
+      "keys": [
+        "FIRST",
+        "SECOND"
+      ]
+    },
+    {
+      "input": "export API_KEY=abc123\r\nexport   SPACED = value with spaces  \r\n",
+      "output": {
+        "values": {
+          "API_KEY": "abc123",
+          "SPACED": "value with spaces"
+        },
+        "skipped": []
+      },
+      "keys": [
+        "API_KEY",
+        "SPACED"
+      ]
+    },
+    {
+      "input": "# comment\n\n   \nNO_EQUALS\n=empty-key\n1BAD=x\nhas-dash=x\nGOOD=yes",
+      "output": {
+        "values": {
+          "GOOD": "yes"
+        },
+        "skipped": [
+          {
+            "line": 4,
+            "reason": "No \"=\" found"
+          },
+          {
+            "line": 5,
+            "reason": "\"\" is not a valid variable name"
+          },
+          {
+            "line": 6,
+            "reason": "\"1BAD\" is not a valid variable name"
+          },
+          {
+            "line": 7,
+            "reason": "\"has-dash\" is not a valid variable name"
+          }
+        ]
+      },
+      "keys": [
+        "GOOD"
+      ]
+    },
+    {
+      "input": "QUOTED=\"line\\none\\ttab \\\"q\\\" back\\\\slash \\r\"\nSINGLE='raw \\n value'\nMIXED=\"unterminated\nINLINE=pass#word # comment\nTABBED=value\t# note\nEMPTY=\nEMPTY_QUOTES=\"\"\nHASH_ONLY=#notacomment",
+      "output": {
+        "values": {
+          "QUOTED": "line\none\ttab \"q\" back\\slash \r",
+          "SINGLE": "raw \\n value",
+          "MIXED": "\"unterminated",
+          "INLINE": "pass#word",
+          "TABBED": "value",
+          "EMPTY": "",
+          "EMPTY_QUOTES": "",
+          "HASH_ONLY": "#notacomment"
+        },
+        "skipped": []
+      },
+      "keys": [
+        "QUOTED",
+        "SINGLE",
+        "MIXED",
+        "INLINE",
+        "TABBED",
+        "EMPTY",
+        "EMPTY_QUOTES",
+        "HASH_ONLY"
+      ]
+    },
+    {
+      "input": "DUP=first\nOTHER=x\nDUP=second",
+      "output": {
+        "values": {
+          "DUP": "second",
+          "OTHER": "x"
+        },
+        "skipped": []
+      },
+      "keys": [
+        "DUP",
+        "OTHER"
+      ]
+    },
+    {
+      "input": "__proto__=x\nconstructor=y\ntoString=z",
+      "output": {
+        "values": {
+          "constructor": "y",
+          "toString": "z"
+        },
+        "skipped": []
+      },
+      "keys": [
+        "constructor",
+        "toString"
+      ]
+    },
+    {
+      "input": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK=too-long\nvery-long-invalid-key-name-that-goes-on-very-long-invalid-key-name-that-goes-on-=x",
+      "output": {
+        "values": {},
+        "skipped": [
+          {
+            "line": 1,
+            "reason": "\"KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK\" is not a valid variable name"
+          },
+          {
+            "line": 2,
+            "reason": "\"very-long-invalid-key-name-that-goes-on-\" is not a valid variable name"
+          }
+        ]
+      },
+      "keys": []
+    },
+    {
+      "input": "UNICODE=pässwörd 😀\nKEY_ÄÖ=x",
+      "output": {
+        "values": {
+          "UNICODE": "pässwörd 😀"
+        },
+        "skipped": [
+          {
+            "line": 2,
+            "reason": "\"KEY_ÄÖ\" is not a valid variable name"
+          }
+        ]
+      },
+      "keys": [
+        "UNICODE"
+      ]
+    },
+    {
+      "input": "export =x\nexport\nexportX=1",
+      "output": {
+        "values": {
+          "exportX": "1"
+        },
+        "skipped": [
+          {
+            "line": 1,
+            "reason": "\"\" is not a valid variable name"
+          },
+          {
+            "line": 2,
+            "reason": "No \"=\" found"
+          }
+        ]
+      },
+      "keys": [
+        "exportX"
+      ]
+    },
+    {
+      "input": "SQ='a'\nDQ=\"b\"\nLONE='\nLONE2=\"",
+      "output": {
+        "values": {
+          "SQ": "a",
+          "DQ": "b",
+          "LONE": "'",
+          "LONE2": "\""
+        },
+        "skipped": []
+      },
+      "keys": [
+        "SQ",
+        "DQ",
+        "LONE",
+        "LONE2"
+      ]
+    }
+  ],
+  "renderDotenv": [
+    {
+      "input": {
+        "B": "plain",
+        "A": "with space",
+        "C": ""
+      },
+      "output": "A=\"with space\"\nB=plain\nC=\"\"\n"
+    },
+    {
+      "input": {
+        "URL": "https://example.com/path?x=1",
+        "PATH": "./a/b:c@d-e_f.g"
+      },
+      "output": "PATH=./a/b:c@d-e_f.g\nURL=\"https://example.com/path?x=1\"\n"
+    },
+    {
+      "input": {
+        "Q": "say \"hi\"",
+        "BS": "back\\slash",
+        "NL": "line\nbreak",
+        "CR": "a\rb",
+        "TAB": "a\tb",
+        "UNI": "pässwörd"
+      },
+      "output": "BS=\"back\\\\slash\"\nCR=\"a\\rb\"\nNL=\"line\\nbreak\"\nQ=\"say \\\"hi\\\"\"\nTAB=\"a\tb\"\nUNI=\"pässwörd\"\n"
+    },
+    {
+      "input": {
+        "Z": "z",
+        "a": "a",
+        "_": "u",
+        "A1": "x"
+      },
+      "output": "A1=x\nZ=z\n_=u\na=a\n"
+    }
+  ],
+  "validKeys": [
+    {
+      "input": "A",
+      "output": true
+    },
+    {
+      "input": "_",
+      "output": true
+    },
+    {
+      "input": "a1",
+      "output": true
+    },
+    {
+      "input": "1A",
+      "output": false
+    },
+    {
+      "input": "A-B",
+      "output": false
+    },
+    {
+      "input": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+      "output": true
+    },
+    {
+      "input": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+      "output": false
+    },
+    {
+      "input": "Ä",
+      "output": false
+    },
+    {
+      "input": "",
+      "output": false
+    }
+  ],
+  "csv": [
+    {
+      "input": "a,b,c\n1,\"2,3\",4",
+      "output": [
+        {
+          "line": 1,
+          "cells": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "line": 2,
+          "cells": [
+            "1",
+            "2,3",
+            "4"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "x\r\ny\rz",
+      "output": [
+        {
+          "line": 1,
+          "cells": [
+            "x"
+          ]
+        },
+        {
+          "line": 2,
+          "cells": [
+            "y"
+          ]
+        },
+        {
+          "line": 3,
+          "cells": [
+            "z"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "\"a\"\"b\",c",
+      "output": [
+        {
+          "line": 1,
+          "cells": [
+            "a\"b",
+            "c"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "a,b,\n,,\n",
+      "output": [
+        {
+          "line": 1,
+          "cells": [
+            "a",
+            "b",
+            ""
+          ]
+        },
+        {
+          "line": 2,
+          "cells": [
+            "",
+            "",
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "input": "\"line\nbreak\",x\ny",
+      "output": [
+        {
+          "line": 1,
+          "cells": [
+            "line\nbreak",
+            "x"
+          ]
+        },
+        {
+          "line": 3,
+          "cells": [
+            "y"
+          ]
+        }
+      ]
+    }
+  ],
+  "imports": [
+    {
+      "format": "auto",
+      "content": "name,url,username,password,note\nGitHub,https://github.com/login,carol,gh-imported-password,\n\"Multi, line\",https://example.org,carol,\"quoted \"\"pw\"\"\",\"line one\nline two\"",
+      "output": {
+        "format": "chrome",
+        "documents": [
+          {
+            "type": "login",
+            "title": "GitHub",
+            "url": "https://github.com/login",
+            "fields": {
+              "username": "carol",
+              "password": "gh-imported-password",
+              "totp": "",
+              "notes": ""
+            }
+          },
+          {
+            "type": "login",
+            "title": "Multi, line",
+            "url": "https://example.org",
+            "fields": {
+              "username": "carol",
+              "password": "quoted \"pw\"",
+              "totp": "",
+              "notes": "line one\nline two"
+            }
+          }
+        ],
+        "skipped": [],
+        "warnings": []
+      }
+    },
+    {
+      "format": "auto",
+      "content": "﻿url,username,password,extra,name,grouping\r\nhttp://sn,,,secret note body,My note,Secure\r\nhttps://a.test,ann,pw1,,A,\r\n\r\n,,,,,\r\n",
+      "output": {
+        "format": "lastpass",
+        "documents": [
+          {
+            "type": "note",
+            "title": "My note",
+            "fields": {
+              "content": "secret note body"
+            }
+          },
+          {
+            "type": "login",
+            "title": "A",
+            "url": "https://a.test",
+            "fields": {
+              "username": "ann",
+              "password": "pw1",
+              "totp": "",
+              "notes": ""
+            }
+          }
+        ],
+        "skipped": [],
+        "warnings": []
+      }
+    },
+    {
+      "format": "auto",
+      "content": "name,type,login_uri,login_username,login_password,login_totp,notes\nBW,login,https://bw.test,bob,pw,JBSWY3DPEHPK3PXP,\nNote,note,,,,,\"secure\nnote\"\nCard,card,,,,,\nBad2fa,login,https://x.test,x,y,not base32 !!!,",
+      "output": {
+        "format": "bitwarden",
+        "documents": [
+          {
+            "type": "login",
+            "title": "BW",
+            "url": "https://bw.test",
+            "fields": {
+              "username": "bob",
+              "password": "pw",
+              "totp": "JBSWY3DPEHPK3PXP",
+              "notes": ""
+            }
+          },
+          {
+            "type": "note",
+            "title": "Note",
+            "fields": {
+              "content": "secure\nnote"
+            }
+          },
+          {
+            "type": "login",
+            "title": "Bad2fa",
+            "url": "https://x.test",
+            "fields": {
+              "username": "x",
+              "password": "y",
+              "totp": "",
+              "notes": ""
+            }
+          }
+        ],
+        "skipped": [
+          {
+            "line": 5,
+            "reason": "This kind of item is not supported."
+          }
+        ],
+        "warnings": [
+          {
+            "line": 6,
+            "reason": "The two-factor secret could not be read and was left out."
+          }
+        ]
+      }
+    },
+    {
+      "format": "auto",
+      "content": "name,url,username,password,note,cardholdername,cardnumber,cvc,expirydate,type,additional_urls\nVisa,,,,,Carol,4111111111114242,123,08/29,credit_card,\nId,,,,,,,,,identity,\nN,,,,body,,,,,note,\nL,https://n.test,u,p,,,,,,password,",
+      "output": {
+        "format": "nordpass",
+        "documents": [
+          {
+            "type": "card",
+            "title": "Visa",
+            "fields": {
+              "cardholder": "Carol",
+              "number": "4111111111114242",
+              "expiry": "08/29",
+              "cvc": "123",
+              "notes": ""
+            }
+          },
+          {
+            "type": "note",
+            "title": "N",
+            "fields": {
+              "content": "body"
+            }
+          },
+          {
+            "type": "login",
+            "title": "L",
+            "url": "https://n.test",
+            "fields": {
+              "username": "u",
+              "password": "p",
+              "totp": "",
+              "notes": ""
+            }
+          }
+        ],
+        "skipped": [
+          {
+            "line": 3,
+            "reason": "This kind of item is not supported."
+          }
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "format": "auto",
+      "content": "title,website,username,password,otpauth,notes\n1P,https://1p.test,u,p,otpauth://totp/x?secret=JBSWY3DPEHPK3PXP,\n,,,,,",
+      "output": {
+        "format": "1password",
+        "documents": [
+          {
+            "type": "login",
+            "title": "1P",
+            "url": "https://1p.test",
+            "fields": {
+              "username": "u",
+              "password": "p",
+              "totp": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP",
+              "notes": ""
+            }
+          }
+        ],
+        "skipped": [],
+        "warnings": []
+      }
+    },
+    {
+      "format": "generic",
+      "content": "account,login url,user,password,comments,card number\nCardish,,,,,4242\nLogin,,,,,\nOnly URL,https://only.test,,,,",
+      "output": {
+        "format": "generic",
+        "documents": [
+          {
+            "type": "card",
+            "title": "Cardish",
+            "fields": {
+              "cardholder": "",
+              "number": "4242",
+              "expiry": "",
+              "cvc": "",
+              "notes": ""
+            }
+          },
+          {
+            "type": "login",
+            "title": "Only URL",
+            "url": "https://only.test",
+            "fields": {
+              "username": "",
+              "password": "",
+              "totp": "",
+              "notes": ""
+            }
+          }
+        ],
+        "skipped": [],
+        "warnings": []
+      }
+    },
+    {
+      "format": "auto",
+      "content": "name,url,username,password\nTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT,https://t.test,u,p\nLongUser,https://t.test,uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu,p",
+      "output": {
+        "format": "chrome",
+        "documents": [],
+        "skipped": [
+          {
+            "line": 2,
+            "reason": "title: String must contain at most 200 character(s)"
+          },
+          {
+            "line": 3,
+            "reason": "fields.username: String must contain at most 255 character(s)"
+          }
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "format": "auto",
+      "content": "",
+      "error": "That file is empty."
+    },
+    {
+      "format": "auto",
+      "content": "\n\n",
+      "error": "That file is empty."
+    },
+    {
+      "format": "auto",
+      "content": "name,url,username\nX,https://x.test,u",
+      "error": "No password or notes column found. Export a CSV from your password manager and try again."
+    },
+    {
+      "format": "lastpass",
+      "content": "url,username,password,extra,name,grouping\nhttp://sn,,,note,N,",
+      "output": {
+        "format": "lastpass",
+        "documents": [
+          {
+            "type": "note",
+            "title": "N",
+            "fields": {
+              "content": "note"
+            }
+          }
+        ],
+        "skipped": [],
+        "warnings": []
+      }
+    },
+    {
+      "format": "chrome",
+      "content": "a,b\n\"open quote,never closed\nmore",
+      "error": "No password or notes column found. Export a CSV from your password manager and try again."
+    }
+  ],
+  "zod": [
+    {
+      "schema": "createProject",
+      "body": {},
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "undefined",
+              "path": [
+                "name"
+              ],
+              "message": "Required"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createProject",
+      "body": {
+        "name": ""
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "name"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createProject",
+      "body": {
+        "name": "x",
+        "slug": "",
+        "description": 5
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "slug"
+              ]
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "description"
+              ],
+              "message": "Expected string, received number"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createProject",
+      "body": {
+        "name": "ok",
+        "description": null
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "name": "ok",
+          "description": null
+        }
+      }
+    },
+    {
+      "schema": "createCredential",
+      "body": {
+        "provider": "aws",
+        "name": "x",
+        "token": "t"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "received": "aws",
+              "code": "invalid_enum_value",
+              "options": [
+                "cloudflare_workers",
+                "cloudflare_pages",
+                "vercel"
+              ],
+              "path": [
+                "provider"
+              ],
+              "message": "Invalid enum value. Expected 'cloudflare_workers' | 'cloudflare_pages' | 'vercel', received 'aws'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createCredential",
+      "body": {
+        "provider": "vercel",
+        "name": "x",
+        "token": "t",
+        "metadata": {
+          "accountId": 1
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "metadata",
+                "accountId"
+              ],
+              "message": "Expected string, received number"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {
+          "provider": "netlify"
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union_discriminator",
+              "options": [
+                "cloudflare_workers",
+                "cloudflare_pages",
+                "vercel"
+              ],
+              "path": [
+                "config",
+                "provider"
+              ],
+              "message": "Invalid discriminator value. Expected 'cloudflare_workers' | 'cloudflare_pages' | 'vercel'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {}
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union_discriminator",
+              "options": [
+                "cloudflare_workers",
+                "cloudflare_pages",
+                "vercel"
+              ],
+              "path": [
+                "config",
+                "provider"
+              ],
+              "message": "Invalid discriminator value. Expected 'cloudflare_workers' | 'cloudflare_pages' | 'vercel'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": "x"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "object",
+              "received": "string",
+              "path": [
+                "config"
+              ],
+              "message": "Expected object, received string"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {
+          "provider": "cloudflare_pages",
+          "accountId": "",
+          "projectName": "p",
+          "environment": "staging"
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "config",
+                "accountId"
+              ]
+            },
+            {
+              "received": "staging",
+              "code": "invalid_enum_value",
+              "options": [
+                "production",
+                "preview"
+              ],
+              "path": [
+                "config",
+                "environment"
+              ],
+              "message": "Invalid enum value. Expected 'production' | 'preview', received 'staging'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {
+          "provider": "vercel",
+          "projectId": "p",
+          "targets": []
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "array",
+              "inclusive": true,
+              "exact": false,
+              "message": "Array must contain at least 1 element(s)",
+              "path": [
+                "config",
+                "targets"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {
+          "provider": "vercel",
+          "projectId": "p",
+          "targets": [
+            "production",
+            "qa",
+            "preview",
+            "development"
+          ]
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 3,
+              "type": "array",
+              "inclusive": true,
+              "exact": false,
+              "message": "Array must contain at most 3 element(s)",
+              "path": [
+                "config",
+                "targets"
+              ]
+            },
+            {
+              "received": "qa",
+              "code": "invalid_enum_value",
+              "options": [
+                "production",
+                "preview",
+                "development"
+              ],
+              "path": [
+                "config",
+                "targets",
+                1
+              ],
+              "message": "Invalid enum value. Expected 'production' | 'preview' | 'development', received 'qa'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "environmentId": "e",
+        "credentialId": "c",
+        "name": "n",
+        "config": {
+          "provider": "vercel",
+          "projectId": "p",
+          "teamId": "team",
+          "targets": [
+            "preview"
+          ],
+          "extra": 1
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "environmentId": "e",
+          "credentialId": "c",
+          "name": "n",
+          "config": {
+            "provider": "vercel",
+            "projectId": "p",
+            "teamId": "team",
+            "targets": [
+              "preview"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema": "createTarget",
+      "body": {
+        "config": {
+          "provider": "cloudflare_workers",
+          "accountId": "a",
+          "scriptName": "s"
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "undefined",
+              "path": [
+                "environmentId"
+              ],
+              "message": "Required"
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "undefined",
+              "path": [
+                "credentialId"
+              ],
+              "message": "Required"
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "undefined",
+              "path": [
+                "name"
+              ],
+              "message": "Required"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "  GitHub  ",
+        "url": "  https://github.com  ",
+        "fields": {
+          "username": "u",
+          "password": "p"
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "GitHub",
+          "url": "https://github.com",
+          "fields": {
+            "username": "u",
+            "password": "p",
+            "totp": "",
+            "notes": ""
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {}
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "fields": {
+            "username": "",
+            "password": "",
+            "totp": "",
+            "notes": ""
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "   ",
+        "fields": {
+          "username": 5,
+          "totp": null
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "title"
+              ]
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "fields",
+                "username"
+              ],
+              "message": "Expected string, received number"
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "null",
+              "path": [
+                "fields",
+                "totp"
+              ],
+              "message": "Expected string, received null"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "note",
+        "title": "n",
+        "fields": {
+          "content": "c"
+        },
+        "url": "ignored"
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "note",
+          "title": "n",
+          "fields": {
+            "content": "c"
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "card",
+        "title": "c",
+        "fields": {
+          "number": "  4242  ",
+          "expiry": "12345678901",
+          "notes": 3
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 10,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at most 10 character(s)",
+              "path": [
+                "fields",
+                "expiry"
+              ]
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "fields",
+                "notes"
+              ],
+              "message": "Expected string, received number"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "wallet",
+        "title": "w",
+        "fields": {}
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union_discriminator",
+              "options": [
+                "login",
+                "note",
+                "card"
+              ],
+              "path": [
+                "type"
+              ],
+              "message": "Invalid discriminator value. Expected 'login' | 'note' | 'card'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "title": "missing type"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union_discriminator",
+              "options": [
+                "login",
+                "note",
+                "card"
+              ],
+              "path": [
+                "type"
+              ],
+              "message": "Invalid discriminator value. Expected 'login' | 'note' | 'card'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": [],
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "object",
+              "received": "array",
+              "path": [],
+              "message": "Expected object, received array"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "url": null,
+        "fields": {
+          "username": "u",
+          "password": "p",
+          "totp": " JBSW ",
+          "notes": "n"
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "url": null,
+          "fields": {
+            "username": "u",
+            "password": "p",
+            "totp": "JBSW",
+            "notes": "n"
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": null
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "object",
+              "received": "null",
+              "path": [
+                "fields"
+              ],
+              "message": "Expected object, received null"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createVault",
+      "body": {
+        "name": "  "
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "name"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "createVault",
+      "body": {
+        "name": " Team ",
+        "description": "  "
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "name": "Team",
+          "description": ""
+        }
+      }
+    },
+    {
+      "schema": "createVault",
+      "body": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 100,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at most 100 character(s)",
+              "path": [
+                "name"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "addVaultMember",
+      "body": {
+        "userId": "",
+        "role": "owner"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "userId"
+              ]
+            },
+            {
+              "received": "owner",
+              "code": "invalid_enum_value",
+              "options": [
+                "viewer",
+                "editor",
+                "manager"
+              ],
+              "path": [
+                "role"
+              ],
+              "message": "Invalid enum value. Expected 'viewer' | 'editor' | 'manager', received 'owner'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "addVaultMember",
+      "body": {
+        "userId": "u",
+        "role": "viewer"
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "userId": "u",
+          "role": "viewer"
+        }
+      }
+    },
+    {
+      "schema": "importItems",
+      "body": {
+        "content": "x"
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "content": "x",
+          "format": "auto"
+        }
+      }
+    },
+    {
+      "schema": "importItems",
+      "body": {
+        "content": "x",
+        "format": "keepass"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "received": "keepass",
+              "code": "invalid_enum_value",
+              "options": [
+                "auto",
+                "lastpass",
+                "nordpass",
+                "1password",
+                "bitwarden",
+                "chrome"
+              ],
+              "path": [
+                "format"
+              ],
+              "message": "Invalid enum value. Expected 'auto' | 'lastpass' | 'nordpass' | '1password' | 'bitwarden' | 'chrome', received 'keepass'"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "importItems",
+      "body": {},
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "undefined",
+              "path": [
+                "content"
+              ],
+              "message": "Required"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "restoreItem",
+      "body": {
+        "version": 0
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "number",
+              "inclusive": true,
+              "exact": false,
+              "message": "Number must be greater than or equal to 1",
+              "path": [
+                "version"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "restoreItem",
+      "body": {
+        "version": 1.5
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "integer",
+              "received": "float",
+              "message": "Expected integer, received float",
+              "path": [
+                "version"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "restoreItem",
+      "body": {
+        "version": "1"
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "number",
+              "received": "string",
+              "path": [
+                "version"
+              ],
+              "message": "Expected number, received string"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "restoreItem",
+      "body": {
+        "version": 2
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "version": 2
+        }
+      }
+    }
+  ]
+}

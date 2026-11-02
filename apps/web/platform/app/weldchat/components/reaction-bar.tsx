@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useToggleReaction } from '@/hooks/queries/use-weldchat-queries';
 
 interface ReactionBarProps {

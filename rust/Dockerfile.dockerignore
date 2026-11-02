@@ -1,0 +1,48 @@
+# The build context of rust/Dockerfile is the repo root (docker build -f
+# rust/Dockerfile .): only what its stages read goes in, so an unrelated
+# change doesn't invalidate the cache and the context stays small.
+*
+
+# The pnpm workspace, for the platform SPA and the sign portal.
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!patches
+!packages
+!apps/web/platform
+!apps/web/sign-portal
+
+# The Rust workspace, for the backend.
+!rust/rust-toolchain.toml
+!rust/Cargo.toml
+!rust/Cargo.lock
+!rust/clippy.toml
+!rust/.cargo
+!rust/catalogs
+!rust/crates
+!rust/modules
+!rust/bins
+!rust/docker
+
+# Never: installs, build output, local state, tests.
+**/node_modules
+**/dist
+**/target
+**/.turbo
+**/.wrangler
+**/.env
+**/.env.*
+**/.dev.vars
+rust/**/tests
+# The Drizzle migrations (~290 MB, nearly all of it snapshots): only their SQL
+# and journals, which `weldsuite migrate` embeds (crates/migrations/build.rs).
+packages/core/db/drizzle
+!packages/core/db/drizzle/master-migrations/*.sql
+!packages/core/db/drizzle/master-migrations/meta/_journal.json
+!packages/core/db/drizzle/tenant-migrations/*.sql
+!packages/core/db/drizzle/tenant-migrations/meta/_journal.json
+apps/web/platform/docs
+apps/web/platform/e2e
+apps/web/platform/playwright-report
+apps/web/platform/test-results

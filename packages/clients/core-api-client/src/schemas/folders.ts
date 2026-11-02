@@ -38,6 +38,23 @@ export type CreateFolderInput = z.infer<typeof createFolderSchema>;
 export type UpdateFolderInput = z.infer<typeof updateFolderSchema>;
 export type UpdateDriveFolderInput = z.infer<typeof updateDriveFolderSchema>;
 
+/** A `folders` row as /api/folders answers it (`DriveFolder`). */
+export const driveFolderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  parentId: z.string().nullable(),
+  color: z.string().nullable(),
+  icon: z.string().nullable(),
+  createdById: z.string().nullable(),
+  generalAccess: driveGeneralAccessSchema,
+  metadata: z.record(z.unknown()).nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+  accessRole: z.enum(['owner', 'viewer', 'editor']).optional(),
+  effectiveAccess: driveGeneralAccessSchema.optional(),
+});
+
 export interface DriveFolder {
   id: string;
   name: string;

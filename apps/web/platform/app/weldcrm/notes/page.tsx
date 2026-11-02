@@ -1,6 +1,6 @@
 
 import { useMemo } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { NotesView } from '@/components/weldcrm/notes/notes-view';
 import { useNotes } from '@/hooks/queries/use-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
