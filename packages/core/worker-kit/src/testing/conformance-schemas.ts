@@ -535,6 +535,7 @@ import { MEET_ROUTES } from './conformance-schemas-meet';
 import { STASH_ROUTES } from './conformance-schemas-stash';
 import { BOOKS_ROUTES } from './conformance-schemas-books';
 import { HOST_ROUTES } from './conformance-schemas-host';
+import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -1397,6 +1398,7 @@ const ROUTES: RouteSchema[] = [
   ...STASH_ROUTES,
   ...BOOKS_ROUTES,
   ...HOST_ROUTES,
+  ...INTEGRATION_WEBHOOK_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

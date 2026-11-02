@@ -1,0 +1,613 @@
+[
+  {
+    "name": "syncs each due connection in its workspace and schedules the next run",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": true,
+    "rows": [
+      {
+        "id": "a",
+        "provider": "plaid",
+        "provider_connection_id": "item_a",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_a",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      },
+      {
+        "id": "b",
+        "provider": "plaid",
+        "provider_connection_id": "item_b",
+        "clerk_org_id": "org_2",
+        "connection_id": "bkc_b",
+        "is_active": true,
+        "sync_interval_hours": 6,
+        "next_sync_at": "2026-10-08T10:00:00.000Z"
+      }
+    ],
+    "answers": {},
+    "result": {
+      "due": 2,
+      "synced": 2,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 0
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_b/sync",
+        "workspace": "org_2",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_a/sync",
+        "workspace": "org_1",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "a",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      },
+      {
+        "id": "b",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T18:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "name": "syncs a connection once for its several index rows (Stripe FC), at the shortest interval",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": true,
+    "rows": [
+      {
+        "id": "fa",
+        "provider": "stripe_fc",
+        "provider_connection_id": "fca_1",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_fc",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      },
+      {
+        "id": "fb",
+        "provider": "stripe_fc",
+        "provider_connection_id": "fca_2",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_fc",
+        "is_active": true,
+        "sync_interval_hours": 12,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      }
+    ],
+    "answers": {},
+    "result": {
+      "due": 2,
+      "synced": 1,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 0
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_fc/sync",
+        "workspace": "org_1",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "fa",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T00:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      },
+      {
+        "id": "fb",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T00:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "name": "skips rows not yet due and inactive ones; an unscheduled row is due, last",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": true,
+    "rows": [
+      {
+        "id": "future",
+        "provider": "plaid",
+        "provider_connection_id": "item_future",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_future",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-09T00:00:00.000Z"
+      },
+      {
+        "id": "off",
+        "provider": "plaid",
+        "provider_connection_id": "item_off",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_off",
+        "is_active": false,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T00:00:00.000Z"
+      },
+      {
+        "id": "unscheduled",
+        "provider": "plaid",
+        "provider_connection_id": "item_unscheduled",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_unscheduled",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": null
+      },
+      {
+        "id": "early",
+        "provider": "plaid",
+        "provider_connection_id": "item_early",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_early",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T01:00:00.000Z"
+      }
+    ],
+    "answers": {},
+    "result": {
+      "due": 2,
+      "synced": 2,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 0
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_early/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_unscheduled/sync",
+        "workspace": "org_1",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "early",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      },
+      {
+        "id": "future",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T00:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": null
+      },
+      {
+        "id": "off",
+        "is_active": false,
+        "next_sync_at": "2026-10-08T00:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": null
+      },
+      {
+        "id": "unscheduled",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "name": "deactivates the rows of a connection the workspace no longer has, or that is no longer active",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": true,
+    "rows": [
+      {
+        "id": "gone",
+        "provider": "plaid",
+        "provider_connection_id": "item_gone",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_gone",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      },
+      {
+        "id": "inactive",
+        "provider": "plaid",
+        "provider_connection_id": "item_inactive",
+        "clerk_org_id": "org_2",
+        "connection_id": "bkc_inactive",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      }
+    ],
+    "answers": {
+      "bkc_gone": {
+        "status": 404,
+        "body": {
+          "error": {
+            "code": "NOT_FOUND",
+            "message": "Bank connection 'bkc_gone' not found"
+          }
+        }
+      },
+      "bkc_inactive": {
+        "status": 200,
+        "body": {
+          "data": {
+            "connectionId": "bkc_inactive",
+            "status": "revoked",
+            "skipped": "not_active"
+          }
+        }
+      }
+    },
+    "result": {
+      "due": 2,
+      "synced": 0,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 2
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_gone/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_inactive/sync",
+        "workspace": "org_2",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "gone",
+        "is_active": false,
+        "next_sync_at": "2026-10-08T11:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": "Connection not found in the workspace"
+      },
+      {
+        "id": "inactive",
+        "is_active": false,
+        "next_sync_at": "2026-10-08T11:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": "Connection is no longer active"
+      }
+    ]
+  },
+  {
+    "name": "retries within the hour after a failed call, a thrown one and a retryable error; waits the interval otherwise",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": true,
+    "rows": [
+      {
+        "id": "down",
+        "provider": "plaid",
+        "provider_connection_id": "item_down",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_down",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      },
+      {
+        "id": "threw",
+        "provider": "plaid",
+        "provider_connection_id": "item_threw",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_threw",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T10:30:00.000Z"
+      },
+      {
+        "id": "limited",
+        "provider": "plaid",
+        "provider_connection_id": "item_limited",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_limited",
+        "is_active": true,
+        "sync_interval_hours": 6,
+        "next_sync_at": "2026-10-08T10:00:00.000Z"
+      },
+      {
+        "id": "broken",
+        "provider": "plaid",
+        "provider_connection_id": "item_broken",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_broken",
+        "is_active": true,
+        "sync_interval_hours": 6,
+        "next_sync_at": "2026-10-08T09:30:00.000Z"
+      },
+      {
+        "id": "busy",
+        "provider": "plaid",
+        "provider_connection_id": "item_busy",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_busy",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T09:00:00.000Z"
+      }
+    ],
+    "answers": {
+      "bkc_down": {
+        "status": 503,
+        "body": {
+          "error": {
+            "code": "INTERNAL_ERROR",
+            "message": "down"
+          }
+        }
+      },
+      "bkc_threw": {
+        "throws": "connection reset by peer"
+      },
+      "bkc_limited": {
+        "status": 200,
+        "body": {
+          "data": {
+            "connectionId": "bkc_limited",
+            "status": "error",
+            "error": "plaid responded 429",
+            "retryable": true
+          }
+        }
+      },
+      "bkc_broken": {
+        "status": 200,
+        "body": {
+          "data": {
+            "connectionId": "bkc_broken",
+            "status": "error",
+            "error": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "retryable": false
+          }
+        }
+      },
+      "bkc_busy": {
+        "status": 200,
+        "body": {
+          "data": {
+            "connectionId": "bkc_busy",
+            "status": "active",
+            "skipped": "in_progress"
+          }
+        }
+      }
+    },
+    "result": {
+      "due": 5,
+      "synced": 0,
+      "failed": 4,
+      "skipped": 1,
+      "deactivated": 0
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_busy/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_broken/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_limited/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_threw/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_down/sync",
+        "workspace": "org_1",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "broken",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T18:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "id": "busy",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      },
+      {
+        "id": "down",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T13:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": "books-api answered 503"
+      },
+      {
+        "id": "limited",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T13:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": "plaid responded 429"
+      },
+      {
+        "id": "threw",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T13:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": "connection reset by peer"
+      }
+    ]
+  },
+  {
+    "name": "stops at the limit; the rest wait for the next tick",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 2,
+    "binding": true,
+    "rows": [
+      {
+        "id": "one",
+        "provider": "plaid",
+        "provider_connection_id": "item_one",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_one",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T08:00:00.000Z"
+      },
+      {
+        "id": "two",
+        "provider": "plaid",
+        "provider_connection_id": "item_two",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_two",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T09:00:00.000Z"
+      },
+      {
+        "id": "three",
+        "provider": "plaid",
+        "provider_connection_id": "item_three",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_three",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T10:00:00.000Z"
+      }
+    ],
+    "answers": {},
+    "result": {
+      "due": 3,
+      "synced": 2,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 0
+    },
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_one/sync",
+        "workspace": "org_1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/internal/bank-connections/bkc_two/sync",
+        "workspace": "org_1",
+        "body": null
+      }
+    ],
+    "after": [
+      {
+        "id": "one",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      },
+      {
+        "id": "three",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T10:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": null
+      },
+      {
+        "id": "two",
+        "is_active": true,
+        "next_sync_at": "2026-10-09T12:00:00.000Z",
+        "last_triggered_at": "2026-10-08T12:00:00.000Z",
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "name": "does nothing without the binding",
+    "now": "2026-10-08T12:00:00.000Z",
+    "limit": 25,
+    "binding": false,
+    "rows": [
+      {
+        "id": "a",
+        "provider": "plaid",
+        "provider_connection_id": "item_a",
+        "clerk_org_id": "org_1",
+        "connection_id": "bkc_a",
+        "is_active": true,
+        "sync_interval_hours": 24,
+        "next_sync_at": "2026-10-08T11:00:00.000Z"
+      }
+    ],
+    "answers": {},
+    "result": {
+      "due": 0,
+      "synced": 0,
+      "failed": 0,
+      "skipped": 0,
+      "deactivated": 0
+    },
+    "calls": [],
+    "after": [
+      {
+        "id": "a",
+        "is_active": true,
+        "next_sync_at": "2026-10-08T11:00:00.000Z",
+        "last_triggered_at": null,
+        "last_error": null
+      }
+    ]
+  }
+]

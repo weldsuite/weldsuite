@@ -252,6 +252,10 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
+  // The integration workers' webhook receivers: Stripe Financial
+  // Connections' endpoint secret and the GitHub App's webhook secret.
+  'STRIPE_FC_WEBHOOK_SECRET',
+  'GITHUB_WEBHOOK_SECRET',
   // WeldCall: Telnyx (the API key, the Call Control and WebRTC connections,
   // the webhook signing key), Stripe (phone-number fulfilment) and the
   // public base URL the voice agent's tool is called back on.

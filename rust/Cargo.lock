@@ -3860,6 +3860,7 @@ dependencies = [
  "weldsuite-flow",
  "weldsuite-host",
  "weldsuite-hr",
+ "weldsuite-integrations",
  "weldsuite-kit",
  "weldsuite-know",
  "weldsuite-mail",
@@ -4833,6 +4834,32 @@ dependencies = [
  "weldsuite-payroll-domain",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-integrations"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
+ "http",
+ "jsonwebtoken 11.1.0",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 

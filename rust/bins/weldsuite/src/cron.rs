@@ -77,7 +77,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, workflow-schedules";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, bank-feed-due, workflow-schedules";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -95,6 +95,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "reach-send-sweep"
         | "reach-warmup-sweep"
         | "reach-slot-reconciliation"
+        | "bank-feed-due"
         | "workflow-schedules"),
     ) = job
     else {
@@ -136,6 +137,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "desk-sla-sweep" => desk_sla_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
+            "bank-feed-due" => bank_feed_due(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -615,6 +617,53 @@ async fn reach_warmup(config: Config, job: &str) -> Result<(), Box<dyn std::erro
             .unwrap_or(serde_json::Value::Null)
     };
     println!("{}", serde_json::json!({ "job": job, "result": result }));
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `bank-feed-due`: WeldBooks' bank feed connections whose next sync is due
+/// (the master `bank_feed_connection_index`), synced in this process
+/// (integration-sync-worker's `runBankFeedDueSweep`). Nothing while books
+/// is not served, as the worker without `BOOKS_INTERNAL`.
+async fn bank_feed_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let books = crate::routes::integrations::in_process_books(
+        &master,
+        &config.keyring,
+        &workspaces,
+        infra.events.clone(),
+    );
+    let now = time::OffsetDateTime::now_utc();
+    let result = weldsuite_integrations::bank_feed_due::run_bank_feed_due_sweep(
+        &master,
+        books.as_deref(),
+        now,
+        weldsuite_integrations::bank_feed_due::BANK_FEED_SWEEP_LIMIT,
+    )
+    .await?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "bank-feed-due", "result": result.to_json() })
+    );
+    // Entity events go out in the background: let them finish.
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await

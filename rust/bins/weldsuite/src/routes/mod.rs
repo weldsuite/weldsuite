@@ -9,6 +9,7 @@ mod access_requests;
 pub(crate) mod books;
 mod feature_flags;
 mod host;
+pub(crate) mod integrations;
 mod me;
 
 use std::sync::{Arc, OnceLock};
@@ -322,9 +323,10 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 assignment: Some(desk_assignment_router()),
             },
         });
-    router.merge(weldsuite_connect::router(
-        connect_state(state),
-        &state.permissions,
+    // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
+    router.merge(integrations::connect_bindings(
+        weldsuite_connect::router(connect_state(state), &state.permissions),
+        state,
     ))
 }
 
@@ -1337,7 +1339,9 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(books::public(state))
         .merge(host::public(state))
         .merge(commerce_public(state))
-        .merge(connect_public(state));
+        .merge(connect_public(state))
+        // The integration workers' webhook receivers (no module id: always).
+        .merge(integrations::public(state));
     if mounts("mail") {
         router
             .nest(

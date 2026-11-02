@@ -594,6 +594,13 @@ cron:
       enabled: true
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldBooks' bank feeds whose next sync is due (the master
+    # bank_feed_connection_index): the polled providers' syncs and the daily
+    # safety net for the ones with webhooks (integration-sync-worker's cron).
+    bank-feed-due:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:

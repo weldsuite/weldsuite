@@ -375,7 +375,7 @@ fn env_value(name: &str) -> Option<String> {
 }
 
 /// The process's books settings ([`BOOKS_ENV`]), read once.
-fn books_env() -> Arc<HashMap<String, String>> {
+pub(crate) fn books_env() -> Arc<HashMap<String, String>> {
     static ENV: OnceLock<Arc<HashMap<String, String>>> = OnceLock::new();
     Arc::clone(ENV.get_or_init(|| {
         Arc::new(
@@ -396,7 +396,7 @@ fn books_env() -> Arc<HashMap<String, String>> {
 
 /// One HTTP client for the third parties books calls (ECB, VIES, tax and
 /// bank-feed providers), made once per process.
-fn books_http() -> Option<weldsuite_ports::OutboundHttp> {
+pub(crate) fn books_http() -> Option<weldsuite_ports::OutboundHttp> {
     static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
     HTTP.get_or_init(|| {
         weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
@@ -410,7 +410,7 @@ fn books_http() -> Option<weldsuite_ports::OutboundHttp> {
 /// `PONTO_MTLS_CERT` and `PONTO_MTLS_KEY`, made once per process. None
 /// without them (Ponto is then called without a client certificate, which
 /// its API refuses).
-fn ponto_http() -> Option<weldsuite_ports::OutboundHttp> {
+pub(crate) fn ponto_http() -> Option<weldsuite_ports::OutboundHttp> {
     static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
     HTTP.get_or_init(|| {
         let cert = env_value("PONTO_MTLS_CERT")?;

@@ -160,6 +160,34 @@ modules, each with conformance suites that reach every route:
   for when those workers are ported. Not ported: document OCR (Workers AI)
   and filing through Digipoort, both in `unavailableFeatures`)
 
+The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
+have no module id; `modules/integrations` serves their parts that are ported at the
+workers' own paths beside `/api` (point a provider, or an `integration-webhooks.<domain>`
+ingress host, at the server), with conformance suites named `integrations: …`:
+
+- **bank feeds**: `POST /webhooks/bank-feeds/:provider` (Stripe Financial Connections'
+  HMAC with `STRIPE_FC_WEBHOOK_SECRET`, Plaid's ES256 token with its key fetched from
+  Plaid and cached; Ponto and Enable Banking are polled, so refused), forwarding to
+  WeldBooks' internal bank-connection routes in process (`books.rs`, once books is in
+  `RUST_PORTED_MODULES`; until then the forward fails as without `BOOKS_INTERNAL` and
+  the delivery is still acknowledged), and `weldsuite cron bank-feed-due` (the master
+  `bank_feed_connection_index`)
+- **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
+  per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
+  (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
+  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`; registered, but
+  WeldFlow's Rust task routes do not dispatch it yet)
+- the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
+  `webhooks` subscriber (`crates/subscribers`), already
+
+Not yet: the CRM sync (`CRM_SYNC`: Attio, HubSpot, Google Calendar; WeldConnect's
+CRM routes answer as without the binding), its webhooks (`/webhook/:connectionId`,
+`/webhook/hubspot`, `/webhook/gcal/:connectionId`) and due sweep, the connector
+receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
+Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
+`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
+the ad metrics sweep, and the WooCommerce app-auth forward.
+
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
@@ -172,8 +200,8 @@ WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 connect, agent, sheets, docs and
-panel, and the edge workers (`external-api`, `mcp-server`, the integration
-workers).
+panel, and the edge workers (`external-api`, `mcp-server`, the rest of the
+integration workers, above).
 
 ## Layout
 
@@ -238,6 +266,9 @@ rust/
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
+                        modules/integrations (the integration workers: the bank feed and
+                        GitHub App receivers, the GitHub jobs, the bank feed due sweep;
+                        tests/fixtures from `pnpm rust:integration-fixtures`),
                         modules/host (WeldHost: Realtime Register, Cloudflare's zones and
                         registrar, DNS over HTTPS, the Realtime Register webhook),
                         modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
@@ -282,6 +313,7 @@ pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engi
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
 pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
+pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub Workflows do, for modules/integrations/tests
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -377,8 +409,10 @@ warmup progress and Mailpool slots), `identity-sync` every minute (the identity 
 changes into the databases, what Clerk's webhooks do on Global),
 `workspace-deletion` daily, `workspace-teardown` hourly,
 `domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
-which stays with Global) and `workflow-schedules` every minute (WeldConnect's
-scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+which stays with Global), `workflow-schedules` every minute (WeldConnect's
+scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
+`bank-feed-due` every 15 minutes (WeldBooks' bank feeds due a sync; nothing while
+books is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -411,6 +445,8 @@ scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`). The 
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
+| `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |

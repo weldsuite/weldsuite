@@ -366,6 +366,12 @@ impl Pools {
         if let Some(books) = self.books.request_books(&context.services) {
             extensions.insert(books);
         }
+        // The integration workers' bank feed events and syncs too.
+        extensions.insert(crate::conformance_books::integrations_books(
+            &context.services,
+        ));
+        // And the GitHub App webhook's project syncs.
+        extensions.insert(self.workflows.github_sync_runs(&context.workflows));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),

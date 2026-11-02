@@ -2837,6 +2837,33 @@
         "rust/modules/reach/",
         "rust/crates/reach-domain/"
       ]
+    },
+    {
+      "name": "integrations: bank feeds",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/bank-feeds.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/bank-feeds/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/",
+        "rust/crates/books-domain/src/bank_feeds/"
+      ]
+    },
+    {
+      "name": "integrations: github",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/github.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }
