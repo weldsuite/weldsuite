@@ -131,10 +131,13 @@ modules, each with conformance suites that reach every route:
   runs as `weldsuite cron reach-send-sweep` and the `reach-send`
   subscriber of `weldsuite consume` (NATS stream `REACH_SEND`; without
   NATS the cron sends itself), with the hourly `reach-warmup-sweep` and the
-  daily `reach-slot-reconciliation`. Not yet: the inbound reply path
-  (Cloudflare Email Routing on Global; on Kubernetes Haraka would accept
-  `reply+<token>@REACH_INBOUND_DOMAIN` for the `mail.inbound` subscriber)
-  and the warmup network (`reach-warmup-worker`))
+  daily `reach-slot-reconciliation`. Replies, auto-replies and bounces
+  (reach-api's `email()` handler, Cloudflare Email Routing on Global) come
+  in through Haraka: see "Inbound mail" below. The AI label of a reply is
+  not available (no AI port, as for mail AI): a reply that answers a
+  campaign is labelled `unclassified`, as reach-api does without a model,
+  and a person labels it. Not yet: the warmup network
+  (`reach-warmup-worker`))
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -250,6 +253,7 @@ pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engi
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
 pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
+pnpm rust:reach-inbound-fixtures # re-export what reach-api's email() handler does, for modules/reach/tests/inbound_parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -362,7 +366,7 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
-| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`) |
+| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`, and no replies are taken in: `serve`'s RCPT check and `consume` read it too) |
 | `REACH_SEND_QUEUE` | `nats`: `weldsuite cron reach-send-sweep` queues each workspace with outreach due on NATS for the `reach-send` subscriber of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends itself |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `REALTIME_REGISTER_API_KEY`, `REALTIME_REGISTER_CUSTOMER`, `REALTIME_REGISTER_OTE`, `REALTIME_REGISTER_ADAC_API_KEY`, `REALTIME_REGISTER_ADAC_TLD_SET_TOKEN`, `REALTIME_REGISTER_CONTACT_ADMIN`/`_TECH`/`_BILLING`, `REALTIME_REGISTER_WEBHOOK_SECRET` | WeldHost: Realtime Register's API key and customer handle (unset: search, availability, transfers and the registrar toggles answer as the worker does without them), `true` for its OTE, the ADAC key and TLD set for search, the platform contact handles domains are registered on, and the `?token=` of its process webhook (unset: every delivery is refused) |
@@ -446,6 +450,19 @@ On Global, Cloudflare Email Routing hands each message to
    until then that one is a no-op). A storage failure is retried with
    backoff, then dead-lettered; a redelivery after success finds no spooled
    object and does nothing, and every mailbox ignores a Message-ID it holds.
+5. **WeldReach's replies.** Each Mailpool mailbox forwards its mail to
+   `reply+<token>@REACH_INBOUND_DOMAIN`; with that domain's MX on Haraka and
+   `REACH_INBOUND_DOMAIN` set for `serve` and `consume`, the RCPT check
+   accepts the address while master `reach_routes` has an active
+   `inbound_token` route for the token, and `consume` hands those
+   recipients to WeldReach (`modules/reach/src/inbound`, reach-api's
+   `email()` handler) before WeldMail sees the rest: the warmup screen,
+   matching, the raw copy in `STORAGE`, the stop, suppression and guardrail
+   effects, the CRM hand-off. A message only for WeldReach is removed from
+   the spool there; what WeldReach cannot process is parked in `STORAGE`
+   (`reach/<org>/_failed/<sha256>.eml`), never retried, as on Global.
+   Parity: `modules/reach/tests/inbound_parity.rs` against fixtures
+   reach-api wrote (`pnpm rust:reach-inbound-fixtures`, checked in CI).
 
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per
