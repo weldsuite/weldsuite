@@ -8,7 +8,7 @@ use aws_lc_rs::digest;
 use regex::Regex;
 
 /// First-party modules share the sidenav / app-store namespace.
-pub(crate) const RESERVED_APP_CODES: [&str; 16] = [
+pub const RESERVED_APP_CODES: [&str; 16] = [
     "weldcrm",
     "weldcommerce",
     "welddesk",
@@ -29,27 +29,27 @@ pub(crate) const RESERVED_APP_CODES: [&str; 16] = [
 
 /// Platform modules again after shipping as hosted apps for a while: never
 /// adopted onto a hosted app.
-pub(crate) const NATIVE_ONLY_APP_CODES: [&str; 1] = ["weldcommerce"];
+pub const NATIVE_ONLY_APP_CODES: [&str; 1] = ["weldcommerce"];
 
-pub(crate) fn is_reserved(code: &str) -> bool {
+pub fn is_reserved(code: &str) -> bool {
     RESERVED_APP_CODES.contains(&code)
 }
 
-pub(crate) fn is_native_only(code: &str) -> bool {
+pub fn is_native_only(code: &str) -> bool {
     NATIVE_ONLY_APP_CODES.contains(&code)
 }
 
 // ── crypto ───────────────────────────────────────────────────────────────────
 
 /// `randomHex(bytes)`: lowercase hex of `bytes` random bytes.
-pub(crate) fn random_hex(bytes: usize) -> String {
+pub fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     aws_lc_rs::rand::fill(&mut buffer).expect("the system random source works");
     hex::encode(buffer)
 }
 
 /// `sha256Hex(input)`.
-pub(crate) fn sha256_hex(input: &str) -> String {
+pub fn sha256_hex(input: &str) -> String {
     hex::encode(digest::digest(&digest::SHA256, input.as_bytes()))
 }
 
@@ -69,12 +69,12 @@ fn scope_covers(granted: &[String], scope: &str) -> bool {
 }
 
 /// Every requested scope is covered by the granted set.
-pub(crate) fn is_scope_superset(granted: &[String], requested: &[String]) -> bool {
+pub fn is_scope_superset(granted: &[String], requested: &[String]) -> bool {
     requested.iter().all(|s| scope_covers(granted, s))
 }
 
 /// Requested scopes the granted set does not cover (order kept, deduped).
-pub(crate) fn diff_scopes(requested: &[String], granted: &[String]) -> Vec<String> {
+pub fn diff_scopes(requested: &[String], granted: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for scope in requested {
         if !scope_covers(granted, scope) && !out.contains(scope) {
@@ -85,7 +85,7 @@ pub(crate) fn diff_scopes(requested: &[String], granted: &[String]) -> Vec<Strin
 }
 
 /// The union of two scope lists (deduped, order kept).
-pub(crate) fn union_scopes(a: &[String], b: &[String]) -> Vec<String> {
+pub fn union_scopes(a: &[String], b: &[String]) -> Vec<String> {
     let mut out = a.to_vec();
     for scope in b {
         if !out.contains(scope) {
@@ -96,7 +96,7 @@ pub(crate) fn union_scopes(a: &[String], b: &[String]) -> Vec<String> {
 }
 
 /// `scopeSchema`'s pattern.
-pub(crate) fn is_scope(text: &str) -> bool {
+pub fn is_scope(text: &str) -> bool {
     static SCOPE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^[a-z][a-z0-9_-]*:(\*|[a-z][a-z0-9_:-]*)$|^\*$")
             .expect("the scope pattern compiles")
@@ -107,7 +107,7 @@ pub(crate) fn is_scope(text: &str) -> bool {
 // ── bundle files ─────────────────────────────────────────────────────────────
 
 /// The content type a bundle file is stored and served with.
-pub(crate) fn content_type_for(path: &str) -> Option<&'static str> {
+pub fn content_type_for(path: &str) -> Option<&'static str> {
     let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
     Some(match extension.as_str() {
         "html" => "text/html; charset=utf-8",
@@ -130,19 +130,19 @@ fn last_segment(path: &str) -> &str {
 }
 
 /// The final path segment has a file extension.
-pub(crate) fn has_file_extension(path: &str) -> bool {
+pub fn has_file_extension(path: &str) -> bool {
     last_segment(path).contains('.')
 }
 
 /// A Vite-style content-hashed file name (`index-abc12345.js`).
-pub(crate) fn is_hashed_asset(path: &str) -> bool {
+pub fn is_hashed_asset(path: &str) -> bool {
     static HASHED: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"-[A-Za-z0-9_]{8,}\.").expect("the hash pattern compiles"));
     HASHED.is_match(last_segment(path))
 }
 
 /// No traversal, absolute, backslash or empty-segment paths in a bundle.
-pub(crate) fn is_safe_bundle_path(path: &str) -> bool {
+pub fn is_safe_bundle_path(path: &str) -> bool {
     if path.is_empty() || path.encode_utf16().count() > 255 {
         return false;
     }
@@ -174,7 +174,7 @@ const BLOCKED_WEBHOOK_HOSTS: [&str; 7] = [
 
 /// A lifecycle webhook may only go to a public https host with a DNS name
 /// (`isSafeAppLifecycleWebhookUrl`).
-pub(crate) fn is_safe_lifecycle_webhook_url(raw: &str) -> bool {
+pub fn is_safe_lifecycle_webhook_url(raw: &str) -> bool {
     let Ok(url) = url::Url::parse(raw) else {
         return false;
     };
@@ -203,7 +203,7 @@ pub(crate) fn is_safe_lifecycle_webhook_url(raw: &str) -> bool {
 const LOOPBACK_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "::1", "[::1]"];
 
 /// A preview URL that may be registered (`isAllowedDevSessionUrl`).
-pub(crate) fn is_allowed_dev_session_url(raw: &str) -> bool {
+pub fn is_allowed_dev_session_url(raw: &str) -> bool {
     let Ok(url) = url::Url::parse(raw) else {
         return false;
     };
@@ -231,7 +231,7 @@ pub(crate) fn is_allowed_dev_session_url(raw: &str) -> bool {
 }
 
 /// `new URL(raw).origin`, when it parses.
-pub(crate) fn origin_of(raw: &str) -> Option<String> {
+pub fn origin_of(raw: &str) -> Option<String> {
     url::Url::parse(raw)
         .ok()
         .map(|url| url.origin().ascii_serialization())

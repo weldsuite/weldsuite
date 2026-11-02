@@ -26,13 +26,15 @@ mod index;
 mod list;
 mod oauth;
 mod session;
+mod user_apps;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{get, post, put};
 use weldsuite_db::{PgPool, Workspaces};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::ApiError;
@@ -55,6 +57,8 @@ pub struct ExternalApiState {
     pub cache: Option<Arc<dyn DynCache>>,
     /// The settings the worker reads from `env`.
     pub env: Arc<HashMap<String, String>>,
+    /// The public bucket (`STORAGE`): WeldApps bundles.
+    pub public_files: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
 }
 
 impl std::fmt::Debug for ExternalApiState {
@@ -121,9 +125,34 @@ where
         .with_state(state)
 }
 
-/// WeldApps' data plane: `/v1/app-storage`.
+/// WeldApps: the CLI's developer API (`/v1/user-apps`) and the data plane
+/// (`/v1/app-storage`).
 fn weldapps(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
     router
+        .route("/user-apps/agent-tools", get(user_apps::agent_tools))
+        .route("/user-apps", get(user_apps::list).post(user_apps::create))
+        .route(
+            "/user-apps/{id}",
+            get(user_apps::detail)
+                .patch(user_apps::update)
+                .delete(user_apps::remove),
+        )
+        .route(
+            "/user-apps/{id}/versions",
+            get(user_apps::versions)
+                .post(user_apps::upload_version)
+                // Bundles go up to 50 MB, in one multipart body.
+                .layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
+        .route("/user-apps/{id}/submit", post(user_apps::submit))
+        .route(
+            "/user-apps/{id}/dev-session",
+            put(user_apps::put_dev_session).delete(user_apps::delete_dev_session),
+        )
+        .route(
+            "/user-apps/{id}/oauth-client",
+            get(user_apps::oauth_client).post(user_apps::rotate_oauth_client),
+        )
         .route(
             "/app-storage/collections/{collection}/records",
             get(app_storage::list_records).post(app_storage::create_record),

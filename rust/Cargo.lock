@@ -3936,6 +3936,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-apps-domain"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "hex",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "url",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+]
+
+[[package]]
 name = "weldsuite-auth"
 version = "0.0.0"
 dependencies = [
@@ -4256,6 +4273,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-apps-domain",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
@@ -4605,6 +4623,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "weldsuite-apps-domain",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",

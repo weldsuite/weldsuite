@@ -1572,6 +1572,7 @@ fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiSt
         master: state.workspaces.master().clone(),
         workspaces: Arc::clone(&state.workspaces),
         cache: state.infra.cache.clone(),
+        public_files: state.infra.public_files.clone(),
         env: Arc::clone(ENV.get_or_init(|| {
             Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
         })),

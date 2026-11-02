@@ -245,7 +245,6 @@ pub(crate) async fn list_records(
             let query = ListQuery {
                 cursor,
                 limit: clamp_limit(Some(limit.unwrap_or(DEFAULT_RECORD_LIMIT))),
-                fields: Map::new(),
             };
             list_page(&storage.key.db, RECORDS, &query, &filters).await
         }

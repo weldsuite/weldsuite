@@ -52,19 +52,16 @@ macro_rules! list_sql {
 }
 pub(crate) use list_sql;
 
-/// The query every list reads (`cursor`, `limit`), with the route's own
-/// filters after it.
+/// The query every list reads (`cursor`, `limit`). A route with filters
+/// reads them from the same `query_values` with the same `issues`.
 pub(crate) struct ListQuery {
     pub(crate) cursor: Option<String>,
     pub(crate) limit: i64,
-    /// The query string as the validator saw it, for the route's filters.
-    pub(crate) fields: Map<String, Value>,
 }
 
 impl ListQuery {
-    /// `cursor: z.string().optional()`, `limit: z.coerce.number().min(1).max(200).optional()`.
-    /// Further fields are read by the route from `fields` with the same
-    /// `issues`, then [`Issues::finish`].
+    /// `cursor: z.string().optional()`, `limit: z.coerce.number().min(1).max(200).optional()`;
+    /// then [`Issues::finish`].
     pub(crate) fn read(issues: &mut Issues, raw_query: Option<&str>) -> Self {
         let fields = query_values(raw_query);
         let cursor = issues
@@ -86,15 +83,7 @@ impl ListQuery {
         Self {
             cursor,
             limit: clamp_limit(limit),
-            fields,
         }
-    }
-
-    /// A string filter of the query (`z.string().optional()`).
-    pub(crate) fn text(&self, issues: &mut Issues, key: &str) -> Option<String> {
-        issues
-            .text(&self.fields, key, Presence::Optional, None, None)
-            .into_option()
     }
 }
 

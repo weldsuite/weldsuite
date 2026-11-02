@@ -8,10 +8,7 @@ use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use http::request::Parts;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event};
 use weldsuite_kit::ApiError;
 
 /// Whose key it is: a member's own (`personal`), the workspace's
@@ -137,15 +134,6 @@ pub(crate) fn not_found(resource: &str, id: &str) -> ApiError {
     )
 }
 
-/// `error.notFound(c, resource)` without an id.
-pub(crate) fn not_found_plain(resource: &str) -> ApiError {
-    ApiError::new(
-        StatusCode::NOT_FOUND,
-        "NOT_FOUND",
-        format!("{resource} not found"),
-    )
-}
-
 /// `error.conflict(c, message)`.
 pub(crate) fn conflict(message: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::CONFLICT, "CONFLICT", message)
@@ -178,25 +166,12 @@ pub(crate) async fn require_scope(
 }
 
 /// Who is asking: the key's session and the workspace's tenant database.
+/// (An object group that publishes entity events builds its
+/// `EventContext::from_ids(workspace, clerk org, session.actor())` from it:
+/// a workspace key's events are the key's own, `userId ?? keyId`.)
 pub(crate) struct Key {
     pub(crate) session: ApiSession,
     pub(crate) db: PgPool,
-    pub(crate) tenant: Tenant,
-    pub(crate) events: EventContext,
-}
-
-impl Key {
-    /// `publishEntityEvent({ c, entityType, action, entityId, data })`, as
-    /// the key's actor.
-    pub(crate) fn publish(
-        &self,
-        publisher: &EntityEventPublisher,
-        event: EventName,
-        entity_id: &str,
-        data: &Value,
-    ) {
-        publish_entity_event(publisher, &self.events, event, entity_id, data);
-    }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Key {
@@ -210,13 +185,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Key {
         let tenant = parts.extensions.get::<Tenant>().cloned();
         let key = match (session, tenant) {
             (Some(session), Some(tenant)) => Ok(Self {
-                events: EventContext::from_ids(
-                    &tenant.workspace_id,
-                    tenant.clerk_org_id.as_deref(),
-                    session.actor(),
-                ),
-                db: tenant.db.clone(),
-                tenant,
+                db: tenant.db,
                 session,
             }),
             (None, _) => Err(unauthorized("Unauthorized")),

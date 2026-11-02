@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { conformanceMasterDb } from '@weldsuite/worker-kit/testing/conformance';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
+import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { eq } from 'drizzle-orm';
 import { createExternalTestApp } from './harness';
@@ -347,5 +348,193 @@ describe('external-api · /v1/app-storage', () => {
         `Installed app with ID '${code}' not found`,
       );
     }
+  });
+});
+
+describe('external-api · /v1/user-apps', () => {
+  const developerKey = (scopes = ['user-apps:manage']) => workspaceKey(scopes);
+  const storage = createMemoryR2();
+  const dev = (session: ApiKeySession = developerKey()) =>
+    createExternalTestApp({
+      session,
+      tenantDb,
+      masterDb,
+      env: { API_CACHE: createMemoryKv(), STORAGE: storage } as Partial<Env>,
+    });
+  const json = (method: string, body: unknown): RequestInit => ({
+    method,
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  const upload = (manifest: unknown, files: Array<[string, string]>, extra: Record<string, string> = {}) => {
+    const form = new FormData();
+    if (manifest !== undefined) form.append('manifest', typeof manifest === 'string' ? manifest : JSON.stringify(manifest));
+    for (const [key, value] of Object.entries(extra)) form.append(key, value);
+    for (const [name, text] of files) form.append('files', new File([text], name, { type: 'text/plain' }));
+    return { method: 'POST', body: form } as RequestInit;
+  };
+  const manifest = (code: string, version: string) => ({
+    code,
+    name: 'Notes',
+    version,
+    scopes: ['people:read', 'tickets:read'],
+    agentTools: [
+      { name: 'list_notes', description: 'List notes', action: { type: 'api.request', method: 'GET', path: '/v1/people' } },
+    ],
+  });
+
+  it('gates developer routes on a non-app key with user-apps:manage', async () => {
+    const asApp = await dev(appSession).request('/v1/user-apps');
+    expect(asApp.status).toBe(403);
+    const noScope = await dev(developerKey(['tickets:read'])).request('/v1/user-apps', json('POST', {}));
+    expect(noScope.status).toBe(403);
+  });
+
+  it('lists installed agent tools, an app token only its own', async () => {
+    const m = masterDb as unknown as import('drizzle-orm/pglite').PgliteDatabase<typeof masterSchema>;
+    await m
+      .update(masterSchema.userApps)
+      .set({ manifest: manifest('tasks-app', '1.0.0') as never })
+      .where(eq(masterSchema.userApps.id, 'uapp_tasks'));
+    const all = await dev(developerKey(['tickets:read'])).request('/v1/user-apps/agent-tools');
+    expect(all.status).toBe(200);
+    expect(((await all.json()) as { data: unknown[] }).data).toHaveLength(1);
+    const own = await dev(appSession).request('/v1/user-apps/agent-tools');
+    expect(((await own.json()) as { data: Array<{ appCode: string }> }).data[0]?.appCode).toBe('tasks-app');
+  });
+
+  it('creates, reads, updates and deletes an app', async () => {
+    const { request } = dev();
+    expect((await request('/v1/user-apps', json('POST', { code: 'notes-app' }))).status).toBe(400);
+    expect((await request('/v1/user-apps', json('POST', { code: 'weldcrm', name: 'CRM' }))).status).toBe(409);
+    expect((await request('/v1/user-apps', json('POST', { code: 'tasks-app', name: 'Tasks' }))).status).toBe(409);
+    const created = await request(
+      '/v1/user-apps',
+      json('POST', { code: 'notes-app', name: 'Notes', description: 'Team notes', icon: 'NotebookPen', screenshots: [] }),
+    );
+    expect(created.status).toBe(201);
+    const { data: app } = (await created.json()) as { data: { id: string; publisherType: string; icon: string } };
+    expect(app).toMatchObject({ publisherType: 'community', icon: 'NotebookPen' });
+
+    const listed = (await (await request('/v1/user-apps')).json()) as { data: Array<{ id: string }> };
+    expect(listed.data.map((a) => a.id)).toContain(app.id);
+    expect((await request(`/v1/user-apps/${app.id}`)).status).toBe(200);
+    expect((await request('/v1/user-apps/uapp_tasks')).status).toBe(404);
+
+    const patched = await request(
+      `/v1/user-apps/${app.id}`,
+      json('PATCH', { name: 'Team notes', websiteUrl: null, isActive: false, category: 'Docs' }),
+    );
+    expect(patched.status).toBe(200);
+    expect((await request(`/v1/user-apps/${app.id}`, json('PATCH', { name: '' }))).status).toBe(400);
+    expect((await request('/v1/user-apps/uapp_missing', json('PATCH', { name: 'X' }))).status).toBe(404);
+
+    expect((await request(`/v1/user-apps/${app.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await request(`/v1/user-apps/${app.id}`)).status).toBe(404);
+    expect((await request(`/v1/user-apps/${app.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('refuses to delete an app installed elsewhere', async () => {
+    const m = masterDb as unknown as import('drizzle-orm/pglite').PgliteDatabase<typeof masterSchema>;
+    await m.insert(masterSchema.userApps).values({
+      id: 'uapp_shared',
+      code: 'shared-app',
+      name: 'Shared',
+      ownerWorkspaceId: 'ws_test',
+      createdBy: 'user_dev',
+    } as typeof masterSchema.userApps.$inferInsert);
+    await m.insert(masterSchema.userAppInstalls).values({
+      id: 'uai_shared_other',
+      appId: 'uapp_shared',
+      workspaceId: 'ws_other',
+      installedBy: 'user_other',
+    } as typeof masterSchema.userAppInstalls.$inferInsert);
+    const res = await dev().request('/v1/user-apps/uapp_shared', { method: 'DELETE' });
+    expect(res.status).toBe(409);
+  });
+
+  it('uploads versions, publishes them and submits the app for review', async () => {
+    const { request } = dev();
+    const created = await request('/v1/user-apps', json('POST', { code: 'board-app', name: 'Board' }));
+    const { data: app } = (await created.json()) as { data: { id: string } };
+    const versions = `/v1/user-apps/${app.id}/versions`;
+
+    expect((await request(`/v1/user-apps/${app.id}/submit`, json('POST', {}))).status).toBe(400);
+    expect((await request(versions, upload(undefined, [['index.html', '<html>']]))).status).toBe(400);
+    expect((await request(versions, upload('{nope', [['index.html', '<html>']]))).status).toBe(400);
+    const invalid = await request(versions, upload({ code: 'board-app' }, [['index.html', '<html>']]));
+    expect(invalid.status).toBe(400);
+    expect(((await invalid.json()) as { error: { details: unknown } }).error.details).toBeTruthy();
+    expect((await request(versions, upload(manifest('other-app', '1.0.0'), [['index.html', '<html>']]))).status).toBe(
+      400,
+    );
+    expect((await request(versions, upload(manifest('board-app', '1.0.0'), []))).status).toBe(400);
+    expect((await request(versions, upload(manifest('board-app', '1.0.0'), [['../escape.html', 'x']]))).status).toBe(
+      400,
+    );
+
+    const first = await request(
+      versions,
+      upload(
+        manifest('board-app', '1.0.0'),
+        [
+          ['index.html', '<html>'],
+          ['./assets/app.js', 'console'],
+        ],
+        { changelog: 'First' },
+      ),
+    );
+    expect(first.status).toBe(201);
+    expect(((await first.json()) as { data: { status: string } }).data.status).toBe('published');
+    expect((await request(versions, upload(manifest('board-app', '1.0.0'), [['index.html', 'x']]))).status).toBe(409);
+    expect((await request(`/v1/user-apps/${app.id}`)).status).toBe(200);
+
+    const submitted = await request(`/v1/user-apps/${app.id}/submit`, json('POST', { notes: 'Please review' }));
+    expect(submitted.status).toBe(200);
+    expect(((await submitted.json()) as { data: { reviewStatus: string } }).data.reviewStatus).toBe('submitted');
+
+    // An approved public app's next version waits for review.
+    const m = masterDb as unknown as import('drizzle-orm/pglite').PgliteDatabase<typeof masterSchema>;
+    await m.update(masterSchema.userApps).set({ reviewStatus: 'approved' }).where(eq(masterSchema.userApps.id, app.id));
+    const second = await request(versions, upload(manifest('board-app', '1.1.0'), [['index.html', '<html>v2']]));
+    expect(second.status).toBe(201);
+    expect(((await second.json()) as { data: { status: string } }).data.status).toBe('draft');
+    const listed = (await (await request(versions)).json()) as { data: unknown[] };
+    expect(listed.data).toHaveLength(2);
+    expect((await request('/v1/user-apps/uapp_missing/versions')).status).toBe(404);
+  });
+
+  it('registers and removes preview sessions', async () => {
+    const { request } = dev();
+    const created = await request('/v1/user-apps', json('POST', { code: 'preview-app', name: 'Preview' }));
+    const { data: app } = (await created.json()) as { data: { id: string } };
+    const path = `/v1/user-apps/${app.id}/dev-session`;
+    expect((await request(path, json('PUT', { url: 'http://localhost:5173' }))).status).toBe(400);
+    expect((await request(path, json('PUT', { url: 'https://evil.example.com', userId: 'user_dev' }))).status).toBe(400);
+    expect((await request(path, json('PUT', { url: 'not a url' }))).status).toBe(400);
+    const saved = await request(path, json('PUT', { url: 'http://localhost:5173', userId: 'user_dev' }));
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as { data: { url: string } }).data.url).toBe('http://localhost:5173');
+    expect((await request(path, json('PUT', { url: 'http://127.0.0.1:5174', userId: 'user_dev' }))).status).toBe(200);
+    expect((await request(path, { method: 'DELETE' })).status).toBe(400);
+    expect((await request(`${path}?userId=user_dev`, { method: 'DELETE' })).status).toBe(204);
+    expect((await request('/v1/user-apps/uapp_missing/dev-session?userId=u', { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('creates and rotates the OAuth client', async () => {
+    const { request } = dev();
+    const created = await request('/v1/user-apps', json('POST', { code: 'client-app', name: 'Client' }));
+    const { data: app } = (await created.json()) as { data: { id: string } };
+    const path = `/v1/user-apps/${app.id}/oauth-client`;
+    expect((await request(path)).status).toBe(404);
+    const first = await request(path, { method: 'POST' });
+    expect(first.status).toBe(201);
+    const { data: client } = (await first.json()) as { data: { clientId: string; clientSecret: string } };
+    expect(client.clientSecret).toMatch(/^wacs_[0-9a-f]{40}$/);
+    const read = await request(path);
+    expect(((await read.json()) as { data: { clientId: string } }).data.clientId).toBe(client.clientId);
+    const rotated = await request(path, { method: 'POST' });
+    expect(rotated.status).toBe(200);
+    expect((await request('/v1/user-apps/uapp_missing/oauth-client', { method: 'POST' })).status).toBe(404);
   });
 });

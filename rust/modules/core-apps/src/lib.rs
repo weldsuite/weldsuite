@@ -41,8 +41,9 @@ mod cli_auth;
 mod code_routes;
 mod http_transport;
 mod publish;
-mod schemas;
-mod scopes;
+
+// The request schemas and scope rules, shared with external-api.
+use weldsuite_apps_domain::{schemas, scopes};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
