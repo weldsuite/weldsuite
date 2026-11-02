@@ -359,6 +359,7 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
+| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). See "WeldMeet on LiveKit" below |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
@@ -406,6 +407,82 @@ named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
 files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
 attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
 (`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+
+## WeldMeet on LiveKit
+
+Global's meetings run on Cloudflare RealtimeKit; the Kubernetes editions run
+them on a LiveKit server (Apache-2.0) that the install provides. Same API,
+same call UI:
+
+- **Server.** With `VIDEO_PROVIDER=livekit` (chart: `config.video`) the meet
+  module creates rooms over LiveKit's `RoomService`, and the session start
+  and join routes answer a LiveKit join token as `authToken`. The token
+  follows the RealtimeKit preset it stands for: the host's carries
+  `roomAdmin` on its room, a waiting guest's grants nothing and carries the
+  `weldsuite.waiting` attribute (`crates/video-rooms/src/livekit.rs`).
+  `/config.json` tells the platform `videoProvider: "livekit"` and `videoUrl`
+  (`LIVEKIT_URL`). LiveKit's webhook (`/api/webhooks/livekit`) keeps presence
+  and ends the session when the room closes.
+- **Client.** `@weldsuite/weldmeet-ui/providers/livekit` is a LiveKit client
+  (`livekit-client`, pinned) behind the RealtimeKit client surface the
+  WeldMeet UI is written against, so the platform's call context, the
+  meeting overlay and the meeting portal keep one UI and pick the client by
+  provider (`apps/web/platform/lib/video-provider.ts`; the portal by its join
+  answer). Global has no `/config.json` and never loads it. Covered: join and
+  leave with reconnects, camera, microphone, screen share (with its audio),
+  device switching, the participant grid and active speaker, connection
+  quality, hand raise, host-control updates and the meeting tools (timer,
+  Q&A, breakout rooms) over reliable data packets, the waiting room (the host
+  admits with `UpdateParticipant`, rejects with `RemoveParticipant`), host
+  mute and remove (`MutePublishedTrack`, `RemoveParticipant` with the host's
+  token; the server-side removal and "end for all" go through the meet API
+  as on Global), and RNNoise noise suppression (the same `getUserMedia`
+  patch). Not on LiveKit, hidden there: recording and transcripts
+  (`meet-recordings`, `meet-transcription`), RealtimeKit's live transcript,
+  captions, translation, polls and live stream (the tools panel leaves out
+  what the client lacks), and background effects (RealtimeKit video
+  middlewares). The in-meeting chat is the meet API's, as on Global.
+- **Meeting portal (guests).** Its join route mints the guest's LiveKit token
+  itself (`@weldsuite/meet-domain/livekit`, the claims above) when it runs
+  with `VIDEO_PROVIDER=livekit`, `LIVEKIT_URL`, `LIVEKIT_API_KEY` and
+  `LIVEKIT_API_SECRET`, and tells the guest's client where to connect. The
+  portal is not part of this chart yet: it reads the tenant databases and
+  calls the realtime worker directly (see its `lib/`).
+
+What a cluster needs (the EU cluster has none of it yet; this chart does not
+deploy it):
+
+1. A LiveKit server (`livekit/livekit-server`, v1.13 or later for the pinned
+   `livekit-client`; the official `livekit/livekit-server` Helm chart, or
+   the image as a Deployment). One replica is enough to start; more need
+   Valkey (`redis:` in its config) for routing. It needs public UDP for media
+   (`rtc.port_range_start`/`_end` or a single `rtc.udp_port` with
+   `use_external_ip: true`, or the node's IP), TCP 7881 as the fallback, and
+   its HTTP/WebSocket port 7880 behind the ingress as `wss://livekit.<domain>`.
+   Run it with `hostNetwork` or a LoadBalancer for the UDP range: media does
+   not go through an HTTP ingress.
+2. TURN for clients behind strict firewalls: LiveKit's embedded TURN
+   (`turn.enabled`, TLS on 443 or 5349 with a certificate for
+   `turn.<domain>`), or a coturn next to it.
+3. Its config: one API key pair (`keys:`), the same pair in the WeldSuite
+   Secret (`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`), and
+   `webhook.urls: [https://<weldsuite host>/api/webhooks/livekit]` signed
+   with that key (`webhook.api_key`).
+4. The chart: `config.video.provider: livekit`, `config.video.livekit.url:
+   wss://livekit.<domain>`, and `apiUrl` when the server reaches LiveKit's
+   API inside the cluster (`http://livekit.livekit:7880`); the network policy
+   must let the server out to it.
+5. Recording later is LiveKit Egress (and its own deployment), writing into
+   the files store; not built (`meet-recordings`).
+
+Checked locally against `livekit/livekit-server:v1.13.10` (`--config` with
+`node_ip: 127.0.0.1`, a webhook to the server) and this server with
+`VIDEO_PROVIDER=livekit`: tokens from the session start and join routes,
+three Chrome pages on the LiveKit client (host, member, a waiting guest
+minted as the portal mints it): media both ways, broadcasts, camera on and
+off, the waiting room with admit, host mute and remove, end for all, and the
+webhook keeping the session. v1.9 servers are too old for the pinned client
+(its `/rtc/v1` signalling and negotiation time out).
 
 ## Inbound mail
 

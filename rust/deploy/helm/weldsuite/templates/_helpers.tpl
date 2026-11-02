@@ -74,6 +74,28 @@ cron jobs and the migration Job read the same settings
 - name: PUBLIC_ENV
   value: {{ toJson . | quote }}
 {{- end }}
+{{- with .Values.config.video }}
+{{- if eq (.provider | default "") "livekit" }}
+- name: VIDEO_PROVIDER
+  value: "livekit"
+- name: LIVEKIT_URL
+  value: {{ required "config.video.livekit.url is required with config.video.provider livekit" .livekit.url | quote }}
+{{- with .livekit.apiUrl }}
+- name: LIVEKIT_API_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .livekit.tokenTtlSeconds }}
+- name: LIVEKIT_TOKEN_TTL_SECONDS
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- else if .provider }}
+{{- if ne .provider "realtimekit" }}
+{{- fail "config.video.provider must be livekit or realtimekit" }}
+{{- end }}
+- name: VIDEO_PROVIDER
+  value: "realtimekit"
+{{- end }}
+{{- end }}
 {{- with .Values.config.auth }}
 - name: AUTH_PROVIDER
   value: {{ .provider | quote }}

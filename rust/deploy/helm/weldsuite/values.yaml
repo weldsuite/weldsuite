@@ -43,6 +43,24 @@ config:
   #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
   #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
   publicEnv: {}
+  # WeldMeet's video provider. livekit: a LiveKit server you run next to the
+  # chart (not part of it; see rust/README.md, "WeldMeet on LiveKit"). The
+  # server mints LiveKit join tokens with the key pair in the Secret
+  # (LIVEKIT_API_KEY, LIVEKIT_API_SECRET), administers rooms over its API, and
+  # tells the platform where to connect (/config.json videoProvider and
+  # videoUrl). Point LiveKit's webhook at https://<host>/api/webhooks/livekit,
+  # signed with the same key. Empty: the server's default (realtimekit, which
+  # only Global's Cloudflare account can serve).
+  video:
+    provider: ""
+    livekit:
+      # What browsers connect to (wss://livekit.<domain>); also the API's
+      # address unless apiUrl is set.
+      url: ""
+      # The API inside the cluster, e.g. http://livekit.livekit:7880 (optional).
+      apiUrl: ""
+      # How long a join token can be used to connect (default 600).
+      tokenTtlSeconds: ""
   # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
   # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
   # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
@@ -193,6 +211,9 @@ config:
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
+#   LIVEKIT_API_KEY / LIVEKIT_API_SECRET  WeldMeet on LiveKit (config.video.provider: livekit):
+#                                the key pair of the LiveKit server, signing join tokens,
+#                                room administration and its webhooks
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
 #                                the relay system mail goes through (optional; unset skips mail)
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
