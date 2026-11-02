@@ -1881,6 +1881,22 @@
         "src/routes/parcel-settings/routes.test.ts",
         "src/routes/parcel-wallet/routes.test.ts"
       ],
+      "coverage": [
+        "/api/carriers",
+        "/api/return-reasons",
+        "/api/return-rules",
+        "/api/pickups",
+        "/api/returns",
+        "/api/shipments",
+        "/api/shipping-rules",
+        "/api/shipping-prices",
+        "/api/parcels",
+        "/api/parcel-analytics",
+        "/api/parcel-notifications",
+        "/api/parcel-rates",
+        "/api/parcel-settings",
+        "/api/parcel-wallet"
+      ],
       "paths": [
         "apps/workers/commerce-api/src/routes/carriers/",
         "apps/workers/commerce-api/src/routes/return-reasons/",

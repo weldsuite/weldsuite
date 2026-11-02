@@ -17,6 +17,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::sales_tax::TaxUse;
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
@@ -31,7 +32,6 @@ use crate::order_tax::{
 };
 use crate::tables;
 use crate::{Caller, CommerceState, Refusal, all, now, positive, validate};
-use weldsuite_books_domain::sales_tax::TaxUse;
 
 const ORDER_LIST: (&str, &str) = listing_as!(row_of!(orders); "orders";
     "($2::boolean or t.customer_id = $3::text)",

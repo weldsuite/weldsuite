@@ -40,6 +40,14 @@ interface Suite {
    * tested on the Rust side instead.
    */
   excludedRoutes?: Array<{ route: string; reason: string }>;
+  /**
+   * The route prefixes the suite owns, when its files mount other route
+   * groups' routers only to set up their data: only routes under them are
+   * recorded in its inventory (the test side filters,
+   * worker-kit/src/testing/conformance-coverage.ts). Absent: every route its
+   * files mount. Empty: none (a cross-area suite).
+   */
+  coverage?: string[];
 }
 
 interface RequestLine {
