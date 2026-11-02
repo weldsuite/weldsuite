@@ -144,6 +144,10 @@ pub(crate) fn router(state: AppState) -> Router {
     // embedded on customers' sites), so it goes in outside `api_cors()`.
     let widget =
         crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // The public API (`/v1`) has its own authentication and answers CORS for
+    // any origin, as external-api does.
+    let public_api =
+        crate::routes::external_api(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -157,6 +161,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         .merge(widget)
+        .merge(public_api)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
         .layer(

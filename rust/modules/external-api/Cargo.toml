@@ -1,0 +1,36 @@
+[package]
+name = "weldsuite-external-api"
+description = "WeldSuite's public API (external-api, /v1): wsk_ keys and wsat_ app tokens, scopes, licence and rate limits, and the /v1 object groups"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-pipeline = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "multipart", "query"] }
+form_urlencoded = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tower = { workspace = true }
+
+[lints]
+workspace = true

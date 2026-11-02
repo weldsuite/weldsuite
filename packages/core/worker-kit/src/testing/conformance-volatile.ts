@@ -33,6 +33,10 @@ interface VolatileRoute {
 }
 
 const ROUTES: VolatileRoute[] = [
+  // The public API's client_credentials grant: a fresh `wsat_` token per run.
+  { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
+  // The public API's database check answers with the time it ran.
+  { method: 'GET', route: '/v1/health/db', fields: [{ path: 'data.timestamp' }] },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
   // expiry in seconds, so it differs when the runs straddle a second.
   {

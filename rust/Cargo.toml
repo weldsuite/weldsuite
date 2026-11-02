@@ -51,6 +51,7 @@ weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-desk-widget = { path = "modules/desk-widget" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
+weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-hr = { path = "modules/hr" }

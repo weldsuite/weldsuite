@@ -1515,3 +1515,65 @@ fn chat_tenants(state: &AppState) -> weldsuite_chat::TenantDatabases {
         })
     })
 }
+
+/// The public API (`/v1`, external-api), on this host beside `/api`: its own
+/// authentication (`wsk_` keys, `wsat_` app tokens), licence gate and rate
+/// limit instead of the session pipeline, and CORS for any origin (Hono's
+/// `cors()`). Each object group is mounted where its module is
+/// (`weldsuite_external_api::router`). Conformance builds take the key's
+/// session from the test's context instead, and run the licence gate as the
+/// worker's harness does.
+pub(crate) fn external_api(state: &AppState) -> Router {
+    let external = external_api_state(state);
+    let api = weldsuite_external_api::router::<()>(external.clone(), &mounts);
+    #[cfg(not(feature = "conformance"))]
+    let api = api
+        .layer(axum::middleware::from_fn_with_state(
+            external.clone(),
+            weldsuite_external_api::rate_limit,
+        ))
+        .layer(axum::middleware::from_fn(
+            weldsuite_external_api::licence_gate,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            external,
+            weldsuite_external_api::authenticate,
+        ));
+    #[cfg(feature = "conformance")]
+    let api = {
+        drop(external);
+        api.layer(axum::middleware::from_fn(
+            weldsuite_external_api::licence_gate,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::external_api,
+        ))
+    };
+    Router::new().nest("/v1", api).layer(
+        tower_http::cors::CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([
+                http::Method::GET,
+                http::Method::HEAD,
+                http::Method::PUT,
+                http::Method::POST,
+                http::Method::DELETE,
+                http::Method::PATCH,
+            ])
+            .allow_headers(tower_http::cors::AllowHeaders::mirror_request()),
+    )
+}
+
+fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiState {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    weldsuite_external_api::ExternalApiState {
+        events: state.infra.events.clone(),
+        master: state.workspaces.master().clone(),
+        workspaces: Arc::clone(&state.workspaces),
+        cache: state.infra.cache.clone(),
+        env: Arc::clone(ENV.get_or_init(|| {
+            Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
+        })),
+    }
+}

@@ -3847,6 +3847,7 @@ dependencies = [
  "weldsuite-desk-widget",
  "weldsuite-emails",
  "weldsuite-events",
+ "weldsuite-external-api",
  "weldsuite-flow",
  "weldsuite-hr",
  "weldsuite-kit",
@@ -4584,6 +4585,32 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-external-api"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "http",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-pipeline",
  "weldsuite-ports",
 ]
 

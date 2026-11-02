@@ -2216,6 +2216,30 @@
         "rust/modules/books-sales-tax/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "external-api",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "tests": [
+        "src/test/special.test.ts"
+      ],
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ]
+    },
+    {
+      "name": "external-api: weldapps",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "tests": [
+        "src/test/weldapps.test.ts"
+      ],
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ]
     }
   ]
 }

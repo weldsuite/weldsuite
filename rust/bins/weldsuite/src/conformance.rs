@@ -236,6 +236,10 @@ struct TestContext {
     /// `conformance_books`).
     #[serde(default)]
     services: HashMap<String, String>,
+    /// The public API key's session (external-api's harness), or none: the
+    /// `/v1` routes then answer 401.
+    #[serde(default)]
+    api_session: Option<weldsuite_external_api::ApiSession>,
 }
 
 impl TestContext {
@@ -489,6 +493,53 @@ pub(crate) async fn auth(
         session_id: context.session_id,
         factor_verification_age: context.factor_verification_age,
     });
+    run_reporting_route(request, next).await
+}
+
+/// Middleware in place of the public API's key authentication (`/v1`): the
+/// test's key session (`apiSession`) and its tenant database, as
+/// external-api's harness sets them; without a session the routes refuse.
+pub(crate) async fn external_api(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let Some(context) = TestContext::from_headers(request.headers()) else {
+        return ApiError::unauthorized()
+            .with_message("Missing conformance context")
+            .into_response();
+    };
+    let db = match pools.get(&context.database_url) {
+        Ok(db) => db,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(url) = context.master_database_url.as_deref() {
+        match pools.get(url) {
+            Ok(master) => {
+                request
+                    .extensions_mut()
+                    .insert(weldsuite_db::MasterDb(master));
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    pools.insert_shared(request.extensions_mut(), &context);
+    // The test's `API_CACHE`, or none: never the server's own cache, which
+    // every test shares.
+    let api_cache = pools.kv.api_cache(&context.kv);
+    request
+        .extensions_mut()
+        .insert(weldsuite_external_api::RequestApiCache(api_cache));
+    if let Some(session) = context.api_session {
+        let tenant = Tenant {
+            workspace_id: session.workspace_id.clone(),
+            clerk_org_id: session.clerk_org_id.clone(),
+            db,
+            suspended: false,
+            restrictions: WorkspaceRestrictions::default(),
+        };
+        weldsuite_external_api::insert_session(request.extensions_mut(), session, tenant);
+    }
     run_reporting_route(request, next).await
 }
 

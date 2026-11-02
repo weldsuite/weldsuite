@@ -120,6 +120,18 @@ impl KvBridges {
             .or_insert_with(|| Arc::new(HttpCache::new(url, self.client.clone())));
         Some(RequestCache(Arc::clone(cache)))
     }
+
+    /// The public API's own cache from the test context's `kv`
+    /// (`{ API_CACHE: url }`, external-api's `API_CACHE`); `None` when the
+    /// test has none, and then the routes cache nothing.
+    pub(crate) fn api_cache(&self, kv: &HashMap<String, String>) -> Option<Arc<dyn DynCache>> {
+        let url = kv.get("API_CACHE")?;
+        let mut caches = self.caches.lock().unwrap_or_else(PoisonError::into_inner);
+        let cache = caches
+            .entry(url.clone())
+            .or_insert_with(|| Arc::new(HttpCache::new(url, self.client.clone())));
+        Some(Arc::clone(cache))
+    }
 }
 
 #[cfg(test)]

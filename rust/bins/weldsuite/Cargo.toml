@@ -45,6 +45,7 @@ weldsuite-books-sales-tax = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-hr = { workspace = true }
+weldsuite-external-api = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
@@ -74,7 +75,7 @@ sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tower = { workspace = true, features = ["util"] }
-tower-http = { workspace = true, features = ["fs", "trace"] }
+tower-http = { workspace = true, features = ["cors", "fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }
