@@ -187,7 +187,7 @@ mod tests {
     fn licences_and_read_only() {
         let crm = module_for_external_path("/v1/people");
         let own = crm.apps.as_ref().expect("gated")[0].clone();
-        assert_eq!(missing_licensed_app(crm, &[own.clone()]), None);
+        assert_eq!(missing_licensed_app(crm, std::slice::from_ref(&own)), None);
         assert_eq!(missing_licensed_app(crm, &[]), Some(own.as_str()));
         assert!(is_read_only_request_allowed(&Method::GET, "/v1/people"));
         assert!(!is_read_only_request_allowed(&Method::POST, "/v1/people"));

@@ -193,7 +193,7 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
 }
 
 /// `{ data: rows, pagination: { totalCount: rows.length, hasMore: false, cursor: null } }`.
-fn whole_list(rows: Vec<Value>) -> Response {
+fn whole_list(rows: &[Value]) -> Response {
     let total = rows.len();
     Json(json!({
         "data": rows,
@@ -201,6 +201,9 @@ fn whole_list(rows: Vec<Value>) -> Response {
     }))
     .into_response()
 }
+
+/// An install's app code, name, manifest and granted scopes.
+type ToolRow = (String, String, Option<Value>, Option<Value>);
 
 // ── GET /agent-tools ─────────────────────────────────────────────────────────
 
@@ -211,18 +214,17 @@ pub(crate) async fn agent_tools(caller: Developer) -> Response {
     let app_id = (key.session.key_type == KeyType::App)
         .then(|| key.session.app_id.clone())
         .flatten();
-    let rows: Result<Vec<(String, String, Option<Value>, Option<Value>)>, sqlx::Error> =
-        sqlx::query_as(
-            "select a.code, a.name, a.manifest, i.granted_scopes
+    let rows: Result<Vec<ToolRow>, sqlx::Error> = sqlx::query_as(
+        "select a.code, a.name, a.manifest, i.granted_scopes
            from user_app_installs i
            join user_apps a on a.id = i.app_id
           where i.workspace_id = $1 and i.status = 'active' and a.is_active = true
             and a.deleted_at is null and ($2::text is null or i.app_id = $2)",
-        )
-        .bind(&key.session.workspace_id)
-        .bind(app_id)
-        .fetch_all(&master)
-        .await;
+    )
+    .bind(&key.session.workspace_id)
+    .bind(app_id)
+    .fetch_all(&master)
+    .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return db_error(&error).into_response(),
@@ -337,7 +339,9 @@ pub(crate) async fn list(developer: Developer) -> Response {
             .fetch_all(&developer.master)
             .await
             .map_err(|error| db_error(&error))?;
-            Ok(whole_list(rows.into_iter().map(js_row).collect()))
+            Ok(whole_list(
+                &rows.into_iter().map(js_row).collect::<Vec<_>>(),
+            ))
         }
         .await,
     )
@@ -499,7 +503,9 @@ pub(crate) async fn versions(developer: Developer, Path(id): Path<String>) -> Re
             .fetch_all(&developer.master)
             .await
             .map_err(|error| db_error(&error))?;
-            Ok(whole_list(rows.into_iter().map(js_row).collect()))
+            Ok(whole_list(
+                &rows.into_iter().map(js_row).collect::<Vec<_>>(),
+            ))
         }
         .await,
     )

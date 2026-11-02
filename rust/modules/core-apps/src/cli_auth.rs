@@ -442,7 +442,13 @@ async fn approve_with(
         "orgName": org_name,
         "userId": caller.user_id,
         "email": email,
-        "apiUrl": default_external_api_url(caller.overrides.env(state, "ENVIRONMENT")),
+        // On Kubernetes the public API is on the edition's own host
+        // (`PUBLIC_API_URL`); Global's workers name api(-test).weldsuite.org.
+        "apiUrl": caller
+            .overrides
+            .env(state, "PUBLIC_API_URL")
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| default_external_api_url(caller.overrides.env(state, "ENVIRONMENT"))),
     });
     #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     let elapsed = ((now_ms() as f64 - created_at) / 1000.0).floor() as i64;

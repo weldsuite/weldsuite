@@ -42,6 +42,10 @@ pub fn is_native_only(code: &str) -> bool {
 // ── crypto ───────────────────────────────────────────────────────────────────
 
 /// `randomHex(bytes)`: lowercase hex of `bytes` random bytes.
+///
+/// # Panics
+///
+/// When the operating system has no random source.
 pub fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     aws_lc_rs::rand::fill(&mut buffer).expect("the system random source works");

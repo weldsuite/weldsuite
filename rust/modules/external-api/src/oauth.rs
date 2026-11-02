@@ -1,5 +1,5 @@
 //! `POST /v1/oauth/token` (`routes/oauth.ts`): the OAuth 2.0
-//! `client_credentials` grant for an installed WeldApp's backend. The client
+//! `client_credentials` grant for the backend of an installed app. The client
 //! credentials in the body are the authentication (the route sits before
 //! the key layers); the answer is a one-hour `wsat_` session token with the
 //! install's granted scopes, in RFC 6749's shape, not the house envelope.

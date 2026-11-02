@@ -105,9 +105,10 @@ impl CoreAppsState {
 }
 
 /// The settings [`CoreAppsState::env`] holds.
-pub const ENV_KEYS: [&str; 7] = [
+pub const ENV_KEYS: [&str; 8] = [
     "ENVIRONMENT",
     "EXTERNAL_API_URL",
+    "PUBLIC_API_URL",
     "INTERNAL_API_SECRET",
     "USER_APP_BUNDLE_SIGNING_KEY",
     "USER_APP_BUNDLE_ORIGIN",

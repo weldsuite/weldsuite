@@ -74,6 +74,11 @@ spec:
             - name: REALTIME_SEND_QUEUE
               value: {{ .sendQueue | quote }}
             {{- end }}
+            # The WeldApps gateway forwards an app's API calls to the public
+            # API (`/v1`), which this server serves itself: through its own
+            # Service, unless config.publicApi.gatewayUrl names another.
+            - name: EXTERNAL_API_URL
+              value: {{ .Values.config.publicApi.gatewayUrl | default (printf "http://%s:%v" (include "weldsuite.fullname" .) .Values.service.port) | quote }}
             # The platform SPA in the image, for every path the API doesn't
             # answer; empty serves the API alone.
             - name: SPA_DIR

@@ -97,6 +97,11 @@ config:
   # every pod; pods share hubs, rooms, presence and the replay log through
   # Valkey, so no sticky sessions are needed. It needs a standalone Valkey
   # (or a primary with replicas), not a Valkey cluster.
+  # The public API (external-api's `/v1`: wsk_ keys, WeldApps tokens, the
+  # weld CLI) is served on the same host as /api. The WeldApps gateway
+  # reaches it through this release's own Service by default.
+  publicApi:
+    gatewayUrl: ""
   realtime:
     # The URL /config.json gives the frontends. Empty: the origin that
     # /config.json was requested on, with /ws (wss:// behind TLS), which is

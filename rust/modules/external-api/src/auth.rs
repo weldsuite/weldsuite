@@ -205,7 +205,7 @@ async fn workspace(state: &ExternalApiState, workspace_id: &str) -> Option<(Tena
 
 /// The session fields that come from the workspace.
 fn restricted(session: &mut ApiSession, tenant: &Tenant, tier: &str) {
-    session.tier = tier.to_owned();
+    tier.clone_into(&mut session.tier);
     session.clerk_org_id.clone_from(&tenant.clerk_org_id);
     session.licensed_apps = tenant.licensed_apps().map(<[String]>::to_vec);
     session.read_only = tenant.restrictions.read_only;

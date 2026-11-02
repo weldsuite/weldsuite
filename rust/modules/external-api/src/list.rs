@@ -19,7 +19,8 @@ use crate::session::database_error;
 
 /// `DEFAULT_LIMIT` and `MAX_LIMIT` of `lib/pagination.ts`.
 pub(crate) const DEFAULT_LIMIT: i64 = 50;
-pub(crate) const MAX_LIMIT: i64 = 200;
+/// (`MAX_LIMIT`, as the float the validator and the clamp compare with.)
+const MAX_LIMIT_F64: f64 = 200.0;
 
 /// The page and count statements of a cursor list. `$table` is the table,
 /// `$row` the JSON of one row of it (aliased `t`), `$filter` a condition on
@@ -76,7 +77,7 @@ impl ListQuery {
                     coerce: true,
                     int: false,
                     min: Some(1.0),
-                    max: Some(MAX_LIMIT as f64),
+                    max: Some(MAX_LIMIT_F64),
                 },
             )
             .into_option();
@@ -93,7 +94,7 @@ pub(crate) fn clamp_limit(raw: Option<f64>) -> i64 {
     match raw {
         Some(n) if n.is_finite() && n > 0.0 => {
             #[allow(clippy::cast_possible_truncation)] // floored and capped at 200
-            let n = n.floor().min(MAX_LIMIT as f64) as i64;
+            let n = n.floor().min(MAX_LIMIT_F64) as i64;
             n
         }
         _ => DEFAULT_LIMIT,

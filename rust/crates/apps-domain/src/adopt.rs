@@ -1,5 +1,5 @@
 //! Adopting first-party (`system`) tenant installs onto an official hosted
-//! WeldApp (`adoptSystemInstallInTenant` and its sweeps, `services/user-apps.ts`
+//! app of WeldApps (`adoptSystemInstallInTenant` and its sweeps, `services/user-apps.ts`
 //! of app-api and `services/adopt-system-install.ts` of external-api, which
 //! mirrors it): app-api runs it on store reads and when an official app goes
 //! live, external-api when the CLI publishes one.

@@ -19,6 +19,9 @@
 //! TypeScript worker's; its tests run against this crate in the
 //! `external-api` conformance suite (`rust/conformance/suites.json`).
 
+// Handlers answer a ready `Response` as their error (a validation failure).
+#![allow(clippy::result_large_err)]
+
 /// `requireScope(scope)` as a route layer.
 macro_rules! scope {
     ($scope:literal) => {
