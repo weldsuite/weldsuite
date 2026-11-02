@@ -54,11 +54,15 @@ async function listed(path: string): Promise<string[]> {
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
-  await db.insert(schema.workspaceMembers).values({
-    id: 'wm_flow_actor',
-    userId: 'user_test',
-    role: 'ADMIN',
-  } as typeof schema.workspaceMembers.$inferInsert);
+  // A worker's files share one pglite: another file may have added the member.
+  await db
+    .insert(schema.workspaceMembers)
+    .values({
+      id: 'wm_flow_actor',
+      userId: 'user_test',
+      role: 'ADMIN',
+    } as typeof schema.workspaceMembers.$inferInsert)
+    .onConflictDoNothing();
   const project = await post('/v1/projects', {
     name: 'Launch',
     status: 'on hold',

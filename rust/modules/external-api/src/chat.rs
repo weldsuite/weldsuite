@@ -50,6 +50,7 @@ fn default_to(values: &mut Map<String, Value>, key: &str, fallback: Value) {
 
 /// channels: `slug` is NOT NULL, derived from the name when not sent (the
 /// id when that leaves nothing; filled in by the engine's `id`).
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn channel_values(
     _: &Caller,
     values: &mut Map<String, Value>,
@@ -137,6 +138,7 @@ static CHANNEL_MEMBERS: Simple = Simple {
 
 /// chat-messages: the schema's `body` is the `content` column; a create
 /// fills in the author.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn message_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -188,6 +190,7 @@ static MESSAGES: Simple = Simple {
 
 /// chat-bookmarks: the caller's, with empty message and channel ids when
 /// not sent.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn bookmark_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -227,6 +230,7 @@ static BOOKMARKS: Simple = Simple {
 
 /// chat-drafts: `workspace_id` holds the Clerk org id; the schema's `body`
 /// is the `content` column.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn draft_values(
     caller: &Caller,
     values: &mut Map<String, Value>,

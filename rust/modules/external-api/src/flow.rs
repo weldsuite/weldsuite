@@ -239,6 +239,7 @@ static SPRINTS_GROUP: Simple = Simple {
 
 /// task-comments: the schema's `body` is the `content` column; a create
 /// fills in the author and the task type.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn comment_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -291,6 +292,7 @@ static TASK_COMMENTS_GROUP: Simple = Simple {
 };
 
 /// task-tags: a create belongs to the caller (`userId`).
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn tag_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -388,6 +390,7 @@ static FILES: Simple = Simple {
 };
 
 /// project-labels: `color` is NOT NULL, so a create defaults it.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn label_values(_: &Caller, values: &mut Map<String, Value>, create: bool) -> Result<Dates, Fail> {
     if create && matches!(values.get("color"), Some(Value::Null) | None) {
         values.insert("color".into(), json!("#6B7280"));
@@ -455,6 +458,7 @@ static MEMBERS: Simple = Simple {
 };
 
 /// project-messages: a create is sent by the caller unless it names a sender.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn message_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -740,6 +744,14 @@ async fn create_task_route(
     created(row)
 }
 
+/// A task's project, parent, stage and status, as a PATCH checks them.
+type TaskState = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// The only `tasks` columns a PATCH writes.
 const PATCHABLE_TASK_COLUMNS: [&str; 23] = [
     "title",
@@ -803,25 +815,20 @@ async fn update_task(
 ) -> Answer {
     let parsed = zod::json(&UPDATE_TASK, &headers, &body)?;
     let body = &parsed.body;
-    let existing: Option<(
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
+    let existing: Option<TaskState> = sqlx::query_as(
         "select project_id, parent_task_id, stage_id, status from tasks
              where id = $1 and deleted_at is null limit 1",
     )
     .bind(&id)
     .fetch_optional(&caller.db)
     .await?;
-    let Some((project, parent, stage, status)) = existing else {
+    let Some((project, parent_now, stage_now, status)) = existing else {
         return Err(not_found("Task", &id).into());
     };
     let sent_project = body.get("projectId").map(Value::as_str);
     if let Some(message) = validate_task_relations(
         &caller.db,
-        Some((project.as_deref(), parent.as_deref())),
+        Some((project.as_deref(), parent_now.as_deref())),
         Some(&id),
         sent_project,
         &parent_change(body),
@@ -859,7 +866,7 @@ async fn update_task(
     let change = apply_status_change(
         &caller.db,
         project.as_deref(),
-        stage.as_deref(),
+        stage_now.as_deref(),
         status.as_deref(),
         stage_sent,
         update
@@ -988,7 +995,7 @@ fn date_or_null(value: Option<&Value>) -> Result<Value, Fail> {
     }
 }
 
-fn time_entry_event(id: &str, row: &Value, user: Value) -> Value {
+fn time_entry_event(id: &str, row: &Value, user: &Value) -> Value {
     let duration = match row.get("duration") {
         Some(Value::String(text)) => {
             weldsuite_core_domain::js::number_value(weldsuite_kit::validation::js_number(text))
@@ -1078,7 +1085,7 @@ async fn create_time_entry(
         &state.events,
         PROJECT_TIME_ENTRY_CREATED,
         &id,
-        time_entry_event(&id, &row, json!(user)),
+        time_entry_event(&id, &row, &json!(user)),
     );
     created(row)
 }
@@ -1153,7 +1160,7 @@ async fn update_time_entry(
         &state.events,
         PROJECT_TIME_ENTRY_UPDATED,
         &id,
-        time_entry_event(&id, &row, user),
+        time_entry_event(&id, &row, &user),
     );
     ok(row)
 }
@@ -1167,7 +1174,7 @@ async fn delete_time_entry(State(state): S, caller: Caller, Path(id): Path<Strin
         &state.events,
         PROJECT_TIME_ENTRY_DELETED,
         &id,
-        time_entry_event(&id, &row, user),
+        time_entry_event(&id, &row, &user),
     );
     no_content()
 }

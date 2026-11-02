@@ -76,6 +76,7 @@ fn coalesce(values: &Map<String, Value>, keys: &[&str], fallback: Value) -> Valu
         .unwrap_or(fallback)
 }
 
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn account_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -127,6 +128,7 @@ static ACCOUNTS: Simple = Simple {
     touch: true,
 };
 
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn campaign_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -167,6 +169,7 @@ static CAMPAIGNS: Simple = Simple {
 };
 
 /// social-analytics: a snapshot is taken now unless it says when.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn analytics_values(
     _: &Caller,
     values: &mut Map<String, Value>,
@@ -241,6 +244,7 @@ fn guess_mime(file_name: &str, media_type: &str) -> &'static str {
 }
 
 /// `guessMediaType(fileName, explicit)`.
+#[allow(clippy::case_sensitive_file_extension_comparisons)] // lower-cased first
 fn guess_media_type(file_name: &str, explicit: Option<&str>) -> &'static str {
     match explicit {
         Some("image") => return "image",

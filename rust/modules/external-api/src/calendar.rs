@@ -25,6 +25,7 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
 }
 
 /// A calendar belongs to the caller unless it names an owner.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn calendar_values(
     caller: &Caller,
     values: &mut Map<String, Value>,
@@ -64,6 +65,7 @@ static CALENDAR_GROUP: Simple = Simple {
 /// `coerceDates`: the schema's `startsAt` / `endsAt` are the `startTime` /
 /// `endTime` columns (written as `Date`s by the engine); a create is
 /// organised by the caller and is an `event` unless it says otherwise.
+#[allow(clippy::unnecessary_wraps)] // a `simple::Prepare` hook
 fn event_values(
     caller: &Caller,
     values: &mut Map<String, Value>,

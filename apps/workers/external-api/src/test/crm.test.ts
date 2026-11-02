@@ -18,11 +18,15 @@ let db: Database;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
-  await db.insert(schema.workspaceMembers).values({
-    id: 'wm_crm_actor',
-    userId: 'user_test',
-    role: 'ADMIN',
-  } as typeof schema.workspaceMembers.$inferInsert);
+  // A worker's files share one pglite: another file may have added the member.
+  await db
+    .insert(schema.workspaceMembers)
+    .values({
+      id: 'wm_crm_actor',
+      userId: 'user_test',
+      role: 'ADMIN',
+    } as typeof schema.workspaceMembers.$inferInsert)
+    .onConflictDoNothing();
 }, 60_000);
 
 function api(scopes: string[] = ['*']) {

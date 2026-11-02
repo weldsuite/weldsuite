@@ -51,6 +51,7 @@ pub(crate) struct Column {
 /// A table the public API writes.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Table {
+    #[allow(dead_code)] // the table, for a reader of the generated file
     pub(crate) name: &'static str,
     pub(crate) columns: &'static [Column],
     /// Whether the table has `deleted_at` (the routes' soft delete).

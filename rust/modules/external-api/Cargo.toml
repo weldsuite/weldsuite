@@ -21,7 +21,7 @@ weldsuite-pipeline = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["json", "multipart", "original-uri", "query"] }
 form_urlencoded = { workspace = true }
-regex = { workspace = true }
+regex = { workspace = true, features = ["unicode-perl"] }
 url = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }

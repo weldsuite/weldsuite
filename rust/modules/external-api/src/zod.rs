@@ -25,6 +25,7 @@ pub(crate) type Msg = Option<&'static str>;
 
 /// `z.string()` checks, in the schema's order.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
 pub(crate) enum S {
     Min(usize, Msg),
     Max(usize, Msg),
@@ -48,6 +49,7 @@ pub(crate) enum S {
 
 /// `z.number()` checks, in the schema's order.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
 pub(crate) enum N {
     Int(Msg),
     /// `.min(n)` / `.gte(n)` (inclusive) and `.positive()` / `.gt(n)`.
@@ -58,6 +60,7 @@ pub(crate) enum N {
 
 /// What a `z.object()` does with keys it doesn't know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
 pub(crate) enum Keys {
     Strip,
     Passthrough,
@@ -66,6 +69,7 @@ pub(crate) enum Keys {
 
 /// A `z.literal()`.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
 pub(crate) enum Lit {
     Str(&'static str),
     Num(f64),
@@ -82,6 +86,7 @@ pub(crate) type PreprocessFn = fn(Option<&Value>) -> Option<Value>;
 
 /// A Zod schema.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
 pub(crate) enum Z {
     Str(&'static [S]),
     /// `z.coerce.string()`.
@@ -927,12 +932,12 @@ mod tests {
     fn issues_read_like_zod() {
         let response =
             parse(&PERSON, &json!({ "name": "", "age": 1.5, "kind": "c" })).expect_err("invalid");
-        let issues = issues(response);
-        assert_eq!(issues[0]["code"], "too_small");
-        assert_eq!(issues[0]["path"], json!(["name"]));
-        assert_eq!(issues[1]["message"], "Expected integer, received float");
+        let found = issues(response);
+        assert_eq!(found[0]["code"], "too_small");
+        assert_eq!(found[0]["path"], json!(["name"]));
+        assert_eq!(found[1]["message"], "Expected integer, received float");
         assert_eq!(
-            issues[2]["message"],
+            found[2]["message"],
             "Invalid enum value. Expected 'a' | 'b', received 'c'"
         );
         let response = parse(&PERSON, &json!("text")).expect_err("not an object");
@@ -945,10 +950,10 @@ mod tests {
     #[test]
     fn unions_nest_their_options() {
         const EITHER: Z = Z::Obj(&[("v", Z::Union(&[Z::Str(&[]), Z::Num(&[])]))], Keys::Strip);
-        let issues = issues(parse(&EITHER, &json!({ "v": true })).expect_err("invalid"));
-        assert_eq!(issues[0]["code"], "invalid_union");
+        let found = issues(parse(&EITHER, &json!({ "v": true })).expect_err("invalid"));
+        assert_eq!(found[0]["code"], "invalid_union");
         assert_eq!(
-            issues[0]["unionErrors"][1]["issues"][0]["expected"],
+            found[0]["unionErrors"][1]["issues"][0]["expected"],
             "number"
         );
     }
