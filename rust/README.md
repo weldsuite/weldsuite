@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-one
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-two
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -153,6 +153,25 @@ modules, each with conformance suites that reach every route:
   integration workers' bank feed endpoints are `books_domain::bank_feeds`,
   for when those workers are ported. Not ported: document OCR (Workers AI)
   and filing through Digipoort, both in `unavailableFeatures`)
+- **panel** (WeldPanel, product analytics, phase 1: projects with their
+  token, settings, pausing, rotation and the install check at
+  `/api/panel/projects`, kept in step with the master
+  `panel_project_registry` row and the cache record the collector reads;
+  and the public collector panel-ingest is on Global, served at
+  `/public/panel` and, so a snippet's script origin is a collector, at
+  `/s.js`, `/c/{token}` and `/e` on every host. What Cloudflare gives the
+  collector is, here: the events stream (Pipelines into the Basin table
+  `panel.events_v1`) is a NATS JetStream stream, one message per row on
+  `panel.events.v1.<workspace>`, deduplicated on the event id; the daily
+  salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
+  the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
+  claimed by the first pod and expiring as the object's alarm deletes it;
+  the client address is the ingress's `X-Forwarded-For` entry, and there is
+  no geo (Cloudflare's `request.cf`), so `country`, `region` and `city` stay
+  null. A project record missing from the cache is read from the master
+  registry. Nothing reads the events yet: reports, recordings and people
+  are later WeldPanel phases, and their store (a consumer of the stream
+  into Postgres or a columnar store) comes with them)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -161,12 +180,17 @@ desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
 returns through Digipoort, buying or porting phone numbers, buying or
-renewing domains, and WeldMeet transcripts and summaries and recordings.
+renewing domains, WeldMeet transcripts and summaries and recordings, and
+WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
+and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
-connect, agent, sheets, docs and
-panel, and the edge workers (`external-api`, `mcp-server`, the integration
-workers).
+connect, agent, sheets and docs, and the edge workers (`external-api`,
+`mcp-server`, the integration workers). WeldAgent stays off on Kubernetes
+while there is no AI provider: an agent that cannot chat or run does
+nothing for a user, so `agent` is not offered even once its data routes
+are ported; its event subscriber (`weldagent`) and the hourly routine sweep
+run agents and stay off with it.
 
 ## Layout
 
@@ -234,6 +258,9 @@ rust/
                         registrar, DNS over HTTPS, the Realtime Register webhook),
                         modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
                         rooms, and LiveKit's webhook verification),
+                        modules/panel (WeldPanel: projects, the registry sync, and the public
+                        collector in `collector/`: the wire format, rows, URLs, user agents,
+                        IP filters, the cookieless visitor id),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -397,6 +424,8 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
+| `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
+| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE` | WeldPanel: the collector origin the install snippets point at (default: the request's own origin, which serves the collector too), and the SDK bundle served as `/s.js` (default `/srv/panel/panel.global.js`, which the image carries; missing: `/s.js` answers 404). The day's salt and the daily counts need `VALKEY_URL` across pods |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
