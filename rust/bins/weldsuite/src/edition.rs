@@ -6,7 +6,9 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here.
+//!   both follow the code, and a port removes its entry here. One entry
+//!   follows the deployment instead: [`COLLAB_ROOMS_FEATURE`], when no
+//!   collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
@@ -124,6 +126,12 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "meet-recordings",
 ];
 
+/// WeldDocs and WeldSheets: live editing runs in the collab-rooms service
+/// (`rust/docs/collab-rooms.md`). Without `COLLAB_ROOMS_URLS` (the chart's
+/// `collabRooms.enabled: false`) every route that needs a room or an engine
+/// answers 503, so the platform hides both apps.
+pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -149,6 +157,8 @@ pub(crate) struct EditionConfig {
     pub(crate) public_env: BTreeMap<String, String>,
     /// The video client the frontends join rooms with.
     pub(crate) video: ClientSettings,
+    /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
+    pub(crate) live_editing: bool,
 }
 
 impl Default for EditionConfig {
@@ -157,6 +167,7 @@ impl Default for EditionConfig {
             edition: Edition::SelfHosted,
             public_env: BTreeMap::new(),
             video: ClientSettings::default(),
+            live_editing: false,
         }
     }
 }
@@ -185,6 +196,8 @@ impl EditionConfig {
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
+            live_editing: lookup("COLLAB_ROOMS_URLS")
+                .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
         }
     }
 
@@ -192,7 +205,7 @@ impl EditionConfig {
     /// `/config.json` body.
     pub(crate) fn describe(&self, body: &mut Value) {
         body["edition"] = json!(self.edition.as_str());
-        body["unavailableFeatures"] = json!(UNAVAILABLE_FEATURES);
+        body["unavailableFeatures"] = json!(self.unavailable_features());
         if !self.public_env.is_empty() {
             body["env"] = json!(self.public_env);
         }
@@ -200,6 +213,17 @@ impl EditionConfig {
         if let Some(url) = &self.video.url {
             body["videoUrl"] = json!(url);
         }
+    }
+}
+
+impl EditionConfig {
+    /// [`UNAVAILABLE_FEATURES`], and live editing when it isn't configured.
+    pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
+        let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if !self.live_editing {
+            features.push(COLLAB_ROOMS_FEATURE);
+        }
+        features
     }
 }
 
@@ -259,8 +283,30 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len()
+            UNAVAILABLE_FEATURES.len() + 1
         );
+        assert_eq!(
+            body["unavailableFeatures"]
+                .as_array()
+                .and_then(|f| f.last()),
+            Some(&json!(COLLAB_ROOMS_FEATURE))
+        );
+    }
+
+    #[test]
+    fn offers_live_editing_with_a_collab_rooms_service() {
+        let (config, problems) = read(&[(
+            "COLLAB_ROOMS_URLS",
+            "http://collab-rooms-0.collab-rooms:8080, http://collab-rooms-1.collab-rooms:8080",
+        )]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(config.live_editing);
+        let mut body = json!({});
+        config.describe(&mut body);
+        assert_eq!(body["unavailableFeatures"], json!(UNAVAILABLE_FEATURES));
+        // A blank list is no service.
+        let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
+        assert!(!blank.live_editing);
     }
 
     #[test]
@@ -328,7 +374,7 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES {
+        for feature in UNAVAILABLE_FEATURES.iter().chain([&COLLAB_ROOMS_FEATURE]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{feature}"

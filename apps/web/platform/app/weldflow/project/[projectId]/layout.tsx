@@ -363,8 +363,10 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   const router = useRouter();
   const projectId = params.projectId as string;
 
-  // Translated tab names (derived at render time so they respond to locale changes)
-  const translatedTabs: ProjectTab[] = [
+  // Translated tab names (derived at render time so they respond to locale changes).
+  // The sheets tab opens WeldSheets: hidden where the deployment doesn't offer it.
+  const sheetsOffered = isModuleOffered('sheets');
+  const allTabs: ProjectTab[] = [
     { id: 'tasks', name: t.projects.projectLayout.tabs.tasks, href: '/tasks', icon: SquareCheck },
     { id: 'gantt', name: t.projects.projectLayout.tabs.gantt, href: '/gantt', icon: GanttChart },
     { id: 'table', name: t.projects.projectLayout.tabs.sheets, href: '/table', icon: Table2 },
@@ -378,6 +380,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
     { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
   ];
+  const translatedTabs = allTabs.filter((tab) => tab.id !== 'table' || sheetsOffered);
 
   // Project header data. A failed load surfaces as a not-found / forbidden state
   // instead of a skeleton that never resolves.
