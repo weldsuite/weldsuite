@@ -123,6 +123,8 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
         connect_internal: (!conformance)
             .then(|| server_connect_internal(state))
             .flatten(),
+        execute_workflow: (!conformance && super::mounts("connect"))
+            .then(|| execute_workflow(Arc::clone(&state.infra.jobs))),
     }
 }
 
@@ -310,5 +312,25 @@ pub(crate) fn flow_github_outbound(
     Arc::new(FlowOutboundRuns(job_runs(
         state,
         weldsuite_integrations::github::GITHUB_PROJECT_OUTBOUND_JOB,
+    )))
+}
+
+// ── WeldConnect's integration triggers ──────────────────────────────────────
+
+/// `EXECUTE_WORKFLOW` as WeldConnect starts its runs (`connect.execute-workflow`).
+pub(crate) struct ConnectExecute(pub(crate) Arc<dyn weldsuite_connect::WorkflowRuns>);
+
+impl weldsuite_integrations::workflow_events::ExecuteWorkflowRuns for ConnectExecute {
+    fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move { self.0.create(params).await.map(|_| ()) })
+    }
+}
+
+/// `EXECUTE_WORKFLOW` over `jobs`.
+pub(crate) fn execute_workflow(
+    jobs: Arc<dyn weldsuite_ports::DynJobs>,
+) -> Arc<dyn weldsuite_integrations::workflow_events::ExecuteWorkflowRuns> {
+    Arc::new(ConnectExecute(Arc::new(
+        weldsuite_connect::JobsWorkflowRuns { jobs },
     )))
 }

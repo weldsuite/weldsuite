@@ -644,6 +644,14 @@ cron:
       enabled: true
       schedule: "*/15 * * * *"
       activeDeadlineSeconds: 840
+    # WeldConnect's Google Sheets, Gmail, Google Calendar and Airtable poll
+    # triggers (the master workspace_due_index, kind workflow_poll), new items
+    # dispatched to their workflows on Restate. Needs
+    # config.jobs.restate.ingressUrl.
+    workflow-polls:
+      enabled: true
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 540
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:

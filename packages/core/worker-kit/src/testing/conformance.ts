@@ -227,6 +227,8 @@ export const FORWARDED_ENV = [
   'FACEBOOK_APP_SECRET',
   // integration-webhook-worker's Meta ad webhook handshake.
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
+  // integration-webhook-worker's Slack app (the workflow trigger receiver's signature).
+  'SLACK_SIGNING_SECRET',
   // WeldSocial: PostPeer (the API key, base URL and BYOK app ids) and the
   // secret its delivery webhooks are signed with.
   'POSTPEER_API_KEY',

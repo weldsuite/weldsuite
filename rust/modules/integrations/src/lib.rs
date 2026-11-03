@@ -19,6 +19,9 @@
 //!   `HubSpot` and Google Calendar webhooks, and the CRM due sweep, with
 //!   WeldConnect's internal routes over [`connect_internal`].
 //! - Meta's ad webhook and the ad metrics sweep ([`meta_ads`]).
+//! - WeldConnect's integration triggers: the Slack, Twilio and GitHub
+//!   receivers ([`workflow_events`]) and the Google and Airtable polls
+//!   ([`workflow_polls`]), dispatching to `EXECUTE_WORKFLOW`.
 
 // The workers' handlers and Workflows are ported step for step, so some are
 // long and take what the TypeScript function took.
@@ -32,6 +35,8 @@ pub mod connect_internal;
 pub mod crm;
 pub mod github;
 pub mod meta_ads;
+pub mod workflow_events;
+pub mod workflow_polls;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -75,6 +80,9 @@ pub struct IntegrationsState {
     /// `CONNECT_INTERNAL`: WeldConnect's internal integration routes. None
     /// while connect is not served, as the worker without the binding.
     pub connect_internal: Option<Arc<dyn ConnectInternal>>,
+    /// `EXECUTE_WORKFLOW`: WeldConnect's workflow runs. None: no trigger
+    /// dispatches, as the worker without the binding.
+    pub execute_workflow: Option<Arc<dyn workflow_events::ExecuteWorkflowRuns>>,
 }
 
 impl std::fmt::Debug for IntegrationsState {
@@ -108,6 +116,9 @@ pub const ENV_NAMES: &[&str] = &[
     "GOOGLE_CALENDAR_CLIENT_",
     "FACEBOOK_APP_SECRET",
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+    "SLACK_SIGNING_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -133,7 +144,8 @@ where
     bank_feeds::router(state.clone())
         .merge(github::webhook::router(state.clone()))
         .merge(crm::webhooks::router(state.clone()))
-        .merge(meta_ads::router(state))
+        .merge(meta_ads::router(state.clone()))
+        .merge(workflow_events::router(state))
 }
 
 /// What a public route reads off its request: in conformance builds the
@@ -148,6 +160,7 @@ pub(crate) struct PublicCtx {
     pub(crate) tenant: Option<PgPool>,
     pub(crate) github_sync: Option<RequestGithubProjectSync>,
     pub(crate) connect_internal: Option<RequestConnectInternal>,
+    pub(crate) execute_workflow: Option<workflow_events::RequestExecuteWorkflow>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
@@ -169,6 +182,9 @@ impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
             tenant: extensions.get::<Tenant>().map(|tenant| tenant.db.clone()),
             github_sync: extensions.get::<RequestGithubProjectSync>().cloned(),
             connect_internal: extensions.get::<RequestConnectInternal>().cloned(),
+            execute_workflow: extensions
+                .get::<workflow_events::RequestExecuteWorkflow>()
+                .cloned(),
         }))
     }
 }

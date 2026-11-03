@@ -2909,6 +2909,20 @@
         "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
         "rust/modules/integrations/"
       ]
+    },
+    {
+      "name": "integrations: workflow triggers",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/workflow-triggers.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/entity-events/src/workflow-dispatch.ts",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }

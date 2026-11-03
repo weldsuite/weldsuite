@@ -1818,7 +1818,7 @@ fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {
 /// Whether to serve a module: it is marked ported (`ApiModule.rust`, WP
 /// 1.10). Conformance builds serve every module with a crate, so a port is
 /// checked against its TypeScript tests before it is marked.
-fn mounts(module: &str) -> bool {
+pub(crate) fn mounts(module: &str) -> bool {
     cfg!(feature = "conformance")
         || weldsuite_catalogs::api_modules()
             .iter()

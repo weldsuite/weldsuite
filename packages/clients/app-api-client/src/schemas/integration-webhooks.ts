@@ -43,6 +43,12 @@ export const metaAdsWebhookAckSchema = z.object({
   }),
 });
 
+/** `POST /integration-webhook/slack`: Slack's URL verification handshake (events are answered with an empty 200). */
+export const slackWebhookAckSchema = z.object({ challenge: z.string() });
+
+/** `POST /integration-webhook/github/:connectionId`: a delivery taken (or a ping). */
+export const workflowGithubWebhookAckSchema = z.object({ ok: z.literal(true) });
+
 /** `POST /webhook/gcal/:connectionId`: a Google Calendar push notification, acknowledged. */
 export const googleCalendarWebhookAckSchema = z.object({
   status: z.literal('ok'),

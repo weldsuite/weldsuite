@@ -380,6 +380,15 @@ impl Pools {
         extensions.insert(crate::conformance_books::integrations_books(
             &context.services,
         ));
+        // Their integration triggers start runs on the test's `EXECUTE_WORKFLOW`, or nowhere.
+        extensions.insert(
+            weldsuite_integrations::workflow_events::RequestExecuteWorkflow(
+                self.workflows.execute_runs(&context.workflows).map(|runs| {
+                    Arc::new(crate::routes::integrations::ConnectExecute(runs))
+                        as Arc<dyn weldsuite_integrations::workflow_events::ExecuteWorkflowRuns>
+                }),
+            ),
+        );
         // And their calls into WeldConnect's internal routes (the CRM webhooks).
         extensions.insert(crate::conformance_books::integrations_connect_internal(
             &context.services,

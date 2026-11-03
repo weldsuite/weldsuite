@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-connect-domain = { workspace = true }
 weldsuite-core-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
@@ -26,6 +27,7 @@ http = { workspace = true }
 jsonwebtoken = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing"] }

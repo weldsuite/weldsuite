@@ -6,6 +6,8 @@ import {
   googleCalendarWebhookAckSchema,
   hubspotWebhookAckSchema,
   metaAdsWebhookAckSchema,
+  slackWebhookAckSchema,
+  workflowGithubWebhookAckSchema,
 } from '@weldsuite/app-api-client/schemas/integration-webhooks';
 import type { RouteSchema } from './conformance-schemas';
 
@@ -16,4 +18,6 @@ export const INTEGRATION_WEBHOOK_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/webhook/gcal/:connectionId', envelope: 'body', data: googleCalendarWebhookAckSchema },
   { method: 'POST', route: '/webhook/:connectionId', envelope: 'body', data: crmWebhookAckSchema },
   { method: 'POST', route: '/webhooks/meta/ads', envelope: 'body', data: metaAdsWebhookAckSchema },
+  { method: 'POST', route: '/integration-webhook/slack', envelope: 'body', data: slackWebhookAckSchema },
+  { method: 'POST', route: '/integration-webhook/github/:connectionId', envelope: 'body', data: workflowGithubWebhookAckSchema },
 ];

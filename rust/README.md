@@ -210,14 +210,23 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   to WeldConnect's internal `/api/integrations/ad-events` for the account's `adsconn:` KV
   entry) and `weldsuite cron ad-sync` (the master `ad_sync_index` rows that are due,
   synced through WeldConnect's internal ad-connection sync)
+- **WeldConnect's integration triggers**: `POST /integration-webhook/slack` (Slack's app
+  URL, `SLACK_SIGNING_SECRET`, the team's `slack_team:` KV entry),
+  `/integration-webhook/twilio/:id` and `/github/:id` (the connection's own secret), each
+  matching active workflow's trigger dispatched to `EXECUTE_WORKFLOW` (WeldConnect's
+  `connect.execute-workflow` job); and `weldsuite cron workflow-polls`, the Google Sheets,
+  Gmail, Google Calendar and Airtable poll triggers, where Global keeps the D1
+  `tenant_work_index` (kind `workflow_poll`) and these editions the master
+  `workspace_due_index` of the same kind, marked when a workflow with a poll trigger is
+  saved active (Global's one-time seed of every workspace has no equivalent). Parity of the
+  polls with the worker's cron: `tests/poll_parity.rs` against
+  `tests/fixtures/poll_jobs.json`
 - the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
   `webhooks` subscriber (`crates/subscribers`), already
 
 Not yet: the connector
 receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
-Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
-`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, and the WooCommerce
-app-auth forward.
+Moneybird push sweep), and the WooCommerce app-auth forward.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
