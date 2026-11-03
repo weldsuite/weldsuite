@@ -501,6 +501,12 @@ consume:
 # config.files.endpoint (the mail bucket lives on that store; create it),
 # NATS_URL and the S3 keys in the Secret, and MAIL_INBOUND_SECRET. Haraka gets
 # only those: no database credentials.
+#
+# WeldReach's replies come in the same way: with REACH_INBOUND_DOMAIN in the
+# Secret (or config.extraEnv) and that domain's MX pointing at Haraka, the
+# RCPT check accepts reply+<token>@<domain> for an active mailbox token and
+# consume hands those recipients to WeldReach (storage in publicBucket as
+# STORAGE), the rest to WeldMail.
 mailInbound:
   enabled: false
   # The mail bucket: Haraka's spool (inbound/…) and each stored message's

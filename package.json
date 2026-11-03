@@ -32,6 +32,8 @@
     "rust:integration-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter integration-sync-worker exec vitest run src/rust-fixtures.test.ts && cross-env WRITE_RUST_FIXTURES=1 pnpm --filter integration-webhook-worker exec vitest run src/test/rust-fixtures.test.ts",
     "rust:desk-sla-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter @weldsuite/db exec vitest run src/lib/desk-sla.rust-fixtures.test.ts",
     "rust:reach-engine-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter reach-api exec vitest run src/testing/rust-fixtures.test.ts",
+    "rust:reach-inbound-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter reach-api exec vitest run src/testing/rust-inbound-fixtures.test.ts",
+    "rust:reach-warmup-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter reach-warmup-worker exec vitest run src/testing/rust-fixtures.test.ts",
     "rust:desk-workflow-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter helpdesk-workflow-worker exec vitest run src/testing/rust-fixtures.test.ts",
     "rust:connect-engine-fixtures": "cross-env WRITE_RUST_FIXTURES=1 pnpm --filter workflow-worker exec vitest run src/testing/rust-fixtures.test.ts",
     "rust:lint": "cd rust && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",

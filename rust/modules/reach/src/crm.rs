@@ -4,7 +4,9 @@
 
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{COMPANY_CREATED, OPPORTUNITY_CREATED, PERSON_CREATED};
+use weldsuite_catalogs::entity_events::{
+    ACTIVITY_CREATED, COMPANY_CREATED, OPPORTUNITY_CREATED, PERSON_CREATED,
+};
 use weldsuite_crm_domain::DomainError;
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::schemas::{email_domain, is_consumer_email};
@@ -504,4 +506,71 @@ pub(crate) async fn add_thread_to_crm(
         created.event_data.clone(),
     ));
     Ok((person_id, Some(created.id)))
+}
+
+/// `handOffReplyToCrm(ctx, { prospect, campaign, message })`: a prospect
+/// replied; the CRM knows them and an email activity ("Replied to outreach
+/// campaign <name>") lands on their record. The records belong to the
+/// campaign owner while they are a member, else to the system assignee.
+pub(crate) async fn hand_off_reply(
+    db: &PgPool,
+    sink: &dyn EventSink,
+    prospect: &Value,
+    campaign: Option<&Value>,
+    message: &Value,
+) -> Result<(), String> {
+    let failed = |error: HandoffError| match error {
+        HandoffError::Refused(code, _) => code.to_owned(),
+        HandoffError::Failed(error) => error.message,
+    };
+    let owner = resolve_owner(db, campaign).await.map_err(|e| e.message)?;
+    let (person_id, company_id) = ensure_contact(
+        db,
+        sink,
+        owner.as_deref(),
+        &CrmProspect::from_row(prospect),
+        campaign,
+        false,
+    )
+    .await
+    .map_err(failed)?;
+    let assignee = owner.unwrap_or_else(|| "system".to_owned());
+    let campaign_name = campaign.and_then(|c| text(c, "name")).unwrap_or("outreach");
+    let mut input = Map::new();
+    input.insert("type".to_owned(), json!("email"));
+    input.insert(
+        "subject".to_owned(),
+        json!(js_slice(
+            &format!("Replied to outreach campaign {campaign_name}"),
+            255
+        )),
+    );
+    if let Some(snippet) = text(message, "snippet") {
+        input.insert("description".to_owned(), json!(snippet));
+    }
+    input.insert("personId".to_owned(), json!(person_id));
+    input.insert("customerId".to_owned(), json!(company_id));
+    input.insert(
+        "emailMessageId".to_owned(),
+        json!(js_slice(
+            text(message, "messageIdHeader").unwrap_or_default(),
+            255
+        )),
+    );
+    if let Some(subject) = text(message, "subject") {
+        input.insert("emailSubject".to_owned(), json!(subject));
+    }
+    input.insert("emailFrom".to_owned(), json!(text(message, "fromEmail")));
+    input.insert("emailTo".to_owned(), json!([text(message, "toEmail")]));
+    input.insert("status".to_owned(), json!("completed"));
+    input.insert("assignedToId".to_owned(), json!(assignee));
+    let created = weldsuite_crm_domain::activities::create_activity(db, &input, Some(&assignee))
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    sink.emit(ReachEvent::new(
+        ACTIVITY_CREATED,
+        &created.id,
+        created.event_data,
+    ));
+    Ok(())
 }

@@ -37,6 +37,7 @@ mod crm;
 mod dnscheck;
 mod domains;
 mod effects;
+pub mod inbound;
 mod inbox;
 mod lists;
 mod mailboxes;
@@ -46,6 +47,7 @@ pub mod send;
 mod smtp;
 mod suppressions;
 pub mod warmup;
+pub mod warmup_network;
 mod webhook;
 
 use std::sync::Arc;
