@@ -12,6 +12,10 @@
 !packages
 !apps/web/platform
 !apps/web/sign-portal
+# The collab-rooms service bundles the workers' room classes.
+!apps/tools/collab-rooms
+!apps/workers/docs-api
+!apps/workers/sheets-api
 
 # The Rust workspace, for the backend.
 !rust/rust-toolchain.toml
@@ -42,6 +46,8 @@ packages/core/db/drizzle
 !packages/core/db/drizzle/master-migrations/meta/_journal.json
 !packages/core/db/drizzle/tenant-migrations/*.sql
 !packages/core/db/drizzle/tenant-migrations/meta/_journal.json
+!packages/core/db/drizzle/personal-migrations/*.sql
+!packages/core/db/drizzle/personal-migrations/meta/_journal.json
 apps/web/platform/docs
 apps/web/platform/e2e
 apps/web/platform/playwright-report

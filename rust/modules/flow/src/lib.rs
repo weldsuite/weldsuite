@@ -13,6 +13,7 @@
 
 #[macro_use]
 mod rows;
+pub mod github_outbound;
 
 pub mod calendar;
 mod custom_values;
@@ -90,6 +91,9 @@ pub struct FlowState {
     /// Outbound HTTP for push notifications (Expo), when configured. A
     /// request's own (conformance) wins.
     pub http: Option<OutboundHttp>,
+    /// `GITHUB_PROJECT_OUTBOUND`: the integration workers' job that pushes a
+    /// task change to its GitHub issue. None: nothing is dispatched.
+    pub github_outbound: Option<github_outbound::SharedGithubOutboundRuns>,
 }
 
 impl std::fmt::Debug for FlowState {
@@ -100,6 +104,7 @@ impl std::fmt::Debug for FlowState {
             .field("jobs", &self.jobs.is_some())
             .field("realtime", &self.realtime.is_some())
             .field("http", &self.http.is_some())
+            .field("github_outbound", &self.github_outbound.is_some())
             .finish_non_exhaustive()
     }
 }

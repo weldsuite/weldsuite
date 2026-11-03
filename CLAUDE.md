@@ -438,8 +438,8 @@ partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
 for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`).
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
-Each app's `vercel.json` sets `git.deploymentEnabled` off for `develop`/`main`, so
-Vercel's Git integration only builds previews for other branches. A new Vercel
+Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git
+integration builds nothing, not even PR previews. A new Vercel
 app needs an entry in `vercel-apps.mjs`, the same `vercel.json` block, and its
 folder in `deploy.yml`'s `on.push.paths`.
 

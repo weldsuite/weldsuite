@@ -40,7 +40,18 @@ interface Suite {
    * tested on the Rust side instead.
    */
   excludedRoutes?: Array<{ route: string; reason: string }>;
+  /**
+   * The route prefixes the suite owns, when its files mount other route
+   * groups' routers only to set up their data: only routes under them are
+   * recorded in its inventory (the test side filters,
+   * worker-kit/src/testing/conformance-coverage.ts). Absent: every route its
+   * files mount. Empty: none (a cross-area suite).
+   */
+  coverage?: string[];
 }
+
+/** TypeScript's answer against the route's registered response schema. */
+type SchemaCheck = 'ok' | 'fail' | 'none';
 
 interface RequestLine {
   kind: 'request';
@@ -54,7 +65,7 @@ interface RequestLine {
   rustStatus: number | null;
   match: boolean;
   difference: string | null;
-  schema: 'ok' | 'fail' | 'none';
+  schema: SchemaCheck;
   schemaError: string | null;
 }
 
@@ -193,7 +204,7 @@ interface RouteReport {
   statuses: number[];
   requests: number;
   mismatches: string[];
-  schema: 'ok' | 'fail' | 'none';
+  schema: SchemaCheck;
 }
 
 interface SuiteReport {
@@ -328,6 +339,9 @@ function changedWorkers(base: string): string[] {
 interface RouteHits {
   tests: Set<string>;
   statuses: Set<number>;
+  /** TypeScript's answers against the route's registered schema: 'none' until one is checked. */
+  schema: SchemaCheck;
+  schemaErrors: string[];
 }
 
 /** Every route the inventory or a request names, and what reached each. */
@@ -339,9 +353,15 @@ function routeHits(lines: Array<RequestLine | InventoryLine>): { keys: string[];
     if (line.kind !== 'request' || !line.route) continue;
     const key = `${line.method} ${line.route}`;
     keys.add(key);
-    const hit = hits.get(key) ?? { tests: new Set<string>(), statuses: new Set<number>() };
+    const hit: RouteHits = hits.get(key) ?? { tests: new Set<string>(), statuses: new Set<number>(), schema: 'none', schemaErrors: [] };
     if (line.test) hit.tests.add(line.test);
     hit.statuses.add(line.tsStatus);
+    if (line.schema === 'fail') {
+      hit.schema = 'fail';
+      if (hit.schemaErrors.length < 3) hit.schemaErrors.push(`${line.test ?? line.path}: ${line.schemaError}`);
+    } else if (line.schema === 'ok' && hit.schema === 'none') {
+      hit.schema = 'ok';
+    }
     hits.set(key, hit);
   }
   const routeOf = (key: string) => key.slice(key.indexOf(' ') + 1);
@@ -354,15 +374,17 @@ function coverageSection(workspace: string, keys: string[], hits: Map<string, Ro
   const out = [
     `## ${workspace}: ${covered} of ${keys.length} routes reached${passed ? '' : ' (tests FAILED)'}`,
     '',
-    '| Route | Tests | Statuses seen |',
-    '|---|---|---|',
+    '| Route | Tests | Statuses seen | Schema |',
+    '|---|---|---|---|',
   ];
   for (const key of keys) {
     const hit = hits.get(key);
     const statuses = hit ? [...hit.statuses].sort((a, b) => a - b).join(', ') : '**not reached**';
-    out.push(`| \`${key}\` | ${hit ? hit.tests.size : 0} | ${statuses} |`);
+    out.push(`| \`${key}\` | ${hit ? hit.tests.size : 0} | ${statuses} | ${hit?.schema ?? 'none'} |`);
   }
   out.push('', 'A router that no test file mounts does not appear here at all.', '');
+  const schemaErrors = keys.flatMap((key) => (hits.get(key)?.schemaErrors ?? []).map((e) => `- \`${key}\`: ${e}`));
+  if (schemaErrors.length > 0) out.push("TypeScript's answers that fail the route's registered schema:", '', ...schemaErrors, '');
   return out;
 }
 

@@ -12,6 +12,7 @@ publish.workspace = true
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+jiff = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing"] }

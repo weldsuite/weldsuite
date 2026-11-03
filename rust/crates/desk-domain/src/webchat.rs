@@ -139,13 +139,57 @@ fn attachment_preview_of(attachments: Option<&Vec<Value>>) -> Option<String> {
     preview_of(Some(&format!("📎 {name}{more}")))
 }
 
+/// `AppendDeskMessageResult`: the conversation after the message, the
+/// message, and when an SLA clock of the conversation next needs the sweep.
+#[derive(Debug, Clone)]
+pub struct Appended {
+    pub conversation: Value,
+    pub message: Value,
+    /// `slaCheckAt`: a warning or breach coming due (a time value), or
+    /// `None`. Callers copy it into the due index ([`crate::sla::DUE_KIND`]).
+    pub sla_check_at: Option<i64>,
+}
+
+impl Appended {
+    /// The pair most callers want.
+    pub fn pair(self) -> (Value, Value) {
+        (self.conversation, self.message)
+    }
+}
+
 /// `appendDeskMessage(db, input)`: the conversation after the message, and
-/// the message.
-#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+/// the message. See [`append`] for the SLA check time.
 pub async fn append_desk_message(
     db: &PgPool,
     input: Append<'_>,
 ) -> Result<(Value, Value), AppendError> {
+    append(db, input).await.map(Appended::pair)
+}
+
+/// `refreshDeskSlaQuietly`: SLA bookkeeping never fails the message it
+/// follows.
+async fn refresh_sla_quietly(db: &PgPool, conversation: &Value) -> Option<crate::sla::Refreshed> {
+    let refreshed = crate::sla::refresh(
+        db,
+        crate::sla::ConversationRef::Row(conversation.clone()),
+        crate::sla::now_ms(),
+        false,
+    )
+    .await;
+    match refreshed {
+        Ok(refreshed) => Some(refreshed),
+        Err(error) => {
+            tracing::warn!(%error, conversation = conversation["id"].as_str(), "[desk-sla] refresh failed");
+            None
+        }
+    }
+}
+
+/// `appendDeskMessage(db, input)`: append to the timeline and move the
+/// conversation's state with it. Also re-derives the SLA clocks
+/// ([`crate::sla::refresh`]) when the append can move one.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendError> {
     let current: Option<Value> =
         sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
             .bind(input.conversation_id)
@@ -210,6 +254,7 @@ pub async fn append_desk_message(
     }
     let owner_changes =
         input.kind == "event" && matches!(event_type.as_deref(), Some("assigned" | "unassigned"));
+    let moves_sla = crate::sla::moves_sla(input.kind, input.author_type, event_type.as_deref());
 
     let assignee_patch = input
         .assignee_id
@@ -261,7 +306,23 @@ pub async fn append_desk_message(
         .patch(db, input.conversation_id, changes, false, &trusted)
         .await?
         .ok_or(AppendError::NotFound)?;
-    Ok((conversation, message))
+    let sla = if moves_sla {
+        refresh_sla_quietly(db, &conversation).await
+    } else {
+        None
+    };
+    Ok(match sla {
+        Some(refreshed) => Appended {
+            conversation: refreshed.conversation.unwrap_or(conversation),
+            message,
+            sla_check_at: refreshed.next_check_at,
+        },
+        None => Appended {
+            conversation,
+            message,
+            sla_check_at: None,
+        },
+    })
 }
 
 /// `getDeskConversation(db, id, { includeMessages })`.
@@ -374,7 +435,53 @@ fn unique_violation(error: &WriteError) -> bool {
 pub async fn create_conversation(
     db: &PgPool,
     input: NewConversation<'_>,
-) -> Result<(Value, Value), AppendError> {
+) -> Result<Appended, AppendError> {
+    let title = preview_of(Some(&input.body)).map_or(Value::Null, Value::String);
+    create_on_channel(
+        db,
+        ChannelConversation {
+            channel: "messenger",
+            title,
+            attachments: None,
+            conversation: input,
+        },
+    )
+    .await
+}
+
+/// `createDeskConversation(db, input)` with the channel, title and first
+/// message's files the caller chooses (the email channel's
+/// `ingestDeskEmail`).
+pub struct ChannelConversation<'a> {
+    pub channel: &'a str,
+    /// `input.title ?? previewOf(input.body)`, already resolved.
+    pub title: Value,
+    pub attachments: Option<Vec<Value>>,
+    pub conversation: NewConversation<'a>,
+}
+
+/// [`create_conversation`] on any channel.
+pub async fn create_on_channel(
+    db: &PgPool,
+    spec: ChannelConversation<'_>,
+) -> Result<Appended, AppendError> {
+    create_on_channel_for(db, spec, None).await
+}
+
+/// [`create_on_channel`] linked to a CRM person from the start
+/// (`createDeskConversation`'s `contactId`, which the phone channel sets to
+/// the caller it matched).
+pub async fn create_on_channel_for(
+    db: &PgPool,
+    spec: ChannelConversation<'_>,
+    contact_id: Option<&str>,
+) -> Result<Appended, AppendError> {
+    let ChannelConversation {
+        channel,
+        title,
+        attachments,
+        conversation: input,
+    } = spec;
     let id = generate_id("dconv");
     let now = now();
     let preview = preview_of(Some(&input.body)).map_or(Value::Null, Value::String);
@@ -389,13 +496,16 @@ pub async fn create_conversation(
         values.insert("created_at".to_owned(), json!(now));
         values.insert("updated_at".to_owned(), json!(now));
         values.insert("conversation_number".to_owned(), json!(number));
-        values.insert("title".to_owned(), preview.clone());
+        values.insert("title".to_owned(), title.clone());
         values.insert("state".to_owned(), json!("open"));
-        values.insert("channel".to_owned(), json!("messenger"));
+        values.insert("channel".to_owned(), json!(channel));
         values.insert("visitor_id".to_owned(), json!(input.visitor_id));
         values.insert("name".to_owned(), input.name.clone());
         values.insert("email".to_owned(), input.email.clone());
-        values.insert("contact_id".to_owned(), Value::Null);
+        values.insert(
+            "contact_id".to_owned(),
+            contact_id.map_or(Value::Null, |id| json!(id)),
+        );
         values.insert("assignee_id".to_owned(), Value::Null);
         values.insert(
             "waiting_since".to_owned(),
@@ -414,7 +524,7 @@ pub async fn create_conversation(
             Err(error) => return Err(error.into()),
         }
     }
-    append_desk_message(
+    append(
         db,
         Append {
             conversation_id: &id,
@@ -422,7 +532,7 @@ pub async fn create_conversation(
             author_type: input.author_type,
             author_id: Some(input.author_id.unwrap_or(input.visitor_id)),
             body: Some(input.body),
-            attachments: None,
+            attachments,
             metadata: input.metadata,
             assignee_id: None,
         },

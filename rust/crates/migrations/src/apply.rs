@@ -64,6 +64,14 @@ const MASTER: Bookkeeping = Bookkeeping {
     lock_key: 0x5745_4C44_4D53_5452,
 };
 
+/// The personal database's: drizzle-kit's, as the master's, under a lock
+/// of its own.
+const PERSONAL: Bookkeeping = Bookkeeping {
+    // "WELDPRSN"
+    lock_key: 0x5745_4C44_5052_534E,
+    ..MASTER
+};
+
 const TENANT: Bookkeeping = Bookkeeping {
     create_schema: r#"CREATE SCHEMA IF NOT EXISTS "public""#,
     create_table: r#"CREATE TABLE IF NOT EXISTS "public"."__drizzle_migrations" (
@@ -89,6 +97,7 @@ fn bookkeeping(folder: Folder) -> &'static Bookkeeping {
     match folder {
         Folder::Master => &MASTER,
         Folder::Tenant => &TENANT,
+        Folder::Personal => &PERSONAL,
     }
 }
 

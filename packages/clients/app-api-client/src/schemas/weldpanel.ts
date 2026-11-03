@@ -115,3 +115,30 @@ export interface PanelInstallInfo {
   /** `receiving` when an event arrived in the last 24 hours. */
   status: 'waiting' | 'receiving';
 }
+
+// ---------------------------------------------------------------------------
+// Output schemas (the shapes above, for response checks)
+// ---------------------------------------------------------------------------
+
+export const panelProjectDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(PANEL_PROJECT_KINDS),
+  status: z.enum(PANEL_PROJECT_STATUSES),
+  token: z.string(),
+  allowedDomains: z.array(z.string()),
+  settings: panelSettingsSchema,
+  createdByUserId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const panelInstallInfoSchema = z.object({
+  projectId: z.string(),
+  token: z.string(),
+  collectorUrl: z.string(),
+  scriptSnippet: z.string(),
+  npmSnippet: z.string(),
+  lastEventAt: z.string().nullable(),
+  status: z.enum(['waiting', 'receiving']),
+});

@@ -28,7 +28,8 @@ use jsonwebtoken::Algorithm;
 use serde_json::{Map, Value};
 
 use crate::verifier::{
-    AuthContext, KeySet, TokenError, check_times, decode_claims, non_empty_str, subject,
+    AuthContext, KeySet, TokenError, VerifiedSession, check_times, decode_claims, non_empty_str,
+    subject,
 };
 
 /// Zitadel's claim for the organization a token was issued for, when the
@@ -89,6 +90,18 @@ impl OidcRules {
         token: &str,
         now: u64,
     ) -> Result<AuthContext, TokenError> {
+        self.verify_claims(keys, token, now)
+            .map(|session| session.context)
+    }
+
+    /// [`OidcRules::verify`], keeping the claims. An OIDC token's `azp` is a
+    /// client id, so no authorized-party rule applies.
+    pub(crate) fn verify_claims(
+        &self,
+        keys: &KeySet,
+        token: &str,
+        now: u64,
+    ) -> Result<VerifiedSession, TokenError> {
         let header = jsonwebtoken::decode_header(token).map_err(|_| TokenError::Malformed)?;
         if !matches!(
             header.alg,
@@ -124,11 +137,14 @@ impl OidcRules {
         }
         let user_id = subject(&claims)?;
 
-        Ok(AuthContext {
-            user_id,
-            org_id: organization(claims.get(&self.settings.org_claim)),
-            session_id: non_empty_str(claims.get("sid")).unwrap_or_default(),
-            factor_verification_age: factor_verification_age(&claims, now),
+        Ok(VerifiedSession {
+            context: AuthContext {
+                user_id,
+                org_id: organization(claims.get(&self.settings.org_claim)),
+                session_id: non_empty_str(claims.get("sid")).unwrap_or_default(),
+                factor_verification_age: factor_verification_age(&claims, now),
+            },
+            claims,
         })
     }
 }

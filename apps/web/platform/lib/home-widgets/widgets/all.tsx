@@ -79,7 +79,9 @@ export const allWidgets: HomeWidgetDefinition[] = [
   // Demo widgets — still render their hardcoded fixture with a "Demo" badge.
   // Wiring these needs custom backend work (analytics aggregator, slack/discord
   // feed, chat-activity composer) or substantial date/grouping logic (calendar).
-  wrap('analytics-activity', 'analytics', BarChart3, () => <AnalyticsCard isDemo />) as unknown as HomeWidgetDefinition,
+  // Coming soon: its fixture is a sample "visitors" chart, so it must not reach
+  // Home until a cross-module activity endpoint backs it (TASK-976).
+  { ...wrap('analytics-activity', 'analytics', BarChart3, () => <AnalyticsCard isDemo />), disabled: true } as unknown as HomeWidgetDefinition,
   wrap('weldchat-activity', 'weldchat', MessageSquare, () => <ChatCard isDemo />) as unknown as HomeWidgetDefinition,
   wrap('weldchat-dms', 'weldchat', MessageCircle, () => <ChatDMsCard isDemo />) as unknown as HomeWidgetDefinition,
   wrap('weldcalendar-week', 'weldcalendar', Calendar, () => <CalendarCard isDemo />) as unknown as HomeWidgetDefinition,

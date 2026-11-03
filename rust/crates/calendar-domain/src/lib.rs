@@ -14,6 +14,7 @@
 //! `f64`) so an unparseable working-hours string behaves as an Invalid Date
 //! does: the window it touches yields no slot.
 
+pub mod js_dates;
 mod time_math;
 
 use std::collections::{HashMap, HashSet};

@@ -93,7 +93,7 @@ export function kvUrlFor(kv: KvLike): Promise<string> {
 }
 
 /** The KV bindings the Rust server can read through the bridge. */
-export const KV_BINDINGS = ['WORKSPACE_CACHE'] as const;
+export const KV_BINDINGS = ['WORKSPACE_CACHE', 'API_CACHE'] as const;
 
 /** `{ WORKSPACE_CACHE: url }` when `env` has a KV-shaped binding, or undefined. */
 export async function kvUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {

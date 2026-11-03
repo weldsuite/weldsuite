@@ -1,0 +1,860 @@
+[
+  {
+    "name": "sheets: new rows past the cursor, and a first look that only sets one",
+    "env": {},
+    "seed": [
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_sheets', 'Workflow wf_sheets', 'active', '[{\"id\":\"t_google_sheets\",\"type\":\"integration_event\",\"provider\":\"google_sheets\",\"event\":\"google_sheets.new_row\",\"config\":{\"spreadsheetId\":\"sheet1\"}},{\"id\":\"t_google_sheets\",\"type\":\"integration_event\",\"provider\":\"google_sheets\",\"event\":\"google_sheets.new_row\",\"config\":{\"spreadsheetId\":\"sheet2\",\"sheetName\":\"Leads 2026\"}}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_trigger_index (id, workflow_id, trigger_id, category, provider, integration_event, created_at, updated_at)\n    values ('wti_sheets', 'wf_sheets', 'trg_wti_sheets', 'integration_event', 'google_sheets', 'google_sheets.new_row', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_integrations (id, name, type, status, oauth_tokens, settings, credentials, created_at, updated_at)\n    values ('wfi_sheets', 'google_sheets', 'google_sheets', 'connected', '{\"accessToken\":\"tok-wfi_sheets\"}'::jsonb,\n      '{\"sheetsCursors\":{\"sheet1!Sheet1\":1},\"other\":true}'::jsonb, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "exchanges": [
+      {
+        "method": "GET",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/sheet1/values/Sheet1",
+        "status": 200,
+        "response": {
+          "values": [
+            [
+              "h1",
+              "h2"
+            ],
+            [
+              "a",
+              1
+            ],
+            [
+              "b",
+              2
+            ]
+          ]
+        },
+        "responseText": "{\"values\":[[\"h1\",\"h2\"],[\"a\",1],[\"b\",2]]}"
+      },
+      {
+        "method": "GET",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/sheet2/values/Leads%202026",
+        "status": 200,
+        "response": {
+          "values": [
+            [
+              "x"
+            ]
+          ]
+        },
+        "responseText": "{\"values\":[[\"x\"]]}"
+      }
+    ],
+    "runs": [
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "rowNumber": 2,
+            "values": [
+              "a",
+              1
+            ]
+          },
+          "event": "google_sheets.new_row",
+          "eventType": "google_sheets.new_row",
+          "integrationId": "wfi_sheets",
+          "provider": "google_sheets"
+        },
+        "triggerId": "trg_wti_sheets",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_sheets",
+        "workspaceId": "org_poll"
+      },
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "rowNumber": 3,
+            "values": [
+              "b",
+              2
+            ]
+          },
+          "event": "google_sheets.new_row",
+          "eventType": "google_sheets.new_row",
+          "integrationId": "wfi_sheets",
+          "provider": "google_sheets"
+        },
+        "triggerId": "trg_wti_sheets",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_sheets",
+        "workspaceId": "org_poll"
+      }
+    ],
+    "kept": [
+      true
+    ],
+    "rows": {
+      "workflows": [
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_sheets",
+          "last_executed_at": null,
+          "name": "Workflow wf_sheets",
+          "settings": null,
+          "status": "active",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "config": {
+                "spreadsheetId": "sheet1"
+              },
+              "event": "google_sheets.new_row",
+              "id": "t_google_sheets",
+              "provider": "google_sheets",
+              "type": "integration_event"
+            },
+            {
+              "config": {
+                "sheetName": "Leads 2026",
+                "spreadsheetId": "sheet2"
+              },
+              "event": "google_sheets.new_row",
+              "id": "t_google_sheets",
+              "provider": "google_sheets",
+              "type": "integration_event"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        }
+      ],
+      "workflow_trigger_index": [
+        {
+          "category": "integration_event",
+          "created_at": "2026-10-01T09:00:00",
+          "entity_type": null,
+          "event_type": null,
+          "filters": null,
+          "id": "wti_sheets",
+          "integration_event": "google_sheets.new_row",
+          "integration_id": null,
+          "is_enabled": true,
+          "provider": "google_sheets",
+          "source_workflow_id": null,
+          "trigger_id": "trg_wti_sheets",
+          "updated_at": "2026-10-01T09:00:00",
+          "workflow_id": "wf_sheets"
+        }
+      ],
+      "workflow_integrations": [
+        {
+          "category": null,
+          "connected_at": null,
+          "connected_by": null,
+          "created_at": "2026-10-01T09:00:00",
+          "credentials": null,
+          "credentials_id": null,
+          "deleted_at": null,
+          "description": null,
+          "documentation": null,
+          "icon": null,
+          "id": "wfi_sheets",
+          "is_oauth": false,
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": null,
+          "name": "google_sheets",
+          "oauth_provider": null,
+          "oauth_scopes": null,
+          "oauth_tokens": {
+            "accessToken": "tok-wfi_sheets"
+          },
+          "settings": {
+            "other": true,
+            "sheetsCursors": {
+              "sheet1!Sheet1": 3,
+              "sheet2!Leads 2026": 1
+            }
+          },
+          "status": "connected",
+          "tags": null,
+          "type": "google_sheets",
+          "updated_at": "<ts>",
+          "website": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "gmail: messages newer than the last one seen; a message that fails is skipped",
+    "env": {},
+    "seed": [
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_gmail', 'Workflow wf_gmail', 'active', '[{\"id\":\"t_gmail\",\"type\":\"integration_event\",\"provider\":\"gmail\",\"event\":\"gmail.new_email\",\"config\":{},\"filters\":[{\"field\":\"query\",\"value\":\"from:boss\"}]}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_trigger_index (id, workflow_id, trigger_id, category, provider, integration_event, created_at, updated_at)\n    values ('wti_gmail', 'wf_gmail', 'trg_wti_gmail', 'integration_event', 'gmail', 'gmail.new_email', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_integrations (id, name, type, status, oauth_tokens, settings, credentials, created_at, updated_at)\n    values ('wfi_gmail', 'gmail', 'gmail', 'connected', '{\"accessToken\":\"tok-wfi_gmail\"}'::jsonb,\n      '{\"gmailLastTs\":\"1790000000000\"}'::jsonb, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "exchanges": [
+      {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX&q=from%3Aboss",
+        "status": 200,
+        "response": {
+          "messages": [
+            {
+              "id": "m1"
+            },
+            {
+              "id": "m2"
+            },
+            {
+              "id": "m3"
+            }
+          ]
+        },
+        "responseText": "{\"messages\":[{\"id\":\"m1\"},{\"id\":\"m2\"},{\"id\":\"m3\"}]}"
+      },
+      {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/m1?format=metadata&metadataHeaders=From&metadataHeaders=Subject",
+        "status": 200,
+        "response": {
+          "id": "m1",
+          "threadId": "t1",
+          "internalDate": "1790000500000",
+          "snippet": "Hi",
+          "payload": {
+            "headers": [
+              {
+                "name": "From",
+                "value": "boss@acme.test"
+              },
+              {
+                "name": "Subject",
+                "value": "Q4"
+              }
+            ]
+          }
+        },
+        "responseText": "{\"id\":\"m1\",\"threadId\":\"t1\",\"internalDate\":\"1790000500000\",\"snippet\":\"Hi\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"boss@acme.test\"},{\"name\":\"Subject\",\"value\":\"Q4\"}]}}"
+      },
+      {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/m2?format=metadata&metadataHeaders=From&metadataHeaders=Subject",
+        "status": 200,
+        "response": {
+          "id": "m2",
+          "threadId": "t2",
+          "internalDate": "1780000000000"
+        },
+        "responseText": "{\"id\":\"m2\",\"threadId\":\"t2\",\"internalDate\":\"1780000000000\"}"
+      },
+      {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/m3?format=metadata&metadataHeaders=From&metadataHeaders=Subject",
+        "status": 404,
+        "response": {
+          "error": "gone"
+        },
+        "responseText": "{\"error\":\"gone\"}"
+      }
+    ],
+    "runs": [
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "from": "boss@acme.test",
+            "id": "m1",
+            "snippet": "Hi",
+            "subject": "Q4",
+            "threadId": "t1"
+          },
+          "event": "gmail.new_email",
+          "eventType": "gmail.new_email",
+          "integrationId": "wfi_gmail",
+          "provider": "gmail"
+        },
+        "triggerId": "trg_wti_gmail",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_gmail",
+        "workspaceId": "org_poll"
+      }
+    ],
+    "kept": [
+      true
+    ],
+    "rows": {
+      "workflows": [
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_gmail",
+          "last_executed_at": null,
+          "name": "Workflow wf_gmail",
+          "settings": null,
+          "status": "active",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "config": {},
+              "event": "gmail.new_email",
+              "filters": [
+                {
+                  "field": "query",
+                  "value": "from:boss"
+                }
+              ],
+              "id": "t_gmail",
+              "provider": "gmail",
+              "type": "integration_event"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        }
+      ],
+      "workflow_trigger_index": [
+        {
+          "category": "integration_event",
+          "created_at": "2026-10-01T09:00:00",
+          "entity_type": null,
+          "event_type": null,
+          "filters": null,
+          "id": "wti_gmail",
+          "integration_event": "gmail.new_email",
+          "integration_id": null,
+          "is_enabled": true,
+          "provider": "gmail",
+          "source_workflow_id": null,
+          "trigger_id": "trg_wti_gmail",
+          "updated_at": "2026-10-01T09:00:00",
+          "workflow_id": "wf_gmail"
+        }
+      ],
+      "workflow_integrations": [
+        {
+          "category": null,
+          "connected_at": null,
+          "connected_by": null,
+          "created_at": "2026-10-01T09:00:00",
+          "credentials": null,
+          "credentials_id": null,
+          "deleted_at": null,
+          "description": null,
+          "documentation": null,
+          "icon": null,
+          "id": "wfi_gmail",
+          "is_oauth": false,
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": null,
+          "name": "gmail",
+          "oauth_provider": null,
+          "oauth_scopes": null,
+          "oauth_tokens": {
+            "accessToken": "tok-wfi_gmail"
+          },
+          "settings": {
+            "gmailLastTs": 1790000500000
+          },
+          "status": "connected",
+          "tags": null,
+          "type": "gmail",
+          "updated_at": "<ts>",
+          "website": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "calendar and airtable: items created since the cursor, the token refreshed first",
+    "env": {
+      "GOOGLE_CLIENT_ID": "gid",
+      "GOOGLE_CLIENT_SECRET": "gsecret"
+    },
+    "seed": [
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_cal', 'Workflow wf_cal', 'active', '[{\"id\":\"t_google_calendar\",\"type\":\"integration_event\",\"provider\":\"google_calendar\",\"event\":\"google_calendar.new_event\",\"config\":{\"calendarId\":\"team@acme.test\"}},{\"id\":\"t_airtable\",\"type\":\"integration_event\",\"provider\":\"airtable\",\"event\":\"airtable.new_record\",\"config\":{\"baseId\":\"app1\",\"tableId\":\"Deals Table\"}},{\"id\":\"t_airtable\",\"type\":\"integration_event\",\"provider\":\"airtable\",\"event\":\"airtable.new_record\",\"config\":{\"baseId\":\"app1\"}}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_trigger_index (id, workflow_id, trigger_id, category, provider, integration_event, created_at, updated_at)\n    values ('wti_cal', 'wf_cal', 'trg_wti_cal', 'integration_event', 'google_calendar', 'google_calendar.new_event', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_trigger_index (id, workflow_id, trigger_id, category, provider, integration_event, created_at, updated_at)\n    values ('wti_air', 'wf_cal', 'trg_wti_air', 'integration_event', 'airtable', 'airtable.new_record', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_integrations (id, name, type, status, oauth_tokens, settings, credentials, created_at, updated_at)\n    values ('wfi_cal', 'google_calendar', 'google_calendar', 'connected', '{\"accessToken\":\"stale\",\"refreshToken\":\"refresh-1\",\"expiresAt\":\"2026-01-01T00:00:00.000Z\"}'::jsonb,\n      '{\"calendarLastCreated\":\"2026-10-02T00:00:00.000Z\"}'::jsonb, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_integrations (id, name, type, status, oauth_tokens, settings, credentials, created_at, updated_at)\n    values ('wfi_air', 'airtable', 'airtable', 'connected', null,\n      '{\"airtableCursors\":{\"app1:Deals Table\":\"2026-10-03T00:00:00.000Z\"}}'::jsonb, '{\"token\":\"pat-air\"}'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "exchanges": [
+      {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "status": 200,
+        "response": {
+          "access_token": "fresh",
+          "expires_in": 3600
+        },
+        "responseText": "{\"access_token\":\"fresh\",\"expires_in\":3600}"
+      },
+      {
+        "method": "GET",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/team%40acme.test/events?timeMin=<ts>&singleEvents=true&orderBy=startTime&maxResults=10",
+        "status": 200,
+        "response": {
+          "items": [
+            {
+              "id": "e1",
+              "summary": "Kickoff",
+              "start": {
+                "dateTime": "2026-11-10T10:00:00Z"
+              },
+              "end": {
+                "dateTime": "2026-11-10T11:00:00Z"
+              },
+              "htmlLink": "https://cal/e1",
+              "created": "2026-10-04T08:00:00.000Z"
+            },
+            {
+              "id": "e2",
+              "summary": "Old",
+              "created": "2026-10-01T08:00:00.000Z"
+            },
+            {
+              "id": "e3"
+            }
+          ]
+        },
+        "responseText": "{\"items\":[{\"id\":\"e1\",\"summary\":\"Kickoff\",\"start\":{\"dateTime\":\"2026-11-10T10:00:00Z\"},\"end\":{\"dateTime\":\"2026-11-10T11:00:00Z\"},\"htmlLink\":\"https://cal/e1\",\"created\":\"2026-10-04T08:00:00.000Z\"},{\"id\":\"e2\",\"summary\":\"Old\",\"created\":\"2026-10-01T08:00:00.000Z\"},{\"id\":\"e3\"}]}"
+      },
+      {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/app1/Deals%20Table?pageSize=50",
+        "status": 200,
+        "response": {
+          "records": [
+            {
+              "id": "rec2",
+              "fields": {
+                "Name": "Second"
+              },
+              "createdTime": "2026-10-05T10:00:00.000Z"
+            },
+            {
+              "id": "rec0",
+              "fields": {
+                "Name": "Old"
+              },
+              "createdTime": "2026-10-01T10:00:00.000Z"
+            },
+            {
+              "id": "rec1",
+              "fields": {
+                "Name": "First"
+              },
+              "createdTime": "2026-10-04T10:00:00.000Z"
+            }
+          ]
+        },
+        "responseText": "{\"records\":[{\"id\":\"rec2\",\"fields\":{\"Name\":\"Second\"},\"createdTime\":\"2026-10-05T10:00:00.000Z\"},{\"id\":\"rec0\",\"fields\":{\"Name\":\"Old\"},\"createdTime\":\"2026-10-01T10:00:00.000Z\"},{\"id\":\"rec1\",\"fields\":{\"Name\":\"First\"},\"createdTime\":\"2026-10-04T10:00:00.000Z\"}]}"
+      }
+    ],
+    "runs": [
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "end": {
+              "dateTime": "<ts>"
+            },
+            "htmlLink": "https://cal/e1",
+            "id": "e1",
+            "start": {
+              "dateTime": "<ts>"
+            },
+            "summary": "Kickoff"
+          },
+          "event": "google_calendar.new_event",
+          "eventType": "google_calendar.new_event",
+          "integrationId": "wfi_cal",
+          "provider": "google_calendar"
+        },
+        "triggerId": "trg_wti_cal",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_cal",
+        "workspaceId": "org_poll"
+      },
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "createdTime": "2026-10-04T10:00:00.000Z",
+            "fields": {
+              "Name": "First"
+            },
+            "id": "rec1"
+          },
+          "event": "airtable.new_record",
+          "eventType": "airtable.new_record",
+          "integrationId": "wfi_air",
+          "provider": "airtable"
+        },
+        "triggerId": "trg_wti_air",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_cal",
+        "workspaceId": "org_poll"
+      },
+      {
+        "source": "integration",
+        "triggerData": {
+          "data": {
+            "createdTime": "2026-10-05T10:00:00.000Z",
+            "fields": {
+              "Name": "Second"
+            },
+            "id": "rec2"
+          },
+          "event": "airtable.new_record",
+          "eventType": "airtable.new_record",
+          "integrationId": "wfi_air",
+          "provider": "airtable"
+        },
+        "triggerId": "trg_wti_air",
+        "triggerType": "integration_event",
+        "userId": "system",
+        "workflowId": "wf_cal",
+        "workspaceId": "org_poll"
+      }
+    ],
+    "kept": [
+      true
+    ],
+    "rows": {
+      "workflows": [
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_cal",
+          "last_executed_at": null,
+          "name": "Workflow wf_cal",
+          "settings": null,
+          "status": "active",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "config": {
+                "calendarId": "team@acme.test"
+              },
+              "event": "google_calendar.new_event",
+              "id": "t_google_calendar",
+              "provider": "google_calendar",
+              "type": "integration_event"
+            },
+            {
+              "config": {
+                "baseId": "app1",
+                "tableId": "Deals Table"
+              },
+              "event": "airtable.new_record",
+              "id": "t_airtable",
+              "provider": "airtable",
+              "type": "integration_event"
+            },
+            {
+              "config": {
+                "baseId": "app1"
+              },
+              "event": "airtable.new_record",
+              "id": "t_airtable",
+              "provider": "airtable",
+              "type": "integration_event"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        }
+      ],
+      "workflow_trigger_index": [
+        {
+          "category": "integration_event",
+          "created_at": "2026-10-01T09:00:00",
+          "entity_type": null,
+          "event_type": null,
+          "filters": null,
+          "id": "wti_air",
+          "integration_event": "airtable.new_record",
+          "integration_id": null,
+          "is_enabled": true,
+          "provider": "airtable",
+          "source_workflow_id": null,
+          "trigger_id": "trg_wti_air",
+          "updated_at": "2026-10-01T09:00:00",
+          "workflow_id": "wf_cal"
+        },
+        {
+          "category": "integration_event",
+          "created_at": "2026-10-01T09:00:00",
+          "entity_type": null,
+          "event_type": null,
+          "filters": null,
+          "id": "wti_cal",
+          "integration_event": "google_calendar.new_event",
+          "integration_id": null,
+          "is_enabled": true,
+          "provider": "google_calendar",
+          "source_workflow_id": null,
+          "trigger_id": "trg_wti_cal",
+          "updated_at": "2026-10-01T09:00:00",
+          "workflow_id": "wf_cal"
+        }
+      ],
+      "workflow_integrations": [
+        {
+          "category": null,
+          "connected_at": null,
+          "connected_by": null,
+          "created_at": "2026-10-01T09:00:00",
+          "credentials": {
+            "token": "pat-air"
+          },
+          "credentials_id": null,
+          "deleted_at": null,
+          "description": null,
+          "documentation": null,
+          "icon": null,
+          "id": "wfi_air",
+          "is_oauth": false,
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": null,
+          "name": "airtable",
+          "oauth_provider": null,
+          "oauth_scopes": null,
+          "oauth_tokens": null,
+          "settings": {
+            "airtableCursors": {
+              "app1:Deals Table": "2026-10-05T10:00:00.000Z"
+            }
+          },
+          "status": "connected",
+          "tags": null,
+          "type": "airtable",
+          "updated_at": "<ts>",
+          "website": null
+        },
+        {
+          "category": null,
+          "connected_at": null,
+          "connected_by": null,
+          "created_at": "2026-10-01T09:00:00",
+          "credentials": null,
+          "credentials_id": null,
+          "deleted_at": null,
+          "description": null,
+          "documentation": null,
+          "icon": null,
+          "id": "wfi_cal",
+          "is_oauth": false,
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": null,
+          "name": "google_calendar",
+          "oauth_provider": null,
+          "oauth_scopes": null,
+          "oauth_tokens": {
+            "accessToken": "fresh",
+            "expiresAt": "<ts>",
+            "refreshToken": "refresh-1"
+          },
+          "settings": {
+            "calendarLastCreated": "2026-10-04T08:00:00.000Z"
+          },
+          "status": "connected",
+          "tags": null,
+          "type": "google_calendar",
+          "updated_at": "<ts>",
+          "website": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "a workspace whose poll triggers have no connection, or none at all",
+    "env": {},
+    "seed": [
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_none', 'Workflow wf_none', 'active', '[{\"id\":\"t_gmail\",\"type\":\"integration_event\",\"provider\":\"gmail\",\"event\":\"gmail.new_email\",\"config\":{}}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_paused', 'Workflow wf_paused', 'paused', '[{\"id\":\"t_google_sheets\",\"type\":\"integration_event\",\"provider\":\"google_sheets\",\"event\":\"google_sheets.new_row\",\"config\":{\"spreadsheetId\":\"s\"}}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into workflow_integrations (id, name, type, status, oauth_tokens, settings, credentials, created_at, updated_at)\n    values ('wfi_off', 'gmail', 'gmail', 'disconnected', '{\"accessToken\":\"tok-wfi_off\"}'::jsonb,\n      null, null, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "exchanges": [],
+    "runs": [],
+    "kept": [
+      true
+    ],
+    "rows": {
+      "workflows": [
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_none",
+          "last_executed_at": null,
+          "name": "Workflow wf_none",
+          "settings": null,
+          "status": "active",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "config": {},
+              "event": "gmail.new_email",
+              "id": "t_gmail",
+              "provider": "gmail",
+              "type": "integration_event"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        },
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_paused",
+          "last_executed_at": null,
+          "name": "Workflow wf_paused",
+          "settings": null,
+          "status": "paused",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "config": {
+                "spreadsheetId": "s"
+              },
+              "event": "google_sheets.new_row",
+              "id": "t_google_sheets",
+              "provider": "google_sheets",
+              "type": "integration_event"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        }
+      ],
+      "workflow_trigger_index": [],
+      "workflow_integrations": [
+        {
+          "category": null,
+          "connected_at": null,
+          "connected_by": null,
+          "created_at": "2026-10-01T09:00:00",
+          "credentials": null,
+          "credentials_id": null,
+          "deleted_at": null,
+          "description": null,
+          "documentation": null,
+          "icon": null,
+          "id": "wfi_off",
+          "is_oauth": false,
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": null,
+          "name": "gmail",
+          "oauth_provider": null,
+          "oauth_scopes": null,
+          "oauth_tokens": {
+            "accessToken": "tok-wfi_off"
+          },
+          "settings": null,
+          "status": "disconnected",
+          "tags": null,
+          "type": "gmail",
+          "updated_at": "2026-10-01T09:00:00",
+          "website": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "a workspace without poll triggers is dropped",
+    "env": {},
+    "seed": [
+      "insert into workflows (id, name, status, triggers, created_at, updated_at)\n    values ('wf_plain', 'Workflow wf_plain', 'active', '[{\"id\":\"t1\",\"type\":\"manual\"}]'::jsonb, '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "exchanges": [],
+    "runs": [],
+    "kept": [
+      false
+    ],
+    "rows": {
+      "workflows": [
+        {
+          "average_execution_time": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "deleted_at": null,
+          "description": null,
+          "execution_count": 0,
+          "failure_count": 0,
+          "folder_id": null,
+          "id": "wf_plain",
+          "last_executed_at": null,
+          "name": "Workflow wf_plain",
+          "settings": null,
+          "status": "active",
+          "steps": null,
+          "success_count": 0,
+          "tags": null,
+          "template_id": null,
+          "triggers": [
+            {
+              "id": "t1",
+              "type": "manual"
+            }
+          ],
+          "updated_at": "2026-10-01T09:00:00",
+          "version": 1
+        }
+      ],
+      "workflow_trigger_index": [],
+      "workflow_integrations": []
+    }
+  }
+]

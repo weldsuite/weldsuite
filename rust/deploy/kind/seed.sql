@@ -8,6 +8,9 @@
 insert into workspaces (id, name, slug, clerk_org_id, neon_project_id, database_url)
 values ('ws_smoke', 'Smoke test', 'smoke-test', 'org_smoke', 'kind:postgres',
         'postgres://weldsuite:weldsuite@postgres:5432/tenant');
+-- A mailbox for the inbound mail check (MAIL-002's registry, MAIL-010).
+insert into mail_account_registry (id, email, tenant_kind, workspace_id, account_id)
+values ('mreg_smoke', 'inbox@kind.test', 'workspace', 'ws_smoke', 'mbx_smoke');
 
 -- @@tenant@@
 insert into workspace_members (id, user_id, email, name, role, permissions, status)
@@ -15,3 +18,5 @@ values ('wm_smoke', 'user_smoke', 'smoke@example.com', 'Smoke', 'MEMBER', '["bil
        ('wm_admin', 'user_admin', 'admin@example.com', 'Admin', 'ADMIN', '[]', 'ACTIVE');
 insert into access_requests (id, requester_id, permission, status)
 values ('areq_smoke', 'user_admin', 'team:read', 'pending');
+insert into mail_accounts (id, name, email, is_shared)
+values ('mbx_smoke', 'Inbox', 'inbox@kind.test', true);

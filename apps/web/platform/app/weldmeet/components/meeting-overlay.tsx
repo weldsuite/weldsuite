@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth';
 import { DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useQueryClient } from '@tanstack/react-query';
@@ -48,6 +48,8 @@ import {
   type MeetingPeer,
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
+import { isLiveKit } from '@/lib/video-provider';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { MeetingInvitePicker } from './meeting-invite-picker';
 import { StartRecordingDialog } from './start-recording-dialog';
@@ -56,6 +58,14 @@ import type { RecordingAiChoice } from './recording-ai-options';
 
 /** Wait this long after a participant joins before refreshing the session links. */
 const LATEST_SESSION_REFRESH_DEBOUNCE_MS = 750;
+
+/**
+ * The recording handlers for the meeting view, or none where this deployment
+ * has no recordings (`meet-recordings`), which leaves the Record tool out.
+ */
+function offeredRecordingControls<T extends object>(available: boolean, controls: T): Partial<T> {
+  return available ? controls : {};
+}
 
 /** Remember a dismissed auto-record prompt for this session only (per tab). */
 function promptDismissedKey(sessionId: string): string {
@@ -138,6 +148,14 @@ function InvitePopoverContent({ meetingId }: Readonly<{ meetingId: string }>) {
 // Adapter — pulls from contexts/queries and feeds the shared MeetingRoomView
 // ============================================================================
 
+/**
+ * The background-effects button and panel. Effects are RealtimeKit video
+ * middlewares, so LiveKit meetings (the Kubernetes editions) go without them.
+ */
+function effectsControls(onToggleEffects: () => void, backgroundEffectsSlot: ReactNode) {
+  return isLiveKit() ? {} : { onToggleEffects, backgroundEffectsSlot };
+}
+
 function MeetingRoomAdapter() {
   const t = getTranslations('weldmeet');
   const {
@@ -201,9 +219,14 @@ function MeetingRoomAdapter() {
   // (or a workspace admin with meetings:scope:all) with sessions:update may
   // choose them; the API enforces the same rule. Fully qualified keys because
   // this view also renders as an overlay outside the WeldMeet module.
+  // The Kubernetes editions have neither the recorder nor the transcript and
+  // summary workflows (`meet-recordings`, `meet-transcription`).
   const { can } = usePermissions();
+  const recordingsAvailable = isFeatureAvailable('meet-recordings');
   const canSetAiOptions =
-    (isOrganizer || can('weldmeet:meetings:scope:all')) && can('weldmeet:sessions:update');
+    isFeatureAvailable('meet-transcription') &&
+    (isOrganizer || can('weldmeet:meetings:scope:all')) &&
+    can('weldmeet:sessions:update');
   const { data: recordingInfo } = useSessionRecording(activeSessionId, { poll: false });
   const [startDialogOpen, setStartDialogOpen] = useState(false);
   // Set once the host has seen the start dialog, so the auto-record prompt never
@@ -754,19 +777,21 @@ function MeetingRoomAdapter() {
       // showControlBarRecording={false}.
       isRecording={isRecording}
       recordingState={recordingState}
-      startRecording={handleRecordRequest}
-      stopRecording={stopRecording}
-      pauseRecording={pauseRecording}
-      resumeRecording={resumeRecording}
+      // Without them the Record tool is left out.
+      {...offeredRecordingControls(recordingsAvailable, {
+        startRecording: handleRecordRequest,
+        stopRecording,
+        pauseRecording,
+        resumeRecording,
+      })}
       showControlBarRecording={false}
       recordingStartElapsedSeconds={recordingStartElapsedSeconds}
       recordingLabels={recordingLabels}
       headerLabels={t.inCall.header}
       toolsLabels={t.inCall.tools}
       onRenameMeeting={handleRename}
-      onToggleEffects={() => setShowEffects(v => !v)}
+      {...effectsControls(() => setShowEffects(v => !v), backgroundEffectsSlot)}
       effectsOpen={showEffects}
-      backgroundEffectsSlot={backgroundEffectsSlot}
       chatPanelSlot={chatPanelSlot}
       invitePopoverSlot={invitePopoverSlot}
       peoplePanelSlot={peoplePanelSlot}

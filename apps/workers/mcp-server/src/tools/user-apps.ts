@@ -263,6 +263,24 @@ function shapeStorageRequest(
   return { method: 'DELETE', path: storageRecordsPath(collection, id) };
 }
 
+const STORAGE_ACTION_METHODS: Record<StorageActionType, HttpMethod> = {
+  'storage.list': 'GET',
+  'storage.create': 'POST',
+  'storage.update': 'PATCH',
+  'storage.delete': 'DELETE',
+};
+
+/**
+ * The HTTP method a tool's action calls, for its MCP annotations. An
+ * `api.request` passes its manifest method on as is; an unknown one is refused
+ * at call time and annotated as a possibly destructive write.
+ */
+export function userAppToolMethod(tool: UserAppTool): string | undefined {
+  const { action } = tool;
+  if (action.type === 'api.request') return action.method;
+  return STORAGE_ACTION_METHODS[action.type];
+}
+
 /** Shape an `api.request` action, enforcing the path allowlist and the app's granted scopes. */
 function shapeApiRequest(tool: UserAppTool, args: Record<string, unknown>): ShapedRequest | string {
   const { action } = tool;

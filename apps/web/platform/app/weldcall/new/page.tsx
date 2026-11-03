@@ -3,24 +3,17 @@ import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import {
   Phone,
   Plus,
   Keyboard,
   ChevronRight,
   ClipboardType,
-  History,
   PhoneOff,
 } from 'lucide-react';
 import { useCall } from '@/contexts/call-context';
-import { cn } from '@/lib/utils';
 import { WeldCallGate } from '../components/weldcall-gate';
 import { getTranslations } from '@/lib/i18n';
+import { ActiveCallStage } from './active-call-stage';
 
 type NewCallStrings = ReturnType<typeof getTranslations<'weldmeet'>>['weldcall']['newCall'];
 
@@ -50,9 +43,12 @@ function NewCallContent() {
     setIsDialerOpen,
     setInitialDialerNumber,
     phoneNumbers,
-    isDialerOpen,
     callState,
-    isMinimized,
+    callStreams,
+    endCall,
+    toggleMute,
+    toggleHold,
+    sendDigits,
   } = useCall();
   const [phoneNumber, setPhoneNumber] = useState('');
   const t = getTranslations('weldmeet');
@@ -70,18 +66,27 @@ function NewCallContent() {
   };
 
   const hasNumber = phoneNumbers.length > 0;
-  // The dialer floats over the bottom-right corner (340px + 16px gutters). While
-  // it's expanded, shift the hero out from under it when there's room to.
-  const isDialerShown = isDialerOpen || (!!callState && !isMinimized);
+  // A live call takes over the page (the floating panel steps aside here)
+  if (callState) {
+    return (
+      <div className="flex-1 min-h-0">
+        <ActiveCallStage
+          callState={callState}
+          callStreams={callStreams}
+          onToggleMute={toggleMute}
+          onToggleHold={toggleHold}
+          onEndCall={endCall}
+          onSendDigit={sendDigits}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 overflow-auto @container">
+    <div className="flex-1 overflow-auto">
       <div
         data-testid="weldcall-landing"
-        className={cn(
-          'flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] -mt-[60px] transition-[padding] duration-300 ease-in-out',
-          isDialerShown && '@3xl:pr-[372px]',
-        )}
+        className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] -mt-[60px]"
       >
         {/* Hero Section */}
         <div className="text-center max-w-2xl mx-auto px-6">
@@ -111,26 +116,10 @@ function NewCallContent() {
 
         {/* Action Row */}
         <div className="flex items-center gap-3 mt-8 px-6">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="lg" className="gap-2 rounded-lg">
-                <Plus className="h-5 w-5" />
-                {tn.newCall}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
-              <DropdownMenuItem onClick={handleNewCall}>
-                <Phone className="h-4 w-4 mr-0.5" />
-                {tn.openDialer}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => navigate({ to: '/weldcall/history' })}
-              >
-                <History className="h-4 w-4 mr-0.5" />
-                {tn.viewCallHistory}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button size="lg" className="gap-2 rounded-lg" onClick={handleNewCall}>
+            <Plus className="h-5 w-5" />
+            {tn.newCall}
+          </Button>
 
           <div className="relative group/input">
             <Keyboard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

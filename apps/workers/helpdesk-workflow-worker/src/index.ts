@@ -160,14 +160,15 @@ async function handleRespond(request: Request, env: Env): Promise<Response> {
     return Response.json({ success: false, error: 'No waiting execution found' }, { status: 404 });
   }
 
-  // Send event to the CF Workflow instance
-  // The instance is waiting in step.waitForEvent('customer_response')
-  // We need to find it — CF Workflows doesn't store instance IDs in our DB,
-  // so we search by sending to the most recent instance for this conversation
+  // Send event to the CF Workflow instance, waiting in
+  // step.waitForEvent('customer_response'). Instances are created with a
+  // generated id, which the run keeps in the execution context
+  // (`cfInstanceId`); an execution paused before it did falls back to the
+  // conversation id.
   try {
-    // List recent instances and find the running one
-    // For now, send the response data that the workflow will pick up
-    const instances = await env.CONVERSATION_WORKFLOW.get(body.conversationId);
+    const execCtx = execution.executionContext as Record<string, unknown> | null;
+    const instanceId = typeof execCtx?.cfInstanceId === 'string' ? execCtx.cfInstanceId : body.conversationId;
+    const instances = await env.CONVERSATION_WORKFLOW.get(instanceId);
 
     await instances.sendEvent({
       type: 'customer_response',

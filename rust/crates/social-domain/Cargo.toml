@@ -1,0 +1,26 @@
+[package]
+name = "weldsuite-social-domain"
+description = "WeldSocial's PostPeer publishing, shared by social-api, external-api and mcp-server (@weldsuite/social-publishing), and the prepaid credits it meters (@weldsuite/credits)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-core-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+form_urlencoded = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

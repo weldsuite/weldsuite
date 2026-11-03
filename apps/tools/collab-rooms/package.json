@@ -1,0 +1,32 @@
+{
+  "name": "collab-rooms",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WeldDocs' and WeldSheets' rooms (the workers' DocRoom and SheetRoom) on Node, for the Kubernetes editions (rust/docs/collab-rooms.md)",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/server.mjs",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@weldsuite/db": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.7",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@types/ws": "^8.0.0",
+    "@weldsuite/collab": "workspace:*",
+    "@weldsuite/docs-engine": "workspace:*",
+    "@weldsuite/sheets-engine": "workspace:*",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

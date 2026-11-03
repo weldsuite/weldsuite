@@ -269,3 +269,76 @@ export const convertProjectSheetSchema = z.object({
   firstTabName: z.string().trim().min(1).max(100).optional(),
 });
 export type ConvertProjectSheetInput = z.infer<typeof convertProjectSheetSchema>;
+
+// ---------------------------------------------------------------------------
+// Responses: Zod twins of the interfaces above, for the conformance harness
+// (packages/core/worker-kit/src/testing/conformance-schemas-sheets.ts).
+// ---------------------------------------------------------------------------
+
+const sheetRole = z.enum(['owner', 'editor', 'viewer']);
+
+export const sheetSummarySchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  name: z.string(),
+  folderId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  createdById: z.string().nullable(),
+  updatedById: z.string().nullable(),
+  role: sheetRole,
+  canEdit: z.boolean(),
+}) satisfies z.ZodType<SheetSummary>;
+
+export const sheetSessionSchema = z.object({
+  ticket: z.string(),
+  canEdit: z.boolean(),
+  mode: z.enum(['edit', 'comment', 'view']),
+  color: z.string(),
+}) satisfies z.ZodType<SheetSession>;
+
+export const sheetVersionSchema = z.object({
+  id: z.string(),
+  sheetId: z.string(),
+  revision: z.number().int(),
+  name: z.string().nullable(),
+  size: z.number().int(),
+  createdAt: z.string(),
+  createdById: z.string().nullable(),
+}) satisfies z.ZodType<SheetVersion>;
+
+export const sheetVersionSnapshotSchema = z.object({
+  revision: z.number().int(),
+  snapshot: z.record(z.unknown()),
+});
+
+export const sheetRestoreResultSchema = z.object({
+  revision: z.number().int(),
+  autoVersion: sheetVersionSchema,
+}) satisfies z.ZodType<SheetRestoreResult>;
+
+export const sheetImportResultSchema = z.object({
+  sheet: sheetSummarySchema,
+  warnings: z.array(z.enum(SHEET_IMPORT_WARNINGS)),
+}) satisfies z.ZodType<SheetImportResult>;
+
+export const sheetDataSourceSchema = z.object({
+  id: z.string(),
+  sheetId: z.string(),
+  objectType: z.enum(SHEET_DATA_OBJECT_KEYS),
+  definition: sheetDataDefinitionSchema,
+  refresh: z.enum(SHEET_DATA_REFRESH),
+  lastRefreshedAt: z.string().nullable(),
+  nextRefreshAt: z.string().nullable(),
+  lastError: z.enum(['invalid', 'no_permission', 'no_access', 'failed', 'unplaced']).nullable(),
+  rowCount: z.number().int(),
+  createdById: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const sheetDataRefreshResultSchema = z.object({
+  source: sheetDataSourceSchema,
+  refreshed: z.boolean(),
+});

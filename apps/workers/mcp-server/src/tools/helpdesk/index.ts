@@ -185,5 +185,6 @@ export const helpdeskTools: ToolDefinition[] = [
     pathParams: { id: 'id' },
     // A reply reaches the customer: never land it on a near-match by name.
     exactId: true,
+    annotations: { openWorldHint: true },
   },
 ];

@@ -24,7 +24,10 @@ use tokio::sync::Mutex;
 use weldsuite_kit::ApiError;
 
 use crate::oidc::{OidcRules, OidcSettings};
-use crate::verifier::{AuthContext, ClerkRules, ClerkVerifier, KeyError, KeySet, TokenError};
+use crate::verifier::{
+    AuthContext, ClerkRules, ClerkVerifier, KeyError, KeySet, PartyCheck, TokenError,
+    VerifiedSession,
+};
 
 /// Clerk's Backend API JWKS endpoint.
 pub const CLERK_JWKS_URL: &str = "https://api.clerk.com/v1/jwks";
@@ -91,6 +94,19 @@ impl Rules {
         match self {
             Self::Clerk(rules) => rules.verify(keys, token, now),
             Self::Oidc(rules) => rules.verify(keys, token, now),
+        }
+    }
+
+    fn verify_claims(
+        &self,
+        keys: &KeySet,
+        token: &str,
+        now: u64,
+        parties: PartyCheck<'_>,
+    ) -> Result<VerifiedSession, TokenError> {
+        match self {
+            Self::Clerk(rules) => rules.verify_claims(keys, token, now, parties),
+            Self::Oidc(rules) => rules.verify_claims(keys, token, now),
         }
     }
 
@@ -276,6 +292,50 @@ impl SessionVerifier {
             );
         };
         self.verify(token, now)
+            .await
+            .map_err(|error| crate::verifier::refusal(error, self.rules.provider()))
+    }
+}
+
+impl SessionVerifier {
+    /// [`SessionVerifier::verify`] with another authorized-party rule for a
+    /// Clerk token (`parties`), keeping every claim. OIDC tokens are checked
+    /// as always: their `azp` is a client id.
+    pub async fn verify_with(
+        &self,
+        token: &str,
+        now: u64,
+        parties: PartyCheck<'_>,
+    ) -> Result<VerifiedSession, TokenError> {
+        let remote = match &self.keys {
+            Keys::Fixed(keys) => return self.rules.verify_claims(keys, token, now, parties),
+            Keys::Remote(remote) => remote,
+        };
+        let keys = remote.keys(false, &self.rules).await?;
+        match self.rules.verify_claims(&keys, token, now, parties) {
+            Err(TokenError::UnknownKey) => {
+                let keys = remote.keys(true, &self.rules).await?;
+                self.rules.verify_claims(&keys, token, now, parties)
+            }
+            result => result,
+        }
+    }
+
+    /// [`SessionVerifier::authenticate`] with another authorized-party rule
+    /// (`verify_with`), for a surface outside the API's first-party
+    /// origins: personal-api's consumer apps.
+    pub async fn authenticate_with(
+        &self,
+        authorization: Option<&str>,
+        now: u64,
+        parties: PartyCheck<'_>,
+    ) -> Result<VerifiedSession, ApiError> {
+        let Some(token) = authorization.and_then(|value| value.strip_prefix("Bearer ")) else {
+            return Err(
+                ApiError::unauthorized().with_message("Missing or invalid Authorization header")
+            );
+        };
+        self.verify_with(token, now, parties)
             .await
             .map_err(|error| crate::verifier::refusal(error, self.rules.provider()))
     }

@@ -59,6 +59,12 @@ impl EntityEventPublisher {
         &self.tracker
     }
 
+    /// The bus this publisher sends to, for other streams on it (WeldPanel's
+    /// events); `None` without one.
+    pub fn bus(&self) -> Option<&Arc<dyn DynEventBus>> {
+        self.bus.as_ref()
+    }
+
     /// `entity-events.customer.created`.
     pub fn subject(&self, event: &EventType) -> String {
         format!(

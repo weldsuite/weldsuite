@@ -45,6 +45,17 @@ function visibilityLabel(app: UserApp, wa: WeldAppsT): string {
   return app.visibility === 'public' ? wa.manage.visibilityPublic : wa.manage.visibilityPrivate;
 }
 
+/**
+ * The live version's number (e.g. "0.0.2"). Publishing a version copies its
+ * manifest onto the app, so `manifest.version` is the current one; the
+ * `uav_…` id is internal and never shown.
+ */
+function currentVersionLabel(app: UserApp): string | null {
+  if (!app.currentVersionId) return null;
+  const version = app.manifest?.version;
+  return typeof version === 'string' ? version : null;
+}
+
 function reviewStatusLabel(app: UserApp, wa: WeldAppsT): string {
   switch (app.reviewStatus) {
     case 'draft': return wa.manage.statusDraft;
@@ -114,7 +125,7 @@ export default function WeldAppsManagePage() {
               </TableCell>
               <TableCell>{app.installCount}</TableCell>
               <TableCell className="text-muted-foreground text-xs">
-                {app.currentVersionId ? app.currentVersionId : wa.manage.noVersion}
+                {currentVersionLabel(app) ?? wa.manage.noVersion}
               </TableCell>
             </TableRow>
           ))}

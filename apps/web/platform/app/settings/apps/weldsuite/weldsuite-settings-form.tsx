@@ -18,7 +18,7 @@ function readSlotsFrom(prefs: ReturnType<typeof useUserPreferences>['data']): [N
   return persisted.map((slot) => {
     if (!slot) return null;
     const def = HOME_WIDGETS[slot.widgetId as WidgetId];
-    if (!def || !isWidgetOffered(def)) return null;
+    if (!def || !isWidgetEnabled(def.id)) return null;
     const parsed = def.schema.safeParse(slot.settings);
     return {
       widgetId: slot.widgetId as WidgetId,

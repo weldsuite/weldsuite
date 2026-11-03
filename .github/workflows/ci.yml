@@ -62,6 +62,15 @@ jobs:
       # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
       - name: Rust subscriber fixtures are current
         run: pnpm rust:subscriber-fixtures --check
+      # rust/crates/payroll-domain: the rule tables (data/) and the vectors
+      # (tests/fixtures/) the TypeScript payroll engines produce. Rerun
+      # `pnpm rust:payroll-fixtures`.
+      - name: Rust payroll fixtures are current
+        run: pnpm rust:payroll-fixtures --check
+      # rust/crates/mail-inbound/tests/fixtures: what mail-inbound-worker does
+      # with the parity messages. Rerun `pnpm rust:mail-inbound-fixtures`.
+      - name: Rust mail-inbound fixtures are current
+        run: pnpm rust:mail-inbound-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -146,10 +155,13 @@ jobs:
   # Valkey and NATS: the full authenticated pipeline, the SPA and the portal
   # (rust/deploy/kind/smoke-test.sh). The build context is the repo root
   # (rust/Dockerfile.dockerignore keeps it small).
+  # Cached, the builds take minutes; when a change misses the cache, the
+  # release build (LTO, one codegen unit, every module) takes about 40
+  # minutes for amd64 and again for the arm64 cross-build.
   rust-image:
     name: Rust · image and chart
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -171,6 +183,25 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md).
+      - name: Build the collab-rooms image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: collab-rooms
+          load: true
+          tags: weldsuite-collab-rooms:dev
+          cache-from: type=gha,scope=rust-image
+      # Haraka, WeldMail's MX on Kubernetes (MAIL-010).
+      - name: Build the MX image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust/deploy/haraka
+          load: true
+          tags: weldsuite-haraka:dev
+          cache-from: type=gha,scope=rust-haraka
+          cache-to: type=gha,mode=max,scope=rust-haraka
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
@@ -454,25 +485,26 @@ jobs:
   # Module-worker Vitest stays one package per process: several start
   # pglite (WASM Postgres), which crashes (ERRORDATA_STACK_SIZE) when many
   # instances boot on the same machine. Shards are separate runners, so
-  # they can run at once. Round-robin (--shard) spreads the slow workers.
+  # they can run at once. --shard balances by measured test time
+  # (TEST_SECONDS in module-workers.mjs), so the slow workers spread out.
   # "Unit · app-api" is the required status check. It does not run tests
   # itself; it fails unless the core job and every shard succeeded.
   # Keep --shards equal to the matrix length.
   unit-api-modules:
-    name: Unit · module APIs (${{ matrix.shard }}/4)
+    name: Unit · module APIs (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest · module API workers
         run: |
           set -euo pipefail
-          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 4); do
+          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 6); do
             echo "=== $w ==="
             pnpm --filter "$w" test
           done

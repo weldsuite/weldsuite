@@ -9,7 +9,11 @@ import { DocModel, applyOp } from '@weldsuite/docs-engine';
 import type { Env, Variables } from '../../types';
 import { readSnapshot } from '../../room/snapshot';
 import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
+import { docEngineNamespace } from '../../engine-ops';
 import docRoutes from './index';
+
+/** The docs engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */
+const engineBinding = { DOC_ENGINE: docEngineNamespace() };
 
 const ALL = ['docs:read', 'docs:create', 'docs:update', 'docs:delete'];
 const ALICE = 'user_alice';
@@ -22,7 +26,7 @@ let rooms: ReturnType<typeof fakeRoomNamespace>;
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/docs', docRoutes, {
     context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
-    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding },
+    env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding, ...engineBinding },
   });
 }
 
@@ -198,7 +202,7 @@ describe('/api/docs', () => {
     const session = ((await res.json()) as { data: DocSession }).data;
     expect(session).toMatchObject({ canEdit: true, mode: 'edit' });
     expect(session.ticket).toBe(`${'f'.repeat(64)}.ticket-for-${ALICE}`);
-    expect(rooms.admissions).toEqual([
+    expect(rooms.admissions.slice(-1)).toEqual([
       {
         name: `org_test_default:${doc.id}`,
         admission: expect.objectContaining({
@@ -219,7 +223,7 @@ describe('/api/docs', () => {
     const doc = await create({ name: 'Look only' });
     const res = await app({ keys: ['docs:read'] }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(((await res.json()) as { data: DocSession }).data).toMatchObject({ canEdit: false, mode: 'view' });
-    expect(rooms.admissions[0]!.admission).toMatchObject({ canEdit: false, canComment: false });
+    expect(rooms.admissions.at(-1)!.admission).toMatchObject({ canEdit: false, canComment: false });
 
     await db.update(files).set({ generalAccess: 'workspace_view' }).where(eq(files.id, doc.fileId));
     const viewer = await app({ userId: BOB }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
@@ -232,12 +236,12 @@ describe('/api/docs', () => {
     const keys = [...ALL, 'docs:comment'];
     const viewer = await app({ userId: BOB, keys }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(((await viewer.json()) as { data: DocSession }).data).toMatchObject({ canEdit: false, mode: 'comment' });
-    expect(rooms.admissions[0]!.admission).toMatchObject({ userId: BOB, canEdit: false, canComment: true });
+    expect(rooms.admissions.at(-1)!.admission).toMatchObject({ userId: BOB, canEdit: false, canComment: true });
 
     // An editor edits (comments included); the owner without docs:update comments.
     const owner = await app({ keys }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(((await owner.json()) as { data: DocSession }).data).toMatchObject({ canEdit: true, mode: 'edit' });
-    expect(rooms.admissions[1]!.admission).toMatchObject({ canEdit: true, canComment: false });
+    expect(rooms.admissions.at(-1)!.admission).toMatchObject({ canEdit: true, canComment: false });
     const commenter = await app({ keys: ['docs:read', 'docs:comment'] }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(((await commenter.json()) as { data: DocSession }).data.mode).toBe('comment');
   });
@@ -249,6 +253,6 @@ describe('/api/docs', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(await res.json()).toEqual({ data: { revision: 7, snapshot: { version: 1, stories: { body: { text: 'Live' } } } } });
-    expect(rooms.snapshots[0]).toMatchObject({ name: `org_test_default:${doc.id}`, doc: { docId: doc.id, snapshotKey: storedKey(doc) } });
+    expect(rooms.snapshots.at(-1)).toMatchObject({ name: `org_test_default:${doc.id}`, doc: { docId: doc.id, snapshotKey: storedKey(doc) } });
   });
 });

@@ -783,17 +783,41 @@ impl weldsuite_ports::DynOutboundHttp for BridgedOutbound {
                 .await
                 .map_err(weldsuite_ports::PortError::backend)?;
             if response.headers().contains_key("x-outbound-error") {
-                return Err(weldsuite_ports::PortError::backend(
-                    "the test's fetch stub threw",
-                ));
+                // What the stub threw (`String(error)`: "TypeError: fetch
+                // failed"), as JavaScript's `err.message` reads it.
+                let thrown = response.text().await.unwrap_or_default();
+                let message = thrown
+                    .split_once(": ")
+                    .filter(|(name, _)| name.ends_with("Error"))
+                    .map_or(thrown.as_str(), |(_, message)| message);
+                let message = if message.is_empty() {
+                    "the test's fetch stub threw"
+                } else {
+                    message
+                };
+                return Err(weldsuite_ports::PortError::backend(message.to_owned()));
             }
             let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
             let body = response
                 .bytes()
                 .await
                 .map_err(weldsuite_ports::PortError::backend)?
                 .to_vec();
-            Ok(weldsuite_ports::HttpResponse { status, body })
+            Ok(weldsuite_ports::HttpResponse {
+                status,
+                body,
+                headers,
+            })
         })
     }
 }

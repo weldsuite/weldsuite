@@ -340,10 +340,16 @@ Be clear about this before anyone signs a contract:
   (`RUST_PORTED_MODULES` in `packages/core/api-modules`): the core platform
   (team and settings, files and drive, search, custom objects, WeldApps,
   notifications, audit logs, API keys, credits, onboarding), WeldKnow,
-  WeldSign, WeldPass and the calendar. CRM, Flow, Chat, Desk and Mail have
-  Rust crates that aren't marked ported yet; they and every other module are
-  TypeScript-only and not on this cluster (P6, P8). `/config.json` lists the
-  offered modules, and the platform hides the rest (work package 4.F3).
+  WeldSign, WeldPass, the calendar, CRM, Flow, Mail, Chat, Desk, Stash, Ads,
+  Social, Data, Commerce, HR, Call (on Telnyx), Host, Meet, Reach, Books,
+  Docs, Panel, Sheets and Connect. Also external-api's `/v1` (not yet its
+  mail, custom-object and WeldReach groups), the MCP server at `/mcp`,
+  personal-api at `/personal-api` (with `DATABASE_URL_PERSONAL`) and the
+  integration workers' webhooks and jobs. Not WeldAgent: there is no AI on
+  this edition until there is an EU AI provider (ADR AI-011), and the other
+  modules' AI features are listed unavailable. Docs and Sheets need the
+  collab-rooms sidecar (`collabRooms`, ADR OPS-016). `/config.json` lists
+  the offered modules, and the platform hides the rest (work package 4.F3).
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
   step 7) and the platform signs in through Zitadel with its auth facade
   (OIDC with PKCE, from `/config.json`). Invitations and member changes go
@@ -352,7 +358,7 @@ Be clear about this before anyone signs a contract:
   (`sso-connections` is listed as unavailable).
 - **Workspace lifecycle.** Signup, onboarding, provisioning, the identity
   sync and the deletion sweeps run (above). Not on this cluster: sample
-  data and the default helpdesk workflows (their modules aren't ported), the
+  data and the default helpdesk workflows (their seeders aren't ported), the
   WeldMail domain of a new workspace, Stripe, and a reseller's entry point
   (partner onboarding runs on Global; only the provisioning job knows a
   partner workspace).
@@ -369,9 +375,13 @@ Be clear about this before anyone signs a contract:
 - **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
   runs here.
 - **Other EU services** in the design: system email goes out over SMTP
-  (`SMTP_URL`); not here yet: LiveKit + TURN, Haraka MX (ADR MAIL-010),
+  (`SMTP_URL`). The chart has the Haraka MX for inbound mail and WeldReach
+  replies (`mailInbound`, ADR MAIL-010), but no workflow publishes its image
+  or the collab-rooms one yet, and the EU values don't turn it on. WeldMeet
+  speaks LiveKit (`config.video`, ADR MEET-007), but nothing here deploys a
+  LiveKit server or TURN, so the EU values have no video yet. Not here yet:
   Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off), sipgate.
+  `consume.embeddings` the semantic search index is off).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a

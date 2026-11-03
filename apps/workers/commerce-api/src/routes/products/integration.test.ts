@@ -15,6 +15,9 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
+/** The real `fetch`: a stub hands it every request but the store's (the conformance harness's own). */
+const realFetch = globalThis.fetch;
+
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
@@ -363,7 +366,11 @@ describe('/api/products · pglite integration', () => {
     // Unlink tries a remote delete first; stub the store so we never hang on DNS.
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('{"code":"woocommerce_rest_product_invalid_id"}', { status: 404 })),
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input instanceof Request ? input.url : input).startsWith('https://unlink.example')
+          ? new Response('{"code":"woocommerce_rest_product_invalid_id"}', { status: 404 })
+          : realFetch(input, init),
+      ),
     );
     try {
       const { request } = createTestApp('/api/products', productsRoutes, {

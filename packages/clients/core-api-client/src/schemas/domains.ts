@@ -280,6 +280,31 @@ export interface Domain {
    * DOMAIN_IN_USE_BY_WELDREACH.
    */
   usedByWeldReach?: boolean;
+
+  /**
+   * The TXT record that proves ownership of an external domain. Set on the
+   * detail response while the domain still waits for it (no Cloudflare zone
+   * yet), so the user can pick the verification up again later.
+   */
+  verificationRecord?: DomainVerificationRecord | null;
+}
+
+export interface DomainVerificationRecord {
+  name: string;
+  type: 'TXT';
+  value: string;
+}
+
+/** The TXT record an external domain must publish before WeldHost creates its zone. */
+export function externalDomainVerificationRecord(
+  fullDomain: string,
+  token: string,
+): DomainVerificationRecord {
+  return {
+    name: `_weldhost-verify.${fullDomain}`,
+    type: 'TXT',
+    value: `weldhost-verify=${token}`,
+  };
 }
 
 export interface CheckoutResponse {

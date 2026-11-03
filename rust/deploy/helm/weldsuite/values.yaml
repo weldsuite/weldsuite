@@ -43,6 +43,24 @@ config:
   #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
   #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
   publicEnv: {}
+  # WeldMeet's video provider. livekit: a LiveKit server you run next to the
+  # chart (not part of it; see rust/README.md, "WeldMeet on LiveKit"). The
+  # server mints LiveKit join tokens with the key pair in the Secret
+  # (LIVEKIT_API_KEY, LIVEKIT_API_SECRET), administers rooms over its API, and
+  # tells the platform where to connect (/config.json videoProvider and
+  # videoUrl). Point LiveKit's webhook at https://<host>/api/webhooks/livekit,
+  # signed with the same key. Empty: the server's default (realtimekit, which
+  # only Global's Cloudflare account can serve).
+  video:
+    provider: ""
+    livekit:
+      # What browsers connect to (wss://livekit.<domain>); also the API's
+      # address unless apiUrl is set.
+      url: ""
+      # The API inside the cluster, e.g. http://livekit.livekit:7880 (optional).
+      apiUrl: ""
+      # How long a join token can be used to connect (default 600).
+      tokenTtlSeconds: ""
   # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
   # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
   # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
@@ -97,6 +115,16 @@ config:
   # every pod; pods share hubs, rooms, presence and the replay log through
   # Valkey, so no sticky sessions are needed. It needs a standalone Valkey
   # (or a primary with replicas), not a Valkey cluster.
+  # The public API (external-api's `/v1`: wsk_ keys, WeldApps tokens, the
+  # weld CLI) is served on the same host as /api. The WeldApps gateway
+  # reaches it through this release's own Service by default.
+  publicApi:
+    gatewayUrl: ""
+  # The MCP server (mcp-server: /mcp on the same host, OAuth bearer tokens of
+  # the identity provider). The origin its discovery documents name; empty:
+  # https:// and the first ingress host.
+  mcp:
+    serverUrl: ""
   realtime:
     # The URL /config.json gives the frontends. Empty: the origin that
     # /config.json was requested on, with /ws (wss:// behind TLS), which is
@@ -178,8 +206,9 @@ config:
 # The secrets the server needs. Point existingSecret at a Secret you manage
 # (External Secrets, Sealed Secrets, sops, ...) holding these keys:
 #   DATABASE_URL_MASTER          master database connection string (required)
-#   DATABASE_ENCRYPTION_KEY      v1 key for workspaces.database_url (optional)
-#   DATABASE_ENCRYPTION_KEY_V2   v2 key for workspaces.database_url (optional)
+#   DATABASE_ENCRYPTION_KEY      v1 key for workspaces.database_url and stored
+#                                Sendcloud secrets (WeldStash) (optional)
+#   DATABASE_ENCRYPTION_KEY_V2   v2 key for the same (optional)
 #   CLERK_JWT_KEY                PEM public key of the Clerk instance; or
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
@@ -192,12 +221,21 @@ config:
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
+#   LIVEKIT_API_KEY / LIVEKIT_API_SECRET  WeldMeet on LiveKit (config.video.provider: livekit):
+#                                the key pair of the LiveKit server, signing join tokens,
+#                                room administration and its webhooks
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
 #                                the relay system mail goes through (optional; unset skips mail)
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   MAIL_INBOUND_SECRET          shared by the server and Haraka for the RCPT TO check
+#                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 #   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   DATABASE_URL_PERSONAL        personal-api's shared personal database (consumer WeldMail and
+#                                WeldCalendar on personal accounts, ADR DATA-011), a database of its
+#                                own: set, the server serves personal-api at /personal-api and the
+#                                migrations Job migrates it (optional; unset: no personal-api)
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
@@ -216,10 +254,11 @@ secret:
 # database URLs. Turn it off only when the migrations run some other way.
 migrations:
   enabled: true
-  # weldsuite migrate's flags (weldsuite migrate --help): the master database
-  # and every active workspace's database. Add "--apply-skipped" to also apply
-  # migrations Drizzle skipped.
-  args: ["--master", "--tenants"]
+  # weldsuite migrate's flags (weldsuite migrate --help): the master database,
+  # every active workspace's database, and personal-api's shared personal
+  # database when DATABASE_URL_PERSONAL is in the Secret (skipped otherwise).
+  # Add "--apply-skipped" to also apply migrations Drizzle skipped.
+  args: ["--master", "--tenants", "--personal"]
   # Tenant databases migrated at once (the TypeScript runner does one).
   concurrency: 1
   # Retries of a failed run; every run starts where the last one stopped.
@@ -337,6 +376,33 @@ signPortal:
             pathType: Prefix
     tls: []
 
+# WeldDocs' and WeldSheets' live editing (rust/docs/collab-rooms.md): the
+# workers' DocRoom and SheetRoom on Node, in a StatefulSet. The server serves
+# the REST routes and proxies the room sockets (/api/docs/connect,
+# /api/sheets/connect) to the pod that holds each room, so the ingress needs
+# no extra path. Needs config.files (the rooms' storage and checkpoints are
+# in the private bucket) and COLLAB_ROOMS_SECRET in the Secret. Off: the
+# documents and sheets are listed and managed, but opening one answers 503.
+collabRooms:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-collab-rooms
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Rooms are spread over the pods by id. Changing it restarts every pod
+  # (they flush their rooms on SIGTERM) and the server, which routes by it.
+  replicaCount: 1
+  # V8's heap: an open spreadsheet is held whole in memory.
+  heapMegabytes: 1536
+  terminationGracePeriodSeconds: 60
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
+
 resources:
   requests:
     cpu: 100m
@@ -379,7 +445,10 @@ consume:
   enabled: false
   replicaCount: 2
   # The subscribers to run; empty runs every ported one (audit, search-index,
-  # webhooks, realtime). search-index needs `embeddings` below.
+  # webhooks, realtime, and reach-send: WeldReach's sends, which the
+  # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
+  # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
+  # `embeddings` below.
   subscribers: []
   # With config.nats.ensureStreams: create or update the hub and the
   # dead-letter stream at start with this many replicas (3 on a three-node
@@ -437,6 +506,78 @@ consume:
       periodSeconds: 10
       failureThreshold: 3
 
+# WeldMail's inbound path (ADR MAIL-010), off by default: Haraka as the MX
+# (its own image, rust/deploy/haraka) behind a LoadBalancer on port 25. At
+# RCPT TO it asks the server whether the master registry knows the address
+# (250, 550 5.1.1, or 451 when it cannot tell); it verifies SPF, DKIM and
+# DMARC into an Authentication-Results header in Cloudflare's form, puts the
+# raw message in the mail bucket and publishes its key and envelope on NATS
+# (250 only when both succeeded, else 451). `weldsuite consume` (needs
+# consume.enabled) then runs mail-inbound-worker's storage pipeline. Needs
+# config.files.endpoint (the mail bucket lives on that store; create it),
+# NATS_URL and the S3 keys in the Secret, and MAIL_INBOUND_SECRET. Haraka gets
+# only those: no database credentials.
+#
+# WeldReach's replies come in the same way: with REACH_INBOUND_DOMAIN in the
+# Secret (or config.extraEnv) and that domain's MX pointing at Haraka, the
+# RCPT check accepts reply+<token>@<domain> for an active mailbox token and
+# consume hands those recipients to WeldReach (storage in publicBucket as
+# STORAGE), the rest to WeldMail.
+mailInbound:
+  enabled: false
+  # The mail bucket: Haraka's spool (inbound/…) and each stored message's
+  # raw MIME (mail/<workspace>/<mailbox>/<message>/raw.eml). An EU bucket on
+  # the EU edition.
+  bucket: weldsuite-mail
+  # Inbound attachments and new contacts' avatars go to config.files'
+  # publicBucket, served at this URL (the workers' R2_PUBLIC_URL). Empty: a
+  # message keeps no attachments, as the worker without STORAGE.
+  publicUrl: ""
+  # The largest message accepted, in bytes (Cloudflare Email Routing's 25 MiB).
+  maxMessageBytes: 26214400
+  # The JetStream stream, subject and dead-letter stream (created by consume
+  # with config.nats.ensureStreams).
+  stream: MAIL_INBOUND
+  subject: mail.inbound
+  deadLetterStream: MAIL_INBOUND_DLQ
+  haraka:
+    image:
+      repository: ghcr.io/weldsuite/weldsuite-haraka
+      # Defaults to the chart's appVersion.
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicaCount: 2
+    # The MX's name (mx.<domain>): the 220 greeting, Received and
+    # Authentication-Results, and the certificate's name. Required.
+    hostname: ""
+    # The addresses (or CIDRs) the PROXY protocol comes from: the load
+    # balancer's. Empty: none (a direct connection, kind or a test).
+    proxyProtocolHosts: []
+    service:
+      type: LoadBalancer
+      port: 25
+      # Keep the client's address (SPF needs it) and pass TCP through.
+      externalTrafficPolicy: Local
+      # Hetzner: load-balancer.hetzner.cloud/uses-proxyprotocol: "true",
+      # load-balancer.hetzner.cloud/name, …/location.
+      annotations: {}
+    # STARTTLS with a certificate for hostname: a cert-manager Certificate
+    # from issuerRef, or a kubernetes.io/tls Secret you manage.
+    tls:
+      enabled: true
+      existingSecret: ""
+      issuerRef:
+        name: letsencrypt
+        kind: ClusterIssuer
+    # How long the RCPT TO check may take before Haraka answers 451.
+    rcptTimeoutMs: 5000
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:
   enabled: true
@@ -463,6 +604,52 @@ cron:
       schedule: "*/15 * * * *"
       # Kill a run that hangs before the next one is due.
       activeDeadlineSeconds: 840
+    # WeldDesk: SLA warnings and breaches on inbox conversations, for the
+    # workspaces the due index lists.
+    desk-sla-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
+    # WeldReach: the send sweep over the due index (workspaces with outreach
+    # due). With consume.enabled it publishes each one on NATS for the
+    # reach-send subscriber; otherwise it runs their sends itself.
+    reach-send-sweep:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 290
+    # WeldReach: warmup progress of the mailboxes (provisioning, warming,
+    # active, the daily cap ramp, lapsed domains), for the workspaces the due
+    # index lists. Needs MAILPOOL_API_KEY for mailboxes still provisioning.
+    reach-warmup-sweep:
+      enabled: true
+      schedule: "15 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldReach: gives back Mailpool slots no active mailbox needs (master
+    # database only). Does nothing without MAILPOOL_API_KEY.
+    reach-slot-reconciliation:
+      enabled: true
+      schedule: "15 3 * * *"
+      activeDeadlineSeconds: 600
+    # WeldReach's warmup network (master database only; kill switch
+    # weldreach-warmup; needs WELDREACH_WARMUP_KEY). The dispatch hands due
+    # warmup mail to the reach-warmup-send / -engage subscribers on NATS with
+    # consume.enabled; otherwise it sends and engages them itself.
+    reach-warmup-dispatch:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 290
+    # Turns the pool into the day's scheduled warmup mail, and brings back
+    # mailboxes whose login works again.
+    reach-warmup-plan:
+      enabled: true
+      schedule: "*/30 * * * *"
+      activeDeadlineSeconds: 1500
+    # The ramp, stats, auto-pause and resume, and the cleanup of old warmup
+    # mail over IMAP.
+    reach-warmup-daily:
+      enabled: true
+      schedule: "30 2 * * *"
+      activeDeadlineSeconds: 3000
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.
@@ -470,17 +657,83 @@ cron:
       enabled: false
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
+    # rates, in every workspace that used books (the books due index).
+    books-sweep:
+      enabled: true
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
+    # WeldBooks' bank feeds whose next sync is due (the master
+    # bank_feed_connection_index): the polled providers' syncs and the daily
+    # safety net for the ones with webhooks (integration-sync-worker's cron).
+    bank-feed-due:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    # CRM connections (Attio, HubSpot, Google Calendar) whose next sync is
+    # due (the master workspace_due_index, kind crm_sync): the sync started on
+    # Restate and Google watches renewed through WeldConnect's internal routes
+    # (integration-sync-worker's CRM due sweep). Needs
+    # config.jobs.restate.ingressUrl and INTERNAL_API_SECRET.
+    crm-due:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    # WeldAds: connections whose metrics sync is due (the master
+    # ad_sync_index), synced through WeldConnect's internal route
+    # (integration-sync-worker's ad sweep). Needs INTERNAL_API_SECRET.
+    ad-sync:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    # WeldConnect's store and accounting connectors (WooCommerce, Shopify,
+    # Picqer, Moneybird, Stripe) whose catch-up is due (the master
+    # workspace_due_index, kind connector_catchup): each probed for changes
+    # and caught up through WeldConnect's internal route when there are any
+    # (integration-sync-worker's connector catch-up). Needs INTERNAL_API_SECRET.
+    connector-catchup:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    # WeldBooks to Moneybird: another push pass for the workspaces whose last
+    # pass left work (Moneybird's rate limit; kind moneybird_push), through
+    # WeldConnect's internal route. Needs INTERNAL_API_SECRET.
+    moneybird-push:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 280
+    # WeldConnect's Google Sheets, Gmail, Google Calendar and Airtable poll
+    # triggers (the master workspace_due_index, kind workflow_poll), new items
+    # dispatched to their workflows on Restate. Needs
+    # config.jobs.restate.ingressUrl.
+    workflow-polls:
+      enabled: true
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 540
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:
       enabled: false
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldConnect's scheduled workflow runs, started on Restate. Needs
+    # config.jobs.restate.ingressUrl (without it each run only logs a skip).
+    workflow-schedules:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
     # Deleted workspaces whose database teardown never finished, after 48
     # hours. Needs TENANT_SHARDS.
     workspace-teardown:
       enabled: false
       schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
+    # WeldHost's daily domain auto-renew sweep. Renewals are charged through
+    # Stripe, which stays with Global (feature domain-purchase), so for now it
+    # only reports that billing is missing; off until a billing provider exists.
+    domain-auto-renew:
+      enabled: false
+      schedule: "0 4 * * *"
       activeDeadlineSeconds: 3000
   resources:
     requests:

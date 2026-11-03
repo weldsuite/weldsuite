@@ -112,6 +112,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __setZonesFetchForTests(undefined);
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -136,10 +137,15 @@ const send = (method: string, body?: unknown): RequestInit => ({
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
 
+const realFetch = globalThis.fetch;
+
 /**
- * Every Cloudflare call of the DNS client goes through this spy (the SDK keeps
- * its own fetch, so patching globalThis.fetch would not reach it) and is
+ * Every Cloudflare call of the DNS client goes through this spy and is
  * answered with a quick 403. A request the guards refuse must never reach it.
+ * It stands in for the global fetch (the zones client builds its SDK client
+ * per call, on the global fetch), so in conformance mode the Rust server's
+ * calls reach it too, through the harness's outbound bridge; every other URL
+ * (the harness's own loopback calls) goes to the real fetch.
  */
 function stubCloudflare() {
   const spy = vi.fn(
@@ -149,7 +155,11 @@ function stubCloudflare() {
         headers: { 'content-type': 'application/json' },
       }),
   );
-  __setZonesFetchForTests(spy as unknown as Parameters<typeof __setZonesFetchForTests>[0]);
+  __setZonesFetchForTests(undefined);
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    return url.startsWith('https://api.cloudflare.com/') ? spy() : realFetch(input, init);
+  });
   return spy;
 }
 

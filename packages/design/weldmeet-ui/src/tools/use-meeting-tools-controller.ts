@@ -38,10 +38,34 @@ export interface MeetingToolsController {
   /** The tool whose view is open in the panel, or null for the list. */
   activeTool: MeetingToolKey | null;
   setActiveTool: (tool: MeetingToolKey | null) => void;
+  /**
+   * Tools the meeting's video provider has no channel for, left out of the
+   * list: RealtimeKit's transcript (and the translation of it), polls and
+   * live stream don't exist on LiveKit. Empty on RealtimeKit.
+   */
+  unavailable?: ReadonlySet<MeetingToolKey>;
+}
+
+const NONE_UNAVAILABLE: ReadonlySet<MeetingToolKey> = new Set();
+
+/** The tools a meeting client can't offer: the RealtimeKit modules it lacks. */
+export function unavailableTools(meeting: MeetingClient | null): ReadonlySet<MeetingToolKey> {
+  if (!meeting) return NONE_UNAVAILABLE;
+  const modules = meeting as unknown as Partial<Record<'ai' | 'polls' | 'livestream', unknown>>;
+  const missing = new Set<MeetingToolKey>();
+  if (!modules.ai) {
+    missing.add('transcribe');
+    missing.add('translation');
+  }
+  if (!modules.polls) missing.add('polls');
+  if (!modules.livestream) missing.add('livestream');
+  return missing.size > 0 ? missing : NONE_UNAVAILABLE;
 }
 
 interface ControllerOptions {
   meeting: MeetingClient | null;
+  /** No meeting connection (a phone call): the tools run for this viewer only. */
+  local?: boolean;
   participants: MeetingPeer[];
   isOrganizer: boolean;
   meetingTitle?: string;
@@ -87,12 +111,12 @@ function playTimerEndSound(): void {
  * Wires the meeting tools to one meeting: shared state, RealtimeKit polls /
  * transcript / livestream, caption translation and the notifications people
  * get when something happens while the panel is closed. Null until a meeting
- * client exists.
+ * client exists, unless `local` is set.
  */
 export function useMeetingToolsController(options: ControllerOptions): MeetingToolsController | null {
   const { meeting, participants, isOrganizer, meetingTitle, panelOpen, onOpenPanel } = options;
   const labels = options.labels ?? DEFAULT_MEETING_TOOLS_LABELS;
-  const store = useMeetingToolsStore(meeting);
+  const store = useMeetingToolsStore(meeting, options.local);
   const state = useMeetingToolsState(store);
   const [activeTool, setActiveTool] = useState<MeetingToolKey | null>(null);
 
@@ -191,5 +215,6 @@ export function useMeetingToolsController(options: ControllerOptions): MeetingTo
     labels,
     activeTool,
     setActiveTool,
+    unavailable: unavailableTools(meeting),
   };
 }

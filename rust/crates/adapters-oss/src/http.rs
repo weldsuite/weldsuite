@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use reqwest::{Client, Method};
+use reqwest::{Client, Identity, Method};
 use weldsuite_ports::{BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, PortError};
 
 /// [`DynOutboundHttp`] over `reqwest`, with a request timeout.
@@ -17,6 +17,19 @@ impl ReqwestOutbound {
     pub fn new(timeout: Duration) -> Result<Self, PortError> {
         let client = Client::builder()
             .timeout(timeout)
+            .build()
+            .map_err(PortError::backend)?;
+        Ok(Self { client })
+    }
+
+    /// A client that presents a TLS client certificate (mutual TLS, as
+    /// Ponto's API requires): `pem` holds the certificate chain and its
+    /// private key.
+    pub fn with_client_certificate(timeout: Duration, pem: &[u8]) -> Result<Self, PortError> {
+        let identity = Identity::from_pem(pem).map_err(PortError::backend)?;
+        let client = Client::builder()
+            .timeout(timeout)
+            .identity(identity)
             .build()
             .map_err(PortError::backend)?;
         Ok(Self { client })
@@ -37,8 +50,22 @@ impl DynOutboundHttp for ReqwestOutbound {
             }
             let response = call.send().await.map_err(PortError::backend)?;
             let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
             let body = response.bytes().await.map_err(PortError::backend)?.to_vec();
-            Ok(HttpResponse { status, body })
+            Ok(HttpResponse {
+                status,
+                body,
+                headers,
+            })
         })
     }
 }

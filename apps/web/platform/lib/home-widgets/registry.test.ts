@@ -4,6 +4,20 @@ import { setRuntimeConfig } from '@/lib/runtime-config';
 
 afterEach(() => setRuntimeConfig(null));
 
+describe('home widgets · coming soon', () => {
+  it('lists the activity chart but never enables it while it only has sample data (TASK-976)', () => {
+    const def = HOME_WIDGETS['analytics-activity'];
+    expect(def.disabled).toBe(true);
+    expect(isWidgetOffered(def)).toBe(true);
+    expect(isWidgetEnabled('analytics-activity')).toBe(false);
+  });
+
+  it('keeps the real-data widgets enabled', () => {
+    expect(isWidgetEnabled('weldmail-inbox')).toBe(true);
+    expect(isWidgetEnabled('weldflow-my-tasks')).toBe(true);
+  });
+});
+
 describe('home widgets · edition flags', () => {
   it('offers every widget on Global', () => {
     for (const def of Object.values(HOME_WIDGETS)) expect(isWidgetOffered(def), def.id).toBe(true);

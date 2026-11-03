@@ -8,8 +8,10 @@
  * `@weldsuite/api-modules`); the apps and features of any other module are
  * hidden, since their API would answer 404. Its `unavailableFeatures` list
  * names what the backend lacks inside the modules it does serve (billing,
- * SSO connections, …). Global serves neither list and offers everything,
- * exactly as before.
+ * SSO connections, …). A module that cannot work without one of them counts
+ * as not offered (`MODULE_FEATURES`: WeldDocs and WeldSheets without live
+ * editing). Global serves neither list and offers everything, exactly as
+ * before.
  *
  * Both lists are read once, before the first render, and never change while
  * the app runs, so these are plain functions: components and hooks call them
@@ -56,6 +58,33 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /** WeldConnect's "Generate with AI" (`POST /api/workflows/generate`, Workers AI). */
+  'weldconnect-ai',
+  /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
+  'payroll-digipoort',
+  /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */
+  'books-ocr',
+  /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
+  'phone-number-purchase',
+  /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
+  'vat-digipoort',
+  /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
+  'domain-purchase',
+  /** WeldMeet transcripts and AI summaries (the MEETING_AI Workflow and RealtimeKit's own AI). */
+  'meet-transcription',
+  /** WeldMeet recordings (RealtimeKit's recorder copied into the private recordings bucket). */
+  'meet-recordings',
+  /**
+   * WeldAgent's AI: the assistant chat, agent runs, routine tests and teach
+   * mode (Claude Managed Agents and `@weldsuite/ai`; no AI provider on the
+   * Kubernetes editions yet).
+   */
+  'agent-ai',
+  /**
+   * Live editing of WeldDocs and WeldSheets (the collab-rooms service). Unavailable
+   * when the deployment runs without it (`COLLAB_ROOMS_URLS` unset): both apps are hidden.
+   */
+  'collab-rooms',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
@@ -75,6 +104,16 @@ const APP_MODULE_OVERRIDES: Readonly<Record<string, ApiModuleId>> = {
   weldsuite: 'core',
 };
 
+/**
+ * Modules that need a feature to work at all: without it they are not
+ * offered, their apps and entry points hidden like a module the backend does
+ * not serve. A document or a spreadsheet only opens in its live room.
+ */
+const MODULE_FEATURES: Readonly<Partial<Record<ApiModuleId, EditionFeature>>> = {
+  docs: 'collab-rooms',
+  sheets: 'collab-rooms',
+};
+
 /** Canonical app code → the module whose own app it is. */
 const APP_MODULE: ReadonlyMap<string, ApiModuleId> = (() => {
   const map = new Map<string, ApiModuleId>();
@@ -91,10 +130,11 @@ export function offeredModules(): ReadonlySet<string> | null {
   return modules ? new Set(['core', ...modules]) : null;
 }
 
-/** Whether this deployment serves the module. */
+/** Whether this deployment serves the module, and has what it needs to work. */
 export function isModuleOffered(module: ApiModuleId): boolean {
   const offered = offeredModules();
-  return offered === null || offered.has(module);
+  const needs = MODULE_FEATURES[module];
+  return (offered === null || offered.has(module)) && (!needs || isFeatureAvailable(needs));
 }
 
 /**

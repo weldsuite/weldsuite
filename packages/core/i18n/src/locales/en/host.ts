@@ -659,6 +659,13 @@ export const host = {
       recordNamePlaceholder: '@ or subdomain',
       ttlSeconds: 'TTL (seconds)',
       priorityOptional: 'Priority (optional)',
+      // Pending external domain — pick up the TXT ownership check again
+      pendingVerificationTitle: 'Verify ownership of {domain}',
+      pendingVerificationDescription: 'This domain is waiting for its ownership check. Add this TXT record at your current DNS provider, then click Verify ownership. DNS records and nameservers become available once it is verified.',
+      verifyOwnership: 'Verify ownership',
+      verifyingOwnership: 'Verifying…',
+      ownershipVerified: 'Domain ownership verified',
+      ownershipVerifyFailed: 'Verification failed',
     },
 
     // SSL Certificates

@@ -9,6 +9,10 @@
  * The step lives in the URL so the browser Back button works and Stripe can
  * return to the payment step (`?step=payment&billing=done`). Without a step
  * the wizard opens on the first one that is not done yet.
+ *
+ * Without billing (`isFeatureAvailable('billing')` off on the Kubernetes
+ * editions, or a backend that reports no subscription) mailboxes are not
+ * charged: the payment step is left out.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -17,6 +21,7 @@ import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   useReachBilling,
   useReachDomains,
@@ -32,7 +37,7 @@ import { IdentityStep } from './identity-step';
 import { MailboxesStep } from './mailboxes-step';
 import { PaymentStep } from './payment-step';
 import { Stepper } from './setup-shell';
-import { parseSetupStep, SETUP_STEPS, type SetupStep } from './steps';
+import { parseSetupStep, setupSteps, type SetupStep } from './steps';
 
 export default function ReachSetupPage() {
   const t = useTranslations();
@@ -46,7 +51,12 @@ export default function ReachSetupPage() {
   const canCreateMailboxes = can('reach_mailboxes:create');
 
   const settings = useReachSettings();
-  const billing = useReachBilling();
+  const billingAvailable = isFeatureAvailable('billing');
+  const billing = useReachBilling(billingAvailable);
+  // Null: the backend reports no subscription, so billing is off there too.
+  const billed = billingAvailable && billing.data !== null;
+  const billingLoaded = !billingAvailable || billing.data !== undefined;
+  const steps = useMemo(() => setupSteps(billed), [billed]);
   const domains = useReachDomains();
   const mailboxes = useReachMailboxes();
 
@@ -59,15 +69,15 @@ export default function ReachSetupPage() {
     const done = new Set<SetupStep>();
     const s = settings.data;
     if (s?.senderCompanyName && s.senderAddress && s.optOutText) done.add('identity');
-    if (billing.data?.hasPaymentMethod) done.add('payment');
+    if (!billed || billing.data?.hasPaymentMethod) done.add('payment');
     if ((domains.data ?? []).length > 0) done.add('domains');
     if (liveMailboxes.length > 0) done.add('mailboxes');
     if (s?.onboardingCompletedAt) done.add('done');
     return done;
-  }, [settings.data, billing.data, domains.data, liveMailboxes.length]);
+  }, [settings.data, billed, billing.data, domains.data, liveMailboxes.length]);
 
-  const ready = Boolean(settings.data && billing.data && domains.data && mailboxes.data);
-  const stepFromUrl = parseSetupStep(search.step);
+  const ready = Boolean(settings.data && billingLoaded && domains.data && mailboxes.data);
+  const stepFromUrl = parseSetupStep(search.step, steps);
 
   const goTo = (step: SetupStep) => void navigate({ to: '/weldreach/setup', search: { step } });
 
@@ -76,11 +86,11 @@ export default function ReachSetupPage() {
   useEffect(() => {
     if (stepFromUrl || !ready || opened.current) return;
     opened.current = true;
-    const next = SETUP_STEPS.find((step) => !completed.has(step)) ?? 'done';
+    const next = steps.find((step) => !completed.has(step)) ?? 'done';
     void navigate({ to: '/weldreach/setup', search: { step: next }, replace: true });
-  }, [stepFromUrl, ready, completed, navigate]);
+  }, [stepFromUrl, ready, completed, navigate, steps]);
 
-  const loadError = settings.isError || billing.isError || domains.isError || mailboxes.isError;
+  const loadError = settings.isError || (billingAvailable && billing.isError) || domains.isError || mailboxes.isError;
   if (loadError) {
     return (
       <DashboardPage title={t('reach.setup.title')}>
@@ -95,13 +105,13 @@ export default function ReachSetupPage() {
       </DashboardPage>
     );
   }
-  if (!ready || !stepFromUrl || !settings.data || !billing.data || !domains.data) {
+  if (!ready || !stepFromUrl || !settings.data || !domains.data) {
     return <PageLoader fullScreen={false} label={t('reach.common.loading')} />;
   }
 
-  const index = SETUP_STEPS.indexOf(stepFromUrl);
-  const previous = SETUP_STEPS[index - 1];
-  const next = SETUP_STEPS[index + 1];
+  const index = steps.indexOf(stepFromUrl);
+  const previous = steps[index - 1];
+  const next = steps[index + 1];
   const back = previous ? () => goTo(previous) : undefined;
   const forward = next ? () => goTo(next) : undefined;
 
@@ -111,14 +121,14 @@ export default function ReachSetupPage() {
       description={t('reach.setup.description', warmupCopyParams())}
       className="max-w-4xl"
     >
-      <Stepper current={stepFromUrl} completed={completed} onSelect={(step) => goTo(step)} />
+      <Stepper current={stepFromUrl} completed={completed} onSelect={(step) => goTo(step)} steps={steps} />
 
       <Card className="py-0">
         <CardContent className="p-5 sm:p-6">
           {stepFromUrl === 'identity' && (
             <IdentityStep settings={settings.data} canUpdate={canUpdateSettings} onDone={() => forward?.()} />
           )}
-          {stepFromUrl === 'payment' && back && forward && (
+          {stepFromUrl === 'payment' && billing.data && back && forward && (
             <PaymentStep
               billing={billing.data}
               canUpdate={canUpdateSettings}
@@ -140,7 +150,8 @@ export default function ReachSetupPage() {
             <MailboxesStep
               domains={domains.data}
               mailboxes={liveMailboxes}
-              hasPaymentMethod={billing.data.hasPaymentMethod}
+              hasPaymentMethod={!billed || Boolean(billing.data?.hasPaymentMethod)}
+              billed={billed}
               canCreate={canCreateMailboxes}
               onBack={back}
               onNext={forward}

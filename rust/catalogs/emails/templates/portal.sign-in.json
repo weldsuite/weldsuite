@@ -1,0 +1,63 @@
+{
+  "fields": [
+    "portal_name",
+    "code",
+    "url",
+    "minutes"
+  ],
+  "flags": [
+    "url"
+  ],
+  "id": "portal.sign-in",
+  "multiline": [],
+  "variants": {
+    "en": {
+      "": {
+        "footer": "If you didn't try to sign in, you can ignore this email.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Your sign-in code</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ portal_name }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Enter this code to sign in:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The code expires in {{ minutes }} minutes.</p>",
+        "preview": "Your sign-in code is {{ code }}.",
+        "subject": "Your {{ portal_name }} sign-in code: {{ code }}",
+        "text": {
+          "weldsuite": "Your sign-in code\n\n{{ portal_name|collapse }}\n\nEnter this code to sign in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nYour sign-in code\n\n{{ portal_name|collapse }}\n\nEnter this code to sign in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Your sign-in code\n\n{{ portal_name|collapse }}\n\nEnter this code to sign in:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "url": {
+        "footer": "If you didn't try to sign in, you can ignore this email.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Sign in</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ portal_name }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-id=\"__react-email-column\" style=\"width:1%;padding-right:8px;white-space:nowrap\"><a href=\"{{ url }}\" style=\"line-height:1;text-decoration:none;display:inline-block;max-width:100%;mso-padding-alt:0px;padding:11px 18px;border-radius:6px;background-color:{{ accent }};color:#ffffff;font-size:14px;font-weight:500;padding-top:11px;padding-right:18px;padding-bottom:11px;padding-left:18px\" target=\"_blank\"><span><!--[if mso]><i style=\"mso-font-width:450%;mso-text-raise:16.5\" hidden>&#8202;&#8202;</i><![endif]--></span><span style=\"max-width:100%;display:inline-block;line-height:120%;mso-padding-alt:0px;mso-text-raise:8.25px\">Sign in</span><span><!--[if mso]><i style=\"mso-font-width:450%\" hidden>&#8202;&#8202;&#8203;</i><![endif]--></span></a></td><td data-id=\"__react-email-column\"></td></tr></tbody></table></td></tr></tbody></table><p style=\"font-size:12px;line-height:1.6;margin:-12px 0 24px;color:#a1a1aa;word-break:break-all;margin-top:-12px;margin-right:0;margin-bottom:24px;margin-left:0\">Or open this link:<!-- --> <a href=\"{{ url }}\" style=\"color:#71717a;text-decoration-line:none;text-decoration:underline\" target=\"_blank\">{{ url }}</a></p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Or enter this code:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The link and code expire in {{ minutes }} minutes.</p>",
+        "preview": "Your sign-in code is {{ code }}.",
+        "subject": "Sign in to {{ portal_name }}",
+        "text": {
+          "weldsuite": "Sign in\n\n{{ portal_name|collapse }}\n\nSign in {{ url|collapse }}\n\nOr open this link: {{ url|collapse }}\n\nOr enter this code:\n\n{{ code|collapse }}\n\nThe link and code expire in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nSign in\n\n{{ portal_name|collapse }}\n\nSign in {{ url|collapse }}\n\nOr open this link: {{ url|collapse }}\n\nOr enter this code:\n\n{{ code|collapse }}\n\nThe link and code expire in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Sign in\n\n{{ portal_name|collapse }}\n\nSign in {{ url|collapse }}\n\nOr open this link: {{ url|collapse }}\n\nOr enter this code:\n\n{{ code|collapse }}\n\nThe link and code expire in {{ minutes|collapse }} minutes.\n\nIf you didn't try to sign in, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": "Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Je inlogcode</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ portal_name }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Vul deze code in om in te loggen:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De code verloopt over {{ minutes }} minuten.</p>",
+        "preview": "Je inlogcode is {{ code }}.",
+        "subject": "Je inlogcode voor {{ portal_name }}: {{ code }}",
+        "text": {
+          "weldsuite": "Je inlogcode\n\n{{ portal_name|collapse }}\n\nVul deze code in om in te loggen:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nJe inlogcode\n\n{{ portal_name|collapse }}\n\nVul deze code in om in te loggen:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Je inlogcode\n\n{{ portal_name|collapse }}\n\nVul deze code in om in te loggen:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "url": {
+        "footer": "Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Inloggen</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ portal_name }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\"><tbody style=\"width:100%\"><tr style=\"width:100%\"><td data-id=\"__react-email-column\" style=\"width:1%;padding-right:8px;white-space:nowrap\"><a href=\"{{ url }}\" style=\"line-height:1;text-decoration:none;display:inline-block;max-width:100%;mso-padding-alt:0px;padding:11px 18px;border-radius:6px;background-color:{{ accent }};color:#ffffff;font-size:14px;font-weight:500;padding-top:11px;padding-right:18px;padding-bottom:11px;padding-left:18px\" target=\"_blank\"><span><!--[if mso]><i style=\"mso-font-width:450%;mso-text-raise:16.5\" hidden>&#8202;&#8202;</i><![endif]--></span><span style=\"max-width:100%;display:inline-block;line-height:120%;mso-padding-alt:0px;mso-text-raise:8.25px\">Inloggen</span><span><!--[if mso]><i style=\"mso-font-width:450%\" hidden>&#8202;&#8202;&#8203;</i><![endif]--></span></a></td><td data-id=\"__react-email-column\"></td></tr></tbody></table></td></tr></tbody></table><p style=\"font-size:12px;line-height:1.6;margin:-12px 0 24px;color:#a1a1aa;word-break:break-all;margin-top:-12px;margin-right:0;margin-bottom:24px;margin-left:0\">Of open deze link:<!-- --> <a href=\"{{ url }}\" style=\"color:#71717a;text-decoration-line:none;text-decoration:underline\" target=\"_blank\">{{ url }}</a></p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Of vul deze code in:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De link en code verlopen over {{ minutes }} minuten.</p>",
+        "preview": "Je inlogcode is {{ code }}.",
+        "subject": "Inloggen bij {{ portal_name }}",
+        "text": {
+          "weldsuite": "Inloggen\n\n{{ portal_name|collapse }}\n\nInloggen {{ url|collapse }}\n\nOf open deze link: {{ url|collapse }}\n\nOf vul deze code in:\n\n{{ code|collapse }}\n\nDe link en code verlopen over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nInloggen\n\n{{ portal_name|collapse }}\n\nInloggen {{ url|collapse }}\n\nOf open deze link: {{ url|collapse }}\n\nOf vul deze code in:\n\n{{ code|collapse }}\n\nDe link en code verlopen over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Inloggen\n\n{{ portal_name|collapse }}\n\nInloggen {{ url|collapse }}\n\nOf open deze link: {{ url|collapse }}\n\nOf vul deze code in:\n\n{{ code|collapse }}\n\nDe link en code verlopen over {{ minutes|collapse }} minuten.\n\nHeb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

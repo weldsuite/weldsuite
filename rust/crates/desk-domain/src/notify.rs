@@ -180,6 +180,171 @@ pub async fn ticket_assigned(
     }))
 }
 
+/// `PREVIEW_MAX`: the default length of `helpdeskPreview`.
+pub const PREVIEW_MAX: usize = 180;
+
+/// `sendTicketReplyNotification`, up to the delivery: the notification for
+/// the assignee when a customer replied, or `None` (no assignee, the
+/// workspace turned `notifyOnCustomerReply` off).
+#[allow(clippy::too_many_arguments)]
+pub async fn customer_reply(
+    db: &PgPool,
+    assignee_id: Option<&str>,
+    kind: EntityKind,
+    entity_id: &str,
+    customer_name: &str,
+    customer_contact_id: Option<&str>,
+    message_body: Option<&str>,
+    subject: Option<&str>,
+) -> Result<Option<HelpdeskNotification>, sqlx::Error> {
+    let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) else {
+        return Ok(None);
+    };
+    if !enabled(db, "notifyOnCustomerReply").await? {
+        return Ok(None);
+    }
+    let who = weldsuite_kit::validation::js_trim(customer_name);
+    let who = if who.is_empty() { "A customer" } else { who };
+    let body = [
+        preview(message_body, PREVIEW_MAX),
+        preview(subject, PREVIEW_MAX),
+    ]
+    .into_iter()
+    .find(|p| !p.is_empty())
+    .unwrap_or_else(|| "New reply".to_owned());
+    let contact = customer_contact_id.filter(|c| !c.is_empty());
+    Ok(Some(HelpdeskNotification {
+        user_id: assignee.to_owned(),
+        title: format!("{who} replied"),
+        body,
+        category: "helpdesk",
+        notification_type: "ticket_reply",
+        entity_type: kind.entity_type(),
+        entity_id: entity_id.to_owned(),
+        action_url: kind.action_url(entity_id),
+        severity: "info",
+        actor_type: if contact.is_some() {
+            "contact"
+        } else {
+            "system"
+        },
+        actor_id: contact.map(str::to_owned),
+        data: kind.data(entity_id),
+    }))
+}
+
+/// Cap on the team-wide SLA fallback (`MAX_SLA_RECIPIENTS`).
+const MAX_SLA_RECIPIENTS: i64 = 200;
+
+/// `slaRecipients(db, assigneeId)`: the assignee, else every active
+/// internal teammate who can work the inbox.
+async fn sla_recipients(
+    db: &PgPool,
+    assignee_id: Option<&str>,
+) -> Result<Vec<String>, sqlx::Error> {
+    if let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) {
+        return Ok(vec![assignee.to_owned()]);
+    }
+    let rows: Vec<String> = sqlx::query_scalar(
+        "select user_id from workspace_members
+         where upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL' and upper(role) <> 'VIEWER'
+         limit $1",
+    )
+    .bind(MAX_SLA_RECIPIENTS)
+    .fetch_all(db)
+    .await?;
+    let mut out: Vec<String> = Vec::new();
+    for user_id in rows {
+        if !out.contains(&user_id) {
+            out.push(user_id);
+        }
+    }
+    Ok(out)
+}
+
+/// An SLA warning or breach to tell the team about.
+pub struct SlaAlert<'a> {
+    /// `warning` or `breach`.
+    pub kind: &'a str,
+    /// `first_response`, `next_response` or `resolution`.
+    pub metric: &'a str,
+    pub conversation_id: &'a str,
+    pub assignee_id: Option<&'a str>,
+    pub subject: Option<&'a str>,
+    /// `#318`.
+    pub reference: Option<&'a str>,
+    /// ISO.
+    pub due_at: Option<String>,
+}
+
+/// `sendDeskSlaNotification`, up to the delivery: one notification per
+/// recipient (the assignee, or the whole team when unassigned), or none
+/// when the workspace turned `notifyOnSLABreach` off.
+pub async fn sla_alert(
+    db: &PgPool,
+    alert: &SlaAlert<'_>,
+) -> Result<Vec<HelpdeskNotification>, sqlx::Error> {
+    if !enabled(db, "notifyOnSLABreach").await? {
+        return Ok(Vec::new());
+    }
+    let recipients = sla_recipients(db, alert.assignee_id).await?;
+    let label = Some(preview(alert.subject, 120))
+        .filter(|l| !l.is_empty())
+        .or_else(|| {
+            alert
+                .reference
+                .map(weldsuite_kit::validation::js_trim)
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "a conversation".to_owned());
+    let metric_label = match alert.metric {
+        "first_response" => "First response",
+        "next_response" => "Next response",
+        _ => "Resolution",
+    };
+    let breach = alert.kind == "breach";
+    let title = if breach {
+        format!("SLA breached: {metric_label}")
+    } else {
+        format!("SLA due soon: {metric_label}")
+    };
+    let lower = metric_label.to_lowercase();
+    let body = if breach {
+        format!("\"{label}\" missed its {lower} target")
+    } else {
+        format!("\"{label}\" reaches its {lower} target soon")
+    };
+    let mut data = serde_json::Map::new();
+    data.insert("conversationId".to_owned(), json!(alert.conversation_id));
+    data.insert("metric".to_owned(), json!(alert.metric));
+    if let Some(due_at) = &alert.due_at {
+        data.insert("dueAt".to_owned(), json!(due_at));
+    }
+    let kind = EntityKind::Conversation;
+    Ok(recipients
+        .into_iter()
+        .map(|user_id| HelpdeskNotification {
+            user_id,
+            title: title.clone(),
+            body: body.clone(),
+            category: "helpdesk",
+            notification_type: if breach {
+                "sla_breached"
+            } else {
+                "sla_warning"
+            },
+            entity_type: kind.entity_type(),
+            entity_id: alert.conversation_id.to_owned(),
+            action_url: kind.action_url(alert.conversation_id),
+            severity: if breach { "error" } else { "warning" },
+            actor_type: "system",
+            actor_id: None,
+            data: Value::Object(data.clone()),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

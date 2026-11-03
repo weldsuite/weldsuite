@@ -181,6 +181,8 @@ export const reachTools: ToolDefinition[] = [
     path: '/v1/reach/campaigns/:id/steps',
     pathParams: { id: 'campaignId' },
     exactId: true,
+    // Replaces the whole sequence: steps left out are removed.
+    annotations: { destructiveHint: true },
   },
   {
     name: 'set_reach_campaign_mailboxes',
@@ -195,6 +197,8 @@ export const reachTools: ToolDefinition[] = [
     path: '/v1/reach/campaigns/:id/mailboxes',
     pathParams: { id: 'campaignId' },
     exactId: true,
+    // Replaces the whole set: mailboxes left out are removed.
+    annotations: { destructiveHint: true },
   },
   {
     name: 'add_prospects_to_reach_campaign',
@@ -250,6 +254,8 @@ export const reachTools: ToolDefinition[] = [
     path: '/v1/reach/campaigns/:id/launch',
     pathParams: { id: 'campaignId' },
     exactId: true,
+    // Starts sending email to the enrolled prospects.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'pause_reach_campaign',
@@ -272,6 +278,8 @@ export const reachTools: ToolDefinition[] = [
     path: '/v1/reach/campaigns/:id/resume',
     pathParams: { id: 'campaignId' },
     exactId: true,
+    // Sending starts again.
+    annotations: { openWorldHint: true },
   },
 
   // ── Prospects ───────────────────────────────────────────────────────────────
@@ -414,6 +422,7 @@ export const reachTools: ToolDefinition[] = [
     path: '/v1/reach/lists/:id/members/remove',
     pathParams: { id: 'listId' },
     exactId: true,
+    annotations: { destructiveHint: true, idempotentHint: true },
   },
 
   // ── Suppressions ────────────────────────────────────────────────────────────

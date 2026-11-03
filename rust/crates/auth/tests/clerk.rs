@@ -239,3 +239,53 @@ async fn middleware_rejects_without_a_token_and_handlers_get_the_context() {
         .to_bytes();
     assert_eq!(body.as_ref(), b"user_2abc");
 }
+
+/// `SessionVerifier::verify_with`: another authorized-party rule (personal-api's
+/// consumer apps), and every claim kept.
+#[tokio::test]
+async fn another_party_rule_and_the_claims() {
+    let verifier = SessionVerifier::from(pem_verifier());
+    let evil_only = |azp: Option<&Value>, _extra: &[String]| {
+        azp.and_then(Value::as_str) == Some("https://evil.example")
+    };
+    let session = verifier
+        .verify_with(token("foreignAzp"), now(), &evil_only)
+        .await
+        .expect("the rule accepts it");
+    assert_eq!(session.context.user_id, "user_2abc");
+    assert_eq!(session.claims["azp"], "https://evil.example");
+    assert_eq!(session.claims["o"]["rol"], "admin");
+    // The rule replaces the first-party one: a first-party token is refused.
+    assert_eq!(
+        verifier
+            .verify_with(token("valid"), now(), &evil_only)
+            .await
+            .map(|s| s.context),
+        Err(TokenError::UnauthorizedParty)
+    );
+    // The rule sees the configured extra origins.
+    let extra = |azp: Option<&Value>, extra: &[String]| {
+        azp.and_then(Value::as_str)
+            .is_some_and(|azp| extra.iter().any(|o| o == azp))
+    };
+    assert!(
+        verifier
+            .verify_with(token("extensionAzp"), now(), &extra)
+            .await
+            .is_ok()
+    );
+    let refused = verifier
+        .authenticate_with(
+            Some(&format!("Bearer {}", token("valid"))),
+            now(),
+            &evil_only,
+        )
+        .await
+        .expect_err("refused");
+    assert_eq!(refused.message(), "Token verification failed");
+    let missing = verifier
+        .authenticate_with(None, now(), &evil_only)
+        .await
+        .expect_err("no header");
+    assert_eq!(missing.message(), "Missing or invalid Authorization header");
+}

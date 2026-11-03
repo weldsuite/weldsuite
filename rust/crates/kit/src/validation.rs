@@ -34,6 +34,33 @@ fn parsed_type(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// `z.union([z.string(), z.number()])` failing on `value` at `path`: Zod's
+/// `invalid_union`, with one `invalid_type` per option.
+/// Zod's `invalid_union` issue of `z.union([z.string(), z.number()])` for
+/// `value` at `path` (both options' `invalid_type`).
+pub fn string_or_number_issue(path: &Value, value: Option<&Value>) -> Value {
+    let received = parsed_type(value);
+    let option = |expected: &str| {
+        json!({ "issues": [{
+            "code": "invalid_type",
+            "expected": expected,
+            "received": received,
+            "path": path,
+            "message": if received == "undefined" {
+                "Required".to_owned()
+            } else {
+                format!("Expected {expected}, received {received}")
+            },
+        }], "name": "ZodError" })
+    };
+    json!({
+        "code": "invalid_union",
+        "unionErrors": [option("string"), option("number")],
+        "path": path,
+        "message": "Invalid input",
+    })
+}
+
 /// How a field may be left out: Zod's `.optional()`, `.nullable()` and
 /// `.nullish()`, or none of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +228,12 @@ impl Issues {
         self.issues.len()
     }
 
+    /// The issues added since `from` (a [`Issues::count`]), for a
+    /// refinement that runs only when none of them failed a type check.
+    pub fn issues_since(&self, from: usize) -> &[Value] {
+        self.issues.get(from..).unwrap_or_default()
+    }
+
     /// A check's custom message (`.min(1, 'Name is required')`): every issue
     /// with `code` added since `from` gets `message`.
     pub fn custom_message(&mut self, from: usize, code: &str, message: &str) {
@@ -218,9 +251,22 @@ impl Issues {
         self.issues.push(issue);
     }
 
+    /// An issue whose `path` is already set, pushed as is: one Zod settles
+    /// after the body's synchronous checks (an async union's result, a
+    /// nested refinement), collected while the body was read.
+    pub fn push_raw(&mut self, issue: Value) {
+        self.issues.push(issue);
+    }
+
     /// The path `key` is reported at.
     pub fn path_of(&self, key: &str) -> Value {
         self.path(key)
+    }
+
+    /// The current path itself (an array item's, inside [`Issues::list`]),
+    /// for an issue that nests others at it (a union's `unionErrors`).
+    pub fn path_here(&self) -> Value {
+        self.path_at(None)
     }
 
     /// `Err` (a 400 response) when anything was wrong.
@@ -508,6 +554,54 @@ impl Issues {
         field
     }
 
+    /// [`Issues::pattern`] after `rules`' transforms: `z.string().trim()
+    /// .toLowerCase().min(min).max(max).regex(pattern, message)`. The regex
+    /// sees the trimmed, lower-cased value, as Zod's checks do.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pattern_with(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        rules: Text,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Field<String> {
+        let field = self.text_at(Some(key), body.get(key), presence, rules);
+        if let Some(Value::String(raw)) = body.get(key) {
+            let mut text = if rules.trim {
+                js_trim(raw).to_owned()
+            } else {
+                raw.clone()
+            };
+            if rules.lowercase {
+                text = text.to_lowercase();
+            }
+            if !matches(&text) {
+                let path = self.path(key);
+                self.issues.push(json!({
+                    "validation": "regex",
+                    "code": "invalid_string",
+                    "message": message,
+                    "path": path,
+                }));
+                return Field::Absent;
+            }
+        }
+        field
+    }
+
+    /// An issue at the current path itself (an object's own
+    /// `unrecognized_keys`, a union an array item failed); `issue` is the
+    /// rest of Zod's object.
+    pub fn issue_here(&mut self, issue: Value) {
+        let mut issue = issue;
+        if let Value::Object(fields) = &mut issue {
+            fields.insert("path".to_owned(), self.path_at(None));
+        }
+        self.issues.push(issue);
+    }
+
     /// An issue a schema reports that the helpers here don't build (a
     /// union of a string and a literal, `.positive()`, `.length(n)`), at
     /// `key` under the current path. `issue` is the rest of Zod's object.
@@ -540,28 +634,20 @@ impl Issues {
             return Field::Set(value.cloned().unwrap_or(Value::Null));
         }
         let path = self.path(key);
-        let received = parsed_type(value);
-        let option = |expected: &str| {
-            json!({ "issues": [{
-                "code": "invalid_type",
-                "expected": expected,
-                "received": received,
-                "path": path,
-                "message": if received == "undefined" {
-                    "Required".to_owned()
-                } else {
-                    format!("Expected {expected}, received {received}")
-                },
-            }], "name": "ZodError" })
-        };
-        let union_errors = json!([option("string"), option("number")]);
-        self.issues.push(json!({
-            "code": "invalid_union",
-            "unionErrors": union_errors,
-            "path": path,
-            "message": "Invalid input",
-        }));
+        self.issues.push(string_or_number_issue(&path, value));
         Field::Absent
+    }
+
+    /// An array item as `z.union([z.string(), z.number()])`
+    /// (`z.array(z.union([z.string(), z.number()]))`), reported at the item's
+    /// own path; `None` when it is neither.
+    pub fn item_string_or_number(&mut self, item: &Value) -> Option<Value> {
+        if let Value::String(_) | Value::Number(_) = item {
+            return Some(item.clone());
+        }
+        let path = self.path_at(None);
+        self.issues.push(string_or_number_issue(&path, Some(item)));
+        None
     }
 
     /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
@@ -745,7 +831,23 @@ impl Issues {
         presence: Presence,
         rules: Number,
     ) -> Field<f64> {
-        let value = body.get(key);
+        self.number_at(Some(key), body.get(key), presence, rules)
+    }
+
+    /// An array item as a number with `rules` (`z.array(z.number()...)`),
+    /// reported at the item's own path; `None` when invalid.
+    pub fn item_number(&mut self, item: &Value, rules: Number) -> Option<f64> {
+        self.number_at(None, Some(item), Presence::Required, rules)
+            .into_option()
+    }
+
+    fn number_at(
+        &mut self,
+        key: Option<&str>,
+        value: Option<&Value>,
+        presence: Presence,
+        rules: Number,
+    ) -> Field<f64> {
         // `z.coerce.number()` runs `Number(value)` first, `undefined` included.
         let number = if rules.coerce {
             if value.is_none() && presence != Presence::Required {
@@ -753,17 +855,17 @@ impl Issues {
             }
             js_number_of(value)
         } else {
-            if let Some(field) = self.left_out(Some(key), "number", value, presence) {
+            if let Some(field) = self.left_out(key, "number", value, presence) {
                 return field;
             }
             let Some(Value::Number(number)) = value else {
-                self.invalid_type(key, "number", value);
+                self.invalid_type_at(key, "number", value);
                 return Field::Absent;
             };
             number.as_f64().unwrap_or(f64::NAN)
         };
         if number.is_nan() {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.issues.push(json!({
                 "code": "invalid_type",
                 "expected": "number",
@@ -776,7 +878,7 @@ impl Issues {
         let before = self.issues.len();
         // `Number.isInteger`; beyond 2^53 every double is one.
         if rules.int && !(number.is_finite() && number.fract() == 0.0) {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.issues.push(json!({
                 "code": "invalid_type",
                 "expected": "integer",
@@ -788,7 +890,7 @@ impl Issues {
         if let Some(min) = rules.min
             && number < min
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_small(
                 &path,
                 "number",
@@ -802,7 +904,7 @@ impl Issues {
         if let Some(max) = rules.max
             && number > max
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_big(
                 &path,
                 "number",
@@ -1115,6 +1217,13 @@ impl Format {
         }
     }
 
+    /// Whether `text` passes the format on its own (`z.string().email()
+    /// .safeParse(text).success` for [`Format::Email`]), for a `.refine()`
+    /// that checks it.
+    pub fn accepts(self, text: &str) -> bool {
+        self.matches(text)
+    }
+
     fn matches(self, text: &str) -> bool {
         match self {
             // Zod 3's email regex, minus its lookaheads (no leading dot, no
@@ -1222,6 +1331,17 @@ pub fn js_date_iso(text: &str) -> Option<String> {
     js_date_millis(text).and_then(iso_from_millis)
 }
 
+/// `Date.parse(text)` for the ISO strings [`js_date_iso`] reads: milliseconds
+/// since the epoch, `None` where JavaScript answers `NaN`.
+pub fn js_date_parse(text: &str) -> Option<f64> {
+    js_date_millis(text)
+}
+
+/// `new Date(millis).toISOString()`, `None` for an invalid date.
+pub fn js_iso_from_millis(millis: f64) -> Option<String> {
+    iso_from_millis(millis)
+}
+
 /// Days from 1970-01-01 to a civil date (proleptic Gregorian).
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
@@ -1297,6 +1417,33 @@ fn js_date_millis(text: &str) -> Option<f64> {
         ((days * 24 + hour) * 60 + minute - offset_minutes) * 60_000 + second * 1000 + millis;
     #[allow(clippy::cast_precision_loss)]
     Some(total as f64)
+}
+
+/// `new Date(value).toISOString()` as `z.coerce.date()` reads a JSON value:
+/// `null` is the epoch, a number milliseconds, a boolean 0 or 1 ms, a string
+/// an ISO date; `None` for an invalid date (or an object, an array, or
+/// `undefined`).
+pub fn js_coerce_date(value: Option<&Value>) -> Option<String> {
+    let millis: Option<f64> = match value {
+        None | Some(Value::Object(_) | Value::Array(_)) => None,
+        Some(Value::Null) => Some(0.0),
+        Some(Value::Bool(flag)) => Some(if *flag { 1.0 } else { 0.0 }),
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(Value::String(text)) => js_date_millis(text),
+    };
+    millis.and_then(iso_from_millis)
+}
+
+impl Format {
+    /// Whether `text` passes this format's check, as Zod's.
+    pub fn is_match(self, text: &str) -> bool {
+        self.matches(text)
+    }
+
+    /// The issue's `validation` and default message.
+    pub fn issue_parts(self) -> (&'static str, &'static str) {
+        self.issue()
+    }
 }
 
 /// `new Date(ms).toISOString()`, or `None` for an invalid date.
@@ -1454,6 +1601,39 @@ mod tests {
             read(Value::Null).1,
             json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"null","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received null"}],"name":"ZodError"},{"issues":[{"received":null,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
         );
+    }
+
+    /// Zod 3's output for `z.object({ values: z.array(z.union([z.string(),
+    /// z.number()])) })` with a boolean item.
+    #[test]
+    fn union_items_read_like_zod() {
+        let body = json!({ "values": ["x", 3, true] });
+        let mut issues = Issues::default();
+        let field = issues.list(
+            body.as_object().expect("object"),
+            "values",
+            Presence::Required,
+            None,
+            None,
+            Issues::item_string_or_number,
+        );
+        assert_eq!(field, Field::Absent);
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"code":"invalid_type","expected":"string","received":"boolean","path":["values",2],"message":"Expected string, received boolean"}],"name":"ZodError"},{"issues":[{"code":"invalid_type","expected":"number","received":"boolean","path":["values",2],"message":"Expected number, received boolean"}],"name":"ZodError"}],"path":["values",2],"message":"Invalid input"}])
+        );
+        let mut issues = Issues::default();
+        let body = json!({ "values": ["x", 3] });
+        let field = issues.list(
+            body.as_object().expect("object"),
+            "values",
+            Presence::Required,
+            None,
+            None,
+            Issues::item_string_or_number,
+        );
+        assert_eq!(field, Field::Set(vec![json!("x"), json!(3)]));
+        assert_eq!(issues.issues_since(0), &[] as &[Value]);
     }
 
     #[test]

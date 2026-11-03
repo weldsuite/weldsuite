@@ -77,7 +77,8 @@ export function createReachApi(api: ClientApi) {
     },
 
     // ── Billing (inbox subscription) ───────────────────────────────────
-    billing(): Promise<DataResponse<ReachBillingSummary>> {
+    /** Null where billing is off (the Kubernetes editions, local dev): mailboxes are not charged. */
+    billing(): Promise<DataResponse<ReachBillingSummary | null>> {
       return api.get(`${base}/billing`);
     },
     /** Stripe Checkout (setup mode) to add a payment method. */

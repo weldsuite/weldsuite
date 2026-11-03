@@ -697,6 +697,10 @@ export const common = {
       wrongAccountDescription: "You're signed in as {email}, but this invitation was sent to a different email address.",
       signingOut: 'Signing out...',
       signOutAndUseOtherAccount: 'Sign Out & Use Different Account',
+      alreadyMemberTitle: "You're already a member",
+      alreadyMemberDescription:
+        "You're signed in as {email}, which is already a member of this workspace. If this invitation was sent to a different email address, sign out and open the link again with that account.",
+      continueToWorkspace: 'Continue to workspace',
       invitationExpiredTitle: 'Invitation Expired',
       invitationExpiredDescription: 'This invitation has expired. Please contact your workspace administrator to request a new invitation.',
       invitationExpiredWithDate: 'This invitation has expired on {date}. Please contact your workspace administrator to request a new invitation.',

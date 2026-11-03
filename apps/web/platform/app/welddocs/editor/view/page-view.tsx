@@ -18,6 +18,23 @@ const PAD_TOP = 16;
 /** Pages rendered above and below the visible ones. */
 const OVERSCAN_PX = 1200;
 
+/** Where each page starts in the scrolled area, in screen pixels, then where the pages end (before the bottom padding). */
+export function pageTops(pages: readonly PageLayout[], scale: number): number[] {
+  const out: number[] = [];
+  let y = PAD_TOP;
+  for (const p of pages) {
+    out.push(y);
+    y += p.height * scale + PAGE_GAP;
+  }
+  out.push(y);
+  return out;
+}
+
+/** The height of the scrolled area the pages take. */
+export function pagesHeight(tops: readonly number[]): number {
+  return tops[tops.length - 1]! + PAD_TOP;
+}
+
 /**
  * The pages, stacked and centred, rendered only near the viewport. Typing
  * goes into a hidden textarea kept at the caret, so the browser's input
@@ -36,17 +53,8 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
 
   const scale = controller.zoom * PX_PER_PT;
   const pages = controller.pages;
-  const tops = useMemo(() => {
-    const out: number[] = [];
-    let y = PAD_TOP;
-    for (const p of pages) {
-      out.push(y);
-      y += p.height * scale + PAGE_GAP;
-    }
-    out.push(y);
-    return out;
-  }, [pages, scale]);
-  const totalHeight = tops[tops.length - 1]! + PAD_TOP;
+  const tops = useMemo(() => pageTops(pages, scale), [pages, scale]);
+  const totalHeight = pagesHeight(tops);
   const maxWidth = Math.max(...pages.map((p) => p.width)) * scale;
 
   // Track the viewport (scroll and size).

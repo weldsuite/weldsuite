@@ -6,10 +6,16 @@
 //! - `unavailableFeatures`: what this backend lacks even inside the modules
 //!   it serves ([`UNAVAILABLE_FEATURES`]). The modules themselves come from
 //!   the catalog (`RUST_PORTED_MODULES`), so neither list is configuration:
-//!   both follow the code, and a port removes its entry here.
+//!   both follow the code, and a port removes its entry here. One entry
+//!   follows the deployment instead: [`COLLAB_ROOMS_FEATURE`], when no
+//!   collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
+//! - `videoProvider` and `videoUrl`: which client joins WeldMeet rooms
+//!   (`livekit` or `realtimekit`) and the `LiveKit` server it connects to,
+//!   from the same `VIDEO_PROVIDER`/`LIVEKIT_URL` the meet module reads
+//!   (`weldsuite_video_rooms::client_settings`).
 //!
 //! The platform reads them in `apps/web/platform/lib/edition.ts` and
 //! `lib/runtime-config.ts`. Global serves no `/config.json` and offers
@@ -18,6 +24,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
+use weldsuite_video_rooms::ClientSettings;
 
 /// The Kubernetes edition (`EDITION`): `self-hosted` (the default) or `eu`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +83,58 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
+    // WeldConnect's "Generate with AI" (`POST /api/workflows/generate`) runs
+    // on Workers AI through the Cloudflare AI Gateway; the Rust backend has
+    // no AI port yet.
+    "weldconnect-ai",
+    // WeldHR payroll: sending the loonaangifte over Digipoort needs the
+    // worker's PKIoverheid client certificate binding. The return is filed
+    // by hand and marked as filed (`POST …/filings/:id/submit` answers
+    // DIGIPOORT_NOT_CONFIGURED, as the worker without the binding does).
+    "payroll-digipoort",
+    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`)
+    // reads the file with a model on Workers AI; the route keeps its refusals
+    // and answers 503 where it would call the model.
+    "books-ocr",
+    // WeldCall: buying a phone number and submitting a number port are Stripe
+    // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
+    // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
+    "phone-number-purchase",
+    // WeldBooks VAT: sending the BTW-aangifte and the Opgaaf ICP to Digipoort
+    // needs the worker's PKIoverheid client certificate binding. Without it
+    // the worker builds the envelope and answers a simulated submission, as
+    // Rust always does (`POST /api/vat-returns/:id/file`,
+    // `/api/icp-declarations/:id/file`); the platform hides filing and the
+    // status check, and the XBRL download is filed by hand.
+    "vat-digipoort",
+    // WeldHost: buying and renewing domains charge through Stripe, which
+    // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
+    // "Stripe is not configured", as the worker without the key does).
+    // Managing, transferring and external domains stay available.
+    "domain-purchase",
+    // WeldMeet transcripts and summaries: Whisper and the summary model run in
+    // the worker's MEETING_AI Workflow, and the video provider's own
+    // transcript and summary are RealtimeKit's. `POST …/recording/transcribe`
+    // and `…/summarize` answer 503 as the worker without the binding does,
+    // and the AI options of a live meeting need RealtimeKit.
+    "meet-transcription",
+    // WeldMeet recordings: RealtimeKit's recorder uploads the file and the
+    // worker's MEETING_RECORDING_COPY Workflow copies it into the private
+    // MEETING_RECORDINGS bucket. On LiveKit that would be an Egress into the
+    // files store, which isn't built: access, streaming and deletes answer
+    // 503 "Recording storage is not configured".
+    "meet-recordings",
+    // WeldAgent's AI: chat turns, agent runs, routine tests, connector
+    // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
+    // on Global; the Kubernetes editions have no AI provider yet.
+    "agent-ai",
 ];
+
+/// WeldDocs and WeldSheets: live editing runs in the collab-rooms service
+/// (`rust/docs/collab-rooms.md`). Without `COLLAB_ROOMS_URLS` (the chart's
+/// `collabRooms.enabled: false`) every route that needs a room or an engine
+/// answers 503, so the platform hides both apps.
+pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
@@ -101,6 +159,10 @@ pub(crate) struct EditionConfig {
     pub(crate) edition: Edition,
     /// Name → value, only names in [`PUBLIC_ENV_KEYS`].
     pub(crate) public_env: BTreeMap<String, String>,
+    /// The video client the frontends join rooms with.
+    pub(crate) video: ClientSettings,
+    /// A collab-rooms service is configured (`COLLAB_ROOMS_URLS`).
+    pub(crate) live_editing: bool,
 }
 
 impl Default for EditionConfig {
@@ -108,6 +170,8 @@ impl Default for EditionConfig {
         Self {
             edition: Edition::SelfHosted,
             public_env: BTreeMap::new(),
+            video: ClientSettings::default(),
+            live_editing: false,
         }
     }
 }
@@ -135,6 +199,9 @@ impl EditionConfig {
         Self {
             edition,
             public_env,
+            video: weldsuite_video_rooms::client_settings(lookup),
+            live_editing: lookup("COLLAB_ROOMS_URLS")
+                .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
         }
     }
 
@@ -142,10 +209,25 @@ impl EditionConfig {
     /// `/config.json` body.
     pub(crate) fn describe(&self, body: &mut Value) {
         body["edition"] = json!(self.edition.as_str());
-        body["unavailableFeatures"] = json!(UNAVAILABLE_FEATURES);
+        body["unavailableFeatures"] = json!(self.unavailable_features());
         if !self.public_env.is_empty() {
             body["env"] = json!(self.public_env);
         }
+        body["videoProvider"] = json!(self.video.provider.as_str());
+        if let Some(url) = &self.video.url {
+            body["videoUrl"] = json!(url);
+        }
+    }
+}
+
+impl EditionConfig {
+    /// [`UNAVAILABLE_FEATURES`], and live editing when it isn't configured.
+    pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
+        let mut features = UNAVAILABLE_FEATURES.to_vec();
+        if !self.live_editing {
+            features.push(COLLAB_ROOMS_FEATURE);
+        }
+        features
     }
 }
 
@@ -198,13 +280,37 @@ mod tests {
         config.describe(&mut body);
         assert_eq!(body["edition"], "self-hosted");
         assert!(body.get("env").is_none());
+        assert_eq!(body["videoProvider"], "realtimekit");
+        assert!(body.get("videoUrl").is_none());
         assert_eq!(
             body["unavailableFeatures"]
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len()
+            UNAVAILABLE_FEATURES.len() + 1
         );
+        assert_eq!(
+            body["unavailableFeatures"]
+                .as_array()
+                .and_then(|f| f.last()),
+            Some(&json!(COLLAB_ROOMS_FEATURE))
+        );
+    }
+
+    #[test]
+    fn offers_live_editing_with_a_collab_rooms_service() {
+        let (config, problems) = read(&[(
+            "COLLAB_ROOMS_URLS",
+            "http://collab-rooms-0.collab-rooms:8080, http://collab-rooms-1.collab-rooms:8080",
+        )]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(config.live_editing);
+        let mut body = json!({});
+        config.describe(&mut body);
+        assert_eq!(body["unavailableFeatures"], json!(UNAVAILABLE_FEATURES));
+        // A blank list is no service.
+        let (blank, _) = read(&[("COLLAB_ROOMS_URLS", " , ")]);
+        assert!(!blank.live_editing);
     }
 
     #[test]
@@ -223,6 +329,23 @@ mod tests {
         assert_eq!(body["edition"], "eu");
         // Blank values are left out, like unset ones.
         assert_eq!(body["env"], json!({ "VITE_MAPBOX_ACCESS_TOKEN": "pk.eu" }));
+    }
+
+    #[test]
+    fn names_the_livekit_server_the_clients_join() {
+        let (config, problems) = read(&[
+            ("VIDEO_PROVIDER", "livekit"),
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_URL", "http://livekit.video:7880"),
+            ("LIVEKIT_API_SECRET", "never-published"),
+        ]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut body = json!({});
+        config.describe(&mut body);
+        assert_eq!(body["videoProvider"], "livekit");
+        // The address the browsers reach, never the in-cluster API URL.
+        assert_eq!(body["videoUrl"], "wss://lk.example.eu");
+        assert!(!body.to_string().contains("never-published"));
     }
 
     #[test]
@@ -255,7 +378,7 @@ mod tests {
     #[test]
     fn feature_names_are_kebab_case_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for feature in UNAVAILABLE_FEATURES {
+        for feature in UNAVAILABLE_FEATURES.iter().chain([&COLLAB_ROOMS_FEATURE]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{feature}"
