@@ -1,5 +1,10 @@
 export const common = {
     ui: { pagination: { previous: 'Vorige', next: 'Volgende', first: 'Eerste', last: 'Laatste', page: 'Pagina', of: 'van', rows: 'rijen', rowsPerPage: 'Rijen per pagina', showing: 'Weergave', to: 'tot', results: 'resultaten' }, table: { sortAscending: 'Oplopend sorteren', sortDescending: 'Aflopend sorteren', unsorted: 'Niet gesorteerd', toggleColumns: 'Kolommen wisselen', selectAll: 'Alles selecteren', selectRow: 'Rij selecteren', noResults: 'Geen resultaten gevonden', loading: 'Laden...' }, form: { required: 'Verplicht', optional: 'Optioneel', select: 'Selecteer...', selectOption: 'Selecteer een optie', clear: 'Wissen', reset: 'Herstellen' } },
+    a11y: {
+      skipToContent: 'Naar de hoofdinhoud',
+      send: 'Versturen',
+      presence: { online: 'Beschikbaar', busy: 'Bezet', dnd: 'Niet storen', away: 'Afwezig', offline: 'Offline' },
+    },
     actions: {
       copyTaskNumber: 'Taaknummer kopiëren',
       save: 'Opslaan',

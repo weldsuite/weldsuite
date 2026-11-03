@@ -45,6 +45,8 @@ export const config = [
       // Our <video>/<audio> elements are live call streams and customer
       // uploads; there is no caption track to attach.
       "jsx-a11y/media-has-caption": "off",
+      // `role` on our own components is a prop (e.g. a member role), not ARIA.
+      "jsx-a11y/aria-role": ["warn", { ignoreNonDOM: true }],
       // Our controls are components (Radix RadioGroupItem is a <button>);
       // a <label> wrapping one is associated with it.
       "jsx-a11y/label-has-associated-control": [
