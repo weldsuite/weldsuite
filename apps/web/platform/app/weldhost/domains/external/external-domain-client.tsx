@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { useRouter } from '@/lib/router';
+import { useRouter, useSearchParams } from '@/lib/router';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '../../components/host-entity-form-layout';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -27,20 +27,20 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useAddExternalDomain,
+  useDomain,
   useVerifyDomainOwnership,
   useScanDnsRecords,
   useImportDnsRecords,
   type ScannedDnsRecord,
 } from '@/hooks/queries/use-host-queries';
-import { externalDomainProblem } from '@weldsuite/core-api-client/schemas/domains';
+import { PageLoader } from '@/components/page-loader';
+import {
+  externalDomainProblem,
+  isExternalDomainRegistrar,
+  type DomainVerificationRecord as VerificationRecord,
+} from '@weldsuite/core-api-client/schemas/domains';
 
 type Step = 'enter' | 'verify' | 'import' | 'nameservers';
-
-interface VerificationRecord {
-  name: string;
-  type: 'TXT';
-  value: string;
-}
 
 const countText = (count: number, singular: string, plural: string) =>
   count === 1 ? singular : plural.replace('{count}', String(count));
@@ -228,6 +228,63 @@ function EnterDomainStep({
   );
 }
 
+interface ResumedWizard {
+  domainId: string;
+  domainName: string;
+  registrar: string;
+  verificationRecord: VerificationRecord | null;
+  nameservers: string[];
+  step: Step;
+}
+
+// `?domain=<id>` resumes the wizard for an external domain added earlier:
+// at the TXT step while it is unverified, at the import step once it is.
+// A domain that isn't external goes to its own page instead.
+function useResumeDomain() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const resumeId = searchParams.get('domain') ?? '';
+  const resumeQuery = useDomain(resumeId, !!resumeId);
+  const [resumeState, setResumeState] = useState<'idle' | 'resumed' | 'failed'>('idle');
+  const [resumed, setResumed] = useState<ResumedWizard | null>(null);
+
+  useEffect(() => {
+    if (!resumeId || resumeState !== 'idle') return;
+    if (resumeQuery.isError) {
+      setResumeState('failed');
+      return;
+    }
+    // Wait for the refetch after a verify elsewhere, not the cached pre-verify row.
+    const domain = resumeQuery.data?.data;
+    if (!domain || resumeQuery.isFetching) return;
+    if (!isExternalDomainRegistrar(domain.registrar)) {
+      router.replace(`/weldhost/domains/${domain.id}`);
+      return;
+    }
+    const record = domain.verificationRecord ?? null;
+    setResumed({
+      domainId: domain.id,
+      domainName: domain.fullDomain,
+      registrar: domain.registrar && domain.registrar !== 'External' ? domain.registrar : '',
+      verificationRecord: record,
+      nameservers: record ? [] : (domain.nameservers ?? domain.dnsZone?.externalNameservers ?? []),
+      step: record ? 'verify' : 'import',
+    });
+    setResumeState('resumed');
+  }, [resumeId, resumeState, resumeQuery.data, resumeQuery.isError, resumeQuery.isFetching, router]);
+
+  return { resumeId, resumeState, resumed };
+}
+
+const NEW_WIZARD: ResumedWizard = {
+  domainId: '',
+  domainName: '',
+  registrar: '',
+  verificationRecord: null,
+  nameservers: [],
+  step: 'enter',
+};
+
 export function ExternalDomainClient() {
   const { t } = useI18n();
   const tx = t.host.externalDomain;
@@ -238,13 +295,33 @@ export function ExternalDomainClient() {
     { label: tx.breadcrumbAdd },
   ]);
 
+  const { resumeId, resumeState, resumed } = useResumeDomain();
+
+  if (!resumeId) return <ExternalDomainWizard initial={NEW_WIZARD} />;
+  if (resumeState === 'failed') {
+    return (
+      <div className="flex items-center justify-center p-8 text-muted-foreground">
+        {t.host.domainDetail.domainNotFound}
+      </div>
+    );
+  }
+  if (!resumed) return <PageLoader fullScreen={false} />;
+  return <ExternalDomainWizard initial={resumed} />;
+}
+
+function ExternalDomainWizard({ initial }: { initial: ResumedWizard }) {
+  const { t } = useI18n();
+  const tx = t.host.externalDomain;
+
   const router = useRouter();
-  const [step, setStep] = useState<Step>('enter');
-  const [domainName, setDomainName] = useState('');
-  const [registrar, setRegistrar] = useState('');
-  const [domainId, setDomainId] = useState<string | null>(null);
-  const [verificationRecord, setVerificationRecord] = useState<VerificationRecord | null>(null);
-  const [nameservers, setNameservers] = useState<string[]>([]);
+  const [step, setStep] = useState<Step>(initial.step);
+  const [domainName, setDomainName] = useState(initial.domainName);
+  const [registrar, setRegistrar] = useState(initial.registrar);
+  const [domainId, setDomainId] = useState<string | null>(initial.domainId || null);
+  const [verificationRecord, setVerificationRecord] = useState<VerificationRecord | null>(
+    initial.verificationRecord,
+  );
+  const [nameservers, setNameservers] = useState<string[]>(initial.nameservers);
 
   const [scannedRecords, setScannedRecords] = useState<ScannedDnsRecord[] | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -253,6 +330,7 @@ export function ExternalDomainClient() {
   const verifyOwnership = useVerifyDomainOwnership();
   const scanDnsRecords = useScanDnsRecords();
   const importDnsRecords = useImportDnsRecords();
+
 
   // Stable key per record so we can track selection.
   const recordKey = (r: ScannedDnsRecord) =>

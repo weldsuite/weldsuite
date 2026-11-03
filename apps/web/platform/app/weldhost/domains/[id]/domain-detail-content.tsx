@@ -60,6 +60,7 @@ import {
 import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
 import { copyText } from '@/lib/clipboard';
 import { UsedByWeldReachBadge } from '@/app/weldhost/components/used-by-weldreach-badge';
+import { DomainVerificationCard } from '@/components/objects/domain/domain-verification-card';
 import { hostErrorMessage, isManagedByWeldReach } from '@/app/weldhost/lib/weldreach';
 import { asText } from '@weldsuite/text';
 
@@ -545,6 +546,14 @@ export function DomainDetailContent({
                   domains list page and the customer-detail sub-tabs. */}
               {activeTab === 'dns' && (
                 <div className="space-y-3">
+                  {domain.verificationRecord && (
+                    <DomainVerificationCard
+                      domainId={domain.id}
+                      domainName={domainName}
+                      record={domain.verificationRecord}
+                    />
+                  )}
+
                   {/* Add DNS Record Form (inline above the list) */}
                   {showAddRecord && (
                     <form

@@ -76,6 +76,7 @@ import {
   useToggleAutoRenew,
 } from '@/hooks/queries/use-host-queries';
 import { DomainDnsTab } from './domain-dns-tab';
+import { DomainVerificationCard } from './domain-verification-card';
 import { getDomainTabs, type DomainTab } from './domain-tabs';
 import { useDeleteDomain } from './use-domain-data';
 import { usePreviewHelpDocsUiState } from '@/app/preview/help-docs/preview-help-docs-context';
@@ -781,6 +782,15 @@ export function DomainPanel(props: Readonly<ObjectPanelComponentProps>) {
             zoneProvider={zone?.provider}
             td={td}
           />
+        )}
+        {domain && activeTab === 'dns' && domain.verificationRecord && (
+          <div className="px-4 pt-4">
+            <DomainVerificationCard
+              domainId={domain.id}
+              domainName={fullDomain}
+              record={domain.verificationRecord}
+            />
+          </div>
         )}
         {domain && activeTab === 'dns' && (
           <DomainDnsTab

@@ -6,6 +6,12 @@ import { ExternalDomainClient } from './external-domain-client';
 
 const mutateAsync = vi.fn();
 const toastError = vi.fn();
+const routerReplace = vi.fn();
+let searchParams = new URLSearchParams();
+let domainQuery: { data?: { data: unknown }; isError: boolean; isFetching: boolean } = {
+  isError: false,
+  isFetching: false,
+};
 
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({ t: en, language: 'en' }),
@@ -18,7 +24,8 @@ vi.mock('@weldsuite/i18n/client', () => ({
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 
 vi.mock('@/lib/router', () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: routerReplace, back: vi.fn() }),
+  useSearchParams: () => searchParams,
   Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
 }));
 
@@ -28,10 +35,12 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/hooks/queries/use-host-queries', () => {
   const idle = { mutateAsync: vi.fn(), isPending: false };
+  const scanning = { mutateAsync: vi.fn(() => new Promise(() => {})), isPending: true };
   return {
     useAddExternalDomain: () => ({ mutateAsync, isPending: false }),
+    useDomain: () => domainQuery,
     useVerifyDomainOwnership: () => idle,
-    useScanDnsRecords: () => idle,
+    useScanDnsRecords: () => scanning,
     useImportDnsRecords: () => idle,
   };
 });
@@ -50,6 +59,7 @@ describe('ExternalDomainClient, step 1', () => {
   beforeEach(() => {
     mutateAsync.mockReset();
     toastError.mockReset();
+    searchParams = new URLSearchParams();
   });
 
   it('shows an invalid domain under the field instead of calling the API', () => {
@@ -89,5 +99,61 @@ describe('ExternalDomainClient, step 1', () => {
     expect(document.getElementById('domain-error')).toBeNull();
     expect(mutateAsync).toHaveBeenCalledWith({ domain: 'example.com', registrar: undefined });
     expect(screen.getAllByText('example.com').length).toBeGreaterThan(0);
+  });
+});
+
+describe('ExternalDomainClient, resuming a pending domain', () => {
+  const pendingDomain = {
+    id: 'dom_pending',
+    fullDomain: 'pending.com',
+    registrar: 'GoDaddy',
+    nameservers: null,
+    verificationRecord: {
+      name: '_weldhost-verify.pending.com',
+      type: 'TXT',
+      value: 'weldhost-verify=abc',
+    },
+  };
+
+  beforeEach(() => {
+    routerReplace.mockReset();
+    searchParams = new URLSearchParams({ domain: 'dom_pending' });
+  });
+
+  it('opens on the TXT record while the domain is unverified', () => {
+    domainQuery = { data: { data: pendingDomain }, isError: false, isFetching: false };
+    render(<ExternalDomainClient />);
+
+    expect(screen.getByText(tx.verifyTitle)).toBeInTheDocument();
+    expect(screen.getByText('weldhost-verify=abc')).toBeInTheDocument();
+  });
+
+  it('waits for a refetch instead of resuming from a stale row', () => {
+    domainQuery = { data: { data: pendingDomain }, isError: false, isFetching: true };
+    render(<ExternalDomainClient />);
+
+    expect(screen.queryByText(tx.verifyTitle)).toBeNull();
+  });
+
+  it('continues at the import step once the domain is verified', () => {
+    domainQuery = {
+      data: { data: { ...pendingDomain, verificationRecord: null, nameservers: ['a.ns.cloudflare.com'] } },
+      isError: false,
+      isFetching: false,
+    };
+    render(<ExternalDomainClient />);
+
+    expect(screen.getByText(tx.importTitle)).toBeInTheDocument();
+  });
+
+  it('sends a managed domain back to its own page', () => {
+    domainQuery = {
+      data: { data: { ...pendingDomain, registrar: 'WeldSuite', verificationRecord: null } },
+      isError: false,
+      isFetching: false,
+    };
+    render(<ExternalDomainClient />);
+
+    expect(routerReplace).toHaveBeenCalledWith('/weldhost/domains/dom_pending');
   });
 });
