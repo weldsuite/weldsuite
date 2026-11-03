@@ -24,6 +24,13 @@
 //!   one message per workspace with outreach due; the `reach-send`
 //!   subscriber runs that workspace's send tick (the reach-send queue).
 //!   Dead letters go to `REACH_SEND_DLQ`.
+//! - **The WeldReach warmup network** `REACH_WARMUP` (`reach.warmup.send`,
+//!   `reach.warmup.engage`), with `REACH_WARMUP_QUEUE=nats`:
+//!   `weldsuite cron reach-warmup-dispatch` publishes the warmup messages
+//!   due to be sent or engaged; the `reach-warmup-send` and
+//!   `reach-warmup-engage` subscribers send them over SMTP and engage them
+//!   over IMAP (the reach-warmup-send / -engage queues). Dead letters go to
+//!   `REACH_WARMUP_DLQ`.
 //!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
@@ -58,7 +65,7 @@ use weldsuite_subscribers::{
 };
 
 pub(crate) use config::ConsumeConfig;
-use config::{MAIL_INBOUND, MailInboundConfig, REACH_SEND};
+use config::{MAIL_INBOUND, MailInboundConfig, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -393,6 +400,42 @@ struct Services {
 /// Connects NATS (creating the streams when asked) and Valkey, and builds
 /// the embeddings and webhook clients. A configured service that can't be
 /// reached fails the start, so a broken pod crash-loops visibly.
+/// WeldReach's queue streams, which crons publish to: `REACH_SEND` (the
+/// send sweep) and `REACH_WARMUP` (the warmup dispatch), each with its dead
+/// letters, when one of their subscribers runs. Created or updated with
+/// `ensure_streams`, otherwise only what is missing is created.
+async fn ensure_reach_streams(
+    bus: &JetStreamEventBus,
+    config: &ConsumeConfig,
+) -> Result<(), Error> {
+    let runs = |ids: &[&str]| config.subscribers.iter().any(|s| ids.contains(&s.as_str()));
+    let mut streams = Vec::new();
+    if runs(&[REACH_SEND]) {
+        streams.push(crate::reach::send_stream_config(config.stream_replicas));
+        streams.push(dead_letter_stream_config(
+            crate::reach::SEND_DLQ_STREAM,
+            "reach-send-dlq",
+            config.stream_replicas,
+        ));
+    }
+    if runs(&[REACH_WARMUP_SEND, REACH_WARMUP_ENGAGE]) {
+        streams.push(crate::reach::warmup_stream_config(config.stream_replicas));
+        streams.push(dead_letter_stream_config(
+            crate::reach::WARMUP_DLQ_STREAM,
+            crate::reach::WARMUP_DLQ_SUBJECT,
+            config.stream_replicas,
+        ));
+    }
+    for stream in streams {
+        if config.ensure_streams {
+            bus.context().create_or_update_stream(stream).await?;
+        } else {
+            bus.context().get_or_create_stream(stream).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
     let bus = JetStreamEventBus::connect(&NatsOptions {
         url: config.nats_url.clone(),
@@ -440,25 +483,7 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
                 .await?;
         }
     }
-    if config.subscribers.iter().any(|s| s == REACH_SEND) {
-        // The sweep publishes here: create or update with ensure_streams,
-        // otherwise only create what is missing.
-        let streams = [
-            crate::reach::send_stream_config(config.stream_replicas),
-            dead_letter_stream_config(
-                crate::reach::SEND_DLQ_STREAM,
-                "reach-send-dlq",
-                config.stream_replicas,
-            ),
-        ];
-        for stream in streams {
-            if config.ensure_streams {
-                bus.context().create_or_update_stream(stream).await?;
-            } else {
-                bus.context().get_or_create_stream(stream).await?;
-            }
-        }
-    }
+    ensure_reach_streams(&bus, config).await?;
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(
             connect_valkey(url).await?,
@@ -563,6 +588,37 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     } else {
         None
     };
+    let warmup_subscribers: Vec<&str> = config
+        .subscribers
+        .iter()
+        .map(String::as_str)
+        .filter(|s| *s == REACH_WARMUP_SEND || *s == REACH_WARMUP_ENGAGE)
+        .collect();
+    let mut reach_warmup = Vec::new();
+    if !warmup_subscribers.is_empty() {
+        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
+            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
+                master.clone(),
+                refresh,
+            )),
+            None => Arc::new(weldsuite_ports::DefaultFlags),
+        };
+        let network = crate::reach::warmup_network(master.clone(), flags)?;
+        for id in &warmup_subscribers {
+            let kind = if *id == REACH_WARMUP_SEND {
+                weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Send
+            } else {
+                weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Engage
+            };
+            let handler: Arc<dyn BatchHandler> = Arc::new(
+                weldsuite_reach::warmup_network::dispatch::WarmupSubscriber::new(
+                    network.clone(),
+                    kind,
+                ),
+            );
+            reach_warmup.push(((*id).to_owned(), crate::reach::warmup_spec(kind), handler));
+        }
+    }
     let Services { bus, http, .. } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
@@ -614,6 +670,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(REACH_SEND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    for (name, spec, handler) in reach_warmup {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(name);
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

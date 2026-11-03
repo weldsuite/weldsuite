@@ -8,6 +8,8 @@
  * - `tests/fixtures/warmup_pure.json`: business hours and time zones, the day's
  *   plan and send times, pairing, thread picks and rendering, each case drawing
  *   from the same scripted random sequence.
+ * - `tests/fixtures/warmup_planner.json`: one planner run on a seeded pool
+ *   (pglite) with the scripted sequence: what it started, planned and scheduled.
  *
  *   pnpm rust:reach-warmup-fixtures        write them
  *   pnpm --filter reach-warmup-worker test fails when they are stale
@@ -16,12 +18,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { BUILTIN_CORPUS, renderCorpusMessage } from '../corpus';
 import { fillPlaceholders } from '../corpus/render';
 import { addDays, businessWindow, businessWindowOn, intoBusinessHours, localParts, nextBusinessDate, zonedTimeToUtc } from '../lib/time';
 import { shuffled, type Rng } from '../lib/random';
 import { dailyTargetFor, newThreadsFor, planDay, spreadTimes } from '../schedule';
 import { createPairingState, pickRecipient, pickThreadId, type PairingMailbox } from '../pairing';
+import { runPlannerTick } from '../planner';
+import type { Env } from '../env';
 
 const RUST_MODULE = path.resolve(import.meta.dirname, '../../../../../rust/modules/reach');
 const WRITE = process.env.WRITE_RUST_FIXTURES === '1';
@@ -198,6 +204,131 @@ function renderCases() {
   return { people, values, rendered, templates, outOfRange };
 }
 
+/** Tuesday: 09:00 in Amsterdam, 03:00 in New York, 12:30 in Kolkata. */
+const PLAN_NOW = '2026-10-13T07:00:00.000Z';
+
+type PoolSeed = {
+  id: string;
+  workspaceId: string;
+  domain: string;
+  mailboxType: string;
+  firstName: string;
+  lastName: string;
+  timezone: string;
+  status: 'waiting' | 'warming' | 'maintaining' | 'paused';
+  startedAt: string | null;
+  rampDay: number;
+  dailyTarget: number;
+  plannedFor: string | null;
+};
+
+const PLAN_POOL: PoolSeed[] = [
+  ['rwmb_a1', 'ws_a', 'alpha.io', 'shared', 'Ann', 'Alpha', 'Europe/Amsterdam', 'warming', 3, null],
+  ['rwmb_a2', 'ws_a', 'alpha.io', 'google', 'Bea', 'Alpha', 'Europe/Amsterdam', 'maintaining', 20, null],
+  ['rwmb_b1', 'ws_b', 'beta.nl', 'shared', 'Cas', 'Beta', 'America/New_York', 'warming', 7, null],
+  ['rwmb_c1', 'ws_c', 'gamma.de', 'google', 'Dirk', 'Gamma', 'Europe/Amsterdam', 'waiting', 0, null],
+  ['rwmb_d1', 'ws_d', 'delta.fr', 'shared', 'Eva', 'Delta', 'Asia/Kolkata', 'warming', 1, null],
+  ['rwmb_e1', 'ws_b', 'epsilon.be', 'google', 'Fay', 'Eps', 'Europe/Amsterdam', 'warming', 5, '2026-10-13'],
+  ['rwmb_f1', 'ws_e', 'phi.co.uk', 'shared', 'Gus', 'Phi', 'Europe/London', 'maintaining', 30, '2026-10-12'],
+  ['rwmb_p1', 'ws_c', 'pi.io', 'shared', 'Hal', 'Pi', 'UTC', 'paused', 9, null],
+].map(([id, workspaceId, domain, mailboxType, firstName, lastName, timezone, status, rampDay, plannedFor]) => ({
+  id: id as string,
+  workspaceId: workspaceId as string,
+  domain: domain as string,
+  mailboxType: mailboxType as string,
+  firstName: firstName as string,
+  lastName: lastName as string,
+  timezone: timezone as string,
+  status: status as PoolSeed['status'],
+  startedAt: status === 'waiting' ? null : '2026-09-20T08:00:00.000Z',
+  rampDay: rampDay as number,
+  dailyTarget: 0,
+  plannedFor: plannedFor as string | null,
+}));
+
+type HistorySeed = {
+  id: string;
+  from: string;
+  to: string;
+  corpusThreadId: string;
+  status: 'scheduled' | 'engaged' | 'failed';
+  scheduledAt: string;
+};
+
+/** Earlier warmup mail: a pair cooling down, threads a pair used, mail received today, a failed one. */
+const PLAN_HISTORY: HistorySeed[] = [
+  { id: 'rwms_h1', from: 'rwmb_a1', to: 'rwmb_b1', corpusThreadId: 'builtin-001', status: 'engaged', scheduledAt: '2026-10-12T08:00:00.000Z' },
+  { id: 'rwms_h2', from: 'rwmb_a2', to: 'rwmb_d1', corpusThreadId: 'builtin-002', status: 'engaged', scheduledAt: '2026-10-05T09:00:00.000Z' },
+  { id: 'rwms_h3', from: 'rwmb_b1', to: 'rwmb_a1', corpusThreadId: 'builtin-004', status: 'failed', scheduledAt: '2026-10-12T15:00:00.000Z' },
+  { id: 'rwms_h4', from: 'rwmb_e1', to: 'rwmb_a2', corpusThreadId: 'builtin-003', status: 'scheduled', scheduledAt: '2026-10-13T06:00:00.000Z' },
+  { id: 'rwms_h5', from: 'rwmb_f1', to: 'rwmb_c1', corpusThreadId: 'builtin-005', status: 'engaged', scheduledAt: '2026-10-13T05:30:00.000Z' },
+];
+
+const iso = (at: Date | null) => (at ? at.toISOString() : null);
+
+async function plannerCase() {
+  const master = (await createMasterPgliteDb()).db as MasterDatabase;
+  const pool = masterSchema.reachWarmupMailboxes;
+  const messages = masterSchema.reachWarmupMessages;
+  await master.delete(messages);
+  await master.delete(pool);
+  await master.insert(pool).values(
+    PLAN_POOL.map((m) => ({
+      ...m,
+      clerkOrgId: `org_${m.id}`,
+      tenantMailboxId: `rmb_${m.id}`,
+      email: `${m.firstName.toLowerCase()}@${m.domain}`,
+      startedAt: m.startedAt ? new Date(m.startedAt) : null,
+      smtpCredentials: 'sealed',
+      imapCredentials: 'sealed',
+    })),
+  );
+  await master.insert(messages).values(
+    PLAN_HISTORY.map((m) => ({
+      id: m.id,
+      threadId: `rwth_${m.id}`,
+      step: 0,
+      fromMailboxId: m.from,
+      toMailboxId: m.to,
+      corpusThreadId: m.corpusThreadId,
+      messageIdHeader: `${m.id}@history.test`,
+      subject: 'Earlier',
+      status: m.status,
+      scheduledAt: new Date(m.scheduledAt),
+    })),
+  );
+
+  const env = { ENVIRONMENT: 'test', DATABASE_URL_MASTER: 'unused' } as Env;
+  const result = await runPlannerTick(env, { db: master, now: () => new Date(PLAN_NOW), random: scripted() });
+
+  const history = new Set(PLAN_HISTORY.map((m) => m.id));
+  const planned = (await master.select().from(messages))
+    .filter((m) => !history.has(m.id))
+    .map((m) => ({
+      from: m.fromMailboxId,
+      to: m.toMailboxId,
+      step: m.step,
+      corpusThreadId: m.corpusThreadId,
+      subject: m.subject,
+      status: m.status,
+      scheduledAt: iso(m.scheduledAt),
+    }))
+    .sort((a, b) => (a.scheduledAt! + a.from < b.scheduledAt! + b.from ? -1 : 1));
+  const mailboxes = (await master.select().from(pool))
+    .map((m) => ({
+      id: m.id,
+      status: m.status,
+      rampDay: m.rampDay,
+      dailyTarget: m.dailyTarget,
+      plannedFor: m.plannedFor,
+      startedAt: iso(m.startedAt),
+    }))
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  await master.delete(messages);
+  await master.delete(pool);
+  return { now: PLAN_NOW, pool: PLAN_POOL, history: PLAN_HISTORY, result, planned, mailboxes };
+}
+
 function writeOrCheck(file: string, value: unknown): void {
   const text = `${JSON.stringify(value, null, 2)}\n`;
   if (WRITE) {
@@ -223,4 +354,11 @@ describe('Rust parity fixtures (pnpm rust:reach-warmup-fixtures)', () => {
       render: renderCases(),
     });
   });
+
+  it('a planner run', async () => {
+    writeOrCheck(path.join(RUST_MODULE, 'tests/fixtures/warmup_planner.json'), {
+      sequence: SEQUENCE,
+      ...(await plannerCase()),
+    });
+  }, 120_000);
 });

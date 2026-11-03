@@ -27,6 +27,7 @@ pub mod collab;
 mod embeddings;
 mod flags;
 mod http;
+mod imap;
 mod nats;
 mod nats_consume;
 pub mod realtime;
@@ -42,6 +43,7 @@ pub use cnpg::{CnpgOptions, CnpgProvisioner, CnpgShard, database_names};
 pub use embeddings::{OpenAiEmbeddings, OpenAiEmbeddingsOptions};
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
 pub use http::ReqwestOutbound;
+pub use imap::AsyncImapConnector;
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_SUBJECT,
     JetStreamEventBus, NatsOptions, entity_events_stream_config, panel_events_stream_config,
