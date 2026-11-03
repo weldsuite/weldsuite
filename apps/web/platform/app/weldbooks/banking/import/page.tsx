@@ -502,7 +502,7 @@ function ImportResult({
             </Button>
           ) : null}
           <Button variant="outline" asChild>
-            <Link to="/weldbooks/banking/reconciliation">{ti.matchLines}</Link>
+            <Link to="/weldbooks/banking/reconciliation" search={{ accountId }}>{ti.matchLines}</Link>
           </Button>
           <Button asChild>
             <Link to="/weldbooks/banking/$id" params={{ id: accountId }}>{ti.viewAccount}</Link>

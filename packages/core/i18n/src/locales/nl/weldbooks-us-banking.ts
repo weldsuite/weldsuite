@@ -248,6 +248,7 @@ export const weldbooksUsBanking = {
       bill: 'Inkoopfactuur',
       payment: 'Betaling',
       deposit: 'Storting',
+      rule: 'Regel',
     },
     confidenceLabel: 'Zekerheid van de match',
     confidence: '{percent}% match',
@@ -257,6 +258,7 @@ export const weldbooksUsBanking = {
       bill: 'Betaling vastleggen en afstemmen',
       payment: 'Betaling koppelen',
       deposit: 'Storting koppelen',
+      rule: 'Boeken met deze regel',
     },
     reasons: {
       exactAmount: 'Exact bedrag',
@@ -279,6 +281,7 @@ export const weldbooksUsBanking = {
       datesWithin30Days: 'Datums binnen 30 dagen',
       depositTotalMatches: 'Totaal van de storting komt overeen',
       depositDatedWithinWeek: 'Storting binnen een week gedateerd',
+      ruleMatches: 'Past bij een afstemmingsregel',
     },
   },
 

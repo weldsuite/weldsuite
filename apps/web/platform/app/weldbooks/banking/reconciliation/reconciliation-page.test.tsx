@@ -12,6 +12,7 @@ const jurisdiction = { code: 'US' as string | null };
 const lines = [
   { id: 'bt_1', bankAccountId: 'ba_1', date: '2026-01-07', description: 'CHECK 1042', amount: '-300.05', counterpartyName: null, status: 'unreconciled', checkNumber: '1042', source: 'feed' },
   { id: 'bt_2', bankAccountId: 'ba_1', date: '2026-01-08', description: 'DEPOSIT', amount: '1550.50', counterpartyName: null, status: 'unreconciled', checkNumber: null, source: 'import' },
+  { id: 'bt_3', bankAccountId: 'ba_1', date: '2026-01-09', description: 'Huur kantoor januari', amount: '-1200.00', counterpartyName: 'Vastgoed BV', status: 'unreconciled', checkNumber: null, source: null },
 ] as BankLine[];
 
 const suggestionsByLine: Record<string, MatchSuggestion[]> = {
@@ -20,11 +21,17 @@ const suggestionsByLine: Record<string, MatchSuggestion[]> = {
     { type: 'deposit', id: 'dep_1', number: 'January checks', contactName: null, amount: '1550.50', confidence: 0.75, reasons: ['deposit total matches'] },
     { type: 'invoice', id: 'inv_1', number: 'INV-1', contactName: 'Acme', amount: '1550.50', confidence: 0.5, reasons: ['exact amount match'] },
   ],
+  bt_3: [
+    { type: 'rule', id: 'rr_rent', number: 'Rent rule', contactName: null, amount: '1200.00', confidence: 0.7, reasons: ['reconciliation rule matches'], categoryAccountId: 'acc_rent' },
+  ],
 };
+const bankAccounts = [{ id: 'ba_1', name: 'Operating', iban: null, accountNumberLast4: '7890', currency: 'USD' }] as UsBankAccount[];
+const search: { accountId?: string } = {};
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => vi.fn(),
+  useSearch: () => search,
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
@@ -44,10 +51,11 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
   useMutation: () => ({ mutate: reconcileMutate, isPending: false, isSuccess: false, error: null, data: undefined }),
 }));
 vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
-  useBankAccounts: () => ({
-    data: { data: [{ id: 'ba_1', name: 'Operating', iban: null, accountNumberLast4: '7890', currency: 'USD' }] as UsBankAccount[] },
+  useBankAccounts: () => ({ data: { data: bankAccounts } }),
+  useBankLines: (filters?: { bankAccountId?: string }) => ({
+    data: filters ? { data: lines.filter((l) => l.bankAccountId === filters.bankAccountId) } : undefined,
+    isLoading: false,
   }),
-  useBankLines: (filters?: { bankAccountId?: string }) => ({ data: filters ? { data: lines } : undefined, isLoading: false }),
   useBankLineSuggestions: (id: string | null) => ({ data: id ? suggestionsByLine[id] : [] }),
   useMatchBankLineToPayment: () => ({ mutate: matchPaymentMutate, isPending: false, error: null }),
   useMatchBankLineToDeposit: () => ({ mutate: matchDepositMutate, isPending: false, error: null }),
@@ -72,6 +80,49 @@ describe('Bank reconciliation page', () => {
     permissions.clear();
     permissions.add('banking:update');
     jurisdiction.code = 'US';
+    bankAccounts.splice(1);
+    delete search.accountId;
+  });
+
+  it('opens on the only bank account without choosing it', () => {
+    renderWithProviders(<BankReconciliationPage />);
+    expect(screen.getByText('CHECK 1042')).toBeInTheDocument();
+  });
+
+  it('opens on the account named in the URL when there are several', () => {
+    bankAccounts.push({ id: 'ba_2', name: 'Savings', iban: 'NL00TEST', accountNumberLast4: null, currency: 'EUR' } as UsBankAccount);
+    const { unmount } = renderWithProviders(<BankReconciliationPage />);
+    expect(screen.queryByText('CHECK 1042')).not.toBeInTheDocument();
+    unmount();
+
+    search.accountId = 'ba_1';
+    renderWithProviders(<BankReconciliationPage />);
+    expect(screen.getByText('CHECK 1042')).toBeInTheDocument();
+  });
+
+  it('titles a line by its counterparty, else its description, and marks the selected one', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+    const rent = screen.getByTestId('reconcile-line-bt_3');
+    expect(within(rent).getByText('Vastgoed BV')).toBeInTheDocument();
+    expect(within(rent).getByText('Huur kantoor januari')).toBeInTheDocument();
+    expect(within(screen.getByTestId('reconcile-line-bt_2')).getByText('DEPOSIT')).toBeInTheDocument();
+    expect(screen.queryByText('Unknown')).not.toBeInTheDocument();
+
+    await user.click(rent);
+    expect(rent).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('reconcile-line-bt_2')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('categorizes a line with a matching reconciliation rule', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+    await user.click(screen.getByTestId('reconcile-line-bt_3'));
+    const suggestion = await screen.findByTestId('suggestion-rule');
+    expect(within(suggestion).getByText('Rent rule')).toBeInTheDocument();
+    expect(within(suggestion).getByText('Matches a reconciliation rule')).toBeInTheDocument();
+    await user.click(screen.getByTestId('match-rule'));
+    expect(reconcileMutate.mock.calls[0][0]).toEqual({ txnId: 'bt_3', data: { type: 'manual', categoryAccountId: 'acc_rent' } });
   });
 
   it('shows the check number and the source of each bank line', async () => {

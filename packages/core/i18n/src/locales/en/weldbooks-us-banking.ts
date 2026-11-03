@@ -247,6 +247,7 @@ export const weldbooksUsBanking = {
       bill: 'Bill',
       payment: 'Payment',
       deposit: 'Deposit',
+      rule: 'Rule',
     },
     confidenceLabel: 'Match confidence',
     confidence: '{percent}% match',
@@ -256,6 +257,7 @@ export const weldbooksUsBanking = {
       bill: 'Record payment and reconcile',
       payment: 'Match payment',
       deposit: 'Match deposit',
+      rule: 'Categorize with this rule',
     },
     reasons: {
       exactAmount: 'Exact amount',
@@ -278,6 +280,7 @@ export const weldbooksUsBanking = {
       datesWithin30Days: 'Dates within 30 days',
       depositTotalMatches: 'Deposit total matches',
       depositDatedWithinWeek: 'Deposit dated within a week',
+      ruleMatches: 'Matches a reconciliation rule',
     },
   },
 
