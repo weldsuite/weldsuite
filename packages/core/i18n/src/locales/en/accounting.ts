@@ -2772,6 +2772,14 @@ export const accounting = {
       icpDeleteFailed: 'Could not delete the ICP declaration',
       icpRecalculated: 'The existing ICP declaration for this period was updated: {count} line(s), {total} total',
       invalidPeriod: 'The period end must not be before the period start.',
+      periodNotWhole: {
+        monthly: 'A monthly period runs from the first to the last day of one month.',
+        quarterly: 'A quarterly period runs from the first to the last day of one quarter (Jan–Mar, Apr–Jun, Jul–Sep or Oct–Dec).',
+        yearly: 'An annual period runs from 1 January to 31 December.',
+      },
+      periodYear: 'Year',
+      periodMonth: 'Month',
+      periodQuarter: 'Quarter',
       colStatus: 'Status',
       // VAT detail page
       filedSuccess: 'VAT return filed',
