@@ -8,8 +8,8 @@
  * one file: a name passed in from another file counts as missing, so the fix
  * is to pass it where the element is written.
  *
- * Switched on per folder in eslint.config.js (A11Y_STRICT_FOLDERS);
- * eslint/a11y-strict.test.ts is the check that blocks CI.
+ * Switched on per folder through eslint/a11y-strict.mjs (A11Y_STRICT_FOLDERS);
+ * lib/a11y/a11y-strict.test.ts is the check that blocks CI.
  */
 
 const NAME_ATTRS = ['aria-label', 'aria-labelledby', 'title'];
@@ -110,6 +110,13 @@ function replacesOutline(tokens) {
   return tokens.some((t) => FOCUS_PREFIX.test(t) && VISIBLE_FOCUS.test(t.replace(FOCUS_PREFIX, '')));
 }
 
+/** The shared ui components that draw their own focus-visible ring. */
+const RING_COMPONENTS = new Set(['Button', 'Input', 'Textarea', 'SelectTrigger']);
+
+function removesRing(tokens) {
+  return tokens.some((t) => FOCUS_PREFIX.test(t) && /^ring-0$/.test(t.replace(FOCUS_PREFIX, '')));
+}
+
 function findDescendant(el, test) {
   let found = false;
   const visit = (n) => {
@@ -197,7 +204,11 @@ const outlineNoneHasFocusStyle = {
       JSXAttribute(node) {
         if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'className' || !node.value) return;
         const tokens = classTokens(node.value);
-        if (removesOutline(tokens) && !replacesOutline(tokens)) context.report({ node, messageId: 'missing' });
+        if (!removesOutline(tokens) || replacesOutline(tokens)) return;
+        const owner = node.parent.name;
+        const ownerName = owner.type === 'JSXIdentifier' ? owner.name : owner.property?.name;
+        if (RING_COMPONENTS.has(ownerName) && !removesRing(tokens)) return;
+        context.report({ node, messageId: 'missing' });
       },
     };
   },

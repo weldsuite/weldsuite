@@ -58,6 +58,6 @@ export default [
     },
   },
   // TASK-1184: modules whose accessibility pass is done. The shared config
-  // makes these warnings too; eslint/a11y-strict.test.ts is the blocking check.
+  // makes these warnings too; lib/a11y/a11y-strict.test.ts is the blocking check.
   a11yStrictConfig,
 ]

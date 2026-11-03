@@ -345,7 +345,7 @@ function ComposeHeader({ handleSendEmail, isSending, setComposeData, setIsCompos
           {st('sweep.weldmail.compose.newMessage')}
         </h2>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" 
+          <Button aria-label={st('common.actions.close')} variant="ghost" 
             onClick={() => {
               setIsComposing(false);
               setComposeData({ to: '', subject: '', body: '' });
@@ -354,7 +354,7 @@ function ComposeHeader({ handleSendEmail, isSending, setComposeData, setIsCompos
           >
             <X className="h-4 w-4 text-muted-foreground" />
           </Button>
-          <Button variant="ghost"
+          <Button aria-label={st('mail.a11y.minimize')} variant="ghost"
             onClick={() => {
               setIsComposeMinimized(true);
             }}
@@ -412,7 +412,7 @@ function EmailToolbar({ completedEmails, getDateLabel, groupedMessages, handleAr
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="inline-flex h-7 items-center rounded-md border border-input bg-background text-muted-foreground">
-            <Button variant="ghost"
+            <Button aria-label={t.common.actions.close} variant="ghost"
               onClick={() => {
                 // Mark as read and close
                 setMessages(prev => prev.map(msg =>
@@ -426,7 +426,7 @@ function EmailToolbar({ completedEmails, getDateLabel, groupedMessages, handleAr
               <X className="h-3.5 w-3.5" />
             </Button>
             <div className="h-3.5 w-[1px] bg-border" />
-            <Button variant="ghost"
+            <Button aria-label={t.mail.a11y.markDone} variant="ghost"
               onClick={() => {
                 const wasCompleted = completedEmails.has(selectedEmail.id);
 
@@ -1129,7 +1129,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
         {!isEmailCollapsed && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="p-1 hover:bg-gray-100 dark:hover:bg-accent data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-accent rounded-md transition-colors">
+              <Button aria-label={t.mail.a11y.moreActions} variant="ghost" className="p-1 hover:bg-gray-100 dark:hover:bg-accent data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-accent rounded-md transition-colors">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -1360,7 +1360,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-muted-foreground" />
-                <input
+                <input aria-label={st('sweep.weldmail.search.placeholder')}
                   type="text"
                   placeholder={st('sweep.weldmail.search.placeholder')}
                   className="w-full pl-9 pr-3 py-2 bg-white dark:bg-secondary border border-gray-200 dark:border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
@@ -1446,7 +1446,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                 >
                   <Expand className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
                 </Button>
-                <Button variant="ghost"
+                <Button aria-label={t.common.actions.close} variant="ghost"
                   onClick={() => {
                     setShowAiPanel(false);
                     setIsAiPanelFullscreen(false);
@@ -1505,7 +1505,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                     <div className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-1">{t.mail.inboxPage.selectedText}</div>
                     <div className="text-sm text-gray-700 dark:text-muted-foreground italic line-clamp-3">&ldquo;{selectedText}&rdquo;</div>
                   </div>
-                  <Button variant="ghost"
+                  <Button aria-label={t.mail.a11y.removeQuotedText} variant="ghost"
                     onClick={() => {
                       setSelectedText('');
                       setAiInput(aiInput.replace(selectedText, ''));
@@ -1524,7 +1524,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
             )}>
               {/* Input Field at the top */}
               <div className="w-full">
-                <textarea
+                <textarea aria-label={st('sweep.weldmail.aiPanel.typeAMessage')}
                   ref={aiInputRef}
                   value={aiInput}
                   onChange={(e) => setAiInput(e.target.value)}
@@ -1542,7 +1542,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                   placeholder={st('sweep.weldmail.aiPanel.typeAMessage')}
                   disabled={false}
                   className={cn(
-                    "w-full resize-none bg-transparent text-base focus:outline-none disabled:opacity-50 placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:placeholder:text-muted-foreground",
+                    "w-full resize-none bg-transparent text-base focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:opacity-50 placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:placeholder:text-muted-foreground",
                     isAiPanelFullscreen ? "px-3 py-2" : "px-2 py-1"
                   )}
                   rows={1}
@@ -1553,7 +1553,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
               {/* Controls row below */}
               <div className="flex items-center gap-2">
                 {/* Plus Button */}
-                <Button variant="ghost" className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors">
+                <Button aria-label={t.mail.a11y.addContext} variant="ghost" className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors">
                   <Plus className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
                 </Button>
 
@@ -1618,7 +1618,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                   {/* Globe Dropdown */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button
+                      <Button aria-label={t.mail.a11y.sources}
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-accent"
@@ -1634,12 +1634,12 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                   </DropdownMenu>
 
                   {/* Mic Button */}
-                  <Button variant="ghost" className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors">
+                  <Button aria-label={t.mail.a11y.voiceInput} variant="ghost" className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors">
                     <Mic className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
                   </Button>
 
                   {/* Send Button */}
-                  <Button variant="ghost" 
+                  <Button aria-label={t.common.a11y.send} variant="ghost" 
                     onClick={handleAiSend}
                     disabled={!aiInput.trim()}
                     className={`p-2 rounded-lg transition-all ${
@@ -1709,7 +1709,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
             {st('sweep.weldmail.compose.newMessage')}
           </h2>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" 
+            <Button aria-label={t.common.actions.close} variant="ghost" 
               onClick={() => {
                 setIsComposing(false);
                 setComposeData({ to: '', subject: '', body: '' });
@@ -1718,7 +1718,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
             >
               <X className="h-4 w-4 text-muted-foreground" />
             </Button>
-            <Button variant="ghost" 
+            <Button aria-label={t.mail.a11y.restore} variant="ghost" 
               onClick={() => {
                 setIsComposeMinimized(false);
               }}
@@ -1747,10 +1747,10 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
         <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border ml-2 mr-6">
           {/* Subject Field */}
           <div className="px-4 py-3 border-b border-gray-200 dark:border-border">
-            <input
+            <input aria-label={st('sweep.weldmail.compose.subject')}
               type="text"
               placeholder={st('sweep.weldmail.compose.subject')}
-              className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.subject}
               onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
             />
@@ -1759,26 +1759,26 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
           {/* To Field */}
           <div className="px-4 py-3 border-b border-gray-200 dark:border-border">
             <div className="space-y-2">
-              <input
+              <input aria-label={st('sweep.weldmail.compose.to')}
                 type="text"
                 placeholder={st('sweep.weldmail.compose.to')}
-                className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                 value={composeData.to}
                 onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
               />
               {showCcBcc && (
                 <>
-                  <input
+                  <input aria-label={st('sweep.weldmail.compose.cc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.cc')}
-                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={ccRecipients}
                     onChange={(e) => setCcRecipients(e.target.value)}
                   />
-                  <input
+                  <input aria-label={st('sweep.weldmail.compose.bcc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.bcc')}
-                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={bccRecipients}
                     onChange={(e) => setBccRecipients(e.target.value)}
                   />
@@ -1809,7 +1809,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
                         <span className="text-sm text-gray-700 dark:text-foreground">{file.name}</span>
                         <span className="text-xs text-gray-500 dark:text-muted-foreground">({(file.size / 1024).toFixed(1)} KB)</span>
                       </div>
-                      <Button variant="ghost"
+                      <Button aria-label={t.mail.a11y.removeAttachment} variant="ghost"
                         onClick={() => removeAttachment(index)}
                         className="p-1 hover:bg-gray-200 dark:hover:bg-accent rounded transition-colors"
                       >
@@ -1834,7 +1834,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
                       style={{ backgroundColor: tag.color }}
                     >
                       {tag.name}
-                      <Button variant="ghost"
+                      <Button aria-label={t.mail.a11y.removeLabel} variant="ghost"
                         onClick={() => toggleTag(tag.id)}
                         className="hover:opacity-75"
                       >
@@ -1851,7 +1851,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               <div className="mb-3 inline-flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm">
                 <Clock className="h-4 w-4" />
                 <span>{t.mail.inboxPage.scheduledFor.replace('{date}', format(scheduledTime, 'PPp'))}</span>
-                <Button variant="ghost"
+                <Button aria-label={t.mail.a11y.cancelSchedule} variant="ghost"
                   onClick={() => setScheduledTime(null)}
                   className="ml-2 hover:bg-blue-100 dark:hover:bg-accent rounded p-0.5"
                 >
@@ -1860,9 +1860,9 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               </div>
             )}
 
-            <textarea
+            <textarea aria-label={st('sweep.weldmail.compose.enterText')}
               placeholder={st('sweep.weldmail.compose.enterText')}
-              className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.body}
               onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
             />
@@ -2819,14 +2819,14 @@ export function InboxClient({
           {/* Search Bar with Filter */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
-            <Input
+            <Input aria-label={st('sweep.weldmail.search.inMail')}
               data-testid="inbox-search-input"
               placeholder={st('sweep.weldmail.search.inMail')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-9 pl-9 pr-9 w-full text-sm border border-border/50 bg-white dark:bg-background focus:bg-white dark:focus:bg-background shadow-none transition-all duration-200"
             />
-            <Button variant="ghost" className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 rounded-sm transition-colors flex items-center justify-center hover:bg-gray-100 dark:hover:bg-accent">
+            <Button aria-label={t.common.actions.filter} variant="ghost" className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 rounded-sm transition-colors flex items-center justify-center hover:bg-gray-100 dark:hover:bg-accent">
               <Filter className="h-4 w-4 text-muted-foreground/70" />
             </Button>
           </div>
@@ -2981,10 +2981,10 @@ export function InboxClient({
                 <div className="flex flex-col h-full">
                   {/* Subject Field */}
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-border">
-                    <input
+                    <input aria-label={st('sweep.weldmail.compose.subject')}
                       type="text"
                       placeholder={st('sweep.weldmail.compose.subject')}
-                      className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.subject}
                       onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
                     />
@@ -2993,10 +2993,10 @@ export function InboxClient({
                   {/* To Field */}
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-border">
                     <div className="flex items-center justify-between gap-4">
-                      <input
+                      <input aria-label={st('sweep.weldmail.compose.to')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.to')}
-                        className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={composeData.to}
                         onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                       />
@@ -3012,19 +3012,19 @@ export function InboxClient({
                     {showCcBcc && (
                       <div className="space-y-2 mt-2">
                         <div className="flex items-center justify-between gap-4">
-                          <input
+                          <input aria-label={st('sweep.weldmail.compose.cc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.cc')}
-                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={ccRecipients}
                             onChange={(e) => setCcRecipients(e.target.value)}
                           />
                         </div>
                         <div className="flex items-center justify-between gap-4">
-                          <input
+                          <input aria-label={st('sweep.weldmail.compose.bcc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.bcc')}
-                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={bccRecipients}
                             onChange={(e) => setBccRecipients(e.target.value)}
                           />
@@ -3047,7 +3047,7 @@ export function InboxClient({
                                 <span className="text-sm text-gray-700 dark:text-foreground">{file.name}</span>
                                 <span className="text-xs text-gray-500 dark:text-muted-foreground">({(file.size / 1024).toFixed(1)} KB)</span>
                               </div>
-                              <Button variant="ghost"
+                              <Button aria-label={t.mail.a11y.removeAttachment} variant="ghost"
                                 onClick={() => removeAttachment(index)}
                                 className="p-1 hover:bg-gray-200 dark:hover:bg-accent rounded transition-colors"
                               >
@@ -3072,7 +3072,7 @@ export function InboxClient({
                               style={{ backgroundColor: tag.color }}
                             >
                               {tag.name}
-                              <Button variant="ghost"
+                              <Button aria-label={t.mail.a11y.removeLabel} variant="ghost"
                                 onClick={() => toggleTag(tag.id)}
                                 className="hover:opacity-75"
                               >
@@ -3089,7 +3089,7 @@ export function InboxClient({
                       <div className="mb-3 inline-flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm">
                         <Clock className="h-4 w-4" />
                         <span>{t.mail.inboxPage.scheduledFor.replace('{date}', format(scheduledTime, 'PPp'))}</span>
-                        <Button variant="ghost"
+                        <Button aria-label={t.mail.a11y.cancelSchedule} variant="ghost"
                           onClick={() => setScheduledTime(null)}
                           className="ml-2 hover:bg-blue-100 dark:hover:bg-accent rounded p-0.5"
                         >
@@ -3098,9 +3098,9 @@ export function InboxClient({
                       </div>
                     )}
                     
-                    <textarea
+                    <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                       placeholder={st('sweep.weldmail.compose.enterText')}
-                      className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.body}
                       onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     />
@@ -3319,10 +3319,10 @@ export function InboxClient({
                   >
                     <CornerDownRight className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
                   </Button>
-                  <input
+                  <input aria-label={st('sweep.weldmail.compose.to')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.to')}
-                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.to}
                     onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                   />
@@ -3345,9 +3345,9 @@ export function InboxClient({
 
                 {/* Message Body */}
                 <div className="pl-[18px] pr-[18px] py-4">
-                  <textarea
+                  <textarea aria-label={st('sweep.weldmail.compose.typeYourReply')}
                     placeholder={st('sweep.weldmail.compose.typeYourReply')}
-                    className="w-full h-32 text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full h-32 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.body}
                     onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     ref={focusOnMount}
@@ -3490,7 +3490,7 @@ export function InboxClient({
                       }}>{t.mail.compose.send}</Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="!pl-[10px] !w-[34px] !h-[34px] !rounded-lg !bg-[#3451ff] !text-white hover:!bg-[#2945f0] !border-[#3451ff]">
+                        <Button aria-label={t.mail.a11y.sendOptions} variant="outline" className="!pl-[10px] !w-[34px] !h-[34px] !rounded-lg !bg-[#3451ff] !text-white hover:!bg-[#2945f0] !border-[#3451ff]">
                           <ChevronDown />
                         </Button>
                       </DropdownMenuTrigger>
@@ -3694,7 +3694,7 @@ export function InboxClient({
             </div>
             
             {/* Close Button */}
-            <Button variant="ghost"
+            <Button aria-label={t.common.actions.close} variant="ghost"
               onClick={() => setShowPreferencesModal(false)}
               className="absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-accent transition-colors"
             >
@@ -3718,7 +3718,7 @@ export function InboxClient({
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-white dark:bg-secondary rounded-2xl shadow-2xl z-50">
             {/* Header with back button */}
             <div className="flex items-center gap-3 p-6 pb-0">
-              <Button variant="ghost"
+              <Button aria-label={t.common.actions.back} variant="ghost"
                 onClick={() => setShowAppDetailModal(false)}
                 className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-accent transition-colors"
               >
@@ -3889,26 +3889,26 @@ export function InboxClient({
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <div className="flex-1 space-y-2">
-                    <input
+                    <input aria-label={t.sweep.weldmail.compose.to}
                       type="text"
-                      className="w-full text-sm outline-none bg-transparent text-blue-600"
+                      className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-blue-600"
                       value={popupComposeData.to}
                       onChange={(e) => setPopupComposeData(prev => ({ ...prev, to: e.target.value }))}
                     />
                     {showPopupCc && (
-                      <input
+                      <input aria-label={st('sweep.weldmail.compose.cc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.cc')}
-                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupCcRecipients}
                         onChange={(e) => setPopupCcRecipients(e.target.value)}
                       />
                     )}
                     {showPopupBcc && (
-                      <input
+                      <input aria-label={st('sweep.weldmail.compose.bcc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.bcc')}
-                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupBccRecipients}
                         onChange={(e) => setPopupBccRecipients(e.target.value)}
                       />
@@ -3939,10 +3939,10 @@ export function InboxClient({
               {showSubjectField && (
                 <div className="px-4 border-b border-gray-200 dark:border-border h-[41px] flex items-center gap-2">
                   <span className="text-sm text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.rePrefix}</span>
-                  <input
+                  <input aria-label={st('sweep.weldmail.compose.subject')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.subject')}
-                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={popupComposeData.subject.replace(/^Re:\s*/i, '')}
                     onChange={(e) => setPopupComposeData(prev => ({ ...prev, subject: `Re: ${e.target.value}` }))}
                   />
@@ -3966,9 +3966,9 @@ export function InboxClient({
                     background: #d1d5db;
                   }
                 `}</style>
-                <textarea
+                <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                   placeholder={st('sweep.weldmail.compose.enterText')}
-                  className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
+                  className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#e5e7eb transparent'
@@ -4074,7 +4074,7 @@ export function InboxClient({
                   }}>{t.mail.compose.send}</Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="!pl-[10px] !w-[34px] !h-[34px] !rounded-lg !bg-[#3451ff] !text-white hover:!bg-[#2945f0] !border-[#3451ff]">
+                      <Button aria-label={t.mail.a11y.sendOptions} variant="outline" className="!pl-[10px] !w-[34px] !h-[34px] !rounded-lg !bg-[#3451ff] !text-white hover:!bg-[#2945f0] !border-[#3451ff]">
                         <ChevronDown />
                       </Button>
                     </DropdownMenuTrigger>

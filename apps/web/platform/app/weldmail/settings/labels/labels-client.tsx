@@ -381,7 +381,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
 
                     {editingLabel === label.name ? (
                       <div className="flex items-center gap-2 flex-1">
-                        <Input
+                        <Input aria-label={t.mail.a11y.labelName}
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onKeyDown={(e) => {
@@ -394,14 +394,14 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                           className="max-w-xs"
                           autoFocus
                         />
-                        <Button
+                        <Button aria-label={t.common.actions.save}
                           size="sm"
                           variant="ghost"
                           onClick={() => handleSaveEdit(label.name)}
                         >
                           <Check className="h-4 w-4" />
                         </Button>
-                        <Button
+                        <Button aria-label={t.common.actions.cancel}
                           size="sm"
                           variant="ghost"
                           onClick={handleCancelEdit}
@@ -490,7 +490,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
               <div className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
+                    <Button aria-label={t.mail.a11y.labelColor}
                       type="button"
                       variant="ghost"
                       className="w-9 h-9 rounded-md border border-input flex items-center justify-center flex-shrink-0 hover:bg-accent transition-colors"
@@ -549,7 +549,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                   </Label>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                      <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                         <Info className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
@@ -569,7 +569,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         <Label htmlFor="ai-keywords">{t.mail.settingsLabels.keywords}</Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                            <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                               <Info className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
@@ -591,7 +591,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         <Label htmlFor="ai-description">{t.mail.settingsLabels.aiDescriptionLabel}</Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                            <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                               <Info className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
@@ -615,7 +615,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                           <Label>{t.mail.settingsLabels.minimumConfidence}</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                              <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                                 <Info className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
@@ -714,7 +714,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                   </Label>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                      <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                         <Info className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
@@ -734,7 +734,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         <Label htmlFor="edit-ai-keywords">{t.mail.settingsLabels.keywords}</Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                            <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                               <Info className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
@@ -756,7 +756,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         <Label htmlFor="edit-ai-description">{t.mail.settingsLabels.aiDescriptionLabel}</Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                            <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                               <Info className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
@@ -780,7 +780,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                           <Label>{t.mail.settingsLabels.minimumConfidence}</Label>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                              <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                                 <Info className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>

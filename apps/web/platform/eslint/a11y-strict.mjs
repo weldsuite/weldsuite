@@ -1,10 +1,12 @@
 import a11yPlugin from './a11y-plugin.mjs';
 
+export { a11yPlugin };
+
 /**
  * Folders whose accessibility pass is done (TASK-1184, one PR per module).
  * They get the weldsuite-a11y rules and jsx-a11y's component mapping, and
- * eslint/a11y-strict.test.ts fails on any finding in them. Add a module here
- * in the PR that cleans it up.
+ * lib/a11y/a11y-strict.test.ts fails on any finding in them. Add a module
+ * here in the PR that cleans it up.
  */
 export const A11Y_STRICT_FOLDERS = ['app/weldmail'];
 

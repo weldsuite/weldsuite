@@ -31,7 +31,7 @@ const ROUTES = [
 ];
 
 /** Routes whose page has been cleaned up; any serious or critical finding fails. */
-const STRICT_ROUTES = new Set<string>([]);
+const STRICT_ROUTES = new Set<string>(['/weldmail']);
 
 /** Shell-level rules every page must already pass. */
 const SHELL_RULES = ['landmark-one-main', 'landmark-no-duplicate-main', 'bypass', 'html-has-lang', 'html-lang-valid'];

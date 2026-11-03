@@ -404,7 +404,7 @@ function ToRecipientsInput({
       <input
         ref={inputRef}
         type="text"
-        className="flex-1 min-w-[120px] h-[26px] text-sm outline-none bg-transparent"
+        className="flex-1 min-w-[120px] h-[26px] text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent"
         value={input}
         onChange={onInputChange}
         onKeyDown={onInputKeyDown}
