@@ -29,6 +29,7 @@ type TicketStatus =
   | 'success'
   | 'error'
   | 'signed_in_conflict'
+  | 'already_member'
   | 'expired'
   | 'used';
 
@@ -375,6 +376,59 @@ function SignedInConflictView({
               className="w-full h-[42px] rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50 text-[14px] transition-colors"
             >
               {t.invite.cancel}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AlreadyMemberViewProps {
+  userEmail?: string;
+  isLoading: boolean;
+  onContinue: () => void;
+  onSignOut: (redirectUrl: string) => void;
+}
+
+// Signed in with an account that is already in the workspace, and nothing left
+// to accept for it: the link may well be for another account (TASK-1065).
+function AlreadyMemberView({ userEmail, isLoading, onContinue, onSignOut }: Readonly<AlreadyMemberViewProps>) {
+  const t = getTranslations('common');
+  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const [before, after] = t.invite.alreadyMemberDescription.split('{email}');
+
+  return (
+    <div className="min-h-screen bg-white flex relative">
+      <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
+        <div className="w-full max-w-[448px] mx-auto">
+          <div className="mb-[32px]">
+            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
+              {t.invite.alreadyMemberTitle}
+            </h1>
+            <p className="text-gray-600">
+              {before}
+              <span className="font-medium">{userEmail}</span>
+              {after}
+            </p>
+          </div>
+
+          <div className="space-y-[10px]">
+            <Button
+              variant="ghost"
+              onClick={onContinue}
+              disabled={isLoading}
+              className="w-full h-[42px] rounded-lg bg-black hover:bg-black/90 text-white text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {t.invite.continueToWorkspace}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => onSignOut(currentUrl)}
+              disabled={isLoading}
+              className="w-full h-[42px] rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50 text-[14px] transition-colors flex items-center justify-center gap-2"
+            >
+              <LoadingLabel isLoading={isLoading} loadingLabel={t.invite.signingOut} label={t.invite.signOutAndUseOtherAccount} />
             </Button>
           </div>
         </div>
@@ -784,48 +838,67 @@ function ClerkInviteClient({
     await signOut({ redirectUrl });
   };
 
-  // Signed in: accept the invitation (if it is still pending) and switch to
-  // its workspace. Without a pending invitation the link can still be for a
-  // workspace this account already belongs to; switching then just works.
+  const targetOrgId = invitation?.publicOrganizationData.id ?? orgId;
+  const isMemberOfTarget = Boolean(
+    targetOrgId && user?.organizationMemberships?.some((m) => m.organization.id === targetOrgId),
+  );
+
+  // Signed in: accept the invitation and switch to its workspace. Without a
+  // pending invitation for this account the link is for someone else, or was
+  // used already: say so instead of switching (TASK-1065). A sign-up link is
+  // for an email with no account yet, so never for the signed-in one.
   const joinWorkspace = useCallback(async () => {
-    const targetOrgId = invitation?.publicOrganizationData.id ?? orgId;
-    if (!targetOrgId || !setOrgActive) {
-      setTicketStatus('signed_in_conflict');
+    if (!targetOrgId || !setOrgActive || !invitation) {
+      setTicketStatus(isMemberOfTarget && clerkStatus !== 'sign_up' ? 'already_member' : 'signed_in_conflict');
       return;
     }
 
     setTicketStatus('processing');
     setError(null);
 
-    if (invitation) {
-      try {
-        await invitation.accept();
-      } catch (err: unknown) {
-        console.error('Accept invitation error:', err);
-        setError(
-          isClerkAPIResponseError(err)
-            ? err.errors[0]?.message || t.invite.errors.failedToAcceptInvitation
-            : t.invite.errors.failedToAcceptInvitation,
-        );
-        setTicketStatus('signed_in_conflict');
-        return;
-      }
+    try {
+      await invitation.accept();
+    } catch (err: unknown) {
+      console.error('Accept invitation error:', err);
+      setError(
+        isClerkAPIResponseError(err)
+          ? err.errors[0]?.message || t.invite.errors.failedToAcceptInvitation
+          : t.invite.errors.failedToAcceptInvitation,
+      );
+      setTicketStatus('signed_in_conflict');
+      return;
     }
 
     try {
       await setOrgActive({ organization: targetOrgId });
     } catch {
-      // Not invited and not a member: the link is for another account. After
-      // an accept, the app shell activates the pending org on reload instead.
-      if (!invitation) {
-        setTicketStatus('signed_in_conflict');
-        return;
-      }
+      // The app shell activates the pending org on reload instead.
     }
 
     setTicketStatus('success');
     enterWorkspaceSoon(targetOrgId);
-  }, [invitation, orgId, setOrgActive, t.invite.errors.failedToAcceptInvitation]);
+  }, [
+    invitation,
+    targetOrgId,
+    isMemberOfTarget,
+    clerkStatus,
+    setOrgActive,
+    t.invite.errors.failedToAcceptInvitation,
+  ]);
+
+  // "Continue to workspace" from the already-a-member screen.
+  const enterMemberWorkspace = useCallback(async () => {
+    if (!targetOrgId || !setOrgActive) return;
+    setTicketStatus('processing');
+    try {
+      await setOrgActive({ organization: targetOrgId });
+    } catch {
+      setTicketStatus('signed_in_conflict');
+      return;
+    }
+    setTicketStatus('success');
+    enterWorkspaceSoon(targetOrgId);
+  }, [targetOrgId, setOrgActive]);
 
   useEffect(() => {
     if (!joinsWhileSignedIn || !orgListLoaded) return;
@@ -881,6 +954,17 @@ function ClerkInviteClient({
         onAccept={() => void joinWorkspace()}
         onSignOut={handleSignOutAndRetry}
         onCancel={() => router.push('/')}
+      />
+    );
+  }
+
+  if (activeTicketStatus === 'already_member') {
+    return (
+      <AlreadyMemberView
+        userEmail={user?.primaryEmailAddress?.emailAddress}
+        isLoading={isLoading}
+        onContinue={() => void enterMemberWorkspace()}
+        onSignOut={handleSignOutAndRetry}
       />
     );
   }
