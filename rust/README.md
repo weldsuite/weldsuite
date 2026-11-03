@@ -300,6 +300,27 @@ statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
 yet: mail (8 groups), custom-objects and reach. Flow's sheets are not
 served on Kubernetes yet.
 
+The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
+is served at `/mcp` on the same host, with its OAuth discovery documents at
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server` (the issuer's metadata passed
+through). The bearer token is an access token the server's own session
+verifier accepts (`AUTH_PROVIDER=oidc`: the issuer's, the organization from
+`OIDC_ORG_CLAIM`); the member's effective permissions in that workspace are
+the authority, and each workspace has a per-minute limit by plan on the
+cache's counters. Its tools are the TypeScript server's catalog, generated
+from the worker itself (`modules/mcp/tools/generate.mts`: `tools/list`'s
+definitions, each tool's route into `/v1`, its Zod shape as data); a call
+runs the public API's `/v1` router in process with the member as the caller
+(method-aware permissions in place of key scopes), so a tool is offered once
+its `/v1` group is served. Not yet offered: the tools of the `/v1` groups
+above that are not ported yet, the routes whose MCP copy differs from
+external-api's (creating a project or a product, tickets and conversations,
+social media) and the MCP-only social approvals and media upload, the
+WeldObjects tools (`/v1/custom-objects`), and Clerk's `submit_feedback`
+(needs Clerk's secret key). The `mcp-server` conformance suite runs the
+worker's endpoint tests against both.
+
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
@@ -316,9 +337,9 @@ WeldSheets, hidden altogether) when no collab-rooms service is configured
 (`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
-connect and agent, and the edge workers (the rest of `external-api`,
-`mcp-server`, the rest of the integration workers, above; personal-api is
-ported). WeldAgent stays
+connect and agent, and the edge workers (the rest of `external-api`
+and of `mcp-server`'s tools, the rest of the integration workers, above;
+personal-api is ported). WeldAgent stays
 off on Kubernetes while there is no AI provider: an agent that cannot chat
 or run does nothing for a user, so its data routes are not ported either
 and wait for an EU AI provider. Its event subscriber (`weldagent`) and the
@@ -379,6 +400,9 @@ rust/
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
+  modules/mcp/          the MCP server at /mcp (mcp-server): the transport, JSON-RPC, OAuth bearer auth and rate
+                        limit, the tool catalog generated from the worker (tools/generate.mts, catalog/), tool calls
+                        into /v1 in process, present.rs (the worker's text answers), WeldApps' agent tools
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
@@ -625,6 +649,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `EDITION`, `PUBLIC_ENV` | edition flags in `/config.json` (`bins/weldsuite/src/edition.rs`): `self-hosted` (default) or `eu`, and a JSON object of public platform settings by their `VITE_*` name (only the names in `PUBLIC_ENV_KEYS`; any other stops the start). The modules offered (`RUST_PORTED_MODULES`) and the features this backend lacks (`UNAVAILABLE_FEATURES`) follow the code |
 | `PUBLIC_API_URL` | the public API's origin (this host, e.g. `https://app.example.eu`) that the `weld` CLI is told after its device login; unset names Global's `api(-test).weldsuite.org`, as app-api does. The frontends get it from `PUBLIC_ENV`'s `VITE_EXTERNAL_API_URL` |
 | `EXTERNAL_API_URL`, `USER_APP_BUNDLE_SIGNING_KEY` (else `INTERNAL_API_SECRET`), `USER_APP_BUNDLE_ORIGIN`, `USER_APP_FRAME_ANCESTORS`, `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | WeldApps: where the app gateway forwards to (the public API at `/v1`; the chart points it at the release's own Service, `config.publicApi.gatewayUrl` overrides), the bundle-link signing secret (the same value as app-api's, so links open on either backend), the dedicated bundle origin, extra `frame-ancestors`, and the workspaces whose apps are first-party (all optional; without a signing secret, private bundles fail closed) |
+| `MCP_SERVER_URL`, `OIDC_ISSUER` (else `CLERK_PUBLISHABLE_KEY`) | The MCP server (`/mcp`): the public origin AI clients reach it on, which its OAuth discovery documents name (the chart sets it from `config.mcp.serverUrl`, else the first ingress host), and the authorization server they point at (unset `MCP_SERVER_URL`: `/mcp` answers 503 and no discovery is served) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |

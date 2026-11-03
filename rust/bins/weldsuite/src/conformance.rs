@@ -259,6 +259,9 @@ struct TestContext {
     /// `conformance_panel`).
     #[serde(default)]
     pipelines: HashMap<String, String>,
+    /// The MCP server's member session (mcp-server's harness), or none.
+    #[serde(default)]
+    mcp_session: Option<weldsuite_mcp::McpSession>,
 }
 
 impl TestContext {
@@ -612,6 +615,55 @@ pub(crate) async fn external_api(
         };
         weldsuite_external_api::insert_session(request.extensions_mut(), session, tenant);
     }
+    run_reporting_route(request, next).await
+}
+
+/// Middleware in place of the MCP server's OAuth authentication (`/mcp`):
+/// the test's member session (`mcpSession`) and its tenant database, as
+/// mcp-server's harness builds the server with them. The tools' calls into
+/// `/v1` take these extensions with them.
+pub(crate) async fn mcp(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let Some(context) = TestContext::from_headers(request.headers()) else {
+        return ApiError::unauthorized()
+            .with_message("Missing conformance context")
+            .into_response();
+    };
+    let db = match pools.get(&context.database_url) {
+        Ok(db) => db,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(url) = context.master_database_url.as_deref() {
+        match pools.get(url) {
+            Ok(master) => {
+                request
+                    .extensions_mut()
+                    .insert(weldsuite_db::MasterDb(master));
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    pools.insert_shared(request.extensions_mut(), &context);
+    let api_cache = pools.kv.api_cache(&context.kv);
+    request
+        .extensions_mut()
+        .insert(weldsuite_external_api::RequestApiCache(api_cache));
+    let Some(session) = context.mcp_session else {
+        return ApiError::unauthorized()
+            .with_message("Missing MCP session")
+            .into_response();
+    };
+    request.extensions_mut().insert(Tenant {
+        workspace_id: session.workspace_id.clone(),
+        clerk_org_id: Some(session.clerk_org_id.clone()),
+        db,
+        suspended: false,
+        restrictions: WorkspaceRestrictions::default(),
+    });
+    request.extensions_mut().insert(session);
     run_reporting_route(request, next).await
 }
 

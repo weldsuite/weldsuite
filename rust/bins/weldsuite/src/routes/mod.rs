@@ -2104,6 +2104,72 @@ pub(crate) fn external_api(state: &AppState) -> Router {
     )
 }
 
+/// The MCP server (mcp-server): `/mcp` on this host, its tools calling the
+/// public API's `/v1` routes in process (`weldsuite_mcp`, design in
+/// `rust/docs/mcp-server.md`), and the OAuth discovery documents. The bearer
+/// token is checked by the server's session verifier; conformance builds take
+/// the member's session from the test's context instead.
+pub(crate) fn mcp(state: &AppState) -> Router {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    let v1 = weldsuite_external_api::router::<()>(external_api_state(state), &mounts);
+    let env = Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mcp::McpState::env_from_process())));
+    let issuer = std::env::var("OIDC_ISSUER")
+        .ok()
+        .filter(|issuer| !issuer.is_empty())
+        .or_else(|| {
+            std::env::var("CLERK_PUBLISHABLE_KEY")
+                .ok()
+                .and_then(|key| weldsuite_mcp::auth::clerk_frontend_api_url(&key))
+        });
+    let auth = env.get("MCP_SERVER_URL").map(|server_url| {
+        Arc::new(weldsuite_mcp::McpAuth {
+            verifier: Arc::clone(&state.verifier),
+            issuer,
+            server_url: server_url.clone(),
+            outbound: shared_outbound(),
+        })
+    });
+    let mcp_state = weldsuite_mcp::McpState::new(
+        v1,
+        state.workspaces.master().clone(),
+        Arc::clone(&state.workspaces),
+        state.infra.cache.clone(),
+        auth.clone(),
+        env,
+    );
+    let endpoint = weldsuite_mcp::router::<()>(mcp_state.clone());
+    #[cfg(not(feature = "conformance"))]
+    let endpoint = endpoint.layer(axum::middleware::from_fn_with_state(
+        mcp_state,
+        weldsuite_mcp::auth::authenticate,
+    ));
+    #[cfg(feature = "conformance")]
+    let endpoint = {
+        drop(mcp_state);
+        endpoint.layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::mcp,
+        ))
+    };
+    let router = match auth {
+        Some(auth) => endpoint.merge(weldsuite_mcp::well_known_router(auth)),
+        None => endpoint,
+    };
+    router.layer(
+        tower_http::cors::CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([
+                http::Method::GET,
+                http::Method::HEAD,
+                http::Method::PUT,
+                http::Method::POST,
+                http::Method::DELETE,
+                http::Method::PATCH,
+            ])
+            .allow_headers(tower_http::cors::AllowHeaders::mirror_request()),
+    )
+}
+
 fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiState {
     static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
     static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();

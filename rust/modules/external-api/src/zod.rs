@@ -21,12 +21,12 @@ use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Format, Issues, js_coerce_date, js_number, js_trim};
 
 /// A check's own message (`.min(1, 'Name is required')`), else Zod's.
-pub(crate) type Msg = Option<&'static str>;
+pub type Msg = Option<&'static str>;
 
 /// `z.string()` checks, in the schema's order.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
-pub(crate) enum S {
+pub enum S {
     Min(usize, Msg),
     Max(usize, Msg),
     Len(usize, Msg),
@@ -50,7 +50,7 @@ pub(crate) enum S {
 /// `z.number()` checks, in the schema's order.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
-pub(crate) enum N {
+pub enum N {
     Int(Msg),
     /// `.min(n)` / `.gte(n)` (inclusive) and `.positive()` / `.gt(n)`.
     Min(f64, bool, Msg),
@@ -61,7 +61,7 @@ pub(crate) enum N {
 /// What a `z.object()` does with keys it doesn't know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
-pub(crate) enum Keys {
+pub enum Keys {
     Strip,
     Passthrough,
     Strict,
@@ -70,7 +70,7 @@ pub(crate) enum Keys {
 /// A `z.literal()`.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
-pub(crate) enum Lit {
+pub enum Lit {
     Str(&'static str),
     Num(f64),
     Bool(bool),
@@ -78,16 +78,16 @@ pub(crate) enum Lit {
 
 /// `.refine()` / `.superRefine()`: checks the parsed value (absent is
 /// `None`) and adds issues at the value's path.
-pub(crate) type RefineFn = fn(Option<&Value>, &mut Hook);
+pub type RefineFn = fn(Option<&Value>, &mut Hook);
 /// `.transform()`: the parsed value in, the output out.
-pub(crate) type TransformFn = fn(Option<Value>) -> Option<Value>;
+pub type TransformFn = fn(Option<Value>) -> Option<Value>;
 /// `z.preprocess()`: the raw value in, what the inner schema reads out.
-pub(crate) type PreprocessFn = fn(Option<&Value>) -> Option<Value>;
+pub type PreprocessFn = fn(Option<&Value>) -> Option<Value>;
 
 /// A Zod schema.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // every construct the generator writes, used by today's schemas or not
-pub(crate) enum Z {
+pub enum Z {
     Str(&'static [S]),
     /// `z.coerce.string()`.
     CoerceStr(&'static [S]),
@@ -124,19 +124,19 @@ pub(crate) enum Z {
 }
 
 /// What a refinement hook sees: where the value sits, and the issues it adds.
-pub(crate) struct Hook {
+pub struct Hook {
     path: Vec<Value>,
     issues: Vec<Value>,
 }
 
 impl Hook {
     /// `ctx.addIssue({ code: 'custom', message })` / a failed `.refine(…, message)`.
-    pub(crate) fn fail(&mut self, message: &str) {
+    pub fn fail(&mut self, message: &str) {
         self.fail_at(&[], message);
     }
 
     /// A custom issue at `path` below the value (`.superRefine` with `path`).
-    pub(crate) fn fail_at(&mut self, path: &[Value], message: &str) {
+    pub fn fail_at(&mut self, path: &[Value], message: &str) {
         let mut full = self.path.clone();
         full.extend(path.iter().cloned());
         self.issues
@@ -176,7 +176,7 @@ fn parsed_type(value: Option<&Value>) -> &'static str {
 }
 
 /// A number as JavaScript writes it (`8`, not `8.0`).
-pub(crate) fn js_number_value(number: f64) -> Value {
+pub fn js_number_value(number: f64) -> Value {
     #[allow(clippy::cast_possible_truncation)]
     if number.fract() == 0.0 && number.abs() < 9.0e15 {
         json!(number as i64)
@@ -808,22 +808,22 @@ fn format_issue(format: Format, text: &str, msg: Msg) -> Option<(Value, String)>
 
 /// A body as the schema parsed it.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Parsed {
+pub struct Parsed {
     /// The output: only the schema's keys (or every key, passthrough), in its
     /// order, defaults filled in.
-    pub(crate) body: Map<String, Value>,
+    pub body: Map<String, Value>,
     /// The top-level keys that hold a `Date` (`z.coerce.date()`), which
     /// Drizzle writes to a timestamp column as is.
-    pub(crate) dates: Vec<String>,
+    pub dates: Vec<String>,
 }
 
 impl Parsed {
-    pub(crate) fn get(&self, key: &str) -> Option<&Value> {
+    pub fn get(&self, key: &str) -> Option<&Value> {
         self.body.get(key)
     }
 
     /// The text at `key`, if it is a non-empty string (`if (body.x)`).
-    pub(crate) fn text(&self, key: &str) -> Option<&str> {
+    pub fn text(&self, key: &str) -> Option<&str> {
         self.body
             .get(key)
             .and_then(Value::as_str)
@@ -833,7 +833,7 @@ impl Parsed {
 
 /// `schema.safeParseAsync(value)`: the parsed output, or the 400 response
 /// `zValidator` answers with.
-pub(crate) fn parse(schema: &Z, value: &Value) -> Result<Parsed, Response> {
+pub fn parse(schema: &Z, value: &Value) -> Result<Parsed, Response> {
     let mut ctx = Ctx::default();
     let (status, out) = ctx.parse(schema, Some(value));
     let dates: Vec<String> = ctx
@@ -861,9 +861,33 @@ pub(crate) fn parse(schema: &Z, value: &Value) -> Result<Parsed, Response> {
     Ok(Parsed { body, dates })
 }
 
+/// `schema.safeParseAsync(value)` with Zod's issues as they are (`code`,
+/// `path`, `message`, …), in the order `ZodError.issues` lists them: what the
+/// MCP SDK words a tool's argument error from.
+pub fn parse_issues(schema: &Z, value: &Value) -> Result<Parsed, Vec<Value>> {
+    let mut ctx = Ctx::default();
+    let (status, out) = ctx.parse(schema, Some(value));
+    let dates: Vec<String> = ctx
+        .dates
+        .iter()
+        .filter_map(|path| match path.as_slice() {
+            [Value::String(key)] => Some(key.clone()),
+            _ => None,
+        })
+        .collect();
+    if status != St::Valid || !ctx.issues.is_empty() {
+        return Err(ctx.sorted());
+    }
+    let body = match out {
+        Some(Value::Object(body)) => body,
+        _ => Map::new(),
+    };
+    Ok(Parsed { body, dates })
+}
+
 /// `zValidator('json', schema)`: the request's JSON body (Hono reads a
 /// non-JSON content type as `{}`, a malformed one is a 400) parsed.
-pub(crate) fn json(schema: &Z, headers: &http::HeaderMap, body: &[u8]) -> Result<Parsed, Response> {
+pub fn json(schema: &Z, headers: &http::HeaderMap, body: &[u8]) -> Result<Parsed, Response> {
     let content_type = headers
         .get(http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok());
@@ -874,7 +898,7 @@ pub(crate) fn json(schema: &Z, headers: &http::HeaderMap, body: &[u8]) -> Result
 
 /// `zValidator('query', schema)`: the query string (a repeated key is an
 /// array) parsed.
-pub(crate) fn query(schema: &Z, raw: Option<&str>) -> Result<Parsed, Response> {
+pub fn query(schema: &Z, raw: Option<&str>) -> Result<Parsed, Response> {
     let values = weldsuite_kit::validation::query_values(raw);
     parse(schema, &Value::Object(values))
 }

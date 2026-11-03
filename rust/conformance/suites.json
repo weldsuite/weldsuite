@@ -3260,6 +3260,19 @@
         "packages/sdk/panel-sdk/src/",
         "rust/modules/panel/"
       ]
+    },
+    {
+      "name": "mcp-server",
+      "module": "mcp-server",
+      "workspace": "apps/workers/mcp-server",
+      "tests": [
+        "src/test/mcp.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mcp-server/src/",
+        "rust/modules/mcp/",
+        "rust/modules/external-api/"
+      ]
     }
   ]
 }

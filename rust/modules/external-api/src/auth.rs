@@ -299,6 +299,7 @@ async fn validate_api_key(
         app_id: None,
         app_code: None,
         install_id: None,
+        member: None,
     };
     restricted(&mut session, &tenant, tier);
     Ok((session, tenant))
@@ -437,6 +438,7 @@ async fn validate_app_token(
         app_id: Some(entry.app_id),
         app_code: Some(entry.app_code),
         install_id: Some(entry.install_id),
+        member: None,
     };
     restricted(&mut session, &tenant, tier);
     Ok((session, tenant))

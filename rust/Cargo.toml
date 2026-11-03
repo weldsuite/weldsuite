@@ -64,6 +64,7 @@ weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
 weldsuite-know-domain = { path = "crates/know-domain" }
 weldsuite-docs = { path = "modules/docs" }
