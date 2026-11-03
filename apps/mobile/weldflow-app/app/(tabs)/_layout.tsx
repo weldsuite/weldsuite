@@ -15,14 +15,27 @@ import {
   floatingTabBarScreenOptions,
   type FloatingTabBarProps,
 } from '@/components/floating-tab-bar';
+import { RunningTimerBar, RUNNING_TIMER_BAR_SPACE } from '@/components/time-tracking';
+import { useRunningTimer } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
 
 type TabIconProps = { color: ColorValue; size: number };
 
 type TabBarRenderProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
+/** The floating tab bar, with the running-timer pill above it while a timer runs. */
+function TabBar(props: Readonly<TabBarRenderProps>) {
+  const insets = useSafeAreaInsets();
+  return (
+    <>
+      <RunningTimerBar bottom={floatingTabBarBottomInset(insets.bottom) + 8} />
+      <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />
+    </>
+  );
+}
+
 function renderTabBar(props: TabBarRenderProps) {
-  return <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />;
+  return <TabBar {...props} />;
 }
 
 function HomeTabIcon({ color, size }: Readonly<TabIconProps>) {
@@ -43,7 +56,10 @@ function MoreTabIcon({ color, size }: Readonly<TabIconProps>) {
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
-  const tabBarInset = floatingTabBarBottomInset(insets.bottom);
+  const { data: timer } = useRunningTimer();
+  // Make room for the running-timer pill so it never covers the last row.
+  const tabBarInset =
+    floatingTabBarBottomInset(insets.bottom) + (timer ? RUNNING_TIMER_BAR_SPACE : 0);
   const { t } = useI18n();
 
   return (

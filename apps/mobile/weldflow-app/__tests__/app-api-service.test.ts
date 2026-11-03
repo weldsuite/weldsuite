@@ -6,10 +6,16 @@
 
 // Imports run before this line, so the fake client reaches the mock lazily.
 const mockGet = jest.fn();
+const mockPost = jest.fn();
+const mockDelete = jest.fn();
 
 jest.mock('@weldsuite/api-client/client', () => ({
   ...jest.requireActual('@weldsuite/api-client/client'),
-  createClientApi: jest.fn(() => ({ get: (path: string) => mockGet(path) })),
+  createClientApi: jest.fn(() => ({
+    get: (path: string) => mockGet(path),
+    post: (path: string, data?: unknown) => mockPost(path, data),
+    delete: (path: string) => mockDelete(path),
+  })),
 }));
 jest.mock('@weldsuite/app-api-client/domains/push-tokens', () => ({
   createPushTokensApi: jest.fn(() => ({})),
@@ -106,5 +112,57 @@ describe('listSubtasks', () => {
     await api.weldflow.listSubtasks('t1');
 
     expect(mockGet).toHaveBeenCalledWith('/tasks/t1/subtasks');
+  });
+});
+
+describe('time tracking', () => {
+  beforeEach(() => {
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ data: {} });
+    mockDelete.mockReset();
+    mockDelete.mockResolvedValue({});
+  });
+
+  it('reads the running timer', async () => {
+    await api.weldflow.getRunningTimer();
+
+    expect(mockGet).toHaveBeenCalledWith('/time-entries/timer');
+  });
+
+  it('starts, stops and discards the timer on the timer routes', async () => {
+    await api.weldflow.startTimer({ projectId: 'p1', taskId: 't1' });
+    await api.weldflow.stopTimer({ timeZone: 'Europe/Amsterdam' });
+    await api.weldflow.discardTimer();
+
+    expect(mockPost).toHaveBeenNthCalledWith(1, '/time-entries/timer/start', {
+      projectId: 'p1',
+      taskId: 't1',
+    });
+    expect(mockPost).toHaveBeenNthCalledWith(2, '/time-entries/timer/stop', {
+      timeZone: 'Europe/Amsterdam',
+    });
+    expect(mockDelete).toHaveBeenCalledWith('/time-entries/timer');
+  });
+
+  it('lists own entries for a week', async () => {
+    await api.weldflow.listTimeEntries({ fromDate: '2026-11-02', toDate: '2026-11-08', limit: 500 });
+
+    expect(requestedPath()).toContain('/time-entries?');
+    const params = requestedParams();
+    expect(params.get('fromDate')).toBe('2026-11-02');
+    expect(params.get('toDate')).toBe('2026-11-08');
+    expect(params.get('limit')).toBe('500');
+    expect(params.has('scope')).toBe(false);
+  });
+
+  it('logs time in minutes', async () => {
+    await api.weldflow.createTimeEntry({ taskId: 't1', projectId: 'p1', date: '2026-11-03', duration: 90 });
+
+    expect(mockPost).toHaveBeenCalledWith('/time-entries', {
+      taskId: 't1',
+      projectId: 'p1',
+      date: '2026-11-03',
+      duration: 90,
+    });
   });
 });
