@@ -234,17 +234,19 @@ task-tags, project-documents/files/labels/members/messages, whiteboards),
 desk's articles, tickets and conversations (on `desk-domain`'s inbox),
 commerce (categories, products, orders), chat (channels, channel-members,
 chat-messages/bookmarks/drafts/sections), calendar (calendars,
-calendar-events), social (accounts, campaigns, analytics, media), WeldBooks
+calendar-events), social (accounts, campaigns, analytics, media, and posts
+with publishing through `social-domain`), WeldBooks
 (the read-only ledger, accounting-settings, accounting-contacts), WeldHost
 (domains with their DNS zones and records, kept local as on Global), WeldKnow
 (knowledge-spaces and -pages, on `know-domain`'s access rules), the
 drive (files with their content, folders, drive aggregates) and WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
-schedules and executions). Their bodies are validated with the client packages'
+schedules and executions; served once `connect` is in `RUST_PORTED_MODULES`).
+Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
 statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
-yet: mail, custom-objects, social-posts and reach. Flow's sheets are not
+yet: mail (8 groups), custom-objects and reach. Flow's sheets are not
 served on Kubernetes yet.
 
 Features this backend lacks inside the modules it serves are listed in
