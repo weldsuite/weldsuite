@@ -8,15 +8,6 @@ import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi, type IcpDeclaration } from '@/lib/api/domains/weldbooks';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import {
   Dialog,
   DialogContent,
@@ -41,15 +32,16 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import type { TranslationsType } from '@weldsuite/i18n/types';
 import {
-  isWholePeriod,
   lastFinishedPeriod,
-  monthNames,
   periodBounds,
+  periodIssue,
   periodLabel as labelOfPeriod,
   type ReturnPeriod,
   type ReturnPeriodType,
 } from './return-periods';
+import { ReturnPeriodFields } from './components/return-period-fields';
 
 interface VatReturnRow {
   id: string;
@@ -59,6 +51,26 @@ interface VatReturnRow {
   periodLabel: string | null;
   status: string;
   rubrieken?: Record<string, number> | null;
+}
+
+/** Box 5g: red only when there is VAT to pay, green for a refund; nothing to pay stays neutral. */
+function totalTone(r5g: number): string {
+  if (r5g > 0) return 'text-red-600';
+  if (r5g < 0) return 'text-green-600';
+  return '';
+}
+
+/** Why the typed-in dates can't be filed, or null. */
+function periodErrorText(
+  tv: TranslationsType['accounting']['vat'],
+  type: ReturnPeriodType,
+  start: string,
+  end: string,
+): string | null {
+  const issue = periodIssue(type, start, end);
+  if (issue === 'reversed') return tv.invalidPeriod;
+  if (issue === 'notWhole') return tv.periodNotWhole[type];
+  return null;
 }
 
 export default function VatReturnsPage() {
@@ -169,16 +181,7 @@ export default function VatReturnsPage() {
     setPeriodLabel(labelOfPeriod(type, next, language));
   };
 
-  const periodError = (() => {
-    if (!periodStart || !periodEnd) return null;
-    if (periodEnd < periodStart) return tv.invalidPeriod;
-    if (!isWholePeriod(periodType, periodStart, periodEnd)) return tv.periodNotWhole[periodType];
-    return null;
-  })();
-
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 6 }, (_, i) => currentYear + 1 - i);
-  const months = monthNames(language);
+  const periodError = periodErrorText(tv, periodType, periodStart, periodEnd);
 
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
@@ -257,12 +260,8 @@ export default function VatReturnsPage() {
       header: tv.colR5g,
       width: 'w-[130px]',
       render: (vr) => {
-        // Red only when there is VAT to pay, green for a refund; nothing to pay stays neutral.
         const r5g = vr.rubrieken?.r5g ?? 0;
-        let tone = '';
-        if (r5g > 0) tone = 'text-red-600';
-        else if (r5g < 0) tone = 'text-green-600';
-        return <RowAmount className={`font-medium ${tone}`}>{fmt(r5g)}</RowAmount>;
+        return <RowAmount className={`font-medium ${totalTone(r5g)}`}>{fmt(r5g)}</RowAmount>;
       },
     },
     {
@@ -373,95 +372,18 @@ export default function VatReturnsPage() {
           <DialogHeader>
             <DialogTitle>{dialogMode === 'icp' ? tv.icpNew : tv.calculateReturn}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="vat-period-type">{tv.periodType}</Label>
-              <Select
-                value={periodType}
-                onValueChange={(value) => {
-                  const type = value as ReturnPeriodType;
-                  applyPeriod(type, lastFinishedPeriod(type, new Date()));
-                }}
-              >
-                <SelectTrigger id="vat-period-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">{tv.periodTypes.monthly}</SelectItem>
-                  <SelectItem value="quarterly">{tv.periodTypes.quarterly}</SelectItem>
-                  <SelectItem value="yearly">{tv.periodTypes.annual}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="vat-period-year">{tv.periodYear}</Label>
-                <Select
-                  value={String(period.year)}
-                  onValueChange={(value) => applyPeriod(periodType, { ...period, year: Number(value) })}
-                >
-                  <SelectTrigger id="vat-period-year">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {years.map((year) => (
-                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {periodType === 'yearly' ? null : (
-                <div className="space-y-2">
-                  <Label htmlFor="vat-period-index">{periodType === 'monthly' ? tv.periodMonth : tv.periodQuarter}</Label>
-                  <Select
-                    value={String(period.index)}
-                    onValueChange={(value) => applyPeriod(periodType, { ...period, index: Number(value) })}
-                  >
-                    <SelectTrigger id="vat-period-index">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(periodType === 'monthly' ? months : ['Q1', 'Q2', 'Q3', 'Q4']).map((name, index) => (
-                        <SelectItem key={name} value={String(index)}>{name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="vat-period-start">{tv.periodStart}</Label>
-                <Input
-                  id="vat-period-start"
-                  type="date"
-                  value={periodStart}
-                  aria-invalid={periodError ? true : undefined}
-                  onChange={(e) => setPeriodStart(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vat-period-end">{tv.periodEnd}</Label>
-                <Input
-                  id="vat-period-end"
-                  type="date"
-                  value={periodEnd}
-                  aria-invalid={periodError ? true : undefined}
-                  onChange={(e) => setPeriodEnd(e.target.value)}
-                />
-              </div>
-            </div>
-            {periodError ? <p role="alert" className="text-sm text-destructive">{periodError}</p> : null}
-            <div className="space-y-2">
-              <Label htmlFor="vat-period-label">{tv.periodLabel}</Label>
-              <Input
-                id="vat-period-label"
-                placeholder={tv.periodLabelPlaceholder}
-                value={periodLabel}
-                onChange={(e) => setPeriodLabel(e.target.value)}
-              />
-            </div>
-          </div>
+          <ReturnPeriodFields
+            periodType={periodType}
+            period={period}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            periodLabel={periodLabel}
+            periodError={periodError}
+            onPick={applyPeriod}
+            onStartChange={setPeriodStart}
+            onEndChange={setPeriodEnd}
+            onLabelChange={setPeriodLabel}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDialog(false)}>{tv.cancel}</Button>
             <Button

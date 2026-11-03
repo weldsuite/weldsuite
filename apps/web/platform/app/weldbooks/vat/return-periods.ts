@@ -52,6 +52,13 @@ export function monthNames(language: string): string[] {
   return Array.from({ length: 12 }, (_, month) => format.format(new Date(Date.UTC(2000, month, 1))));
 }
 
+/** What is wrong with typed-in dates: they run backwards, or don't span one whole period. */
+export function periodIssue(type: ReturnPeriodType, start: string, end: string): 'reversed' | 'notWhole' | null {
+  if (!start || !end) return null;
+  if (end < start) return 'reversed';
+  return isWholePeriod(type, start, end) ? null : 'notWhole';
+}
+
 /** Whether `start`..`end` (YYYY-MM-DD) is exactly one period of the type. */
 export function isWholePeriod(type: ReturnPeriodType, start: string, end: string): boolean {
   const [year, month, date] = start.split('-').map(Number);
