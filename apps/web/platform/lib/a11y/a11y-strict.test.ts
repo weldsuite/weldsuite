@@ -7,14 +7,13 @@
 import { join } from 'node:path';
 import { ESLint, RuleTester } from 'eslint';
 import tseslint from 'typescript-eslint';
-import { afterAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { A11Y_RULE_PREFIXES, A11Y_STRICT_FOLDERS, a11yPlugin } from '../../eslint/a11y-strict.mjs';
 
 const PLATFORM = join(__dirname, '..', '..');
 
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.afterAll = afterAll;
 
 const ruleTester = new RuleTester({
   languageOptions: {
