@@ -24,14 +24,24 @@ pub const ISSUE_SEVERITIES: [&str; 4] = ["low", "medium", "high", "critical"];
 pub const DEPENDENCY_DIRECTIONS: [&str; 2] = ["inbound", "outbound"];
 pub const DEPENDENCY_PARTY_TYPES: [&str; 4] = ["project", "supplier", "team", "customer"];
 /// `CONTROL_LINK_TYPES`.
-pub const CONTROL_LINK_TYPES: [&str; 3] = ["raid_item", "task", "milestone"];
+pub const CONTROL_LINK_TYPES: [&str; 7] = [
+    "raid_item",
+    "task",
+    "milestone",
+    "decision",
+    "change_request",
+    "deliverable",
+    "benefit",
+];
 /// `CONTROL_LINK_RELATIONS`.
-pub const CONTROL_LINK_RELATIONS: [&str; 5] = [
+pub const CONTROL_LINK_RELATIONS: [&str; 7] = [
     "mitigates",
     "resolves",
     "raised_from",
     "affects",
     "threatens",
+    "implements",
+    "decided_by",
 ];
 /// `RAID_TASK_PRIORITIES`: the priorities a mitigation task can be created with.
 pub const RAID_TASK_PRIORITIES: [&str; 5] = ["critical", "high", "medium", "low", "none"];
@@ -258,7 +268,9 @@ pub struct LinkEnd<'a> {
 /// ```text
 /// mitigates, resolves   task → raid_item
 /// raised_from           raid_item → raid_item
-/// affects, threatens    raid_item → task or milestone
+/// affects, threatens    raid_item → task, milestone, deliverable or benefit
+/// implements            task or deliverable → decision, change_request or benefit
+/// decided_by            anything but a decision → decision
 /// ```
 pub fn link_shape_error(from: LinkRef<'_>, to: LinkRef<'_>, relation: &str) -> Option<String> {
     if from.link_type == to.link_type && from.id == to.id {
@@ -274,9 +286,21 @@ pub fn link_shape_error(from: LinkRef<'_>, to: LinkRef<'_>, relation: &str) -> O
             },
         ),
         "affects" | "threatens" => (!(from.link_type == "raid_item"
-            && matches!(to.link_type, "task" | "milestone")))
+            && matches!(to.link_type, "task" | "milestone" | "deliverable" | "benefit")))
         .then(|| {
-            format!("The '{relation}' relation goes from a register item to a task or milestone")
+            format!(
+                "The '{relation}' relation goes from a register item to a task, milestone, deliverable or benefit"
+            )
+        }),
+        "implements" => (!(matches!(from.link_type, "task" | "deliverable")
+            && matches!(to.link_type, "decision" | "change_request" | "benefit")))
+        .then(|| {
+            "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit"
+                .to_owned()
+        }),
+        "decided_by" => (!(from.link_type != "decision" && to.link_type == "decision")).then(|| {
+            "The 'decided_by' relation goes from an object to the decision that settled it"
+                .to_owned()
         }),
         _ => None,
     }
@@ -692,7 +716,86 @@ mod tests {
         assert_eq!(shape(item, task, "affects"), None);
         assert_eq!(
             shape(item, other, "affects").as_deref(),
-            Some("The 'affects' relation goes from a register item to a task or milestone")
+            Some(
+                "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit"
+            )
+        );
+    }
+
+    #[test]
+    fn link_shapes_of_the_governance_types() {
+        let r = |link_type, id| LinkRef { link_type, id };
+        let item = r("raid_item", "r1");
+        let task = r("task", "t1");
+        let milestone = r("milestone", "m1");
+        let deliverable = r("deliverable", "d1");
+        let benefit = r("benefit", "b1");
+        let decision = r("decision", "dec1");
+        let change = r("change_request", "cr1");
+        let shape = |from, to, relation| link_shape_error(from, to, relation);
+
+        assert_eq!(shape(item, deliverable, "affects"), None);
+        assert_eq!(shape(item, benefit, "threatens"), None);
+        assert_eq!(
+            shape(item, decision, "threatens").as_deref(),
+            Some(
+                "The 'threatens' relation goes from a register item to a task, milestone, deliverable or benefit"
+            )
+        );
+
+        let implements = "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit";
+        assert_eq!(shape(task, change, "implements"), None);
+        assert_eq!(shape(deliverable, benefit, "implements"), None);
+        assert_eq!(shape(deliverable, decision, "implements"), None);
+        assert_eq!(
+            shape(item, benefit, "implements").as_deref(),
+            Some(implements)
+        );
+        assert_eq!(
+            shape(task, milestone, "implements").as_deref(),
+            Some(implements)
+        );
+
+        let decided_by =
+            "The 'decided_by' relation goes from an object to the decision that settled it";
+        assert_eq!(shape(change, decision, "decided_by"), None);
+        assert_eq!(shape(item, decision, "decided_by"), None);
+        assert_eq!(shape(milestone, decision, "decided_by"), None);
+        assert_eq!(
+            shape(decision, r("decision", "dec2"), "decided_by").as_deref(),
+            Some(decided_by)
+        );
+        assert_eq!(
+            shape(item, change, "decided_by").as_deref(),
+            Some(decided_by)
+        );
+    }
+
+    #[test]
+    fn the_link_vocabulary_is_the_shared_one() {
+        assert_eq!(
+            CONTROL_LINK_TYPES,
+            [
+                "raid_item",
+                "task",
+                "milestone",
+                "decision",
+                "change_request",
+                "deliverable",
+                "benefit"
+            ]
+        );
+        assert_eq!(
+            CONTROL_LINK_RELATIONS,
+            [
+                "mitigates",
+                "resolves",
+                "raised_from",
+                "affects",
+                "threatens",
+                "implements",
+                "decided_by"
+            ]
         );
     }
 

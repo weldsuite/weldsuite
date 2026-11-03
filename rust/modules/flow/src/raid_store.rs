@@ -133,6 +133,18 @@ const RAID_ENDS: &str = "select id, project_id, kind, number, title, status, own
 const TASK_ENDS: &str = "select id, project_id, null::text, null::int, title, status,
         assignee_id, to_jsonb(due_date) #>> '{}'
     from tasks where id = any($1) and deleted_at is null";
+const DECISION_ENDS: &str = "select id, project_id, null::text, number, title, status,
+        coalesce(decider_id, decided_by), to_jsonb(decision_due_at) #>> '{}'
+    from project_decisions where id = any($1) and deleted_at is null";
+const CHANGE_REQUEST_ENDS: &str = "select id, project_id, null::text, number, title, status,
+        requested_by, null::text
+    from project_change_requests where id = any($1) and deleted_at is null";
+const DELIVERABLE_ENDS: &str = "select id, project_id, null::text, number, title, status,
+        owner_id, to_jsonb(planned_end) #>> '{}'
+    from project_deliverables where id = any($1) and deleted_at is null";
+const BENEFIT_ENDS: &str = "select id, project_id, null::text, number, title, status,
+        owner_id, to_jsonb(realise_by) #>> '{}'
+    from project_benefits where id = any($1) and deleted_at is null";
 const MILESTONE_ENDS: &str = "select id, project_id, null::text, null::int, name, status,
         owner_id, to_jsonb(due_date) #>> '{}'
     from milestones where id = any($1) and deleted_at is null";
@@ -152,6 +164,10 @@ async fn resolve_ends(
     let (link_type, sql) = match link_type {
         "raid_item" => ("raid_item", RAID_ENDS),
         "task" => ("task", TASK_ENDS),
+        "decision" => ("decision", DECISION_ENDS),
+        "change_request" => ("change_request", CHANGE_REQUEST_ENDS),
+        "deliverable" => ("deliverable", DELIVERABLE_ENDS),
+        "benefit" => ("benefit", BENEFIT_ENDS),
         _ => ("milestone", MILESTONE_ENDS),
     };
     let rows: Vec<EndRow> = sqlx::query_as(sql).bind(ids).fetch_all(db).await?;
@@ -169,9 +185,16 @@ async fn resolve_ends(
                 kind,
                 title,
                 status,
-                code: kind
-                    .zip(number)
-                    .map(|(kind, number)| raid_code(kind, i64::from(number))),
+                code: match link_type {
+                    "raid_item" => kind
+                        .zip(number)
+                        .map(|(kind, number)| raid_code(kind, i64::from(number))),
+                    "decision" => number.map(|number| format!("DEC-{number}")),
+                    "change_request" => number.map(|number| format!("CR-{number}")),
+                    "deliverable" => number.map(|number| format!("D{number}")),
+                    "benefit" => number.map(|number| format!("B-{number}")),
+                    _ => None,
+                },
                 owner_id,
                 due_date: due.as_deref().and_then(js_timestamp),
             },
@@ -294,20 +317,31 @@ pub(crate) async fn link_row(db: &PgPool, id: &str) -> Result<Option<Value>, sql
     Ok(row.map(js_row))
 }
 
+/// `linksOfObject(db, type, id)`: every link with the object at either end,
+/// oldest first.
+pub(crate) async fn links_of_object(
+    db: &PgPool,
+    link_type: &str,
+    id: &str,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "select to_jsonb(l) from project_control_links l
+         where (l.from_type = $1 and l.from_id = $2)
+            or (l.to_type = $1 and l.to_id = $2)
+         order by l.created_at asc, l.id asc",
+    )
+    .bind(link_type)
+    .bind(id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(js_row).collect())
+}
+
 /// `linksOfRaidItem(db, itemId)`: every link with the item at either end,
 /// oldest first.
 pub(crate) async fn links_of_raid_item(
     db: &PgPool,
     item_id: &str,
 ) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from project_control_links l
-         where (l.from_type = 'raid_item' and l.from_id = $1)
-            or (l.to_type = 'raid_item' and l.to_id = $1)
-         order by l.created_at asc, l.id asc",
-    )
-    .bind(item_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    links_of_object(db, "raid_item", item_id).await
 }

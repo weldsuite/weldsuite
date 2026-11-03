@@ -1584,7 +1584,7 @@ async fn transfer_tasks(
     for status in &kept {
         let placed = place.place(Some(status));
         sqlx::query(
-            "update tasks set project_id = $1, sprint_id = null, milestone_id = null, key = null,
+            "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
                     board_position = null, position = position + $2, updated_at = $3::timestamp,
                     stage_id = $4, status = $5
              where project_id = $6 and deleted_at is null and status = any($7)",
@@ -1600,7 +1600,7 @@ async fn transfer_tasks(
         .await?;
     }
     sqlx::query(
-        "update tasks set project_id = $1, sprint_id = null, milestone_id = null, key = null,
+        "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
                 board_position = null, position = position + $2, updated_at = $3::timestamp,
                 stage_id = $4, status = $5
          where project_id = $6 and deleted_at is null",

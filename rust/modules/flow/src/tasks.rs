@@ -1235,7 +1235,8 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         sqlx::query(
             "update tasks set project_id = $2,
                  parent_task_id = case when $3 then null else parent_task_id end,
-                 sprint_id = null, milestone_id = null, stage_id = $4, status = $5, key = null,
+                 sprint_id = null, milestone_id = null, deliverable_id = null,
+                 stage_id = $4, status = $5, key = null,
                  position = $6, board_position = null, updated_at = $7::timestamp
              where id = $1",
         )

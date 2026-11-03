@@ -1,6 +1,6 @@
 //! Project-scoped references on a task (`@weldsuite/flow-domain/task-relations`):
-//! its sprint, milestone, pipeline stage and parent must belong to the
-//! task's own project.
+//! its sprint, milestone, deliverable, pipeline stage and parent must belong
+//! to the task's own project.
 
 use sqlx::PgPool;
 
@@ -9,6 +9,7 @@ use sqlx::PgPool;
 pub struct TaskReferences {
     pub sprint_id: Option<String>,
     pub milestone_id: Option<String>,
+    pub deliverable_id: Option<String>,
     pub stage_id: Option<String>,
     pub parent_task_id: Option<String>,
 }
@@ -32,7 +33,8 @@ async fn exists_in_project(
 }
 
 /// `findInvalidTaskReference(db, projectId, refs)`: the message of the
-/// first invalid reference (sprint, milestone, stage, parent), or `None`.
+/// first invalid reference (sprint, milestone, deliverable, stage, parent), or
+/// `None`.
 pub async fn find_invalid_task_reference(
     db: &PgPool,
     project_id: Option<&str>,
@@ -71,6 +73,26 @@ pub async fn find_invalid_task_reference(
         {
             return Ok(Some(format!(
                 "Milestone {milestone_id} not found in this project"
+            )));
+        }
+    }
+    if let Some(deliverable_id) = set(refs.deliverable_id.as_ref()) {
+        let Some(project_id) = project_id.filter(|id| !id.is_empty()) else {
+            return Ok(Some(
+                "A task without a project cannot count toward a deliverable".to_owned(),
+            ));
+        };
+        if !exists_in_project(
+            db,
+            "select id from project_deliverables
+             where id = $1 and project_id = $2 and deleted_at is null limit 1",
+            deliverable_id,
+            project_id,
+        )
+        .await?
+        {
+            return Ok(Some(format!(
+                "Deliverable {deliverable_id} not found in this project"
             )));
         }
     }
@@ -124,6 +146,7 @@ pub fn changed_task_references(existing: &TaskReferences, data: &TaskReferences)
     TaskReferences {
         sprint_id: changed(&data.sprint_id, &existing.sprint_id),
         milestone_id: changed(&data.milestone_id, &existing.milestone_id),
+        deliverable_id: changed(&data.deliverable_id, &existing.deliverable_id),
         stage_id: changed(&data.stage_id, &existing.stage_id),
         parent_task_id: changed(&data.parent_task_id, &existing.parent_task_id),
     }
