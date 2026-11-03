@@ -32,6 +32,7 @@ import {
   updateVaultMemberSchema,
   updateVaultSchema,
   weldpassItemTypeSchema,
+  type WeldPassVaultRole,
 } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
@@ -60,6 +61,7 @@ import {
   createSharedVault,
   deleteVault,
   ensurePersonalVault,
+  firstNonTeammate,
   listTeammates,
   listVaultMembers,
   listVaults,
@@ -70,6 +72,7 @@ import {
   updateVault,
   VaultAccessError,
 } from '../../services/weldpass/password-vaults';
+import { VaultNotFoundError } from '../../services/weldpass/vault';
 import { listVaultEvents, recordVaultEvent } from '../../services/weldpass/vault-events';
 import { keyring } from './helpers';
 
@@ -138,20 +141,45 @@ app.post(
     const userId = c.get('userId');
     const body = c.req.valid('json');
 
+    // The creator is the first manager already. A teammate listed twice gets
+    // the later role, as two POST …/members calls would give them.
+    const initial = new Map<string, WeldPassVaultRole>();
+    for (const member of body.members ?? []) {
+      if (member.userId !== userId) initial.set(member.userId, member.role);
+    }
+    const stranger = await firstNonTeammate(db, [...initial.keys()]);
+    if (stranger) throw new VaultNotFoundError('vault member', stranger);
+
     const vault = await createSharedVault(db, c.get('clerkOrgId'), keyring(c), {
       name: body.name,
       description: body.description ?? null,
       createdBy: userId,
     });
 
-    await recordVaultEvent(db, auditContextFrom(c.req.raw.headers), {
+    const audit = auditContextFrom(c.req.raw.headers);
+    await recordVaultEvent(db, audit, {
       vaultId: vault.id,
       actorId: userId,
       action: 'vault.created',
       targetLabel: vault.name,
     });
 
-    return success(c, { ...vault, role: 'manager' as const, itemCount: 0, memberCount: 1 }, 201);
+    for (const [memberId, role] of initial) {
+      await addVaultMember(db, vault.id, { userId: memberId, role, addedBy: userId });
+      await recordVaultEvent(db, audit, {
+        vaultId: vault.id,
+        actorId: userId,
+        action: 'member.added',
+        targetLabel: memberId,
+        metadata: { role },
+      });
+    }
+
+    return success(
+      c,
+      { ...vault, role: 'manager' as const, itemCount: 0, memberCount: 1 + initial.size },
+      201,
+    );
   },
 );
 
