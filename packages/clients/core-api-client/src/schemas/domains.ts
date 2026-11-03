@@ -96,6 +96,24 @@ export const updateDomainSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+const EXTERNAL_DOMAIN_PATTERN = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** Special-use TLDs (RFC 2606 / 6761 / 6762): a TXT record on them can never be verified. */
+export const RESERVED_TLDS = ['example', 'test', 'invalid', 'localhost', 'local'] as const;
+
+/**
+ * Why a domain can't be added as an external domain, or null when it can.
+ * Shared by the API schema and the platform's add-domain form.
+ */
+export function externalDomainProblem(domain: string): 'invalid' | 'reserved' | null {
+  const value = domain.trim().toLowerCase();
+  if (value.length < 3 || value.length > 253 || !EXTERNAL_DOMAIN_PATTERN.test(value)) {
+    return 'invalid';
+  }
+  const tld = value.slice(value.lastIndexOf('.') + 1);
+  return (RESERVED_TLDS as readonly string[]).includes(tld) ? 'reserved' : null;
+}
+
 export const externalDomainSchema = z.object({
   domain: z
     .string()
@@ -103,10 +121,10 @@ export const externalDomainSchema = z.object({
     .toLowerCase()
     .min(3)
     .max(253)
-    .regex(
-      /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/,
-      'Enter a valid fully-qualified domain name (e.g. example.com)',
-    ),
+    .regex(EXTERNAL_DOMAIN_PATTERN, 'Enter a valid fully-qualified domain name (e.g. example.com)')
+    .refine((value) => externalDomainProblem(value) !== 'reserved', {
+      message: 'This top-level domain is reserved and can never be verified',
+    }),
   registrar: z.string().max(255).optional(),
 });
 

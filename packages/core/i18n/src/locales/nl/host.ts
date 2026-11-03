@@ -835,6 +835,9 @@ export const host = {
       continue: 'Doorgaan',
       errorEnterDomain: 'Voer een domeinnaam in',
       errorReserveFailed: 'Domein reserveren mislukt',
+      errorInvalidDomain: 'Voer een geldige domeinnaam in, bijvoorbeeld example.com',
+      errorReservedTld: 'Dit domein eindigt op een gereserveerde extensie (.example, .test, .invalid, .localhost of .local) en kan nooit geverifieerd worden',
+      invalidDomain: 'Geen geldig domein',
       // Step 2 — verify ownership
       verifyTitle: 'Domeineigendom verifiëren',
       verifySubtitle: 'Voeg een TXT-record toe bij uw huidige DNS-provider om te bewijzen dat u eigenaar bent van dit domein',
