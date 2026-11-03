@@ -92,6 +92,9 @@ pub(crate) struct Caller {
     pub(crate) session: ApiSession,
     pub(crate) db: PgPool,
     pub(crate) events: EventContext,
+    /// The request's master database, when it brings one (conformance
+    /// builds give the test's); the state's otherwise.
+    pub(crate) master: Option<PgPool>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Caller {
@@ -99,6 +102,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let key = Key::from_request_parts(parts, state).await?;
+        let master = parts
+            .extensions
+            .get::<weldsuite_db::MasterDb>()
+            .map(|master| master.0.clone());
         let events = EventContext::from_ids(
             &key.session.workspace_id,
             key.session.clerk_org_id.as_deref(),
@@ -108,6 +115,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
             session: key.session,
             db: key.db,
             events,
+            master,
         })
     }
 }

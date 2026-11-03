@@ -35,13 +35,18 @@ mod books;
 mod calendar;
 mod chat;
 mod commerce;
+mod connect;
 mod crm;
 mod crud;
 mod desk;
+mod drive;
 mod flow;
 mod gates;
 mod hooks;
+mod host;
+mod inbox;
 mod index;
+mod know;
 mod list;
 mod oauth;
 mod schemas;
@@ -88,6 +93,13 @@ pub struct ExternalApiState {
     pub env: Arc<HashMap<String, String>>,
     /// The public bucket (`STORAGE`): WeldApps bundles.
     pub public_files: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
+    /// The private bucket (`PRIVATE_STORAGE`): drive files and attachments.
+    pub files: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
+    /// Realtime (`REALTIME`): the inbox's notifications.
+    pub realtime: Option<Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// WeldDesk's `AssignmentRouter` (`HELPDESK_WORKFLOW`); `None` picks in
+    /// the request, as the worker does without the binding.
+    pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
 }
 
 impl std::fmt::Debug for ExternalApiState {
@@ -111,6 +123,14 @@ pub(crate) fn master_db(state: &ExternalApiState, extensions: &http::Extensions)
     extensions
         .get::<weldsuite_db::MasterDb>()
         .map_or_else(|| state.master.clone(), |master| master.0.clone())
+}
+
+/// The caller's master database: the request's, else the state's.
+pub(crate) fn master_db_of(state: &ExternalApiState, caller: &crud::Caller) -> PgPool {
+    caller
+        .master
+        .clone()
+        .unwrap_or_else(|| state.master.clone())
 }
 
 /// The settings [`ExternalApiState::env`] holds.
@@ -159,7 +179,7 @@ where
         router
     };
     let router = if mounts("desk") {
-        desk::routes(router)
+        inbox::routes(desk::routes(router))
     } else {
         router
     };
@@ -185,6 +205,21 @@ where
     };
     let router = if mounts("books") {
         books::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("host") {
+        host::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("connect") {
+        connect::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("know") {
+        know::routes(router)
     } else {
         router
     };
@@ -240,9 +275,9 @@ fn weldapps(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
         )
 }
 
-/// The core platform's own objects: `/v1/settings`.
+/// The core platform's own objects: `/v1/settings`, and the drive (files, folders).
 fn core(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
-    router
+    drive::routes(router)
         .route(
             "/settings/workspace",
             get(settings::workspace).route_layer(scope!("settings:read")),

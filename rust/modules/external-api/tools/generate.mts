@@ -32,6 +32,7 @@ const { getTableColumns, getTableName, is } = await load('drizzle-orm');
 const { PgTable } = await load('drizzle-orm/pg-core');
 const schema = await load('@weldsuite/db/schema');
 const { selectableColumns } = await load('@weldsuite/db/lib/sensitive-columns');
+const zod = await load('zod');
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -233,7 +234,8 @@ use crate::zod::{Keys, Lit, N, S, Z};
 for (const entry of SCHEMAS) {
   const mod = await load(entry.from);
   const exported = mod[entry.export];
-  const zodSchema = entry.strip ? exported?.strip() : exported;
+  const stripped = entry.strip ? exported?.strip() : exported;
+  const zodSchema = entry.derive && stripped ? entry.derive(stripped, zod) : stripped;
   if (!zodSchema) throw new Error(`${entry.from} has no export ${entry.export}`);
   const expr = emit(zodSchema, entry.name.toLowerCase());
   schemasOut += `\n/// \`${entry.export}\` (\`${entry.from}\`).\npub(crate) const ${entry.name}: Z = ${expr};\n`;

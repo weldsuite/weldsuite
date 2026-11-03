@@ -186,3 +186,95 @@ pub(crate) fn transform_create_task_status(value: Option<Value>) -> Option<Value
     }
 }
 pub(crate) use transform_create_task_status as transform_update_task_status;
+
+// ---------------------------------------------------------------------------
+// Desk
+// ---------------------------------------------------------------------------
+
+/// `queryBoolean`: the strings `true` / `false` as booleans, anything else
+/// as it came.
+pub(crate) fn preprocess_list_conversations_unassigned(value: Option<&Value>) -> Option<Value> {
+    match value {
+        Some(Value::String(text)) if text == "true" => Some(Value::Bool(true)),
+        Some(Value::String(text)) if text == "false" => Some(Value::Bool(false)),
+        other => other.cloned(),
+    }
+}
+
+/// `updateDeskConversationSchema.refine`: something to change.
+pub(crate) fn refine_update_conversation(value: Option<&Value>, hook: &mut Hook) {
+    let any = value
+        .and_then(Value::as_object)
+        .is_some_and(|object| !object.is_empty());
+    if !any {
+        hook.fail("Give a state, an assignee or a ticket field to change");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Drive names (`files.ts`)
+// ---------------------------------------------------------------------------
+
+/// Path separators and the characters Windows and macOS reserve.
+const RESERVED_NAME_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+const INVALID_DRIVE_NAME: &str = "A name can't contain / \\ : * ? \" < > |";
+
+/// `charCodeAt(0) < 32`.
+fn is_control(c: char) -> bool {
+    u32::from(c) < 32
+}
+
+/// `isValidDriveName(name)`.
+fn valid_drive_name(name: &str) -> bool {
+    let reserved = name.is_empty() || name == "." || name == "..";
+    let bad_char = name.contains(RESERVED_NAME_CHARS) || name.chars().any(is_control);
+    !reserved && !bad_char
+}
+
+/// `driveNameSchema`'s refinement.
+fn drive_name_refine(value: Option<&Value>, hook: &mut Hook) {
+    if let Some(Value::String(name)) = value
+        && !valid_drive_name(name)
+    {
+        hook.fail(INVALID_DRIVE_NAME);
+    }
+}
+
+pub(crate) fn refine_update_file_file_name(value: Option<&Value>, hook: &mut Hook) {
+    drive_name_refine(value, hook);
+}
+
+pub(crate) fn refine_create_folder_name(value: Option<&Value>, hook: &mut Hook) {
+    drive_name_refine(value, hook);
+}
+
+pub(crate) fn refine_update_folder_name(value: Option<&Value>, hook: &mut Hook) {
+    drive_name_refine(value, hook);
+}
+
+/// `sanitizeDriveName(name)`: reserved and control characters as `_`,
+/// trimmed, `untitled` when nothing usable is left.
+pub(crate) fn transform_create_file_file_name(value: Option<Value>) -> Option<Value> {
+    let Some(Value::String(name)) = value else {
+        return value;
+    };
+    let replaced: String = name
+        .chars()
+        .map(|c| {
+            if RESERVED_NAME_CHARS.contains(&c) || is_control(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let out = weldsuite_kit::validation::js_trim(&replaced);
+    Some(Value::String(
+        if out.is_empty() || out == "." || out == ".." {
+            "untitled".to_owned()
+        } else {
+            out.to_owned()
+        },
+    ))
+}

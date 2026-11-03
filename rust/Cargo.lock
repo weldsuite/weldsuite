@@ -4810,9 +4810,12 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-core-domain",
  "weldsuite-db",
+ "weldsuite-desk-domain",
  "weldsuite-events",
  "weldsuite-flow-domain",
  "weldsuite-kit",
+ "weldsuite-know-domain",
+ "weldsuite-notifications",
  "weldsuite-pipeline",
  "weldsuite-ports",
 ]
@@ -4972,7 +4975,20 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-know-domain",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-know-domain"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-kit",
 ]
 
 [[package]]

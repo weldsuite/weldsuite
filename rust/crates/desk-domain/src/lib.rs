@@ -45,6 +45,7 @@ pub mod attributes;
 pub mod email;
 pub mod http;
 pub mod inbox;
+pub mod list;
 pub mod notify;
 pub mod phone;
 pub mod realtime;

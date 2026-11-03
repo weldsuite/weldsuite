@@ -14,6 +14,9 @@ export interface SchemaEntry {
   export: string;
   /** `.strip()` of the export (a route that strips a passthrough schema). */
   strip?: boolean;
+  /** What the route makes of the export (`.omit()`, `.extend()`), given zod's module. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  derive?: (schema: any, zod: any) => unknown;
 }
 
 const s = (name: string, from: string, exportName: string, strip = false): SchemaEntry => ({
@@ -113,6 +116,52 @@ export const SCHEMAS: SchemaEntry[] = [
   // Books
   s('CREATE_ACCOUNTING_CONTACT', core('accounting-contacts'), 'createAccountingContactSchema'),
   s('UPDATE_ACCOUNTING_CONTACT', core('accounting-contacts'), 'updateAccountingContactSchema'),
+  // Host
+  s('LIST_DOMAINS', core('domains'), 'listDomainsQuery'),
+  s('CREATE_DOMAIN', core('domains'), 'createDomainSchema'),
+  s('UPDATE_DOMAIN', core('domains'), 'updateDomainSchema'),
+  s('CREATE_DNS_ZONE', core('dns-zones'), 'createDnsZoneSchema'),
+  s('UPDATE_DNS_ZONE', core('dns-zones'), 'updateDnsZoneSchema'),
+  s('CREATE_DNS_RECORD', core('dns-records'), 'createDnsRecordSchema'),
+  s('UPDATE_DNS_RECORD', core('dns-records'), 'updateDnsRecordSchema'),
+  // Know
+  s('CREATE_KNOWLEDGE_SPACE', core('knowledge'), 'createKnowledgeSpaceSchema'),
+  s('UPDATE_KNOWLEDGE_SPACE', core('knowledge'), 'updateKnowledgeSpaceSchema'),
+  // Desk: tickets (read-mostly; a new one opens an inbox conversation) and the inbox
+  s('LIST_TICKETS', app('tickets'), 'listTicketsQuery'),
+  {
+    ...s('OPEN_TICKET', app('tickets'), 'createTicketSchema'),
+    derive: (schema, zod) => schema.extend({ externalId: zod.z.string().trim().min(1).max(255).optional() }),
+  },
+  s('UPDATE_TICKET', app('tickets'), 'updateTicketSchema'),
+  {
+    ...s('CREATE_TICKET_MESSAGE', core('ticket-messages'), 'createTicketMessageSchema'),
+    derive: (schema) => schema.omit({ ticketId: true }),
+  },
+  {
+    ...s('LIST_CONVERSATIONS', core('desk-conversations'), 'listConversationsQuerySchema'),
+    derive: (schema, zod) => schema.extend({ search: zod.z.string().trim().max(200).optional() }),
+  },
+  s('GET_CONVERSATION_QUERY', core('desk-conversations'), 'getConversationQuerySchema'),
+  s('LIST_CONVERSATION_MESSAGES', core('desk-conversations'), 'listConversationMessagesQuerySchema'),
+  s('OPEN_CONVERSATION', core('desk-conversations'), 'openDeskConversationSchema'),
+  s('UPDATE_CONVERSATION', core('desk-conversations'), 'updateDeskConversationSchema'),
+  s('ADD_CONVERSATION_MESSAGE', core('desk-conversations'), 'addDeskConversationMessageSchema'),
+  // Drive
+  s('LIST_FILES', core('files'), 'listFilesQuery'),
+  s('CREATE_FILE', core('files'), 'createFileSchema'),
+  s('UPDATE_FILE', core('files'), 'updateFileSchema'),
+  s('LIST_FOLDERS', core('folders'), 'listFoldersQuery'),
+  s('CREATE_FOLDER', core('folders'), 'createFolderSchema'),
+  s('UPDATE_FOLDER', core('folders'), 'updateFolderSchema'),
+  // Connect
+  s('CREATE_WORKFLOW', core('weldconnect'), 'createWorkflowSchema'),
+  s('UPDATE_WORKFLOW', core('weldconnect'), 'updateWorkflowSchema'),
+  {
+    ...s('CREATE_SCHEDULE', core('weldconnect'), 'createScheduleSchema'),
+    derive: (schema) => schema.omit({ workflowId: true }),
+  },
+  s('UPDATE_SCHEDULE', core('weldconnect'), 'updateScheduleSchema'),
 ];
 
 export const TABLES = [
@@ -182,6 +231,24 @@ export const TABLES = [
   'documents',
   'settings',
   'parties',
+  // Host
+  'hostDomains',
+  'hostDnsZones',
+  'hostDnsRecords',
+  // Know
+  'knowledgeSpaces',
+  'knowledgePages',
+  // Desk
+  'helpdeskTickets',
+  'helpdeskTicketMessages',
+  // Drive
+  'files',
+  'folders',
+  // Connect
+  'workflows',
+  'workflowSchedules',
+  'workflowExecutions',
+  'workflowWebhooks',
 ] as const;
 
 /** Tables read without their ciphertext columns (`selectableColumns`). */

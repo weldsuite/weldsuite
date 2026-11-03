@@ -122,6 +122,9 @@ async function main(): Promise<void> {
     'catalogs/api-modules.json': API_MODULES,
     'catalogs/record-chat.json': { prefix: RECORD_CHAT_PREFIX, owners: RECORD_CHAT_OWNER },
     'catalogs/entity-events.json': ENTITY_EVENTS,
+    // The entity types in ENTITY_EVENTS' own order (the JSON above is sorted):
+    // `listAllEvents()` and the public API's /v1/webhooks/events list in it.
+    'catalogs/entity-event-order.json': Object.keys(ENTITY_EVENTS),
     'catalogs/feature-flags.json': FLAGS,
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
     'catalogs/weldconnect.json': weldconnectCatalog(),

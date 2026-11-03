@@ -2098,6 +2098,15 @@ fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiSt
         workspaces: Arc::clone(&state.workspaces),
         cache: state.infra.cache.clone(),
         public_files: state.infra.public_files.clone(),
+        // Conformance tests bring their own buckets (request extensions).
+        files: if cfg!(feature = "conformance") {
+            None
+        } else {
+            state.infra.files.clone()
+        },
+        realtime: state.infra.realtime.clone(),
+        // The test env binds no HELPDESK_WORKFLOW: conformance builds pick locally.
+        assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
         env: Arc::clone(ENV.get_or_init(|| {
             Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
         })),

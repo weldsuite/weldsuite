@@ -261,3 +261,169 @@ pub(crate) const LIST_SOCIAL_MEDIA: Z = list_query!("mediaType", "status");
 /// The read-only ledger resources' `listQuery`.
 pub(crate) const LIST_READ_ONLY: Z = list_query!("entityId");
 pub(crate) const LIST_ACCOUNTING_CONTACTS: Z = list_query!("search", "role");
+
+// ---------------------------------------------------------------------------
+// knowledge-pages/index.ts
+// ---------------------------------------------------------------------------
+
+/// `icon: z.string().max(100).nullish()`.
+const ICON: Z = Z::Opt(&Z::Nul(&Z::Str(&[S::Max(100, None)])));
+/// `coverImage: z.string().max(1000).nullish()`.
+const COVER_IMAGE: Z = Z::Opt(&Z::Nul(&Z::Str(&[S::Max(1000, None)])));
+
+/// `contentJson: z.array(z.record(z.unknown())).optional()`.
+const CONTENT_JSON: Z = Z::Opt(&Z::Arr(&Z::Rec(&Z::Any), None, None));
+
+/// `listPagesQuery`.
+pub(crate) const LIST_KNOWLEDGE_PAGES: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("search", OPT_STR),
+        ("spaceId", OPT_STR),
+        ("parentId", OPT_STR),
+    ],
+    Keys::Strip,
+);
+
+/// `createPageSchema`.
+pub(crate) const CREATE_KNOWLEDGE_PAGE: Z = Z::Obj(
+    &[
+        ("spaceId", Z::Str(&[S::Min(1, None)])),
+        ("parentId", Z::Opt(&Z::Nul(&Z::Str(&[])))),
+        ("title", Z::Opt(&Z::Str(&[S::Max(500, None)]))),
+        ("icon", ICON),
+        ("coverImage", COVER_IMAGE),
+        ("content", OPT_STR),
+        ("contentJson", CONTENT_JSON),
+    ],
+    Keys::Strip,
+);
+
+/// `updatePageSchema`.
+pub(crate) const UPDATE_KNOWLEDGE_PAGE: Z = Z::Obj(
+    &[
+        ("title", Z::Opt(&Z::Str(&[S::Max(500, None)]))),
+        ("icon", ICON),
+        ("coverImage", COVER_IMAGE),
+        ("isLocked", Z::Opt(&Z::Bool)),
+        ("content", OPT_STR),
+        ("contentJson", CONTENT_JSON),
+    ],
+    Keys::Strip,
+);
+
+/// `movePageSchema`.
+pub(crate) const MOVE_KNOWLEDGE_PAGE: Z = Z::Obj(
+    &[
+        ("parentId", Z::Nul(&Z::Str(&[]))),
+        ("spaceId", OPT_STR),
+        (
+            "position",
+            Z::Opt(&Z::Num(&[N::Int(None), N::Min(0.0, true, None)])),
+        ),
+    ],
+    Keys::Strip,
+);
+
+// ---------------------------------------------------------------------------
+// drive/index.ts, tickets/index.ts
+// ---------------------------------------------------------------------------
+
+/// `listAllQuery`.
+pub(crate) const LIST_DRIVE_ALL: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("search", OPT_STR),
+        ("type", OPT_STR),
+        ("folderId", OPT_STR),
+        ("source", OPT_STR),
+    ],
+    Keys::Strip,
+);
+
+/// `listMessagesQuery` (a ticket's messages).
+pub(crate) const LIST_TICKET_MESSAGES: Z =
+    Z::Obj(&[("cursor", OPT_STR), ("limit", LIMIT)], Keys::Strip);
+
+// ---------------------------------------------------------------------------
+// webhooks/index.ts, workflows/index.ts
+// ---------------------------------------------------------------------------
+
+/// `z.array(z.enum([...methods])).optional()`.
+const METHODS: Z = Z::Opt(&Z::Arr(
+    &Z::Enum(&["GET", "POST", "PUT", "PATCH", "DELETE"], None),
+    None,
+    None,
+));
+
+/// `createWebhookSchema`.
+pub(crate) const CREATE_WEBHOOK: Z = Z::Obj(
+    &[
+        ("name", Z::Str(&[S::Min(1, None), S::Max(255, None)])),
+        ("description", OPT_STR),
+        ("workflowId", OPT_STR),
+        ("url", Z::Str(&[S::Url(None)])),
+        ("isEnabled", Z::Opt(&Z::Bool)),
+        ("allowedMethods", METHODS),
+        ("headers", Z::Opt(&Z::Rec(&Z::Str(&[])))),
+    ],
+    Keys::Strip,
+);
+
+/// `createWebhookSchema.partial()`.
+pub(crate) const UPDATE_WEBHOOK: Z = Z::Obj(
+    &[
+        (
+            "name",
+            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(255, None)])),
+        ),
+        ("description", Z::Opt(&OPT_STR)),
+        ("workflowId", Z::Opt(&OPT_STR)),
+        ("url", Z::Opt(&Z::Str(&[S::Url(None)]))),
+        ("isEnabled", Z::Opt(&Z::Opt(&Z::Bool))),
+        ("allowedMethods", Z::Opt(&METHODS)),
+        ("headers", Z::Opt(&Z::Opt(&Z::Rec(&Z::Str(&[]))))),
+    ],
+    Keys::Strip,
+);
+
+/// `listWebhooksQuery`.
+pub(crate) const LIST_WEBHOOKS: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("workflowId", OPT_STR),
+        ("isEnabled", Z::Opt(&Z::CoerceBool)),
+    ],
+    Keys::Strip,
+);
+
+/// `listWorkflowsQuery`.
+pub(crate) const LIST_WORKFLOWS: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("search", OPT_STR),
+        ("status", OPT_STR),
+        ("folderId", OPT_STR),
+    ],
+    Keys::Strip,
+);
+
+/// `listSchedulesQuery`.
+pub(crate) const LIST_SCHEDULES: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("isEnabled", Z::Opt(&Z::CoerceBool)),
+    ],
+    Keys::Strip,
+);
+
+/// `listExecutionsQuery`.
+pub(crate) const LIST_EXECUTIONS: Z = Z::Obj(
+    &[("cursor", OPT_STR), ("limit", LIMIT), ("status", OPT_STR)],
+    Keys::Strip,
+);

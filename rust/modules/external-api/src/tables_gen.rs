@@ -2270,6 +2270,499 @@ pub(crate) const PARTIES: Table = Table {
     remove: "delete from \"parties\" as t where t.id = $1 returning (to_jsonb(t) || jsonb_build_object('outstanding_balance', t.\"outstanding_balance\"::text))",
 };
 
+/// `hostDomains` (`domains`).
+pub(crate) const DOMAINS: Table = Table {
+    name: "domains",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "tld", name: "tld", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "fullDomain", name: "full_domain", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "registrationStatus", name: "registration_status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "registrar", name: "registrar", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "externalRegistrarId", name: "external_registrar_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "registrarStatus", name: "registrar_status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "registrarSyncedAt", name: "registrar_synced_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "workflowUrl", name: "workflow_url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "rtrRegistrantHandle", name: "rtr_registrant_handle", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "rtrProcessId", name: "rtr_process_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "registeredAt", name: "registered_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "expiresAt", name: "expires_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "renewedAt", name: "renewed_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "nameservers", name: "nameservers", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "customNameservers", name: "custom_nameservers", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "nameserverVerified", name: "nameserver_verified", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "nameserverVerificationPending", name: "nameserver_verification_pending", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "nameserverVerificationToken", name: "nameserver_verification_token", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "autoRenew", name: "auto_renew", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "privacyProtection", name: "privacy_protection", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "locked", name: "locked", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "sslEnabled", name: "ssl_enabled", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "emailForwardingEnabled", name: "email_forwarding_enabled", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "stripeSessionId", name: "stripe_session_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authCode", name: "auth_code", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authCodeExpiresAt", name: "auth_code_expires_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "registrantContact", name: "registrant_contact", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "adminContact", name: "admin_contact", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "techContact", name: "tech_contact", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "billingContact", name: "billing_contact", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "notes", name: "notes", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"domains\" as t (\"id\", \"name\", \"tld\", \"full_domain\", \"status\", \"registration_status\", \"registrar\", \"external_registrar_id\", \"registrar_status\", \"registrar_synced_at\", \"workflow_url\", \"rtr_registrant_handle\", \"rtr_process_id\", \"registered_at\", \"expires_at\", \"renewed_at\", \"nameservers\", \"custom_nameservers\", \"nameserver_verified\", \"nameserver_verification_pending\", \"nameserver_verification_token\", \"auto_renew\", \"privacy_protection\", \"locked\", \"ssl_enabled\", \"email_forwarding_enabled\", \"stripe_session_id\", \"auth_code\", \"auth_code_expires_at\", \"registrant_contact\", \"admin_contact\", \"tech_contact\", \"billing_contact\", \"notes\", \"metadata\", \"created_at\", \"updated_at\", \"deleted_at\") select r.\"id\", r.\"name\", r.\"tld\", r.\"full_domain\", case when $1::jsonb ? 'status' then r.\"status\" else ('pending')::host_domain_status end, r.\"registration_status\", r.\"registrar\", r.\"external_registrar_id\", r.\"registrar_status\", r.\"registrar_synced_at\", r.\"workflow_url\", r.\"rtr_registrant_handle\", r.\"rtr_process_id\", r.\"registered_at\", r.\"expires_at\", r.\"renewed_at\", r.\"nameservers\", case when $1::jsonb ? 'custom_nameservers' then r.\"custom_nameservers\" else (false)::boolean end, case when $1::jsonb ? 'nameserver_verified' then r.\"nameserver_verified\" else (false)::boolean end, case when $1::jsonb ? 'nameserver_verification_pending' then r.\"nameserver_verification_pending\" else (false)::boolean end, r.\"nameserver_verification_token\", case when $1::jsonb ? 'auto_renew' then r.\"auto_renew\" else (true)::boolean end, case when $1::jsonb ? 'privacy_protection' then r.\"privacy_protection\" else (false)::boolean end, case when $1::jsonb ? 'locked' then r.\"locked\" else (true)::boolean end, case when $1::jsonb ? 'ssl_enabled' then r.\"ssl_enabled\" else (false)::boolean end, case when $1::jsonb ? 'email_forwarding_enabled' then r.\"email_forwarding_enabled\" else (false)::boolean end, r.\"stripe_session_id\", r.\"auth_code\", r.\"auth_code_expires_at\", r.\"registrant_contact\", r.\"admin_contact\", r.\"tech_contact\", r.\"billing_contact\", r.\"notes\", r.\"metadata\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\" from jsonb_populate_record(null::\"domains\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"domains\" as t set \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"tld\" = case when $1::jsonb ? 'tld' then r.\"tld\" else t.\"tld\" end, \"full_domain\" = case when $1::jsonb ? 'full_domain' then r.\"full_domain\" else t.\"full_domain\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"registration_status\" = case when $1::jsonb ? 'registration_status' then r.\"registration_status\" else t.\"registration_status\" end, \"registrar\" = case when $1::jsonb ? 'registrar' then r.\"registrar\" else t.\"registrar\" end, \"external_registrar_id\" = case when $1::jsonb ? 'external_registrar_id' then r.\"external_registrar_id\" else t.\"external_registrar_id\" end, \"registrar_status\" = case when $1::jsonb ? 'registrar_status' then r.\"registrar_status\" else t.\"registrar_status\" end, \"registrar_synced_at\" = case when $1::jsonb ? 'registrar_synced_at' then r.\"registrar_synced_at\" else t.\"registrar_synced_at\" end, \"workflow_url\" = case when $1::jsonb ? 'workflow_url' then r.\"workflow_url\" else t.\"workflow_url\" end, \"rtr_registrant_handle\" = case when $1::jsonb ? 'rtr_registrant_handle' then r.\"rtr_registrant_handle\" else t.\"rtr_registrant_handle\" end, \"rtr_process_id\" = case when $1::jsonb ? 'rtr_process_id' then r.\"rtr_process_id\" else t.\"rtr_process_id\" end, \"registered_at\" = case when $1::jsonb ? 'registered_at' then r.\"registered_at\" else t.\"registered_at\" end, \"expires_at\" = case when $1::jsonb ? 'expires_at' then r.\"expires_at\" else t.\"expires_at\" end, \"renewed_at\" = case when $1::jsonb ? 'renewed_at' then r.\"renewed_at\" else t.\"renewed_at\" end, \"nameservers\" = case when $1::jsonb ? 'nameservers' then r.\"nameservers\" else t.\"nameservers\" end, \"custom_nameservers\" = case when $1::jsonb ? 'custom_nameservers' then r.\"custom_nameservers\" else t.\"custom_nameservers\" end, \"nameserver_verified\" = case when $1::jsonb ? 'nameserver_verified' then r.\"nameserver_verified\" else t.\"nameserver_verified\" end, \"nameserver_verification_pending\" = case when $1::jsonb ? 'nameserver_verification_pending' then r.\"nameserver_verification_pending\" else t.\"nameserver_verification_pending\" end, \"nameserver_verification_token\" = case when $1::jsonb ? 'nameserver_verification_token' then r.\"nameserver_verification_token\" else t.\"nameserver_verification_token\" end, \"auto_renew\" = case when $1::jsonb ? 'auto_renew' then r.\"auto_renew\" else t.\"auto_renew\" end, \"privacy_protection\" = case when $1::jsonb ? 'privacy_protection' then r.\"privacy_protection\" else t.\"privacy_protection\" end, \"locked\" = case when $1::jsonb ? 'locked' then r.\"locked\" else t.\"locked\" end, \"ssl_enabled\" = case when $1::jsonb ? 'ssl_enabled' then r.\"ssl_enabled\" else t.\"ssl_enabled\" end, \"email_forwarding_enabled\" = case when $1::jsonb ? 'email_forwarding_enabled' then r.\"email_forwarding_enabled\" else t.\"email_forwarding_enabled\" end, \"stripe_session_id\" = case when $1::jsonb ? 'stripe_session_id' then r.\"stripe_session_id\" else t.\"stripe_session_id\" end, \"auth_code\" = case when $1::jsonb ? 'auth_code' then r.\"auth_code\" else t.\"auth_code\" end, \"auth_code_expires_at\" = case when $1::jsonb ? 'auth_code_expires_at' then r.\"auth_code_expires_at\" else t.\"auth_code_expires_at\" end, \"registrant_contact\" = case when $1::jsonb ? 'registrant_contact' then r.\"registrant_contact\" else t.\"registrant_contact\" end, \"admin_contact\" = case when $1::jsonb ? 'admin_contact' then r.\"admin_contact\" else t.\"admin_contact\" end, \"tech_contact\" = case when $1::jsonb ? 'tech_contact' then r.\"tech_contact\" else t.\"tech_contact\" end, \"billing_contact\" = case when $1::jsonb ? 'billing_contact' then r.\"billing_contact\" else t.\"billing_contact\" end, \"notes\" = case when $1::jsonb ? 'notes' then r.\"notes\" else t.\"notes\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end, \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end from jsonb_populate_record(null::\"domains\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"domains\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"domains\" as t where t.id = $1 limit 1",
+    remove: "delete from \"domains\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `hostDnsZones` (`dns_zones`).
+pub(crate) const DNS_ZONES: Table = Table {
+    name: "dns_zones",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "domainId", name: "domain_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "provider", name: "provider", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "externalZoneId", name: "external_zone_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "externalNameservers", name: "external_nameservers", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "syncedAt", name: "synced_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "syncError", name: "sync_error", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "dnssecEnabled", name: "dnssec_enabled", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "dnssecKeys", name: "dnssec_keys", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "defaultTtl", name: "default_ttl", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "refreshInterval", name: "refresh_interval", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "retryInterval", name: "retry_interval", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "expireTime", name: "expire_time", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "minimumTtl", name: "minimum_ttl", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "recordCount", name: "record_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"dns_zones\" as t (\"id\", \"domain_id\", \"name\", \"status\", \"provider\", \"external_zone_id\", \"external_nameservers\", \"synced_at\", \"sync_error\", \"dnssec_enabled\", \"dnssec_keys\", \"default_ttl\", \"refresh_interval\", \"retry_interval\", \"expire_time\", \"minimum_ttl\", \"record_count\", \"metadata\", \"created_at\", \"updated_at\", \"deleted_at\") select r.\"id\", r.\"domain_id\", r.\"name\", case when $1::jsonb ? 'status' then r.\"status\" else ('pending')::host_dns_zone_status end, case when $1::jsonb ? 'provider' then r.\"provider\" else ('hetzner')::host_dns_provider end, r.\"external_zone_id\", r.\"external_nameservers\", r.\"synced_at\", r.\"sync_error\", case when $1::jsonb ? 'dnssec_enabled' then r.\"dnssec_enabled\" else (false)::boolean end, r.\"dnssec_keys\", case when $1::jsonb ? 'default_ttl' then r.\"default_ttl\" else (3600)::integer end, case when $1::jsonb ? 'refresh_interval' then r.\"refresh_interval\" else (86400)::integer end, case when $1::jsonb ? 'retry_interval' then r.\"retry_interval\" else (7200)::integer end, case when $1::jsonb ? 'expire_time' then r.\"expire_time\" else (3600000)::integer end, case when $1::jsonb ? 'minimum_ttl' then r.\"minimum_ttl\" else (3600)::integer end, case when $1::jsonb ? 'record_count' then r.\"record_count\" else (0)::integer end, r.\"metadata\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\" from jsonb_populate_record(null::\"dns_zones\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"dns_zones\" as t set \"domain_id\" = case when $1::jsonb ? 'domain_id' then r.\"domain_id\" else t.\"domain_id\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"provider\" = case when $1::jsonb ? 'provider' then r.\"provider\" else t.\"provider\" end, \"external_zone_id\" = case when $1::jsonb ? 'external_zone_id' then r.\"external_zone_id\" else t.\"external_zone_id\" end, \"external_nameservers\" = case when $1::jsonb ? 'external_nameservers' then r.\"external_nameservers\" else t.\"external_nameservers\" end, \"synced_at\" = case when $1::jsonb ? 'synced_at' then r.\"synced_at\" else t.\"synced_at\" end, \"sync_error\" = case when $1::jsonb ? 'sync_error' then r.\"sync_error\" else t.\"sync_error\" end, \"dnssec_enabled\" = case when $1::jsonb ? 'dnssec_enabled' then r.\"dnssec_enabled\" else t.\"dnssec_enabled\" end, \"dnssec_keys\" = case when $1::jsonb ? 'dnssec_keys' then r.\"dnssec_keys\" else t.\"dnssec_keys\" end, \"default_ttl\" = case when $1::jsonb ? 'default_ttl' then r.\"default_ttl\" else t.\"default_ttl\" end, \"refresh_interval\" = case when $1::jsonb ? 'refresh_interval' then r.\"refresh_interval\" else t.\"refresh_interval\" end, \"retry_interval\" = case when $1::jsonb ? 'retry_interval' then r.\"retry_interval\" else t.\"retry_interval\" end, \"expire_time\" = case when $1::jsonb ? 'expire_time' then r.\"expire_time\" else t.\"expire_time\" end, \"minimum_ttl\" = case when $1::jsonb ? 'minimum_ttl' then r.\"minimum_ttl\" else t.\"minimum_ttl\" end, \"record_count\" = case when $1::jsonb ? 'record_count' then r.\"record_count\" else t.\"record_count\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end, \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end from jsonb_populate_record(null::\"dns_zones\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"dns_zones\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"dns_zones\" as t where t.id = $1 limit 1",
+    remove: "delete from \"dns_zones\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `hostDnsRecords` (`dns_records`).
+pub(crate) const DNS_RECORDS: Table = Table {
+    name: "dns_records",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "zoneId", name: "zone_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "externalRecordId", name: "external_record_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "type", name: "type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "value", name: "value", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "ttl", name: "ttl", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "priority", name: "priority", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "weight", name: "weight", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "port", name: "port", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "caaFlag", name: "caa_flag", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "caaTag", name: "caa_tag", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "syncError", name: "sync_error", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "syncedAt", name: "synced_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "comment", name: "comment", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+    ],
+    soft_delete: false,
+    insert: "insert into \"dns_records\" as t (\"id\", \"zone_id\", \"external_record_id\", \"type\", \"name\", \"value\", \"ttl\", \"priority\", \"weight\", \"port\", \"caa_flag\", \"caa_tag\", \"status\", \"sync_error\", \"synced_at\", \"comment\", \"metadata\", \"created_at\", \"updated_at\") select r.\"id\", r.\"zone_id\", r.\"external_record_id\", r.\"type\", r.\"name\", r.\"value\", case when $1::jsonb ? 'ttl' then r.\"ttl\" else (3600)::integer end, r.\"priority\", r.\"weight\", r.\"port\", r.\"caa_flag\", r.\"caa_tag\", case when $1::jsonb ? 'status' then r.\"status\" else ('active')::host_dns_record_status end, r.\"sync_error\", r.\"synced_at\", r.\"comment\", r.\"metadata\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end from jsonb_populate_record(null::\"dns_records\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"dns_records\" as t set \"zone_id\" = case when $1::jsonb ? 'zone_id' then r.\"zone_id\" else t.\"zone_id\" end, \"external_record_id\" = case when $1::jsonb ? 'external_record_id' then r.\"external_record_id\" else t.\"external_record_id\" end, \"type\" = case when $1::jsonb ? 'type' then r.\"type\" else t.\"type\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"value\" = case when $1::jsonb ? 'value' then r.\"value\" else t.\"value\" end, \"ttl\" = case when $1::jsonb ? 'ttl' then r.\"ttl\" else t.\"ttl\" end, \"priority\" = case when $1::jsonb ? 'priority' then r.\"priority\" else t.\"priority\" end, \"weight\" = case when $1::jsonb ? 'weight' then r.\"weight\" else t.\"weight\" end, \"port\" = case when $1::jsonb ? 'port' then r.\"port\" else t.\"port\" end, \"caa_flag\" = case when $1::jsonb ? 'caa_flag' then r.\"caa_flag\" else t.\"caa_flag\" end, \"caa_tag\" = case when $1::jsonb ? 'caa_tag' then r.\"caa_tag\" else t.\"caa_tag\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"sync_error\" = case when $1::jsonb ? 'sync_error' then r.\"sync_error\" else t.\"sync_error\" end, \"synced_at\" = case when $1::jsonb ? 'synced_at' then r.\"synced_at\" else t.\"synced_at\" end, \"comment\" = case when $1::jsonb ? 'comment' then r.\"comment\" else t.\"comment\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end, \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end from jsonb_populate_record(null::\"dns_records\", $1::jsonb) r where t.id = $2 and $3::boolean is not null returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"dns_records\" as t where t.id = $1 limit 1",
+    select_any: "select to_jsonb(t) from \"dns_records\" as t where t.id = $1 limit 1",
+    remove: "delete from \"dns_records\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `knowledgeSpaces` (`knowledge_spaces`).
+pub(crate) const KNOWLEDGE_SPACES: Table = Table {
+    name: "knowledge_spaces",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "icon", name: "icon", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "color", name: "color", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "kind", name: "kind", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "ownerId", name: "owner_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "visibility", name: "visibility", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "isDefault", name: "is_default", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "sortOrder", name: "sort_order", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"knowledge_spaces\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"name\", \"description\", \"icon\", \"color\", \"kind\", \"owner_id\", \"visibility\", \"is_default\", \"sort_order\", \"created_by\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"name\", r.\"description\", r.\"icon\", r.\"color\", case when $1::jsonb ? 'kind' then r.\"kind\" else ('team')::varchar(20) end, r.\"owner_id\", case when $1::jsonb ? 'visibility' then r.\"visibility\" else ('open')::varchar(20) end, case when $1::jsonb ? 'is_default' then r.\"is_default\" else (false)::boolean end, case when $1::jsonb ? 'sort_order' then r.\"sort_order\" else (0)::integer end, r.\"created_by\" from jsonb_populate_record(null::\"knowledge_spaces\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"knowledge_spaces\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"description\" = case when $1::jsonb ? 'description' then r.\"description\" else t.\"description\" end, \"icon\" = case when $1::jsonb ? 'icon' then r.\"icon\" else t.\"icon\" end, \"color\" = case when $1::jsonb ? 'color' then r.\"color\" else t.\"color\" end, \"kind\" = case when $1::jsonb ? 'kind' then r.\"kind\" else t.\"kind\" end, \"owner_id\" = case when $1::jsonb ? 'owner_id' then r.\"owner_id\" else t.\"owner_id\" end, \"visibility\" = case when $1::jsonb ? 'visibility' then r.\"visibility\" else t.\"visibility\" end, \"is_default\" = case when $1::jsonb ? 'is_default' then r.\"is_default\" else t.\"is_default\" end, \"sort_order\" = case when $1::jsonb ? 'sort_order' then r.\"sort_order\" else t.\"sort_order\" end, \"created_by\" = case when $1::jsonb ? 'created_by' then r.\"created_by\" else t.\"created_by\" end from jsonb_populate_record(null::\"knowledge_spaces\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"knowledge_spaces\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"knowledge_spaces\" as t where t.id = $1 limit 1",
+    remove: "delete from \"knowledge_spaces\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `knowledgePages` (`knowledge_pages`).
+pub(crate) const KNOWLEDGE_PAGES: Table = Table {
+    name: "knowledge_pages",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "spaceId", name: "space_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "parentId", name: "parent_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "position", name: "position", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "title", name: "title", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "contentJson", name: "content_json", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "contentText", name: "content_text", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "icon", name: "icon", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "coverImage", name: "cover_image", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "isLocked", name: "is_locked", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "lastEditedBy", name: "last_edited_by", kind: Kind::Text, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"knowledge_pages\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"space_id\", \"parent_id\", \"position\", \"title\", \"content_json\", \"content_text\", \"icon\", \"cover_image\", \"is_locked\", \"created_by\", \"last_edited_by\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"space_id\", r.\"parent_id\", case when $1::jsonb ? 'position' then r.\"position\" else (0)::integer end, case when $1::jsonb ? 'title' then r.\"title\" else ('Untitled')::varchar(500) end, r.\"content_json\", r.\"content_text\", r.\"icon\", r.\"cover_image\", case when $1::jsonb ? 'is_locked' then r.\"is_locked\" else (false)::boolean end, r.\"created_by\", r.\"last_edited_by\" from jsonb_populate_record(null::\"knowledge_pages\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"knowledge_pages\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"space_id\" = case when $1::jsonb ? 'space_id' then r.\"space_id\" else t.\"space_id\" end, \"parent_id\" = case when $1::jsonb ? 'parent_id' then r.\"parent_id\" else t.\"parent_id\" end, \"position\" = case when $1::jsonb ? 'position' then r.\"position\" else t.\"position\" end, \"title\" = case when $1::jsonb ? 'title' then r.\"title\" else t.\"title\" end, \"content_json\" = case when $1::jsonb ? 'content_json' then r.\"content_json\" else t.\"content_json\" end, \"content_text\" = case when $1::jsonb ? 'content_text' then r.\"content_text\" else t.\"content_text\" end, \"icon\" = case when $1::jsonb ? 'icon' then r.\"icon\" else t.\"icon\" end, \"cover_image\" = case when $1::jsonb ? 'cover_image' then r.\"cover_image\" else t.\"cover_image\" end, \"is_locked\" = case when $1::jsonb ? 'is_locked' then r.\"is_locked\" else t.\"is_locked\" end, \"created_by\" = case when $1::jsonb ? 'created_by' then r.\"created_by\" else t.\"created_by\" end, \"last_edited_by\" = case when $1::jsonb ? 'last_edited_by' then r.\"last_edited_by\" else t.\"last_edited_by\" end from jsonb_populate_record(null::\"knowledge_pages\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"knowledge_pages\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"knowledge_pages\" as t where t.id = $1 limit 1",
+    remove: "delete from \"knowledge_pages\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `helpdeskTickets` (`helpdesk_tickets`).
+pub(crate) const HELPDESK_TICKETS: Table = Table {
+    name: "helpdesk_tickets",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "ticketNumber", name: "ticket_number", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "reference", name: "reference", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "contactId", name: "contact_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "counterpartyId", name: "counterparty_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "personId", name: "person_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "customerName", name: "customer_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "customerEmail", name: "customer_email", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "customerPhone", name: "customer_phone", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "customerCompany", name: "customer_company", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "subject", name: "subject", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "category", name: "category", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "subcategory", name: "subcategory", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "priority", name: "priority", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "severity", name: "severity", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "assigneeId", name: "assignee_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "assigneeName", name: "assignee_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "departmentId", name: "department_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "teamId", name: "team_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "channel", name: "channel", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "sourceEmail", name: "source_email", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "sourceUrl", name: "source_url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "type", name: "type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "ticketTypeId", name: "ticket_type_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "issueType", name: "issue_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "slaId", name: "sla_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "responseDeadline", name: "response_deadline", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "resolutionDeadline", name: "resolution_deadline", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "slaStatus", name: "sla_status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "breachedAt", name: "breached_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "firstResponseAt", name: "first_response_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "resolvedAt", name: "resolved_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "closedAt", name: "closed_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "reopenedAt", name: "reopened_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "responseTime", name: "response_time", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "resolutionTime", name: "resolution_time", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "productId", name: "product_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "productName", name: "product_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "version", name: "version", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "environment", name: "environment", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "messageCount", name: "message_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "lastMessageAt", name: "last_message_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "lastCustomerMessageAt", name: "last_customer_message_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "lastAgentMessageAt", name: "last_agent_message_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "satisfactionRating", name: "satisfaction_rating", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "satisfactionComment", name: "satisfaction_comment", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "satisfactionSurveyId", name: "satisfaction_survey_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "parentTicketId", name: "parent_ticket_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "childTicketIds", name: "child_ticket_ids", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "relatedTicketIds", name: "related_ticket_ids", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "mergedTicketIds", name: "merged_ticket_ids", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "isEscalated", name: "is_escalated", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "isSpam", name: "is_spam", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "isPublic", name: "is_public", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "requiresApproval", name: "requires_approval", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "attachments", name: "attachments", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "attachmentCount", name: "attachment_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"helpdesk_tickets\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"ticket_number\", \"reference\", \"contact_id\", \"counterparty_id\", \"person_id\", \"customer_name\", \"customer_email\", \"customer_phone\", \"customer_company\", \"subject\", \"description\", \"category\", \"subcategory\", \"status\", \"priority\", \"severity\", \"assignee_id\", \"assignee_name\", \"department_id\", \"team_id\", \"channel\", \"source_email\", \"source_url\", \"type\", \"ticket_type_id\", \"issue_type\", \"sla_id\", \"response_deadline\", \"resolution_deadline\", \"sla_status\", \"breached_at\", \"first_response_at\", \"resolved_at\", \"closed_at\", \"reopened_at\", \"response_time\", \"resolution_time\", \"product_id\", \"product_name\", \"version\", \"environment\", \"message_count\", \"last_message_at\", \"last_customer_message_at\", \"last_agent_message_at\", \"satisfaction_rating\", \"satisfaction_comment\", \"satisfaction_survey_id\", \"tags\", \"custom_fields\", \"parent_ticket_id\", \"child_ticket_ids\", \"related_ticket_ids\", \"merged_ticket_ids\", \"is_escalated\", \"is_spam\", \"is_public\", \"requires_approval\", \"attachments\", \"attachment_count\", \"metadata\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"ticket_number\", r.\"reference\", r.\"contact_id\", r.\"counterparty_id\", r.\"person_id\", r.\"customer_name\", r.\"customer_email\", r.\"customer_phone\", r.\"customer_company\", r.\"subject\", r.\"description\", case when $1::jsonb ? 'category' then r.\"category\" else ('general_inquiry')::varchar(50) end, r.\"subcategory\", case when $1::jsonb ? 'status' then r.\"status\" else ('new')::varchar(20) end, case when $1::jsonb ? 'priority' then r.\"priority\" else ('medium')::varchar(20) end, r.\"severity\", r.\"assignee_id\", r.\"assignee_name\", r.\"department_id\", r.\"team_id\", case when $1::jsonb ? 'channel' then r.\"channel\" else ('web')::varchar(20) end, r.\"source_email\", r.\"source_url\", case when $1::jsonb ? 'type' then r.\"type\" else ('question')::varchar(30) end, r.\"ticket_type_id\", r.\"issue_type\", r.\"sla_id\", r.\"response_deadline\", r.\"resolution_deadline\", r.\"sla_status\", r.\"breached_at\", r.\"first_response_at\", r.\"resolved_at\", r.\"closed_at\", r.\"reopened_at\", r.\"response_time\", r.\"resolution_time\", r.\"product_id\", r.\"product_name\", r.\"version\", r.\"environment\", case when $1::jsonb ? 'message_count' then r.\"message_count\" else (0)::integer end, r.\"last_message_at\", r.\"last_customer_message_at\", r.\"last_agent_message_at\", r.\"satisfaction_rating\", r.\"satisfaction_comment\", r.\"satisfaction_survey_id\", r.\"tags\", r.\"custom_fields\", r.\"parent_ticket_id\", r.\"child_ticket_ids\", r.\"related_ticket_ids\", r.\"merged_ticket_ids\", case when $1::jsonb ? 'is_escalated' then r.\"is_escalated\" else (false)::boolean end, case when $1::jsonb ? 'is_spam' then r.\"is_spam\" else (false)::boolean end, case when $1::jsonb ? 'is_public' then r.\"is_public\" else (true)::boolean end, case when $1::jsonb ? 'requires_approval' then r.\"requires_approval\" else (false)::boolean end, r.\"attachments\", case when $1::jsonb ? 'attachment_count' then r.\"attachment_count\" else (0)::integer end, r.\"metadata\" from jsonb_populate_record(null::\"helpdesk_tickets\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"helpdesk_tickets\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"ticket_number\" = case when $1::jsonb ? 'ticket_number' then r.\"ticket_number\" else t.\"ticket_number\" end, \"reference\" = case when $1::jsonb ? 'reference' then r.\"reference\" else t.\"reference\" end, \"contact_id\" = case when $1::jsonb ? 'contact_id' then r.\"contact_id\" else t.\"contact_id\" end, \"counterparty_id\" = case when $1::jsonb ? 'counterparty_id' then r.\"counterparty_id\" else t.\"counterparty_id\" end, \"person_id\" = case when $1::jsonb ? 'person_id' then r.\"person_id\" else t.\"person_id\" end, \"customer_name\" = case when $1::jsonb ? 'customer_name' then r.\"customer_name\" else t.\"customer_name\" end, \"customer_email\" = case when $1::jsonb ? 'customer_email' then r.\"customer_email\" else t.\"customer_email\" end, \"customer_phone\" = case when $1::jsonb ? 'customer_phone' then r.\"customer_phone\" else t.\"customer_phone\" end, \"customer_company\" = case when $1::jsonb ? 'customer_company' then r.\"customer_company\" else t.\"customer_company\" end, \"subject\" = case when $1::jsonb ? 'subject' then r.\"subject\" else t.\"subject\" end, \"description\" = case when $1::jsonb ? 'description' then r.\"description\" else t.\"description\" end, \"category\" = case when $1::jsonb ? 'category' then r.\"category\" else t.\"category\" end, \"subcategory\" = case when $1::jsonb ? 'subcategory' then r.\"subcategory\" else t.\"subcategory\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"priority\" = case when $1::jsonb ? 'priority' then r.\"priority\" else t.\"priority\" end, \"severity\" = case when $1::jsonb ? 'severity' then r.\"severity\" else t.\"severity\" end, \"assignee_id\" = case when $1::jsonb ? 'assignee_id' then r.\"assignee_id\" else t.\"assignee_id\" end, \"assignee_name\" = case when $1::jsonb ? 'assignee_name' then r.\"assignee_name\" else t.\"assignee_name\" end, \"department_id\" = case when $1::jsonb ? 'department_id' then r.\"department_id\" else t.\"department_id\" end, \"team_id\" = case when $1::jsonb ? 'team_id' then r.\"team_id\" else t.\"team_id\" end, \"channel\" = case when $1::jsonb ? 'channel' then r.\"channel\" else t.\"channel\" end, \"source_email\" = case when $1::jsonb ? 'source_email' then r.\"source_email\" else t.\"source_email\" end, \"source_url\" = case when $1::jsonb ? 'source_url' then r.\"source_url\" else t.\"source_url\" end, \"type\" = case when $1::jsonb ? 'type' then r.\"type\" else t.\"type\" end, \"ticket_type_id\" = case when $1::jsonb ? 'ticket_type_id' then r.\"ticket_type_id\" else t.\"ticket_type_id\" end, \"issue_type\" = case when $1::jsonb ? 'issue_type' then r.\"issue_type\" else t.\"issue_type\" end, \"sla_id\" = case when $1::jsonb ? 'sla_id' then r.\"sla_id\" else t.\"sla_id\" end, \"response_deadline\" = case when $1::jsonb ? 'response_deadline' then r.\"response_deadline\" else t.\"response_deadline\" end, \"resolution_deadline\" = case when $1::jsonb ? 'resolution_deadline' then r.\"resolution_deadline\" else t.\"resolution_deadline\" end, \"sla_status\" = case when $1::jsonb ? 'sla_status' then r.\"sla_status\" else t.\"sla_status\" end, \"breached_at\" = case when $1::jsonb ? 'breached_at' then r.\"breached_at\" else t.\"breached_at\" end, \"first_response_at\" = case when $1::jsonb ? 'first_response_at' then r.\"first_response_at\" else t.\"first_response_at\" end, \"resolved_at\" = case when $1::jsonb ? 'resolved_at' then r.\"resolved_at\" else t.\"resolved_at\" end, \"closed_at\" = case when $1::jsonb ? 'closed_at' then r.\"closed_at\" else t.\"closed_at\" end, \"reopened_at\" = case when $1::jsonb ? 'reopened_at' then r.\"reopened_at\" else t.\"reopened_at\" end, \"response_time\" = case when $1::jsonb ? 'response_time' then r.\"response_time\" else t.\"response_time\" end, \"resolution_time\" = case when $1::jsonb ? 'resolution_time' then r.\"resolution_time\" else t.\"resolution_time\" end, \"product_id\" = case when $1::jsonb ? 'product_id' then r.\"product_id\" else t.\"product_id\" end, \"product_name\" = case when $1::jsonb ? 'product_name' then r.\"product_name\" else t.\"product_name\" end, \"version\" = case when $1::jsonb ? 'version' then r.\"version\" else t.\"version\" end, \"environment\" = case when $1::jsonb ? 'environment' then r.\"environment\" else t.\"environment\" end, \"message_count\" = case when $1::jsonb ? 'message_count' then r.\"message_count\" else t.\"message_count\" end, \"last_message_at\" = case when $1::jsonb ? 'last_message_at' then r.\"last_message_at\" else t.\"last_message_at\" end, \"last_customer_message_at\" = case when $1::jsonb ? 'last_customer_message_at' then r.\"last_customer_message_at\" else t.\"last_customer_message_at\" end, \"last_agent_message_at\" = case when $1::jsonb ? 'last_agent_message_at' then r.\"last_agent_message_at\" else t.\"last_agent_message_at\" end, \"satisfaction_rating\" = case when $1::jsonb ? 'satisfaction_rating' then r.\"satisfaction_rating\" else t.\"satisfaction_rating\" end, \"satisfaction_comment\" = case when $1::jsonb ? 'satisfaction_comment' then r.\"satisfaction_comment\" else t.\"satisfaction_comment\" end, \"satisfaction_survey_id\" = case when $1::jsonb ? 'satisfaction_survey_id' then r.\"satisfaction_survey_id\" else t.\"satisfaction_survey_id\" end, \"tags\" = case when $1::jsonb ? 'tags' then r.\"tags\" else t.\"tags\" end, \"custom_fields\" = case when $1::jsonb ? 'custom_fields' then r.\"custom_fields\" else t.\"custom_fields\" end, \"parent_ticket_id\" = case when $1::jsonb ? 'parent_ticket_id' then r.\"parent_ticket_id\" else t.\"parent_ticket_id\" end, \"child_ticket_ids\" = case when $1::jsonb ? 'child_ticket_ids' then r.\"child_ticket_ids\" else t.\"child_ticket_ids\" end, \"related_ticket_ids\" = case when $1::jsonb ? 'related_ticket_ids' then r.\"related_ticket_ids\" else t.\"related_ticket_ids\" end, \"merged_ticket_ids\" = case when $1::jsonb ? 'merged_ticket_ids' then r.\"merged_ticket_ids\" else t.\"merged_ticket_ids\" end, \"is_escalated\" = case when $1::jsonb ? 'is_escalated' then r.\"is_escalated\" else t.\"is_escalated\" end, \"is_spam\" = case when $1::jsonb ? 'is_spam' then r.\"is_spam\" else t.\"is_spam\" end, \"is_public\" = case when $1::jsonb ? 'is_public' then r.\"is_public\" else t.\"is_public\" end, \"requires_approval\" = case when $1::jsonb ? 'requires_approval' then r.\"requires_approval\" else t.\"requires_approval\" end, \"attachments\" = case when $1::jsonb ? 'attachments' then r.\"attachments\" else t.\"attachments\" end, \"attachment_count\" = case when $1::jsonb ? 'attachment_count' then r.\"attachment_count\" else t.\"attachment_count\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end from jsonb_populate_record(null::\"helpdesk_tickets\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"helpdesk_tickets\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"helpdesk_tickets\" as t where t.id = $1 limit 1",
+    remove: "delete from \"helpdesk_tickets\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `helpdeskTicketMessages` (`helpdesk_ticket_messages`).
+pub(crate) const HELPDESK_TICKET_MESSAGES: Table = Table {
+    name: "helpdesk_ticket_messages",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "ticketId", name: "ticket_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authorId", name: "author_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authorName", name: "author_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authorEmail", name: "author_email", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "authorType", name: "author_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "subject", name: "subject", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "body", name: "body", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "htmlBody", name: "html_body", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "plainBody", name: "plain_body", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "type", name: "type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "isPublic", name: "is_public", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "isInternal", name: "is_internal", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "readAt", name: "read_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "messageId", name: "message_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "inReplyTo", name: "in_reply_to", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "cc", name: "cc", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "bcc", name: "bcc", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "attachments", name: "attachments", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"helpdesk_ticket_messages\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"ticket_id\", \"author_id\", \"author_name\", \"author_email\", \"author_type\", \"subject\", \"body\", \"html_body\", \"plain_body\", \"type\", \"is_public\", \"is_internal\", \"status\", \"read_at\", \"message_id\", \"in_reply_to\", \"cc\", \"bcc\", \"attachments\", \"metadata\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"ticket_id\", r.\"author_id\", r.\"author_name\", r.\"author_email\", case when $1::jsonb ? 'author_type' then r.\"author_type\" else ('customer')::varchar(20) end, r.\"subject\", r.\"body\", r.\"html_body\", r.\"plain_body\", case when $1::jsonb ? 'type' then r.\"type\" else ('reply')::varchar(20) end, case when $1::jsonb ? 'is_public' then r.\"is_public\" else (true)::boolean end, case when $1::jsonb ? 'is_internal' then r.\"is_internal\" else (false)::boolean end, case when $1::jsonb ? 'status' then r.\"status\" else ('sent')::varchar(20) end, r.\"read_at\", r.\"message_id\", r.\"in_reply_to\", r.\"cc\", r.\"bcc\", r.\"attachments\", r.\"metadata\" from jsonb_populate_record(null::\"helpdesk_ticket_messages\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"helpdesk_ticket_messages\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"ticket_id\" = case when $1::jsonb ? 'ticket_id' then r.\"ticket_id\" else t.\"ticket_id\" end, \"author_id\" = case when $1::jsonb ? 'author_id' then r.\"author_id\" else t.\"author_id\" end, \"author_name\" = case when $1::jsonb ? 'author_name' then r.\"author_name\" else t.\"author_name\" end, \"author_email\" = case when $1::jsonb ? 'author_email' then r.\"author_email\" else t.\"author_email\" end, \"author_type\" = case when $1::jsonb ? 'author_type' then r.\"author_type\" else t.\"author_type\" end, \"subject\" = case when $1::jsonb ? 'subject' then r.\"subject\" else t.\"subject\" end, \"body\" = case when $1::jsonb ? 'body' then r.\"body\" else t.\"body\" end, \"html_body\" = case when $1::jsonb ? 'html_body' then r.\"html_body\" else t.\"html_body\" end, \"plain_body\" = case when $1::jsonb ? 'plain_body' then r.\"plain_body\" else t.\"plain_body\" end, \"type\" = case when $1::jsonb ? 'type' then r.\"type\" else t.\"type\" end, \"is_public\" = case when $1::jsonb ? 'is_public' then r.\"is_public\" else t.\"is_public\" end, \"is_internal\" = case when $1::jsonb ? 'is_internal' then r.\"is_internal\" else t.\"is_internal\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"read_at\" = case when $1::jsonb ? 'read_at' then r.\"read_at\" else t.\"read_at\" end, \"message_id\" = case when $1::jsonb ? 'message_id' then r.\"message_id\" else t.\"message_id\" end, \"in_reply_to\" = case when $1::jsonb ? 'in_reply_to' then r.\"in_reply_to\" else t.\"in_reply_to\" end, \"cc\" = case when $1::jsonb ? 'cc' then r.\"cc\" else t.\"cc\" end, \"bcc\" = case when $1::jsonb ? 'bcc' then r.\"bcc\" else t.\"bcc\" end, \"attachments\" = case when $1::jsonb ? 'attachments' then r.\"attachments\" else t.\"attachments\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end from jsonb_populate_record(null::\"helpdesk_ticket_messages\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"helpdesk_ticket_messages\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"helpdesk_ticket_messages\" as t where t.id = $1 limit 1",
+    remove: "delete from \"helpdesk_ticket_messages\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `files` (`files`).
+pub(crate) const FILES: Table = Table {
+    name: "files",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "fileName", name: "file_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "originalName", name: "original_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "mimeType", name: "mime_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "fileSize", name: "file_size", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "fileType", name: "file_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "storagePath", name: "storage_path", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "fileKey", name: "file_key", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "bucket", name: "bucket", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "url", name: "url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "thumbnailUrl", name: "thumbnail_url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "storageProvider", name: "storage_provider", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "folderId", name: "folder_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "uploadedById", name: "uploaded_by_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "isPublic", name: "is_public", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "generalAccess", name: "general_access", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "isStarred", name: "is_starred", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "isPinned", name: "is_pinned", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "pinnedAt", name: "pinned_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "pinnedBy", name: "pinned_by", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "entityType", name: "entity_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "entityId", name: "entity_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"files\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"file_name\", \"original_name\", \"mime_type\", \"file_size\", \"file_type\", \"storage_path\", \"file_key\", \"bucket\", \"url\", \"thumbnail_url\", \"storage_provider\", \"folder_id\", \"uploaded_by_id\", \"is_public\", \"general_access\", \"is_starred\", \"is_pinned\", \"pinned_at\", \"pinned_by\", \"entity_type\", \"entity_id\", \"metadata\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"file_name\", r.\"original_name\", r.\"mime_type\", r.\"file_size\", case when $1::jsonb ? 'file_type' then r.\"file_type\" else ('file')::varchar(50) end, r.\"storage_path\", r.\"file_key\", r.\"bucket\", r.\"url\", r.\"thumbnail_url\", case when $1::jsonb ? 'storage_provider' then r.\"storage_provider\" else ('r2')::varchar(50) end, r.\"folder_id\", r.\"uploaded_by_id\", case when $1::jsonb ? 'is_public' then r.\"is_public\" else (false)::boolean end, case when $1::jsonb ? 'general_access' then r.\"general_access\" else ('workspace_edit')::varchar(20) end, case when $1::jsonb ? 'is_starred' then r.\"is_starred\" else (false)::boolean end, case when $1::jsonb ? 'is_pinned' then r.\"is_pinned\" else (false)::boolean end, r.\"pinned_at\", r.\"pinned_by\", r.\"entity_type\", r.\"entity_id\", r.\"metadata\" from jsonb_populate_record(null::\"files\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"files\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"file_name\" = case when $1::jsonb ? 'file_name' then r.\"file_name\" else t.\"file_name\" end, \"original_name\" = case when $1::jsonb ? 'original_name' then r.\"original_name\" else t.\"original_name\" end, \"mime_type\" = case when $1::jsonb ? 'mime_type' then r.\"mime_type\" else t.\"mime_type\" end, \"file_size\" = case when $1::jsonb ? 'file_size' then r.\"file_size\" else t.\"file_size\" end, \"file_type\" = case when $1::jsonb ? 'file_type' then r.\"file_type\" else t.\"file_type\" end, \"storage_path\" = case when $1::jsonb ? 'storage_path' then r.\"storage_path\" else t.\"storage_path\" end, \"file_key\" = case when $1::jsonb ? 'file_key' then r.\"file_key\" else t.\"file_key\" end, \"bucket\" = case when $1::jsonb ? 'bucket' then r.\"bucket\" else t.\"bucket\" end, \"url\" = case when $1::jsonb ? 'url' then r.\"url\" else t.\"url\" end, \"thumbnail_url\" = case when $1::jsonb ? 'thumbnail_url' then r.\"thumbnail_url\" else t.\"thumbnail_url\" end, \"storage_provider\" = case when $1::jsonb ? 'storage_provider' then r.\"storage_provider\" else t.\"storage_provider\" end, \"folder_id\" = case when $1::jsonb ? 'folder_id' then r.\"folder_id\" else t.\"folder_id\" end, \"uploaded_by_id\" = case when $1::jsonb ? 'uploaded_by_id' then r.\"uploaded_by_id\" else t.\"uploaded_by_id\" end, \"is_public\" = case when $1::jsonb ? 'is_public' then r.\"is_public\" else t.\"is_public\" end, \"general_access\" = case when $1::jsonb ? 'general_access' then r.\"general_access\" else t.\"general_access\" end, \"is_starred\" = case when $1::jsonb ? 'is_starred' then r.\"is_starred\" else t.\"is_starred\" end, \"is_pinned\" = case when $1::jsonb ? 'is_pinned' then r.\"is_pinned\" else t.\"is_pinned\" end, \"pinned_at\" = case when $1::jsonb ? 'pinned_at' then r.\"pinned_at\" else t.\"pinned_at\" end, \"pinned_by\" = case when $1::jsonb ? 'pinned_by' then r.\"pinned_by\" else t.\"pinned_by\" end, \"entity_type\" = case when $1::jsonb ? 'entity_type' then r.\"entity_type\" else t.\"entity_type\" end, \"entity_id\" = case when $1::jsonb ? 'entity_id' then r.\"entity_id\" else t.\"entity_id\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end from jsonb_populate_record(null::\"files\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"files\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"files\" as t where t.id = $1 limit 1",
+    remove: "delete from \"files\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `folders` (`folders`).
+pub(crate) const FOLDERS: Table = Table {
+    name: "folders",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "parentId", name: "parent_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "color", name: "color", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "icon", name: "icon", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdById", name: "created_by_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "generalAccess", name: "general_access", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"folders\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"name\", \"parent_id\", \"color\", \"icon\", \"created_by_id\", \"general_access\", \"metadata\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"name\", r.\"parent_id\", r.\"color\", r.\"icon\", r.\"created_by_id\", case when $1::jsonb ? 'general_access' then r.\"general_access\" else ('workspace_edit')::varchar(20) end, r.\"metadata\" from jsonb_populate_record(null::\"folders\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"folders\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"parent_id\" = case when $1::jsonb ? 'parent_id' then r.\"parent_id\" else t.\"parent_id\" end, \"color\" = case when $1::jsonb ? 'color' then r.\"color\" else t.\"color\" end, \"icon\" = case when $1::jsonb ? 'icon' then r.\"icon\" else t.\"icon\" end, \"created_by_id\" = case when $1::jsonb ? 'created_by_id' then r.\"created_by_id\" else t.\"created_by_id\" end, \"general_access\" = case when $1::jsonb ? 'general_access' then r.\"general_access\" else t.\"general_access\" end, \"metadata\" = case when $1::jsonb ? 'metadata' then r.\"metadata\" else t.\"metadata\" end from jsonb_populate_record(null::\"folders\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"folders\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"folders\" as t where t.id = $1 limit 1",
+    remove: "delete from \"folders\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `workflows` (`workflows`).
+pub(crate) const WORKFLOWS: Table = Table {
+    name: "workflows",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "version", name: "version", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "triggers", name: "triggers", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "steps", name: "steps", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "settings", name: "settings", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "folderId", name: "folder_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "executionCount", name: "execution_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "successCount", name: "success_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "failureCount", name: "failure_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "averageExecutionTime", name: "average_execution_time", kind: Kind::Numeric, default_fn: false, on_update: false },
+        Column { prop: "lastExecutedAt", name: "last_executed_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "templateId", name: "template_id", kind: Kind::Text, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"workflows\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"name\", \"description\", \"status\", \"version\", \"triggers\", \"steps\", \"settings\", \"created_by\", \"folder_id\", \"tags\", \"execution_count\", \"success_count\", \"failure_count\", \"average_execution_time\", \"last_executed_at\", \"template_id\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"name\", r.\"description\", case when $1::jsonb ? 'status' then r.\"status\" else ('draft')::varchar(20) end, case when $1::jsonb ? 'version' then r.\"version\" else (1)::integer end, r.\"triggers\", r.\"steps\", r.\"settings\", r.\"created_by\", r.\"folder_id\", r.\"tags\", case when $1::jsonb ? 'execution_count' then r.\"execution_count\" else (0)::integer end, case when $1::jsonb ? 'success_count' then r.\"success_count\" else (0)::integer end, case when $1::jsonb ? 'failure_count' then r.\"failure_count\" else (0)::integer end, r.\"average_execution_time\", r.\"last_executed_at\", r.\"template_id\" from jsonb_populate_record(null::\"workflows\", $1::jsonb) r returning (to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text))",
+    patch: "update \"workflows\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"description\" = case when $1::jsonb ? 'description' then r.\"description\" else t.\"description\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"version\" = case when $1::jsonb ? 'version' then r.\"version\" else t.\"version\" end, \"triggers\" = case when $1::jsonb ? 'triggers' then r.\"triggers\" else t.\"triggers\" end, \"steps\" = case when $1::jsonb ? 'steps' then r.\"steps\" else t.\"steps\" end, \"settings\" = case when $1::jsonb ? 'settings' then r.\"settings\" else t.\"settings\" end, \"created_by\" = case when $1::jsonb ? 'created_by' then r.\"created_by\" else t.\"created_by\" end, \"folder_id\" = case when $1::jsonb ? 'folder_id' then r.\"folder_id\" else t.\"folder_id\" end, \"tags\" = case when $1::jsonb ? 'tags' then r.\"tags\" else t.\"tags\" end, \"execution_count\" = case when $1::jsonb ? 'execution_count' then r.\"execution_count\" else t.\"execution_count\" end, \"success_count\" = case when $1::jsonb ? 'success_count' then r.\"success_count\" else t.\"success_count\" end, \"failure_count\" = case when $1::jsonb ? 'failure_count' then r.\"failure_count\" else t.\"failure_count\" end, \"average_execution_time\" = case when $1::jsonb ? 'average_execution_time' then r.\"average_execution_time\" else t.\"average_execution_time\" end, \"last_executed_at\" = case when $1::jsonb ? 'last_executed_at' then r.\"last_executed_at\" else t.\"last_executed_at\" end, \"template_id\" = case when $1::jsonb ? 'template_id' then r.\"template_id\" else t.\"template_id\" end from jsonb_populate_record(null::\"workflows\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning (to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text))",
+    select_live: "select (to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text)) from \"workflows\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select (to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text)) from \"workflows\" as t where t.id = $1 limit 1",
+    remove: "delete from \"workflows\" as t where t.id = $1 returning (to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text))",
+};
+
+/// `workflowSchedules` (`workflow_schedules`).
+pub(crate) const WORKFLOW_SCHEDULES: Table = Table {
+    name: "workflow_schedules",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "workflowId", name: "workflow_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggerId", name: "trigger_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "scheduleType", name: "schedule_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "cronExpression", name: "cron_expression", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "timezone", name: "timezone", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "interval", name: "interval", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "executeAt", name: "execute_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "startDate", name: "start_date", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "endDate", name: "end_date", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "isEnabled", name: "is_enabled", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "nextRunAt", name: "next_run_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "lastRunAt", name: "last_run_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "lastRunStatus", name: "last_run_status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "totalRuns", name: "total_runs", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "successfulRuns", name: "successful_runs", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "failedRuns", name: "failed_runs", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "triggerDevScheduleId", name: "trigger_dev_schedule_id", kind: Kind::Text, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"workflow_schedules\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"workflow_id\", \"trigger_id\", \"name\", \"description\", \"schedule_type\", \"cron_expression\", \"timezone\", \"interval\", \"execute_at\", \"start_date\", \"end_date\", \"is_enabled\", \"next_run_at\", \"last_run_at\", \"last_run_status\", \"total_runs\", \"successful_runs\", \"failed_runs\", \"trigger_dev_schedule_id\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"workflow_id\", r.\"trigger_id\", r.\"name\", r.\"description\", case when $1::jsonb ? 'schedule_type' then r.\"schedule_type\" else ('recurring')::varchar(20) end, r.\"cron_expression\", case when $1::jsonb ? 'timezone' then r.\"timezone\" else ('UTC')::varchar(100) end, r.\"interval\", r.\"execute_at\", r.\"start_date\", r.\"end_date\", case when $1::jsonb ? 'is_enabled' then r.\"is_enabled\" else (true)::boolean end, r.\"next_run_at\", r.\"last_run_at\", r.\"last_run_status\", case when $1::jsonb ? 'total_runs' then r.\"total_runs\" else (0)::integer end, case when $1::jsonb ? 'successful_runs' then r.\"successful_runs\" else (0)::integer end, case when $1::jsonb ? 'failed_runs' then r.\"failed_runs\" else (0)::integer end, r.\"trigger_dev_schedule_id\" from jsonb_populate_record(null::\"workflow_schedules\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"workflow_schedules\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"workflow_id\" = case when $1::jsonb ? 'workflow_id' then r.\"workflow_id\" else t.\"workflow_id\" end, \"trigger_id\" = case when $1::jsonb ? 'trigger_id' then r.\"trigger_id\" else t.\"trigger_id\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"description\" = case when $1::jsonb ? 'description' then r.\"description\" else t.\"description\" end, \"schedule_type\" = case when $1::jsonb ? 'schedule_type' then r.\"schedule_type\" else t.\"schedule_type\" end, \"cron_expression\" = case when $1::jsonb ? 'cron_expression' then r.\"cron_expression\" else t.\"cron_expression\" end, \"timezone\" = case when $1::jsonb ? 'timezone' then r.\"timezone\" else t.\"timezone\" end, \"interval\" = case when $1::jsonb ? 'interval' then r.\"interval\" else t.\"interval\" end, \"execute_at\" = case when $1::jsonb ? 'execute_at' then r.\"execute_at\" else t.\"execute_at\" end, \"start_date\" = case when $1::jsonb ? 'start_date' then r.\"start_date\" else t.\"start_date\" end, \"end_date\" = case when $1::jsonb ? 'end_date' then r.\"end_date\" else t.\"end_date\" end, \"is_enabled\" = case when $1::jsonb ? 'is_enabled' then r.\"is_enabled\" else t.\"is_enabled\" end, \"next_run_at\" = case when $1::jsonb ? 'next_run_at' then r.\"next_run_at\" else t.\"next_run_at\" end, \"last_run_at\" = case when $1::jsonb ? 'last_run_at' then r.\"last_run_at\" else t.\"last_run_at\" end, \"last_run_status\" = case when $1::jsonb ? 'last_run_status' then r.\"last_run_status\" else t.\"last_run_status\" end, \"total_runs\" = case when $1::jsonb ? 'total_runs' then r.\"total_runs\" else t.\"total_runs\" end, \"successful_runs\" = case when $1::jsonb ? 'successful_runs' then r.\"successful_runs\" else t.\"successful_runs\" end, \"failed_runs\" = case when $1::jsonb ? 'failed_runs' then r.\"failed_runs\" else t.\"failed_runs\" end, \"trigger_dev_schedule_id\" = case when $1::jsonb ? 'trigger_dev_schedule_id' then r.\"trigger_dev_schedule_id\" else t.\"trigger_dev_schedule_id\" end from jsonb_populate_record(null::\"workflow_schedules\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"workflow_schedules\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"workflow_schedules\" as t where t.id = $1 limit 1",
+    remove: "delete from \"workflow_schedules\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `workflowExecutions` (`workflow_executions`).
+pub(crate) const WORKFLOW_EXECUTIONS: Table = Table {
+    name: "workflow_executions",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "workflowId", name: "workflow_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "workflowVersion", name: "workflow_version", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "workflowName", name: "workflow_name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "status", name: "status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggeredBy", name: "triggered_by", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggerType", name: "trigger_type", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggerId", name: "trigger_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggerData", name: "trigger_data", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "startedAt", name: "started_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "completedAt", name: "completed_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "duration", name: "duration", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "currentStepId", name: "current_step_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "currentStepIndex", name: "current_step_index", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "totalSteps", name: "total_steps", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "output", name: "output", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "error", name: "error", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "executionContext", name: "execution_context", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "triggerDevRunId", name: "trigger_dev_run_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "cfWorkflowInstanceId", name: "cf_workflow_instance_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "retryCount", name: "retry_count", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "parentExecutionId", name: "parent_execution_id", kind: Kind::Text, default_fn: false, on_update: false },
+    ],
+    soft_delete: false,
+    insert: "insert into \"workflow_executions\" as t (\"id\", \"created_at\", \"updated_at\", \"workflow_id\", \"workflow_version\", \"workflow_name\", \"status\", \"triggered_by\", \"trigger_type\", \"trigger_id\", \"trigger_data\", \"started_at\", \"completed_at\", \"duration\", \"current_step_id\", \"current_step_index\", \"total_steps\", \"output\", \"error\", \"execution_context\", \"trigger_dev_run_id\", \"cf_workflow_instance_id\", \"retry_count\", \"parent_execution_id\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"workflow_id\", case when $1::jsonb ? 'workflow_version' then r.\"workflow_version\" else (1)::integer end, r.\"workflow_name\", case when $1::jsonb ? 'status' then r.\"status\" else ('queued')::varchar(20) end, r.\"triggered_by\", r.\"trigger_type\", r.\"trigger_id\", r.\"trigger_data\", r.\"started_at\", r.\"completed_at\", r.\"duration\", r.\"current_step_id\", case when $1::jsonb ? 'current_step_index' then r.\"current_step_index\" else (0)::integer end, case when $1::jsonb ? 'total_steps' then r.\"total_steps\" else (0)::integer end, r.\"output\", r.\"error\", r.\"execution_context\", r.\"trigger_dev_run_id\", r.\"cf_workflow_instance_id\", case when $1::jsonb ? 'retry_count' then r.\"retry_count\" else (0)::integer end, r.\"parent_execution_id\" from jsonb_populate_record(null::\"workflow_executions\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"workflow_executions\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"workflow_id\" = case when $1::jsonb ? 'workflow_id' then r.\"workflow_id\" else t.\"workflow_id\" end, \"workflow_version\" = case when $1::jsonb ? 'workflow_version' then r.\"workflow_version\" else t.\"workflow_version\" end, \"workflow_name\" = case when $1::jsonb ? 'workflow_name' then r.\"workflow_name\" else t.\"workflow_name\" end, \"status\" = case when $1::jsonb ? 'status' then r.\"status\" else t.\"status\" end, \"triggered_by\" = case when $1::jsonb ? 'triggered_by' then r.\"triggered_by\" else t.\"triggered_by\" end, \"trigger_type\" = case when $1::jsonb ? 'trigger_type' then r.\"trigger_type\" else t.\"trigger_type\" end, \"trigger_id\" = case when $1::jsonb ? 'trigger_id' then r.\"trigger_id\" else t.\"trigger_id\" end, \"trigger_data\" = case when $1::jsonb ? 'trigger_data' then r.\"trigger_data\" else t.\"trigger_data\" end, \"started_at\" = case when $1::jsonb ? 'started_at' then r.\"started_at\" else t.\"started_at\" end, \"completed_at\" = case when $1::jsonb ? 'completed_at' then r.\"completed_at\" else t.\"completed_at\" end, \"duration\" = case when $1::jsonb ? 'duration' then r.\"duration\" else t.\"duration\" end, \"current_step_id\" = case when $1::jsonb ? 'current_step_id' then r.\"current_step_id\" else t.\"current_step_id\" end, \"current_step_index\" = case when $1::jsonb ? 'current_step_index' then r.\"current_step_index\" else t.\"current_step_index\" end, \"total_steps\" = case when $1::jsonb ? 'total_steps' then r.\"total_steps\" else t.\"total_steps\" end, \"output\" = case when $1::jsonb ? 'output' then r.\"output\" else t.\"output\" end, \"error\" = case when $1::jsonb ? 'error' then r.\"error\" else t.\"error\" end, \"execution_context\" = case when $1::jsonb ? 'execution_context' then r.\"execution_context\" else t.\"execution_context\" end, \"trigger_dev_run_id\" = case when $1::jsonb ? 'trigger_dev_run_id' then r.\"trigger_dev_run_id\" else t.\"trigger_dev_run_id\" end, \"cf_workflow_instance_id\" = case when $1::jsonb ? 'cf_workflow_instance_id' then r.\"cf_workflow_instance_id\" else t.\"cf_workflow_instance_id\" end, \"retry_count\" = case when $1::jsonb ? 'retry_count' then r.\"retry_count\" else t.\"retry_count\" end, \"parent_execution_id\" = case when $1::jsonb ? 'parent_execution_id' then r.\"parent_execution_id\" else t.\"parent_execution_id\" end from jsonb_populate_record(null::\"workflow_executions\", $1::jsonb) r where t.id = $2 and $3::boolean is not null returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"workflow_executions\" as t where t.id = $1 limit 1",
+    select_any: "select to_jsonb(t) from \"workflow_executions\" as t where t.id = $1 limit 1",
+    remove: "delete from \"workflow_executions\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
+/// `workflowWebhooks` (`workflow_webhooks`).
+pub(crate) const WORKFLOW_WEBHOOKS: Table = Table {
+    name: "workflow_webhooks",
+    columns: &[
+        Column { prop: "id", name: "id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "deletedAt", name: "deleted_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "workflowId", name: "workflow_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "triggerId", name: "trigger_id", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "name", name: "name", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "url", name: "url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "externalUrl", name: "external_url", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "secret", name: "secret", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "secretHash", name: "secret_hash", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "validateSignature", name: "validate_signature", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "signatureHeader", name: "signature_header", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "allowedMethods", name: "allowed_methods", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "headers", name: "headers", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "ipWhitelist", name: "ip_whitelist", kind: Kind::Json, default_fn: false, on_update: false },
+        Column { prop: "isEnabled", name: "is_enabled", kind: Kind::Bool, default_fn: false, on_update: false },
+        Column { prop: "lastCalledAt", name: "last_called_at", kind: Kind::Date, default_fn: false, on_update: false },
+        Column { prop: "lastCallStatus", name: "last_call_status", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "lastCallIp", name: "last_call_ip", kind: Kind::Text, default_fn: false, on_update: false },
+        Column { prop: "totalCalls", name: "total_calls", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "successfulCalls", name: "successful_calls", kind: Kind::Number, default_fn: false, on_update: false },
+        Column { prop: "failedCalls", name: "failed_calls", kind: Kind::Number, default_fn: false, on_update: false },
+    ],
+    soft_delete: true,
+    insert: "insert into \"workflow_webhooks\" as t (\"id\", \"created_at\", \"updated_at\", \"deleted_at\", \"workflow_id\", \"trigger_id\", \"name\", \"description\", \"url\", \"external_url\", \"secret\", \"secret_hash\", \"validate_signature\", \"signature_header\", \"allowed_methods\", \"headers\", \"ip_whitelist\", \"is_enabled\", \"last_called_at\", \"last_call_status\", \"last_call_ip\", \"total_calls\", \"successful_calls\", \"failed_calls\") select r.\"id\", case when $1::jsonb ? 'created_at' then r.\"created_at\" else (now())::timestamp end, case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else (now())::timestamp end, r.\"deleted_at\", r.\"workflow_id\", r.\"trigger_id\", r.\"name\", r.\"description\", r.\"url\", r.\"external_url\", r.\"secret\", r.\"secret_hash\", case when $1::jsonb ? 'validate_signature' then r.\"validate_signature\" else (false)::boolean end, case when $1::jsonb ? 'signature_header' then r.\"signature_header\" else ('x-webhook-signature')::varchar(100) end, case when $1::jsonb ? 'allowed_methods' then r.\"allowed_methods\" else ('[\"POST\"]'::jsonb)::jsonb end, r.\"headers\", r.\"ip_whitelist\", case when $1::jsonb ? 'is_enabled' then r.\"is_enabled\" else (true)::boolean end, r.\"last_called_at\", r.\"last_call_status\", r.\"last_call_ip\", case when $1::jsonb ? 'total_calls' then r.\"total_calls\" else (0)::integer end, case when $1::jsonb ? 'successful_calls' then r.\"successful_calls\" else (0)::integer end, case when $1::jsonb ? 'failed_calls' then r.\"failed_calls\" else (0)::integer end from jsonb_populate_record(null::\"workflow_webhooks\", $1::jsonb) r returning to_jsonb(t)",
+    patch: "update \"workflow_webhooks\" as t set \"created_at\" = case when $1::jsonb ? 'created_at' then r.\"created_at\" else t.\"created_at\" end, \"updated_at\" = case when $1::jsonb ? 'updated_at' then r.\"updated_at\" else t.\"updated_at\" end, \"deleted_at\" = case when $1::jsonb ? 'deleted_at' then r.\"deleted_at\" else t.\"deleted_at\" end, \"workflow_id\" = case when $1::jsonb ? 'workflow_id' then r.\"workflow_id\" else t.\"workflow_id\" end, \"trigger_id\" = case when $1::jsonb ? 'trigger_id' then r.\"trigger_id\" else t.\"trigger_id\" end, \"name\" = case when $1::jsonb ? 'name' then r.\"name\" else t.\"name\" end, \"description\" = case when $1::jsonb ? 'description' then r.\"description\" else t.\"description\" end, \"url\" = case when $1::jsonb ? 'url' then r.\"url\" else t.\"url\" end, \"external_url\" = case when $1::jsonb ? 'external_url' then r.\"external_url\" else t.\"external_url\" end, \"secret\" = case when $1::jsonb ? 'secret' then r.\"secret\" else t.\"secret\" end, \"secret_hash\" = case when $1::jsonb ? 'secret_hash' then r.\"secret_hash\" else t.\"secret_hash\" end, \"validate_signature\" = case when $1::jsonb ? 'validate_signature' then r.\"validate_signature\" else t.\"validate_signature\" end, \"signature_header\" = case when $1::jsonb ? 'signature_header' then r.\"signature_header\" else t.\"signature_header\" end, \"allowed_methods\" = case when $1::jsonb ? 'allowed_methods' then r.\"allowed_methods\" else t.\"allowed_methods\" end, \"headers\" = case when $1::jsonb ? 'headers' then r.\"headers\" else t.\"headers\" end, \"ip_whitelist\" = case when $1::jsonb ? 'ip_whitelist' then r.\"ip_whitelist\" else t.\"ip_whitelist\" end, \"is_enabled\" = case when $1::jsonb ? 'is_enabled' then r.\"is_enabled\" else t.\"is_enabled\" end, \"last_called_at\" = case when $1::jsonb ? 'last_called_at' then r.\"last_called_at\" else t.\"last_called_at\" end, \"last_call_status\" = case when $1::jsonb ? 'last_call_status' then r.\"last_call_status\" else t.\"last_call_status\" end, \"last_call_ip\" = case when $1::jsonb ? 'last_call_ip' then r.\"last_call_ip\" else t.\"last_call_ip\" end, \"total_calls\" = case when $1::jsonb ? 'total_calls' then r.\"total_calls\" else t.\"total_calls\" end, \"successful_calls\" = case when $1::jsonb ? 'successful_calls' then r.\"successful_calls\" else t.\"successful_calls\" end, \"failed_calls\" = case when $1::jsonb ? 'failed_calls' then r.\"failed_calls\" else t.\"failed_calls\" end from jsonb_populate_record(null::\"workflow_webhooks\", $1::jsonb) r where t.id = $2 and (not $3::boolean or t.deleted_at is null) returning to_jsonb(t)",
+    select_live: "select to_jsonb(t) from \"workflow_webhooks\" as t where t.id = $1 and t.deleted_at is null limit 1",
+    select_any: "select to_jsonb(t) from \"workflow_webhooks\" as t where t.id = $1 limit 1",
+    remove: "delete from \"workflow_webhooks\" as t where t.id = $1 returning to_jsonb(t)",
+};
+
 /// A table's row as Drizzle's `select()` returns it (before [`Table::js`]),
 /// aliased `t`: `numeric` columns as text.
 macro_rules! row {
@@ -2443,6 +2936,45 @@ macro_rules! row {
     };
     (parties) => {
         "(to_jsonb(t) || jsonb_build_object('outstanding_balance', t.\"outstanding_balance\"::text))"
+    };
+    (domains) => {
+        "to_jsonb(t)"
+    };
+    (dns_zones) => {
+        "to_jsonb(t)"
+    };
+    (dns_records) => {
+        "to_jsonb(t)"
+    };
+    (knowledge_spaces) => {
+        "to_jsonb(t)"
+    };
+    (knowledge_pages) => {
+        "to_jsonb(t)"
+    };
+    (helpdesk_tickets) => {
+        "to_jsonb(t)"
+    };
+    (helpdesk_ticket_messages) => {
+        "to_jsonb(t)"
+    };
+    (files) => {
+        "to_jsonb(t)"
+    };
+    (folders) => {
+        "to_jsonb(t)"
+    };
+    (workflows) => {
+        "(to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text))"
+    };
+    (workflow_schedules) => {
+        "to_jsonb(t)"
+    };
+    (workflow_executions) => {
+        "to_jsonb(t)"
+    };
+    (workflow_webhooks) => {
+        "to_jsonb(t)"
     };
 }
 pub(crate) use row;

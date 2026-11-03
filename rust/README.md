@@ -231,17 +231,21 @@ The `/v1/<object>` groups served so far: CRM (people, companies, leads,
 opportunities, pipelines, pipeline-stages, activities, quotes), Flow
 (projects, tasks, time-entries, milestones, goals, sprints, task-comments,
 task-tags, project-documents/files/labels/members/messages, whiteboards),
-desk's articles, commerce (categories, products, orders), chat (channels,
-channel-members, chat-messages/bookmarks/drafts/sections), calendar
-(calendars, calendar-events), social (accounts, campaigns, analytics, media)
-and WeldBooks (the read-only ledger, accounting-settings,
-accounting-contacts). Their bodies are validated with the client packages'
+desk's articles, tickets and conversations (on `desk-domain`'s inbox),
+commerce (categories, products, orders), chat (channels, channel-members,
+chat-messages/bookmarks/drafts/sections), calendar (calendars,
+calendar-events), social (accounts, campaigns, analytics, media), WeldBooks
+(the read-only ledger, accounting-settings, accounting-contacts), WeldHost
+(domains with their DNS zones and records, kept local as on Global), WeldKnow
+(knowledge-spaces and -pages, on `know-domain`'s access rules), the
+drive (files with their content, folders, drive aggregates) and WeldConnect
+(webhooks with the event catalog in its declared order, workflows with
+schedules and executions). Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
 statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
-yet: mail, know, files/folders/drive, custom-objects, webhooks, workflows,
-desk's tickets and conversations (the inbox domain), social-posts and reach.
-WeldHost's domains and Flow's sheets are not served on Kubernetes.
+yet: mail, custom-objects, social-posts and reach. Flow's sheets are not
+served on Kubernetes yet.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -305,11 +309,14 @@ rust/
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
-                        the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps),
+                        the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps
+                        and the public API; list.rs: the inbox list and timeline pages),
                         the SLA engine (sla.rs, sla_calendar.rs), the helpdesk workflow engine (`workflow/`:
                         handlers, the desk.conversation-workflow job); tests/fixtures from
                         `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
                         `pnpm rust:desk-sla-fixtures` (the TypeScript SLA engine)
+  crates/know-domain/   WeldKnow's teamspace access rules (@weldsuite/know-domain/access) know and external-api
+                        share; a workspace API key (no user) reaches open teamspaces only
   crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
                         scopes, reserved codes, and adopting first-party installs onto an official hosted app
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
