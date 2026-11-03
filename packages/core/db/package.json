@@ -7,9 +7,10 @@
   "scripts": {
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:generate:master": "drizzle-kit generate --config=drizzle.master.config.ts",
-    "db:generate:personal": "drizzle-kit generate --config=drizzle.personal.config.ts",
+    "db:generate": "drizzle-kit generate && node scripts/prune-snapshots.mjs",
+    "db:generate:master": "drizzle-kit generate --config=drizzle.master.config.ts && node scripts/prune-snapshots.mjs",
+    "db:generate:personal": "drizzle-kit generate --config=drizzle.personal.config.ts && node scripts/prune-snapshots.mjs",
+    "db:prune-snapshots": "node scripts/prune-snapshots.mjs",
     "db:migrate:master": "drizzle-kit migrate --config=drizzle.master.config.ts",
     "db:migrate:personal": "drizzle-kit migrate --config=drizzle.personal.config.ts",
     "db:studio": "drizzle-kit studio",

@@ -369,6 +369,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**. There is
 - Field-level encryption supported via worker secret
 - **Adding columns/tables to `packages/core/db/src/schema/` is fine. Do NOT create migration files, ask the user first.**
 - **Once a migration is approved, generate it with `pnpm --filter @weldsuite/db db:generate`** and commit the SQL, the `meta/<n>_snapshot.json` and the `_journal.json` entry together. Never hand-write a journal-only migration: it leaves the snapshot behind, so the next `db:generate` tries to re-create existing tables. The migration runner (and the pglite test harness) apply only journaled files. `apps/workers/app-api/src/test/tenant-schema-drift.test.ts` fails CI when the schema and the latest snapshot disagree, or when a `.sql` file isn't in the journal.
+- **Only the newest snapshots are kept.** Every `db:generate*` script ends with `scripts/prune-snapshots.mjs`, which deletes all but the newest five `meta/<n>_snapshot.json` per folder (drizzle-kit only diffs against the newest; nothing else reads them). Commit the deletions with the migration. Git history has the old ones.
 
 ### AI / Agents
 
@@ -423,7 +424,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
-| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. |
+| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
