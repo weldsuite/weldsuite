@@ -7,6 +7,7 @@
 //! uses a prefix of its own, so a shared server is fine.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
@@ -32,11 +33,16 @@ fn valkey_url() -> Option<String> {
     url
 }
 
+/// The clock alone is not enough: tests start in parallel, and a runner's
+/// clock can tick coarser than a nanosecond, so two tests got one prefix
+/// and heard each other's events. The counter keeps them apart.
 fn prefix() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("weldsuite-rt-test:{nanos}:")
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("weldsuite-rt-test:{nanos}:{n}:")
 }
 
 /// Tokens are `<user>` or `<user>@<org>`; `bad` is refused.
