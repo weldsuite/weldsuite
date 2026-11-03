@@ -155,10 +155,13 @@ jobs:
   # Valkey and NATS: the full authenticated pipeline, the SPA and the portal
   # (rust/deploy/kind/smoke-test.sh). The build context is the repo root
   # (rust/Dockerfile.dockerignore keeps it small).
+  # Cached, the builds take minutes; when a change misses the cache, the
+  # release build (LTO, one codegen unit, every module) takes about 40
+  # minutes for amd64 and again for the arm64 cross-build.
   rust-image:
     name: Rust · image and chart
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
