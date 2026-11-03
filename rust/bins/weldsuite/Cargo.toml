@@ -58,6 +58,7 @@ weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-mail-inbound = { workspace = true }
 weldsuite-meet = { workspace = true }
+weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-reach = { workspace = true }

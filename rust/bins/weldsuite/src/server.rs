@@ -158,6 +158,9 @@ pub(crate) fn router(state: AppState) -> Router {
         crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     let connect_internal =
         crate::routes::connect_internal(&state).map(|internal| internal.with_state(state.clone()));
+    // So does WeldPanel's collector: tracked sites send from anywhere.
+    let collector =
+        crate::routes::panel_collector(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -175,6 +178,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         .merge(widget)
+        .merge(collector)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
         .layer(

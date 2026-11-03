@@ -68,6 +68,7 @@ weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
 weldsuite-meet = { path = "modules/meet" }
+weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }

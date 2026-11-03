@@ -20,6 +20,8 @@ mod conformance_mail;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 #[cfg(feature = "conformance")]
+mod conformance_panel;
+#[cfg(feature = "conformance")]
 mod conformance_portal;
 #[cfg(feature = "conformance")]
 mod conformance_workflows;

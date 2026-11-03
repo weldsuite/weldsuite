@@ -5,7 +5,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RenameDialog } from '@/app/weldcrm/components/rename-dialog';
 import { useSearchParams, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import {
   useDeleteConversation,
   useUpdateConversation,
@@ -26,7 +26,7 @@ export function useHomeSidebarItems(isActive: boolean): {
   const isChat = pathname === '/new-chat';
 
   // Edition flags (4.F3): chats need the agent module (the hook asks for nothing without it).
-  const agentOffered = isModuleOffered('agent');
+  const agentOffered = isModuleOffered('agent') && isFeatureAvailable('agent-ai');
   const { data: conversations = [] } = useWeldAgentConversations(50, 'none');
   const updateConvo = useUpdateConversation();
   const deleteConvo = useDeleteConversation();

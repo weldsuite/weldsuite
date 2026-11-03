@@ -89,6 +89,7 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         // routes answer as app-api without its workspace worker).
         identity: None,
         provisioner: None,
+        panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
     };
     (infra, recorders)
 }
@@ -191,6 +192,9 @@ fn hono_pattern(axum_path: &str) -> String {
 struct TestContext {
     user_id: String,
     org_id: Option<String>,
+    /// Empty when the test runs without one (`workspaceId: undefined`): the
+    /// routes then answer as without `c.get('workspaceId')`.
+    #[serde(default)]
     workspace_id: String,
     clerk_org_id: Option<String>,
     #[serde(default)]
@@ -247,6 +251,10 @@ struct TestContext {
     /// `conformance_books`).
     #[serde(default)]
     services: HashMap<String, String>,
+    /// Its stream bindings over HTTP (`{ PANEL_EVENTS: url }`,
+    /// `conformance_panel`).
+    #[serde(default)]
+    pipelines: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -293,6 +301,8 @@ pub(crate) struct Pools {
     workflows: crate::conformance_workflows::WorkflowBridges,
     /// The test's books-api binding (WeldHR's pay run journal).
     books: crate::conformance_books::BooksBridges,
+    /// The test's WeldPanel collector bindings.
+    panel: crate::conformance_panel::PanelBridges,
 }
 
 impl Pools {
@@ -382,6 +392,9 @@ impl Pools {
         ));
         // And the GitHub App webhook's project syncs.
         extensions.insert(self.workflows.github_sync_runs(&context.workflows));
+        // WeldPanel's collector: the test's events stream, salt and usage
+        // objects, each one it binds.
+        extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
