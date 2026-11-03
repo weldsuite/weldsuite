@@ -3860,6 +3860,7 @@ dependencies = [
  "weldsuite-docs",
  "weldsuite-emails",
  "weldsuite-events",
+ "weldsuite-external-api",
  "weldsuite-flow",
  "weldsuite-host",
  "weldsuite-hr",
@@ -3951,6 +3952,23 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-apps-domain"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "hex",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "url",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
 ]
 
 [[package]]
@@ -4412,6 +4430,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "weldsuite-apps-domain",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
@@ -4764,6 +4783,37 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-external-api"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
+ "weldsuite-apps-domain",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-pipeline",
  "weldsuite-ports",
 ]
 

@@ -28,6 +28,7 @@ weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-books = { path = "modules/books" }
 weldsuite-books-banking = { path = "modules/books-banking" }
 weldsuite-books-purchases = { path = "modules/books-purchases" }
+weldsuite-apps-domain = { path = "crates/apps-domain" }
 weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-books-sales = { path = "modules/books-sales" }
 weldsuite-books-reports = { path = "modules/books-reports" }
@@ -56,6 +57,7 @@ weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-desk-widget = { path = "modules/desk-widget" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
+weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-host = { path = "modules/host" }

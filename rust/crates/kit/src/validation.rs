@@ -1408,6 +1408,33 @@ fn js_date_millis(text: &str) -> Option<f64> {
     Some(total as f64)
 }
 
+/// `new Date(value).toISOString()` as `z.coerce.date()` reads a JSON value:
+/// `null` is the epoch, a number milliseconds, a boolean 0 or 1 ms, a string
+/// an ISO date; `None` for an invalid date (or an object, an array, or
+/// `undefined`).
+pub fn js_coerce_date(value: Option<&Value>) -> Option<String> {
+    let millis: Option<f64> = match value {
+        None | Some(Value::Object(_) | Value::Array(_)) => None,
+        Some(Value::Null) => Some(0.0),
+        Some(Value::Bool(flag)) => Some(if *flag { 1.0 } else { 0.0 }),
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(Value::String(text)) => js_date_millis(text),
+    };
+    millis.and_then(iso_from_millis)
+}
+
+impl Format {
+    /// Whether `text` passes this format's check, as Zod's.
+    pub fn is_match(self, text: &str) -> bool {
+        self.matches(text)
+    }
+
+    /// The issue's `validation` and default message.
+    pub fn issue_parts(self) -> (&'static str, &'static str) {
+        self.issue()
+    }
+}
+
 /// `new Date(ms).toISOString()`, or `None` for an invalid date.
 fn iso_from_millis(millis: f64) -> Option<String> {
     if !millis.is_finite() || millis.abs() > 8.64e15 {

@@ -518,6 +518,7 @@ import {
 import { DESK_KB_ROUTES } from './conformance-schemas-desk-kb';
 import { DESK_TEAM_ROUTES } from './conformance-schemas-desk-team';
 import { ADS_ROUTES } from './conformance-schemas-ads';
+import { EXTERNAL_ROUTES } from './conformance-schemas-external';
 import { SOCIAL_ROUTES } from './conformance-schemas-social';
 import { CALL_ROUTES } from './conformance-schemas-call';
 import { REACH_ROUTES } from './conformance-schemas-reach';
@@ -1384,6 +1385,7 @@ const ROUTES: RouteSchema[] = [
   ...DESK_KB_ROUTES,
   ...DESK_TEAM_ROUTES,
   ...ADS_ROUTES,
+  ...EXTERNAL_ROUTES,
   ...SOCIAL_ROUTES,
   ...CALL_ROUTES,
   ...REACH_ROUTES,

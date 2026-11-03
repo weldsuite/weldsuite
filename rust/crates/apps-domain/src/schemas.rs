@@ -108,20 +108,20 @@ fn screenshots(issues: &mut Issues, body: &Map<String, Value>) -> Field<Vec<Stri
 
 // ── POST /api/user-apps ──────────────────────────────────────────────────────
 
-pub(crate) struct CreateApp {
-    pub(crate) code: String,
-    pub(crate) name: String,
-    pub(crate) description: Option<String>,
-    pub(crate) icon: Option<String>,
-    pub(crate) category: Option<String>,
-    pub(crate) website_url: Option<String>,
-    pub(crate) privacy_url: Option<String>,
-    pub(crate) screenshots: Option<Vec<String>>,
-    pub(crate) webhook_url: Option<String>,
+pub struct CreateApp {
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub category: Option<String>,
+    pub website_url: Option<String>,
+    pub privacy_url: Option<String>,
+    pub screenshots: Option<Vec<String>>,
+    pub webhook_url: Option<String>,
 }
 
 /// `createUserAppSchema`.
-pub(crate) fn create_app(issues: &mut Issues, body: &Map<String, Value>) -> CreateApp {
+pub fn create_app(issues: &mut Issues, body: &Map<String, Value>) -> CreateApp {
     let code = code(issues, body);
     let name = issues.text(body, "name", Presence::Required, Some(1), Some(100));
     let description = issues.text(body, "description", Presence::Optional, None, Some(2000));
@@ -154,20 +154,20 @@ pub(crate) fn create_app(issues: &mut Issues, body: &Map<String, Value>) -> Crea
 
 // ── PATCH /api/user-apps/:id ─────────────────────────────────────────────────
 
-pub(crate) struct UpdateApp {
-    pub(crate) name: Field<String>,
-    pub(crate) description: Field<String>,
-    pub(crate) icon: Field<String>,
-    pub(crate) category: Field<String>,
-    pub(crate) is_active: Field<bool>,
-    pub(crate) website_url: Field<String>,
-    pub(crate) privacy_url: Field<String>,
-    pub(crate) screenshots: Field<Vec<String>>,
-    pub(crate) webhook_url: Field<String>,
+pub struct UpdateApp {
+    pub name: Field<String>,
+    pub description: Field<String>,
+    pub icon: Field<String>,
+    pub category: Field<String>,
+    pub is_active: Field<bool>,
+    pub website_url: Field<String>,
+    pub privacy_url: Field<String>,
+    pub screenshots: Field<Vec<String>>,
+    pub webhook_url: Field<String>,
 }
 
 /// `updateUserAppSchema`.
-pub(crate) fn update_app(issues: &mut Issues, body: &Map<String, Value>) -> UpdateApp {
+pub fn update_app(issues: &mut Issues, body: &Map<String, Value>) -> UpdateApp {
     let name = issues.text(body, "name", Presence::Optional, Some(1), Some(100));
     let description = issues.text(body, "description", Presence::Optional, None, Some(2000));
     let icon = issues.text(body, "icon", Presence::Optional, None, Some(2000));
@@ -201,28 +201,28 @@ pub(crate) fn update_app(issues: &mut Issues, body: &Map<String, Value>) -> Upda
 // ── small bodies ─────────────────────────────────────────────────────────────
 
 /// `installUserAppSchema`: `grantedScopes`, default `[]`.
-pub(crate) fn install(issues: &mut Issues, body: &Map<String, Value>) -> Vec<String> {
+pub fn install(issues: &mut Issues, body: &Map<String, Value>) -> Vec<String> {
     scope_list(issues, body, "grantedScopes", Presence::Optional)
         .into_option()
         .unwrap_or_default()
 }
 
 /// `consentUserAppScopesSchema`: `approvedScopes`.
-pub(crate) fn consent(issues: &mut Issues, body: &Map<String, Value>) -> Vec<String> {
+pub fn consent(issues: &mut Issues, body: &Map<String, Value>) -> Vec<String> {
     scope_list(issues, body, "approvedScopes", Presence::Required)
         .into_option()
         .unwrap_or_default()
 }
 
 /// `submitUserAppSchema`: `notes`.
-pub(crate) fn submit(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
+pub fn submit(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
     issues
         .text(body, "notes", Presence::Optional, None, Some(2000))
         .into_option()
 }
 
 /// `reviewUserAppSchema`: the decision and the notes.
-pub(crate) fn review(issues: &mut Issues, body: &Map<String, Value>) -> (String, Option<String>) {
+pub fn review(issues: &mut Issues, body: &Map<String, Value>) -> (String, Option<String>) {
     let decision = issues
         .one_of(body, "decision", &["approved", "rejected"])
         .unwrap_or_default();
@@ -234,14 +234,22 @@ pub(crate) fn review(issues: &mut Issues, body: &Map<String, Value>) -> (String,
 
 /// `upsertUserAppDevSessionSchema`: the URL (`userId` is validated and
 /// ignored: the session is the caller's).
-pub(crate) fn dev_session(issues: &mut Issues, body: &Map<String, Value>) -> String {
+pub fn dev_session(issues: &mut Issues, body: &Map<String, Value>) -> String {
     let url = issues.text_with(body, "url", Presence::Required, url_text(2000));
     let _ = issues.text(body, "userId", Presence::Optional, Some(1), Some(255));
     url.into_option().unwrap_or_default()
 }
 
+/// `upsertUserAppDevSessionSchema` with the `userId` it carries: external-api
+/// registers the preview for that user when the key has none.
+pub fn dev_session_for(issues: &mut Issues, body: &Map<String, Value>) -> (String, Option<String>) {
+    let url = issues.text_with(body, "url", Presence::Required, url_text(2000));
+    let user_id = issues.text(body, "userId", Presence::Optional, Some(1), Some(255));
+    (url.into_option().unwrap_or_default(), user_id.into_option())
+}
+
 /// `startDeviceInput`: `loginUrl`.
-pub(crate) fn cli_device(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
+pub fn cli_device(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
     issues
         .text_with(
             body,
@@ -256,7 +264,7 @@ pub(crate) fn cli_device(issues: &mut Issues, body: &Map<String, Value>) -> Opti
 }
 
 /// `tokenInput`: `deviceCode`.
-pub(crate) fn cli_token(issues: &mut Issues, body: &Map<String, Value>) -> String {
+pub fn cli_token(issues: &mut Issues, body: &Map<String, Value>) -> String {
     issues
         .text(body, "deviceCode", Presence::Required, Some(16), Some(128))
         .into_option()
@@ -264,7 +272,7 @@ pub(crate) fn cli_token(issues: &mut Issues, body: &Map<String, Value>) -> Strin
 }
 
 /// `approveInput`: `userCode`.
-pub(crate) fn cli_approve(issues: &mut Issues, body: &Map<String, Value>) -> String {
+pub fn cli_approve(issues: &mut Issues, body: &Map<String, Value>) -> String {
     issues
         .text(body, "userCode", Presence::Required, Some(4), Some(32))
         .into_option()
@@ -272,7 +280,7 @@ pub(crate) fn cli_approve(issues: &mut Issues, body: &Map<String, Value>) -> Str
 }
 
 /// `createDesktopTicketInput`: `returnTo`.
-pub(crate) fn desktop_ticket(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
+pub fn desktop_ticket(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
     issues
         .text_with(
             body,
@@ -290,7 +298,7 @@ pub(crate) fn desktop_ticket(issues: &mut Issues, body: &Map<String, Value>) -> 
 
 /// `userAppManifestSchema.safeParse(json)`: the parsed manifest (unknown keys
 /// dropped, `scopes` defaulted), or the issues, flattened.
-pub(crate) fn manifest(json: &Value) -> Result<Value, Value> {
+pub fn manifest(json: &Value) -> Result<Value, Value> {
     let mut issues = Issues::default();
     if let Some(body) = issues.object(json) {
         read_manifest(&mut issues, body);

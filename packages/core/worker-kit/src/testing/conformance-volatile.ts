@@ -79,6 +79,35 @@ const ROUTES: VolatileRoute[] = [
     route: '/api/github-project-links/:id/sync',
     fields: [{ path: 'data.runId', pattern: /-\d+$/g, replacement: '-<minute>' }],
   },
+  // The public API's client_credentials grant: a fresh `wsat_` token per run.
+  { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
+  // The CLI's OAuth client: a fresh client id (new client) and secret per run.
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/oauth-client',
+    fields: [{ path: 'data.clientId', pattern: /wac_[0-9a-f]{24}/g, replacement: 'wac_<volatile>' }, { path: 'data.clientSecret' }],
+  },
+  // A version's bundle lives under its new id (`user-apps/<app>/<version>`).
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/versions',
+    fields: [{ path: 'data.bundleKey', pattern: /uav_[0-9a-z]+/g, replacement: '<id>' }],
+  },
+  // The public API's database check answers with the time it ran.
+  { method: 'GET', route: '/v1/health/db', fields: [{ path: 'data.timestamp' }] },
+  // An order without a number gets `ORD-<Date.now() base36>-<4 random>`.
+  {
+    method: 'POST',
+    route: '/v1/orders',
+    fields: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+    events: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+  },
+  // A media asset without a storage path is filed under its new id.
+  {
+    method: 'POST',
+    route: '/v1/social-media',
+    fields: [{ path: 'data.storagePath', pattern: /smed_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
   // expiry in seconds, so it differs when the runs straddle a second.
   {

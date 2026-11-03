@@ -216,6 +216,33 @@ Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/sla
 `/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
 the ad metrics sweep, and the WooCommerce app-auth forward.
 
+The public API (external-api, `api.weldsuite.org` on Global) is served at
+`/v1` on the same host as `/api` (`modules/external-api`, in progress): its own
+authentication instead of the session pipeline (`wsk_` keys through the master
+`api_key_registry` and the live key row, `wsat_` app tokens, both cached on
+the cache port), the licence and read-only gate, the per-workspace rate limit
+on the cache's counters (Valkey, exact across pods), `GET /v1`,
+`/v1/health/db`, `/v1/settings`, and WeldApps' surface: `POST /v1/oauth/token`,
+`/v1/app-storage` and `/v1/user-apps` (the `weld` CLI). It is not an
+`api-modules` module, so it is not in `RUST_PORTED_MODULES`: each `/v1`
+object group is mounted where its module is. The WeldApps gateway reaches it
+over HTTP through the release's own Service (the chart sets `EXTERNAL_API_URL`).
+The `/v1/<object>` groups served so far: CRM (people, companies, leads,
+opportunities, pipelines, pipeline-stages, activities, quotes), Flow
+(projects, tasks, time-entries, milestones, goals, sprints, task-comments,
+task-tags, project-documents/files/labels/members/messages, whiteboards),
+desk's articles, commerce (categories, products, orders), chat (channels,
+channel-members, chat-messages/bookmarks/drafts/sections), calendar
+(calendars, calendar-events), social (accounts, campaigns, analytics, media)
+and WeldBooks (the read-only ledger, accounting-settings,
+accounting-contacts). Their bodies are validated with the client packages'
+Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
+data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
+statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
+yet: mail, know, files/folders/drive, custom-objects, webhooks, workflows,
+desk's tickets and conversations (the inbox domain), social-posts and reach.
+WeldHost's domains and Flow's sheets are not served on Kubernetes.
+
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
@@ -283,6 +310,11 @@ rust/
                         handlers, the desk.conversation-workflow job); tests/fixtures from
                         `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
                         `pnpm rust:desk-sla-fixtures` (the TypeScript SLA engine)
+  crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
+                        scopes, reserved codes, and adopting first-party installs onto an official hosted app
+  modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
+                        WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
+                        tools/generate.mts writes their Zod schemas and tables as data
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
@@ -510,7 +542,8 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `PARTNER_PORTAL_URL` | the reseller portal named in a territory request's email (default `https://partner.weldsuite.org`) |
 | `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
 | `EDITION`, `PUBLIC_ENV` | edition flags in `/config.json` (`bins/weldsuite/src/edition.rs`): `self-hosted` (default) or `eu`, and a JSON object of public platform settings by their `VITE_*` name (only the names in `PUBLIC_ENV_KEYS`; any other stops the start). The modules offered (`RUST_PORTED_MODULES`) and the features this backend lacks (`UNAVAILABLE_FEATURES`) follow the code |
-| `EXTERNAL_API_URL`, `USER_APP_BUNDLE_SIGNING_KEY` (else `INTERNAL_API_SECRET`), `USER_APP_BUNDLE_ORIGIN`, `USER_APP_FRAME_ANCESTORS`, `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | WeldApps: where the app gateway forwards to (external-api), the bundle-link signing secret (the same value as app-api's, so links open on either backend), the dedicated bundle origin, extra `frame-ancestors`, and the workspaces whose apps are first-party (all optional; without a signing secret, private bundles fail closed) |
+| `PUBLIC_API_URL` | the public API's origin (this host, e.g. `https://app.example.eu`) that the `weld` CLI is told after its device login; unset names Global's `api(-test).weldsuite.org`, as app-api does. The frontends get it from `PUBLIC_ENV`'s `VITE_EXTERNAL_API_URL` |
+| `EXTERNAL_API_URL`, `USER_APP_BUNDLE_SIGNING_KEY` (else `INTERNAL_API_SECRET`), `USER_APP_BUNDLE_ORIGIN`, `USER_APP_FRAME_ANCESTORS`, `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | WeldApps: where the app gateway forwards to (the public API at `/v1`; the chart points it at the release's own Service, `config.publicApi.gatewayUrl` overrides), the bundle-link signing secret (the same value as app-api's, so links open on either backend), the dedicated bundle origin, extra `frame-ancestors`, and the workspaces whose apps are first-party (all optional; without a signing secret, private bundles fail closed) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |

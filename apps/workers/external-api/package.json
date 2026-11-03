@@ -12,7 +12,7 @@
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit",
     "cf-typegen": "wrangler types",
-    "test": "vitest run --exclude src/test/social-publish.test.ts && vitest run src/test/social-publish.test.ts",
+    "test": "vitest run --exclude src/test/social-publish.test.ts --exclude src/test/weldapps.test.ts && vitest run src/test/social-publish.test.ts && vitest run src/test/weldapps.test.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -59,12 +59,16 @@ let db: Database;
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   // The harness session acts as `user_test`. Creating a teamspace makes the actor its
-  // first owner, which requires the actor to be a workspace member.
-  await db.insert(schema.workspaceMembers).values({
-    id: 'wm_crud_actor',
-    userId: 'user_test',
-    role: 'ADMIN',
-  } as typeof schema.workspaceMembers.$inferInsert);
+  // first owner, which requires the actor to be a workspace member. A worker's
+  // files share one pglite: another file (crm, flow) may have added it already.
+  await db
+    .insert(schema.workspaceMembers)
+    .values({
+      id: 'wm_crud_actor',
+      userId: 'user_test',
+      role: 'ADMIN',
+    } as typeof schema.workspaceMembers.$inferInsert)
+    .onConflictDoNothing();
 }, 60_000);
 
 describe('external-api · CRUD round-trip', () => {
