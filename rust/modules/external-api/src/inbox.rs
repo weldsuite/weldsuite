@@ -427,7 +427,7 @@ async fn add_conversation_message(
         .to_owned();
     let master = crate::master_db_of(&state, &caller);
     let inbox = Inbox::new(&state, &caller);
-    let (message, _) = inbox::add_desk_conversation_message_from_api(
+    let (_, message) = inbox::add_desk_conversation_message_from_api(
         &inbox.deps(&master),
         &id,
         &kind,
