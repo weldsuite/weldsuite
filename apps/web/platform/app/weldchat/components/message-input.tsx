@@ -16,7 +16,7 @@ import type { RoomClient } from '@weldsuite/realtime/client';
 import { MentionAutocomplete, type MentionSelection } from './mention-autocomplete';
 import { SlashCommandPalette } from './slash-command-palette';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useChatContext, type ReplyTo } from './chat-context';
+import { FOCUS_INPUT_EVENT, useChatContext, type FocusInputDetail, type ReplyTo } from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
@@ -260,12 +260,17 @@ export function MessageInput({
 
   // Other message actions (emoji reactions, copy link, mark unread, …) close
   // their popovers and steal focus. Listen for an explicit "return focus to
-  // input" event so the user can keep typing without clicking back in.
+  // input" event so the user can keep typing without clicking back in. A
+  // targeted request (Reply in thread) is for one composer only.
   useEffect(() => {
-    const handler = () => editorRef.current?.focus();
-    window.addEventListener('weldchat-focus-input', handler);
-    return () => window.removeEventListener('weldchat-focus-input', handler);
-  }, []);
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<FocusInputDetail | undefined>).detail;
+      if (detail && detail.parentId !== (parentId ?? null)) return;
+      editorRef.current?.focus();
+    };
+    window.addEventListener(FOCUS_INPUT_EVENT, handler);
+    return () => window.removeEventListener(FOCUS_INPUT_EVENT, handler);
+  }, [parentId]);
 
   const clearInput = useCallback(() => {
     setContent('');
