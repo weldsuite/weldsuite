@@ -14,6 +14,8 @@ export * from './project-whiteboards';
 export * from './project-documents';
 export * from './project-goals';
 export * from './project-control';
+export * from './project-delivery';
+export * from './project-settings';
 export * from './project-pipeline-stages';
 export * from './project-labels';
 export * from './task-import-jobs';

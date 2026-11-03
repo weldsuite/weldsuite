@@ -123,6 +123,12 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       }
     }
 
+    // Opt in (flow-api's vitest config): schema changes whose migration is not
+    // generated yet, on a branch that is still adding tables and columns.
+    if (process.env.PGLITE_SCHEMA_DELTA === '1') {
+      await applyPendingSchemaDelta(client, migrationsDir, journal.entries, schemaModule, { fs, path });
+    }
+
     clients.set(db, client);
     cached = {
       db: db as unknown as Database,
@@ -135,6 +141,63 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
   } catch (err) {
     cachedError = err instanceof Error ? err : new Error(String(err));
     throw cachedError;
+  }
+}
+
+/**
+ * Test-only: bring the migrated pglite up to the CURRENT Drizzle schema, when
+ * the migration for the difference has not been generated yet.
+ *
+ * Drizzle selects every column of the schema, so a column or table added to
+ * `packages/core/db/src/schema` without its migration fails every query on it
+ * in pglite. Migrations are generated once per integration (never per
+ * feature branch), so a branch that adds schema runs its tests with
+ * `PGLITE_SCHEMA_DELTA=1`: this diffs the latest journaled snapshot against
+ * the schema in memory (drizzle-kit's `generateMigration`, nothing is written)
+ * and applies the SQL. Once the migration exists the diff is empty and this
+ * does nothing. It writes no migration file and changes no real database.
+ */
+async function applyPendingSchemaDelta(
+  client: import('@electric-sql/pglite').PGlite,
+  migrationsDir: string,
+  entries: ReadonlyArray<{ idx: number; tag: string }>,
+  schemaModule: object,
+  io: { fs: typeof import('node:fs/promises'); path: typeof import('node:path') },
+): Promise<void> {
+  const { createRequire } = await import('node:module');
+  const { fs, path } = io;
+  // drizzle-kit is a dev dependency of @weldsuite/db, so resolve it from there.
+  const dbDir = path.resolve(migrationsDir, '../..');
+  const kit = createRequire(path.join(dbDir, 'package.json'))('drizzle-kit/api') as {
+    generateDrizzleJson: (schema: object) => unknown;
+    generateMigration: (prev: unknown, cur: unknown) => Promise<string[]>;
+  };
+  const last = [...entries].sort((a, b) => a.idx - b.idx).at(-1);
+  if (!last) return;
+  const snapshot = JSON.parse(
+    await fs.readFile(path.join(migrationsDir, 'meta', `${last.tag.split('_')[0]}_snapshot.json`), 'utf8'),
+  );
+  // A table re-exported under a second name (product_connections) would be seen
+  // twice and its indexes reported as duplicates (drizzle-kit exits), so pass
+  // each exported object once.
+  const seen = new Set<unknown>();
+  const exports: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(schemaModule)) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    exports[name] = value;
+  }
+  const statements = await kit.generateMigration(snapshot, kit.generateDrizzleJson(exports));
+  for (const statement of statements) {
+    try {
+      await client.exec(statement);
+    } catch (err) {
+      if (!/already exists/i.test((err as Error).message)) {
+        throw new Error(
+          `pglite failed on the pending schema delta: ${(err as Error).message}\nStatement: ${statement.slice(0, 200)}…`,
+        );
+      }
+    }
   }
 }
 

@@ -176,6 +176,46 @@ export const platformSyncMap: EntitySyncMap = {
   task_tag: inv(['task', 'tags']),
 
   // =========================================================================
+  // WeldFlow — project control and delivery
+  // =========================================================================
+  // Every type below invalidates the project root as a placeholder. Each slice
+  // repoints its own group to the query keys of its tab when that tab lands,
+  // and keeps `projectKeys.all` only where an open project page shows the
+  // object. One group per slice, a blank line between groups, so slices merge
+  // without touching each other's lines. Finance publishes no events
+  // (FLOW-019) and the client portal has no platform page.
+
+  // Approvals and My reviews (`flow_approval`).
+  flow_approval: inv(projectKeys.all),
+
+  // Governance: decisions, change requests, deliverables, scope, baselines, benefits.
+  project_decision: inv(projectKeys.all),
+  project_change_request: inv(projectKeys.all),
+  project_deliverable: inv(projectKeys.all),
+  project_scope: inv(projectKeys.all),
+  project_baseline: inv(projectKeys.all),
+  project_benefit: inv(projectKeys.all),
+
+  // Schedule: dependencies, phases and gates.
+  task_dependency: inv(projectKeys.all),
+  project_phase: inv(projectKeys.all),
+
+  // Reporting: status reports and stakeholders.
+  project_status_report: inv(projectKeys.all),
+  project_stakeholder: inv(projectKeys.all),
+
+  // Closing: lessons and templates.
+  project_lesson: inv(projectKeys.all),
+  project_template: inv(projectKeys.all),
+
+  // Portfolio: capacity, intake and the workspace settings behind them.
+  resource_booking: inv(projectKeys.all),
+  resource_request: inv(projectKeys.all),
+  project_request: inv(projectKeys.all),
+  flow_member_profile: inv(projectKeys.all),
+  flow_workspace_settings: inv(projectKeys.all),
+
+  // =========================================================================
   // WeldCRM
   // =========================================================================
   // Runtime CRM publishers emit `person` / `company`. Catalog also keeps the

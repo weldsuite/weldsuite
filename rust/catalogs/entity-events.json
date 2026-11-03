@@ -362,6 +362,19 @@
     "deleted",
     "disposed"
   ],
+  "flow_approval": [
+    "requested",
+    "decided",
+    "delegated",
+    "overdue",
+    "cancelled"
+  ],
+  "flow_member_profile": [
+    "updated"
+  ],
+  "flow_workspace_settings": [
+    "updated"
+  ],
   "folder": [
     "created",
     "updated",
@@ -858,11 +871,42 @@
     "created",
     "updated",
     "deleted",
-    "archived"
+    "archived",
+    "closed"
+  ],
+  "project_baseline": [
+    "created"
+  ],
+  "project_benefit": [
+    "created",
+    "updated",
+    "deleted",
+    "realised"
+  ],
+  "project_change_request": [
+    "created",
+    "updated",
+    "deleted",
+    "submitted",
+    "approved",
+    "rejected"
   ],
   "project_control_link": [
     "created",
     "deleted"
+  ],
+  "project_decision": [
+    "created",
+    "updated",
+    "deleted",
+    "decided",
+    "superseded"
+  ],
+  "project_deliverable": [
+    "created",
+    "updated",
+    "deleted",
+    "accepted"
   ],
   "project_document": [
     "created",
@@ -884,6 +928,12 @@
     "updated",
     "deleted"
   ],
+  "project_lesson": [
+    "created",
+    "updated",
+    "deleted",
+    "published"
+  ],
   "project_member": [
     "added",
     "updated",
@@ -900,6 +950,14 @@
     "deleted",
     "completed"
   ],
+  "project_phase": [
+    "created",
+    "updated",
+    "deleted",
+    "gate_requested",
+    "passed",
+    "rejected"
+  ],
   "project_pipeline_stage": [
     "created",
     "updated",
@@ -913,6 +971,19 @@
     "converted",
     "closed"
   ],
+  "project_request": [
+    "created",
+    "updated",
+    "deleted",
+    "submitted",
+    "approved",
+    "rejected",
+    "converted"
+  ],
+  "project_scope": [
+    "created",
+    "updated"
+  ],
   "project_sprint": [
     "created",
     "updated",
@@ -920,11 +991,29 @@
     "started",
     "completed"
   ],
+  "project_stakeholder": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_status_report": [
+    "created",
+    "updated",
+    "deleted",
+    "published"
+  ],
   "project_task": [
     "created",
     "updated",
     "deleted",
-    "completed"
+    "completed",
+    "rescheduled"
+  ],
+  "project_template": [
+    "created",
+    "updated",
+    "deleted",
+    "instantiated"
   ],
   "project_time_entry": [
     "created",
@@ -993,6 +1082,16 @@
     "deleted"
   ],
   "recurring_invoice": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "resource_booking": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "resource_request": [
     "created",
     "updated",
     "deleted"
@@ -1150,9 +1249,15 @@
     "created",
     "updated",
     "deleted",
-    "completed"
+    "completed",
+    "rescheduled"
   ],
   "task_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "task_dependency": [
     "created",
     "updated",
     "deleted"

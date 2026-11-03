@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     "./analytics-payload": "./src/analytics-payload.ts",
+    "./approvals": "./src/approvals.ts",
     "./project-access": "./src/project-access.ts",
     "./day-boundaries": "./src/day-boundaries.ts",
     "./project-stats": "./src/project-stats.ts",

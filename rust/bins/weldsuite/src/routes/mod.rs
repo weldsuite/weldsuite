@@ -1308,6 +1308,19 @@ fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         })
 }
 
+/// WeldFlow's client portal API at `/public/project-portal` (FLOW-020): no
+/// session, flow-api mounts it above `apiAuth()`. Served with the flow module.
+/// The portal slice adds the workspace and portal-session resolution, and the
+/// conformance tenant layers (`crate::conformance::public_tenant`), as the
+/// commerce portal does in `commerce_public`.
+fn flow_public(state: &AppState) -> Router<AppState> {
+    if !mounts("flow") {
+        return Router::new();
+    }
+    let portal = weldsuite_flow::public_router(flow_state(state));
+    Router::new().nest("/public/project-portal", portal)
+}
+
 /// WeldFlow's handle on the app: events, files, the master database, jobs.
 pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
     weldsuite_flow::FlowState {
@@ -1499,6 +1512,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(books::public(state))
         .merge(host::public(state))
         .merge(commerce_public(state))
+        .merge(flow_public(state))
         .merge(connect_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));

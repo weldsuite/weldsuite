@@ -3,6 +3,7 @@ import {
   varchar,
   text,
   timestamp,
+  boolean,
   smallint,
   integer,
   numeric,
@@ -10,19 +11,40 @@ import {
   index,
   uniqueIndex,
   check,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { projects } from './projects';
 
 /**
  * WeldFlow project control (docs: weldsuite-documentation, design/modules/
- * weldflow-project-control.md; ADRs FLOW-010 and FLOW-011).
+ * weldflow-project-control.md; ADRs FLOW-010 to FLOW-014).
  *
  * Phase 1: the RAID log (risks, assumptions, issues, dependencies) and the
  * links between register items and the tasks and milestones they affect.
- * Tenant DB only. Item numbers (RSK-4, A-1, ISS-2, DEP-3) are per project and
- * per kind, allocated from `task_number_sequences` under the scope keys
- * `rsk:<projectId>`, `asm:<projectId>`, `iss:<projectId>` and `dep:<projectId>`.
+ * Later phases (further down this file): the decision log, change requests,
+ * deliverables and scope, versioned baselines, and benefits with their
+ * monthly measurements.
+ *
+ * Tenant DB only. Item numbers are per project and per register, allocated
+ * from `task_number_sequences` under a short scope key followed by the project
+ * id (`rsk:<projectId>`):
+ *
+ *   register        scope key  display
+ *   risk            rsk        RSK-4
+ *   assumption      asm        A-1
+ *   issue           iss        ISS-2
+ *   dependency      dep        DEP-3
+ *   decision        dec        DEC-7
+ *   change request  cr         CR-8
+ *   deliverable     del        D3
+ *   benefit         ben        B-1
+ *
+ * Conventions of the tables (the design's "every table has project_id,
+ * created_by, timestamps and soft delete unless noted"): ids are varchar(30)
+ * made with `generateId(<prefix>)`, every table is tied to its project, and a
+ * table that is append-only, immutable or a relation (links, assessments,
+ * baselines, measurements) says so and has no soft delete.
  */
 
 // ── Kinds and status sets ───────────────────────────────────────────────────
@@ -279,3 +301,387 @@ export const projectControlLinks = pgTable(
 
 export type ProjectControlLink = typeof projectControlLinks.$inferSelect;
 export type NewProjectControlLink = typeof projectControlLinks.$inferInsert;
+
+// ── Decision log ────────────────────────────────────────────────────────────
+
+export const DECISION_STATUSES = ['proposed', 'decided', 'superseded'] as const;
+export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
+/** One option weighed in a decision; `chosen` marks the option that was taken. */
+export interface DecisionOption {
+  title: string;
+  note?: string | null;
+  chosen?: boolean;
+}
+
+/**
+ * The decision log. A decision starts `proposed` (optionally with a named
+ * decider, who is asked through `flow_approvals`, rule `decision_decider`),
+ * becomes `decided` and may later be `superseded` by a newer decision
+ * (`superseded_by_id`). A decided or rejected change request records one
+ * (linked with the `decided_by` control link, FLOW-012).
+ *
+ * `decider_id` is not in the design's column list: FLOW-016 routes a proposed
+ * decision "by the named decider", so the table has to say who that is.
+ * Numbers: scope `dec:<projectId>`, prefix `DEC-`.
+ */
+export const projectDecisions = pgTable(
+  'project_decisions',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    number: integer('number').notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    status: varchar('status', { length: 20 }).$type<DecisionStatus>().notNull().default('proposed'),
+    context: text('context'),
+    options: jsonb('options').$type<DecisionOption[]>().notNull().default([]),
+    consequences: jsonb('consequences').$type<string[]>().notNull().default([]),
+    /** The member who has to decide, while the decision is proposed. */
+    deciderId: varchar('decider_id', { length: 255 }),
+    /** The member who made the decision (not necessarily the named decider). */
+    decidedBy: varchar('decided_by', { length: 255 }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** Reminder date while the decision is open (the digest lists it). */
+    decisionDueAt: timestamp('decision_due_at', { withTimezone: true }),
+    supersededById: varchar('superseded_by_id', { length: 30 }).references((): AnyPgColumn => projectDecisions.id),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('project_decisions_project_number_idx').on(table.projectId, table.number),
+    index('project_decisions_project_status_idx').on(table.projectId, table.status),
+    index('project_decisions_project_due_idx').on(table.projectId, table.decisionDueAt),
+    check('project_decisions_status_check', sql`${table.status} in ('proposed', 'decided', 'superseded')`),
+  ],
+);
+
+export type ProjectDecision = typeof projectDecisions.$inferSelect;
+export type NewProjectDecision = typeof projectDecisions.$inferInsert;
+
+// ── Change requests ─────────────────────────────────────────────────────────
+
+/**
+ * draft → assessing → awaiting_approval → approved | rejected, then
+ * implemented once the work is done; `withdrawn` from any open status.
+ * Editing the impact after submission sends the change back to `assessing`
+ * and clears its approvals (FLOW-013).
+ */
+export const CHANGE_REQUEST_STATUSES = [
+  'draft',
+  'assessing',
+  'awaiting_approval',
+  'approved',
+  'rejected',
+  'implemented',
+  'withdrawn',
+] as const;
+export type ChangeRequestStatus = (typeof CHANGE_REQUEST_STATUSES)[number];
+
+/** Who approves: the project manager (under both limits) or the change board (FLOW-013). */
+export const CHANGE_ROUTES = ['manager', 'board'] as const;
+export type ChangeRoute = (typeof CHANGE_ROUTES)[number];
+
+/** The date moves an approved change writes to the live plan. Dates are ISO strings. */
+export interface ChangePlanChanges {
+  milestones?: Array<{ milestoneId: string; to: string }>;
+  deliverables?: Array<{ deliverableId: string; plannedStart?: string | null; plannedEnd?: string | null }>;
+  /** The new go-live (the project end date), when the change moves it. */
+  goLive?: string | null;
+}
+
+/** The deliverables an approved change adds to or removes from the scope. */
+export interface ChangeScopeChanges {
+  add?: Array<{
+    title: string;
+    description?: string | null;
+    ownerId?: string | null;
+    plannedStart?: string | null;
+    plannedEnd?: string | null;
+  }>;
+  /** Ids of deliverables to remove. */
+  remove?: string[];
+}
+
+/**
+ * A change request. The approvers' answers are `flow_approvals` rows
+ * (subject_type `change_request`), not a table of their own (FLOW-016).
+ * Approval runs `applyApprovedChange` in one batch: it writes `plan_changes`
+ * and `scope_changes` and the budget (`cost_delta`) to the live plan, inserts
+ * the next `project_baselines` version (`baseline_id` points at it, with no
+ * foreign key: the baseline row points back at the change) and records a
+ * decision.
+ *
+ * `requested_by` is the member who asked; a request raised by a client in the
+ * portal has `requested_by_name` instead. `client_visible` shows it in the
+ * client portal. Numbers: scope `cr:<projectId>`, prefix `CR-`.
+ */
+export const projectChangeRequests = pgTable(
+  'project_change_requests',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    number: integer('number').notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    requestedBy: varchar('requested_by', { length: 255 }),
+    requestedByName: varchar('requested_by_name', { length: 255 }),
+    status: varchar('status', { length: 30 }).$type<ChangeRequestStatus>().notNull().default('draft'),
+    // Impact assessment
+    /** In the project's `budget_currency`; negative when the change saves money. */
+    costDelta: numeric('cost_delta', { precision: 18, scale: 2 }),
+    /** In working days; negative when the change saves time. */
+    scheduleDeltaDays: integer('schedule_delta_days'),
+    planChanges: jsonb('plan_changes').$type<ChangePlanChanges>(),
+    scopeChanges: jsonb('scope_changes').$type<ChangeScopeChanges>(),
+    // Routing, fixed when the change is submitted
+    route: varchar('route', { length: 20 }).$type<ChangeRoute>(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** The baseline version this change produced (set on approval). */
+    baselineId: varchar('baseline_id', { length: 30 }),
+    clientVisible: boolean('client_visible').notNull().default(false),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('project_change_requests_project_number_idx').on(table.projectId, table.number),
+    index('project_change_requests_project_status_idx').on(table.projectId, table.status),
+    check(
+      'project_change_requests_status_check',
+      sql`${table.status} in ('draft', 'assessing', 'awaiting_approval', 'approved', 'rejected', 'implemented', 'withdrawn')`,
+    ),
+    check('project_change_requests_route_check', sql`${table.route} is null or ${table.route} in ('manager', 'board')`),
+  ],
+);
+
+export type ProjectChangeRequest = typeof projectChangeRequests.$inferSelect;
+export type NewProjectChangeRequest = typeof projectChangeRequests.$inferInsert;
+
+// ── Deliverables ────────────────────────────────────────────────────────────
+
+export const DELIVERABLE_STATUSES = ['not_started', 'in_progress', 'accepted', 'rejected'] as const;
+export type DeliverableStatus = (typeof DELIVERABLE_STATUSES)[number];
+
+/** One acceptance criterion; the deliverable can be accepted once every one is met. */
+export interface AcceptanceCriterion {
+  text: string;
+  met: boolean;
+  /** ISO date-time the criterion was marked met. */
+  metAt: string | null;
+}
+
+/**
+ * A deliverable of the project scope. Tasks count toward at most one
+ * deliverable through `tasks.deliverable_id` (FLOW-011): its task progress and
+ * Gantt bar are built from them. Accepting one is the project manager's right
+ * (`canManageProject`) or, with client sign-off, goes through `flow_approvals`
+ * (subject_type `deliverable`, the sponsor and then the client).
+ * `position` orders the list. Numbers: scope `del:<projectId>`, prefix `D`.
+ */
+export const projectDeliverables = pgTable(
+  'project_deliverables',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    number: integer('number').notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    ownerId: varchar('owner_id', { length: 255 }),
+    status: varchar('status', { length: 20 }).$type<DeliverableStatus>().notNull().default('not_started'),
+    plannedStart: timestamp('planned_start', { withTimezone: true }),
+    plannedEnd: timestamp('planned_end', { withTimezone: true }),
+    acceptanceCriteria: jsonb('acceptance_criteria').$type<AcceptanceCriterion[]>().notNull().default([]),
+    acceptedBy: varchar('accepted_by', { length: 255 }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    position: integer('position').notNull().default(0),
+    clientVisible: boolean('client_visible').notNull().default(false),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('project_deliverables_project_number_idx').on(table.projectId, table.number),
+    index('project_deliverables_project_status_idx').on(table.projectId, table.status),
+    check(
+      'project_deliverables_status_check',
+      sql`${table.status} in ('not_started', 'in_progress', 'accepted', 'rejected')`,
+    ),
+  ],
+);
+
+export type ProjectDeliverable = typeof projectDeliverables.$inferSelect;
+export type NewProjectDeliverable = typeof projectDeliverables.$inferInsert;
+
+// ── Scope statement ─────────────────────────────────────────────────────────
+
+/** An item that is deliberately out of scope, with the reason, and optionally the object it relates to. */
+export interface OutOfScopeItem {
+  text: string;
+  reason?: string | null;
+  linkType?: string | null;
+  linkId?: string | null;
+}
+
+/**
+ * One row per project: the scope statement and the in and out of scope lists.
+ * Not soft deleted: the row is the project's scope, edited in place (the
+ * versions live in `project_baselines`), and the unique index on `project_id`
+ * is what makes it one per project.
+ */
+export const projectScope = pgTable(
+  'project_scope',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    statement: text('statement'),
+    inScope: jsonb('in_scope').$type<string[]>().notNull().default([]),
+    outOfScope: jsonb('out_of_scope').$type<OutOfScopeItem[]>().notNull().default([]),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    updatedBy: varchar('updated_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('project_scope_project_idx').on(table.projectId)],
+);
+
+export type ProjectScope = typeof projectScope.$inferSelect;
+export type NewProjectScope = typeof projectScope.$inferInsert;
+
+// ── Baselines ───────────────────────────────────────────────────────────────
+
+/** What a baseline version froze (FLOW-012). Dates are ISO strings, amounts decimal strings. */
+export interface BaselineSnapshot {
+  /** The project's go-live (its end date). */
+  goLive: string | null;
+  milestones: Array<{ id: string; name: string; dueDate: string }>;
+  deliverables: Array<{
+    id: string;
+    number: number;
+    title: string;
+    plannedStart: string | null;
+    plannedEnd: string | null;
+  }>;
+  budgetedAmount: string | null;
+  budgetedHours: string | null;
+  budgetCurrency: string | null;
+  scopeStatement: string | null;
+}
+
+/**
+ * One row per baseline version: scope, plan and budget agreed at one moment
+ * (FLOW-012). Immutable and never deleted. v1 is set when the project manager
+ * signs off the plan; later versions come only from an approved change request
+ * (`change_request_id`, null for v1).
+ */
+export const projectBaselines = pgTable(
+  'project_baselines',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    version: integer('version').notNull(),
+    changeRequestId: varchar('change_request_id', { length: 30 }).references(() => projectChangeRequests.id),
+    snapshot: jsonb('snapshot').$type<BaselineSnapshot>().notNull(),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('project_baselines_project_version_idx').on(table.projectId, table.version)],
+);
+
+export type ProjectBaseline = typeof projectBaselines.$inferSelect;
+export type NewProjectBaseline = typeof projectBaselines.$inferInsert;
+
+// ── Benefits ────────────────────────────────────────────────────────────────
+
+export const BENEFIT_STATUSES = ['planned', 'measuring', 'at_risk', 'realised', 'closed'] as const;
+export type BenefitStatus = (typeof BENEFIT_STATUSES)[number];
+
+/**
+ * A benefit of the project (business value). `metric` is a key of the metric
+ * catalogue in flow-domain (`benefit-metrics`, FLOW-014) or `manual`;
+ * `metric_params` are that metric's parameters. `goal_ref` is the id of a goal
+ * card in `project_goals.goals` (jsonb, so no foreign key). Realised and
+ * closed benefits stop being measured (`closed_at`). Numbers: scope
+ * `ben:<projectId>`, prefix `B-`.
+ */
+export const projectBenefits = pgTable(
+  'project_benefits',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    number: integer('number').notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    ownerId: varchar('owner_id', { length: 255 }),
+    goalRef: varchar('goal_ref', { length: 255 }),
+    metric: varchar('metric', { length: 60 }).notNull().default('manual'),
+    metricParams: jsonb('metric_params').$type<Record<string, unknown>>().notNull().default({}),
+    unit: varchar('unit', { length: 30 }),
+    baselineValue: numeric('baseline_value', { precision: 18, scale: 4 }),
+    targetValue: numeric('target_value', { precision: 18, scale: 4 }),
+    realiseBy: timestamp('realise_by', { withTimezone: true }),
+    status: varchar('status', { length: 20 }).$type<BenefitStatus>().notNull().default('planned'),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdBy: varchar('created_by', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('project_benefits_project_number_idx').on(table.projectId, table.number),
+    index('project_benefits_project_status_idx').on(table.projectId, table.status),
+    index('project_benefits_status_idx').on(table.status),
+    check('project_benefits_status_check', sql`${table.status} in ('planned', 'measuring', 'at_risk', 'realised', 'closed')`),
+  ],
+);
+
+export type ProjectBenefit = typeof projectBenefits.$inferSelect;
+export type NewProjectBenefit = typeof projectBenefits.$inferInsert;
+
+/**
+ * Append-only, one row per benefit and month (the monthly sweep, or a manual
+ * entry). `period` is `YYYY-MM`. A re-run for the same month replaces the row
+ * (upsert on the unique index). `measured_by` is set for a manual entry and
+ * null for the sweep. No soft delete.
+ */
+export const projectBenefitMeasurements = pgTable(
+  'project_benefit_measurements',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    benefitId: varchar('benefit_id', { length: 30 })
+      .notNull()
+      .references(() => projectBenefits.id),
+    projectId: varchar('project_id', { length: 255 })
+      .notNull()
+      .references(() => projects.id),
+    period: varchar('period', { length: 7 }).notNull(),
+    value: numeric('value', { precision: 18, scale: 4 }).notNull(),
+    measuredAt: timestamp('measured_at', { withTimezone: true }).notNull().defaultNow(),
+    measuredBy: varchar('measured_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('project_benefit_measurements_benefit_period_idx').on(table.benefitId, table.period),
+    index('project_benefit_measurements_project_idx').on(table.projectId),
+    check('project_benefit_measurements_period_check', sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+  ],
+);
+
+export type ProjectBenefitMeasurement = typeof projectBenefitMeasurements.$inferSelect;
+export type NewProjectBenefitMeasurement = typeof projectBenefitMeasurements.$inferInsert;

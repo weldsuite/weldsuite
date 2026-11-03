@@ -12,7 +12,10 @@ import {
  * The workspace-wide task number (TASK-<number>) is the row with scope = 'task'.
  * RAID register items (project control) number per project and kind, one row
  * each, under the scope keys 'rsk:<projectId>', 'asm:<projectId>',
- * 'iss:<projectId>' and 'dep:<projectId>' (display prefixes RSK-, A-, ISS-, DEP-).
+ * 'iss:<projectId>' and 'dep:<projectId>' (display prefixes RSK-, A-, ISS-, DEP-);
+ * the other registers do the same ('dec:' DEC-, 'cr:' CR-, 'del:' D, 'ben:' B-,
+ * see ./project-control). Project requests (intake) number workspace-wide under
+ * the scope 'req' (REQ-).
  * Allocation increments `next_value` atomically via an upsert with RETURNING, so
  * concurrent creates each get a distinct number with no select-then-update race —
  * the same technique used by `entity_number_sequences` for accounting documents.

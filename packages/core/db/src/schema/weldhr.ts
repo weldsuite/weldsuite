@@ -553,9 +553,16 @@ export const hrDeclarations = pgTable('hr_declarations', {
   reviewNote: text('review_note'),
   paidBy: varchar('paid_by', { length: 255 }),
   paidAt: timestamp('paid_at'),
+  /**
+   * The WeldFlow project this expense belongs to (FLOW-019). Set in WeldHR's
+   * own UI; WeldFlow only reads it. `projects.id`, deliberately no foreign key:
+   * the project belongs to another module.
+   */
+  projectId: varchar('project_id', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
+  index('hr_declarations_project_idx').on(table.projectId),
   index('hr_declarations_employee_idx').on(table.employeeId),
   index('hr_declarations_status_idx').on(table.status),
   index('hr_declarations_expense_date_idx').on(table.expenseDate),

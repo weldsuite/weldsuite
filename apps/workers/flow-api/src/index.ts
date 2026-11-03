@@ -15,24 +15,43 @@
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { runDigestSweep } from './cron/digest-sweep';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
+import { approvalsRoutes } from './routes/approvals';
+import { capacityRoutes } from './routes/capacity';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { documentsRoutes } from './routes/documents';
 import { goalsRoutes } from './routes/goals';
 import { milestonesRoutes } from './routes/milestones';
 import { myTasksRoutes } from './routes/my-tasks';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
+import { projectBaselinesRoutes } from './routes/project-baselines';
+import { projectBenefitsRoutes } from './routes/project-benefits';
+import { projectChangesRoutes } from './routes/project-changes';
+import { projectCloseRoutes } from './routes/project-close';
 import { projectControlLinksRoutes } from './routes/project-control-links';
+import { projectDecisionsRoutes } from './routes/project-decisions';
+import { projectDeliverablesRoutes } from './routes/project-deliverables';
 import { projectDocumentsRoutes } from './routes/project-documents';
 import { projectFilesRoutes } from './routes/project-files';
+import { projectFinanceRoutes } from './routes/project-finance';
 import { projectLabelsRoutes } from './routes/project-labels';
+import { projectLessonsRoutes } from './routes/project-lessons';
 import { projectMembersRoutes } from './routes/project-members';
 import { projectMessagesRoutes } from './routes/project-messages';
+import { projectPhasesRoutes } from './routes/project-phases';
 import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
 import { projectRaidRoutes } from './routes/project-raid';
+import { projectRequestsRoutes } from './routes/project-requests';
+import { projectScheduleRoutes } from './routes/project-schedule';
+import { projectScopeRoutes } from './routes/project-scope';
 import { projectSheetsRoutes } from './routes/project-sheets';
+import { projectStakeholdersRoutes } from './routes/project-stakeholders';
+import { projectStatusReportsRoutes } from './routes/project-status-reports';
+import { projectTemplatesRoutes } from './routes/project-templates';
 import { projectsRoutes } from './routes/projects';
+import { publicProjectPortalRoutes } from './routes/public-project-portal';
 import { sprintsRoutes } from './routes/sprints';
 import { taskCommentsRoutes } from './routes/task-comments';
+import { taskDependenciesRoutes } from './routes/task-dependencies';
 import { taskProjectsRoutes } from './routes/task-projects';
 import { taskTagsRoutes } from './routes/task-tags';
 import { tasksRoutes } from './routes/tasks';
@@ -69,6 +88,31 @@ app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/my-tasks', myTasksRoutes);
 app.route('/api/time-entries', timeEntriesRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
+
+// WeldFlow project control and delivery (design: weldflow-project-control.md and
+// weldflow-delivery-and-portfolio.md). Stubs until their slices fill them in.
+app.route('/api/approvals', approvalsRoutes);
+app.route('/api/capacity', capacityRoutes);
+app.route('/api/project-baselines', projectBaselinesRoutes);
+app.route('/api/project-benefits', projectBenefitsRoutes);
+app.route('/api/project-changes', projectChangesRoutes);
+app.route('/api/project-close', projectCloseRoutes);
+app.route('/api/project-decisions', projectDecisionsRoutes);
+app.route('/api/project-deliverables', projectDeliverablesRoutes);
+app.route('/api/project-finance', projectFinanceRoutes);
+app.route('/api/project-lessons', projectLessonsRoutes);
+app.route('/api/project-phases', projectPhasesRoutes);
+app.route('/api/project-requests', projectRequestsRoutes);
+app.route('/api/project-schedule', projectScheduleRoutes);
+app.route('/api/project-scope', projectScopeRoutes);
+app.route('/api/project-stakeholders', projectStakeholdersRoutes);
+app.route('/api/project-status-reports', projectStatusReportsRoutes);
+app.route('/api/project-templates', projectTemplatesRoutes);
+app.route('/api/task-dependencies', taskDependenciesRoutes);
+
+// The client portal is public (a portal session, not Clerk): outside `/api/*`, so
+// `apiAuth()` does not run.
+app.route('/public/project-portal', publicProjectPortalRoutes);
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // Daily task digests and bulk task imports, under the `send-digest-v3*` and
