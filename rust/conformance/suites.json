@@ -362,6 +362,27 @@
       ]
     },
     {
+      "name": "sheets",
+      "module": "sheets",
+      "workspace": "apps/workers/sheets-api",
+      "tests": [
+        "src/routes/sheets/index.test.ts",
+        "src/routes/sheets/review.test.ts"
+      ],
+      "paths": [
+        "apps/workers/sheets-api/src/",
+        "packages/clients/app-api-client/src/schemas/sheets.ts",
+        "packages/clients/app-api-client/src/schemas/sheet-data.ts",
+        "packages/core/sheets-engine/src/",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "packages/core/worker-kit/src/testing/write-isolation.ts",
+        "rust/catalogs/sheet-data.json",
+        "rust/modules/sheets/",
+        "rust/crates/adapters-oss/src/collab.rs",
+        "rust/bins/weldsuite/src/collab.rs"
+      ]
+    },
+    {
       "name": "core: files, folders and drive",
       "module": "core",
       "workspace": "apps/workers/app-api",

@@ -134,9 +134,39 @@ export function liveRoomNamespace(env: () => import('../types').Env) {
     }
     return entry;
   };
+  /**
+   * The same rooms, rebuilt over `isolated`'s buckets from copies of their
+   * storage (a room is its checkpoint plus its op log), for a conformance
+   * run that must not change them: the TypeScript side of a write
+   * (`isolatedEnv` in @weldsuite/worker-kit/testing/write-isolation). The
+   * rooms keep this namespace's env otherwise, as the ones the Rust side
+   * reaches through the bridge do.
+   */
+  const fork = (isolated: Record<string, unknown>) => {
+    const forked = new Map<string, import('../room/sheet-room').SheetRoom>();
+    const forkEnv = () => ({ ...env(), PRIVATE_STORAGE: isolated.PRIVATE_STORAGE, STORAGE: isolated.STORAGE }) as import('../types').Env;
+    return {
+      idFromName: (name: string) => ({ name }),
+      get: (id: { name: string }) => {
+        let room = forked.get(id.name);
+        if (!room) {
+          const source = rooms.get(id.name);
+          const state = fakeObjectState(source ? source.state.ctx.id.toString() : String(rooms.size + 1).padStart(64, '0'));
+          if (source) {
+            for (const [key, value] of source.state.storage.data) state.storage.data.set(key, structuredClone(value));
+            state.storage.alarm = source.state.storage.alarm;
+          }
+          room = new RoomClass(state.ctx, forkEnv());
+          forked.set(id.name, room);
+        }
+        return room;
+      },
+    };
+  };
   const binding = {
     idFromName: (name: string) => ({ name }),
     get: (id: { name: string }) => roomFor(id.name).room,
+    fork,
   };
   return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
 }

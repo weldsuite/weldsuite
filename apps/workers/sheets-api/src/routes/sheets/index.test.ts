@@ -9,6 +9,7 @@ import { Engine, writeXlsx, writeZip } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '../../types';
 import { readSnapshot } from '../../room/snapshot';
 import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
+import { sheetEngineNamespace } from '../../engine-ops';
 import sheetRoutes from './index';
 
 const ALL = ['sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete'];
@@ -22,7 +23,7 @@ let rooms: ReturnType<typeof fakeRoomNamespace>;
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/sheets', sheetRoutes, {
     context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
-    env: { PRIVATE_STORAGE: bucket.asBinding(), SHEET_ROOM: rooms.binding },
+    env: { PRIVATE_STORAGE: bucket.asBinding(), SHEET_ROOM: rooms.binding, SHEET_ENGINE: sheetEngineNamespace() },
   });
 }
 
@@ -132,7 +133,7 @@ describe('/api/sheets', () => {
     const session = ((await res.json()) as { data: SheetSession }).data;
     expect(session.canEdit).toBe(true);
     expect(session.ticket).toBe(`${'f'.repeat(64)}.ticket-for-${ALICE}`);
-    expect(rooms.admissions).toEqual([
+    expect(rooms.admissions.slice(-1)).toEqual([
       {
         name: `org_test_default:${sheet.id}`,
         admission: expect.objectContaining({
@@ -152,7 +153,7 @@ describe('/api/sheets', () => {
     const sheet = await create({ name: 'Look only' });
     const res = await app({ keys: ['sheets:read'] }).request(`/api/sheets/${sheet.id}/session`, { method: 'POST' });
     expect(((await res.json()) as { data: SheetSession }).data.canEdit).toBe(false);
-    expect(rooms.admissions[0]!.admission.canEdit).toBe(false);
+    expect(rooms.admissions.at(-1)!.admission.canEdit).toBe(false);
   });
 });
 
@@ -288,11 +289,11 @@ describe('/api/sheets import and export', () => {
     expect(xlsx.headers.get('content-type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(xlsx.headers.get('content-disposition')).toBe(`attachment; filename="Budget.xlsx"; filename*=UTF-8''Budget.xlsx`);
     expect(await xlsx.text()).toBe('xlsx file');
-    expect(rooms.exports[0]).toMatchObject({ name: `org_test_default:${sheet.id}`, sheet: { sheetId: sheet.id }, request: { format: 'xlsx' } });
+    expect(rooms.exports.at(-1)).toMatchObject({ name: `org_test_default:${sheet.id}`, sheet: { sheetId: sheet.id }, request: { format: 'xlsx' } });
 
     const csv = await viewer.request(`/api/sheets/${sheet.id}/export?format=csv&tab=Blad%202&locale=nl`);
     expect(csv.headers.get('content-disposition')).toContain(`filename*=UTF-8''Budget%20-%20Blad%202.csv`);
-    expect(rooms.exports[1]!.request).toEqual({ format: 'csv', tab: 'Blad 2', locale: 'nl' });
+    expect(rooms.exports.at(-1)!.request).toEqual({ format: 'csv', tab: 'Blad 2', locale: 'nl' });
     expect((await viewer.request(`/api/sheets/${sheet.id}/export?format=csv&tab=missing`)).status).toBe(404);
     expect((await viewer.request(`/api/sheets/${sheet.id}/export?format=pdf`)).status).toBe(400);
   });

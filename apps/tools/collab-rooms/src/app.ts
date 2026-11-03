@@ -4,7 +4,7 @@
  *   DOC_ROOM    DocRoom   (apps/workers/docs-api/src/room/doc-room.ts)
  *   DOC_ENGINE  docEngine (apps/workers/docs-api/src/engine-ops.ts)
  *   SHEET_ROOM  SheetRoom (apps/workers/sheets-api/src/room/sheet-room.ts)
- *   SHEET_ENGINE  sheetEngine (apps/workers/sheets-api/src/engine-ops.ts)
+ *   SHEET_ENGINE  sheetEngineFor(env) (apps/workers/sheets-api/src/engine-ops.ts)
  *
  * They are imported by path: the build bundles them with this service's
  * runtime in place of `cloudflare:workers` and Neon (build.mjs).
@@ -13,7 +13,7 @@
 import { DocRoom } from '../../../workers/docs-api/src/room/doc-room';
 import { docEngine } from '../../../workers/docs-api/src/engine-ops';
 import { SheetRoom } from '../../../workers/sheets-api/src/room/sheet-room';
-import { sheetEngine } from '../../../workers/sheets-api/src/engine-ops';
+import { sheetEngineFor } from '../../../workers/sheets-api/src/engine-ops';
 import { RoomNamespace, type RoomFactory } from './runtime/host';
 import { r2Bucket, type ObjectStore } from './runtime/objects';
 import { createCollabServer, type CollabServer } from './server';
@@ -76,7 +76,7 @@ export function createCollabApp(config: CollabConfig): CollabServer {
   };
   return createCollabServer({
     rooms,
-    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngine },
+    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngineFor(env as never) },
     connectPaths: { '/api/docs/connect': 'DOC_ROOM', '/api/sheets/connect': 'SHEET_ROOM' },
     secret: config.secret,
     owns: config.owns,

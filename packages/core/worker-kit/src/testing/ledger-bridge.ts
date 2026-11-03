@@ -89,9 +89,10 @@ export interface LedgerCall {
 const RESERVATION_METHODS = new Set(['commit', 'release']);
 /**
  * Ids a request mints that reach a room call (a version's id in its key, a
- * restore's automatic version, a new sheet): new per run, so masked.
+ * restore's automatic version, a new sheet, a connected table's new tab):
+ * new per run, so masked.
  */
-const MINTED_ROOM_ID = /\b(?:docv|shtv|sht|shds)_[0-9a-z]{12,}/g;
+const MINTED_ROOM_ID = /\b(?:docv|shtv|sht|shds|sh)_[0-9a-z]{12,}/g;
 const ROOM_BINDINGS: ReadonlySet<string> = new Set(['DOC_ROOM', 'SHEET_ROOM']);
 const NOW_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 

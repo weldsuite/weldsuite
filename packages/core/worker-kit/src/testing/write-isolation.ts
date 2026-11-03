@@ -141,10 +141,11 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
     if (isKvLike(env[name])) isolated[name] = isolatedKv(env[name] as KvLike);
   }
   // A Durable Object namespace stub that can copy its state (the portal's
-  // rate-limit counters) counts the TypeScript run on the copy.
+  // rate-limit counters, WeldSheets' rooms) runs the TypeScript side on the
+  // copy, given the isolated env (its rooms write to the bucket views above).
   for (const name of LEDGER_BINDINGS) {
-    const ns = env[name] as { fork?: () => unknown } | undefined;
-    if (ns && typeof ns.fork === 'function') isolated[name] = ns.fork();
+    const ns = env[name] as { fork?: (env: Record<string, unknown>) => unknown } | undefined;
+    if (ns && typeof ns.fork === 'function') isolated[name] = ns.fork(isolated);
   }
   return isolated;
 }

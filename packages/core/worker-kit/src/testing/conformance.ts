@@ -863,8 +863,13 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'secret' && WEBHOOK_SECRET.test(value)) return '<webhook-secret>';
   // A WeldReach mailbox's inbound token: 24 random letters, new per run.
   if (key === 'inboundToken' && REACH_INBOUND_TOKEN.test(value)) return '<inbound-token>';
+  // A collaborative room's ticket: the room's id, then a secret new per call.
+  if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
   return undefined;
 }
+
+/** A WeldDocs or WeldSheets room ticket: `<room id>.<secret>`. */
+const ROOM_TICKET = /^([0-9a-f]{64})\.[0-9A-Za-z_-]+$/;
 
 /** A provider webhook target of an integration connection. */
 const INTEGRATION_WEBHOOK_TARGET = /\/webhook\/(gcal\/)?intc_/;

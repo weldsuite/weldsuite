@@ -1,0 +1,973 @@
+{
+  "filterOps": [
+    "eq",
+    "neq",
+    "contains",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "empty",
+    "notEmpty"
+  ],
+  "filterOpsByType": {
+    "boolean": [
+      "eq",
+      "neq",
+      "empty",
+      "notEmpty"
+    ],
+    "currency": [
+      "eq",
+      "neq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "empty",
+      "notEmpty"
+    ],
+    "date": [
+      "eq",
+      "neq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "empty",
+      "notEmpty"
+    ],
+    "datetime": [
+      "eq",
+      "neq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "empty",
+      "notEmpty"
+    ],
+    "number": [
+      "eq",
+      "neq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "empty",
+      "notEmpty"
+    ],
+    "text": [
+      "eq",
+      "neq",
+      "contains",
+      "empty",
+      "notEmpty"
+    ]
+  },
+  "maxColumns": 50,
+  "maxFilters": 20,
+  "maxRows": 10000,
+  "objectKeys": [
+    "companies",
+    "people",
+    "leads",
+    "opportunities",
+    "quotes",
+    "tickets",
+    "projects",
+    "tasks",
+    "products",
+    "orders",
+    "invoices"
+  ],
+  "objects": {
+    "companies": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "tradingName",
+          "type": "text"
+        },
+        {
+          "key": "email",
+          "type": "text"
+        },
+        {
+          "key": "phone",
+          "type": "text"
+        },
+        {
+          "key": "website",
+          "type": "text"
+        },
+        {
+          "key": "industry",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "lifecycleStage",
+          "type": "text"
+        },
+        {
+          "key": "source",
+          "type": "text"
+        },
+        {
+          "key": "employeeCount",
+          "type": "text"
+        },
+        {
+          "key": "vatNumber",
+          "type": "text"
+        },
+        {
+          "key": "ownerId",
+          "type": "text"
+        },
+        {
+          "key": "accountManagerId",
+          "type": "text"
+        },
+        {
+          "key": "isSupplier",
+          "type": "boolean"
+        },
+        {
+          "key": "leadScore",
+          "type": "number"
+        },
+        {
+          "key": "lastContactDate",
+          "type": "date"
+        },
+        {
+          "key": "nextFollowUpDate",
+          "type": "date"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "archivedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "companies:read"
+    },
+    "invoices": {
+      "fields": [
+        {
+          "key": "invoiceNumber",
+          "type": "text"
+        },
+        {
+          "key": "type",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "contactName",
+          "type": "text"
+        },
+        {
+          "key": "contactEmail",
+          "type": "text"
+        },
+        {
+          "key": "issueDate",
+          "type": "date"
+        },
+        {
+          "key": "dueDate",
+          "type": "date"
+        },
+        {
+          "key": "paidAt",
+          "type": "datetime"
+        },
+        {
+          "key": "sentAt",
+          "type": "datetime"
+        },
+        {
+          "key": "currency",
+          "type": "text"
+        },
+        {
+          "key": "subtotal",
+          "type": "currency"
+        },
+        {
+          "key": "discountTotal",
+          "type": "currency"
+        },
+        {
+          "key": "taxTotal",
+          "type": "currency"
+        },
+        {
+          "key": "total",
+          "type": "currency"
+        },
+        {
+          "key": "amountPaid",
+          "type": "currency"
+        },
+        {
+          "key": "balanceDue",
+          "type": "currency"
+        },
+        {
+          "key": "reference",
+          "type": "text"
+        },
+        {
+          "key": "entityId",
+          "type": "text"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "invoices:read"
+    },
+    "leads": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "firstName",
+          "type": "text"
+        },
+        {
+          "key": "lastName",
+          "type": "text"
+        },
+        {
+          "key": "companyName",
+          "type": "text"
+        },
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "email",
+          "type": "text"
+        },
+        {
+          "key": "phone",
+          "type": "text"
+        },
+        {
+          "key": "source",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "rating",
+          "type": "text"
+        },
+        {
+          "key": "score",
+          "type": "number"
+        },
+        {
+          "key": "ownerId",
+          "type": "text"
+        },
+        {
+          "key": "isQualified",
+          "type": "boolean"
+        },
+        {
+          "key": "convertedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "lastActivityAt",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "leads:read"
+    },
+    "opportunities": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "customerName",
+          "type": "text"
+        },
+        {
+          "key": "amount",
+          "type": "currency"
+        },
+        {
+          "key": "currency",
+          "type": "text"
+        },
+        {
+          "key": "expectedRevenue",
+          "type": "currency"
+        },
+        {
+          "key": "stage",
+          "type": "text"
+        },
+        {
+          "key": "probability",
+          "type": "number"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "pipeline",
+          "type": "text"
+        },
+        {
+          "key": "type",
+          "type": "text"
+        },
+        {
+          "key": "forecastCategory",
+          "type": "text"
+        },
+        {
+          "key": "leadSource",
+          "type": "text"
+        },
+        {
+          "key": "ownerId",
+          "type": "text"
+        },
+        {
+          "key": "closeDate",
+          "type": "date"
+        },
+        {
+          "key": "actualCloseDate",
+          "type": "date"
+        },
+        {
+          "key": "nextStep",
+          "type": "text"
+        },
+        {
+          "key": "nextStepDate",
+          "type": "date"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "opportunities:read"
+    },
+    "orders": {
+      "fields": [
+        {
+          "key": "orderNumber",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "paymentStatus",
+          "type": "text"
+        },
+        {
+          "key": "fulfillmentStatus",
+          "type": "text"
+        },
+        {
+          "key": "customerName",
+          "type": "text"
+        },
+        {
+          "key": "customerEmail",
+          "type": "text"
+        },
+        {
+          "key": "currency",
+          "type": "text"
+        },
+        {
+          "key": "subtotal",
+          "type": "currency"
+        },
+        {
+          "key": "discountTotal",
+          "type": "currency"
+        },
+        {
+          "key": "shippingTotal",
+          "type": "currency"
+        },
+        {
+          "key": "taxTotal",
+          "type": "currency"
+        },
+        {
+          "key": "total",
+          "type": "currency"
+        },
+        {
+          "key": "itemCount",
+          "type": "number"
+        },
+        {
+          "key": "source",
+          "type": "text"
+        },
+        {
+          "key": "paidAt",
+          "type": "datetime"
+        },
+        {
+          "key": "shippedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "deliveredAt",
+          "type": "datetime"
+        },
+        {
+          "key": "cancelledAt",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "orders:read"
+    },
+    "people": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "firstName",
+          "type": "text"
+        },
+        {
+          "key": "lastName",
+          "type": "text"
+        },
+        {
+          "key": "email",
+          "type": "text"
+        },
+        {
+          "key": "directPhone",
+          "type": "text"
+        },
+        {
+          "key": "mobilePhone",
+          "type": "text"
+        },
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "department",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "lifecycleStage",
+          "type": "text"
+        },
+        {
+          "key": "source",
+          "type": "text"
+        },
+        {
+          "key": "ownerId",
+          "type": "text"
+        },
+        {
+          "key": "accountManagerId",
+          "type": "text"
+        },
+        {
+          "key": "isDecisionMaker",
+          "type": "boolean"
+        },
+        {
+          "key": "leadScore",
+          "type": "number"
+        },
+        {
+          "key": "lastContactedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "nextFollowUpDate",
+          "type": "date"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "archivedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "people:read"
+    },
+    "products": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "sku",
+          "type": "text"
+        },
+        {
+          "key": "barcode",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "price",
+          "type": "currency"
+        },
+        {
+          "key": "compareAtPrice",
+          "type": "currency"
+        },
+        {
+          "key": "costPrice",
+          "type": "currency"
+        },
+        {
+          "key": "currency",
+          "type": "text"
+        },
+        {
+          "key": "inventoryQuantity",
+          "type": "number"
+        },
+        {
+          "key": "lowStockThreshold",
+          "type": "number"
+        },
+        {
+          "key": "productType",
+          "type": "text"
+        },
+        {
+          "key": "vendor",
+          "type": "text"
+        },
+        {
+          "key": "brand",
+          "type": "text"
+        },
+        {
+          "key": "visibility",
+          "type": "text"
+        },
+        {
+          "key": "salesCount",
+          "type": "number"
+        },
+        {
+          "key": "publishedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "products:read"
+    },
+    "projects": {
+      "fields": [
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "code",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "priority",
+          "type": "text"
+        },
+        {
+          "key": "health",
+          "type": "text"
+        },
+        {
+          "key": "type",
+          "type": "text"
+        },
+        {
+          "key": "progress",
+          "type": "number"
+        },
+        {
+          "key": "projectManagerId",
+          "type": "text"
+        },
+        {
+          "key": "startDate",
+          "type": "date"
+        },
+        {
+          "key": "endDate",
+          "type": "date"
+        },
+        {
+          "key": "budgetedAmount",
+          "type": "currency"
+        },
+        {
+          "key": "actualAmount",
+          "type": "currency"
+        },
+        {
+          "key": "budgetedHours",
+          "type": "number"
+        },
+        {
+          "key": "actualHours",
+          "type": "number"
+        },
+        {
+          "key": "isBillable",
+          "type": "boolean"
+        },
+        {
+          "key": "totalTasks",
+          "type": "number"
+        },
+        {
+          "key": "completedTasks",
+          "type": "number"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "projects:read"
+    },
+    "quotes": {
+      "fields": [
+        {
+          "key": "quoteNumber",
+          "type": "text"
+        },
+        {
+          "key": "name",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "subtotal",
+          "type": "currency"
+        },
+        {
+          "key": "discount",
+          "type": "currency"
+        },
+        {
+          "key": "tax",
+          "type": "currency"
+        },
+        {
+          "key": "shipping",
+          "type": "currency"
+        },
+        {
+          "key": "total",
+          "type": "currency"
+        },
+        {
+          "key": "currency",
+          "type": "text"
+        },
+        {
+          "key": "validFrom",
+          "type": "date"
+        },
+        {
+          "key": "validUntil",
+          "type": "date"
+        },
+        {
+          "key": "opportunityId",
+          "type": "text"
+        },
+        {
+          "key": "sentAt",
+          "type": "datetime"
+        },
+        {
+          "key": "approvedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "signedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "quotes:read"
+    },
+    "tasks": {
+      "fields": [
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "key",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "priority",
+          "type": "text"
+        },
+        {
+          "key": "type",
+          "type": "text"
+        },
+        {
+          "key": "category",
+          "type": "text"
+        },
+        {
+          "key": "projectId",
+          "type": "text"
+        },
+        {
+          "key": "assigneeId",
+          "type": "text"
+        },
+        {
+          "key": "reporterId",
+          "type": "text"
+        },
+        {
+          "key": "startDate",
+          "type": "date"
+        },
+        {
+          "key": "dueDate",
+          "type": "date"
+        },
+        {
+          "key": "completedDate",
+          "type": "datetime"
+        },
+        {
+          "key": "estimatedHours",
+          "type": "number"
+        },
+        {
+          "key": "actualHours",
+          "type": "number"
+        },
+        {
+          "key": "storyPoints",
+          "type": "number"
+        },
+        {
+          "key": "progress",
+          "type": "number"
+        },
+        {
+          "key": "isBillable",
+          "type": "boolean"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "tasks:read"
+    },
+    "tickets": {
+      "fields": [
+        {
+          "key": "ticketNumber",
+          "type": "text"
+        },
+        {
+          "key": "subject",
+          "type": "text"
+        },
+        {
+          "key": "status",
+          "type": "text"
+        },
+        {
+          "key": "priority",
+          "type": "text"
+        },
+        {
+          "key": "category",
+          "type": "text"
+        },
+        {
+          "key": "channel",
+          "type": "text"
+        },
+        {
+          "key": "customerName",
+          "type": "text"
+        },
+        {
+          "key": "customerEmail",
+          "type": "text"
+        },
+        {
+          "key": "customerCompany",
+          "type": "text"
+        },
+        {
+          "key": "assigneeId",
+          "type": "text"
+        },
+        {
+          "key": "assigneeName",
+          "type": "text"
+        },
+        {
+          "key": "slaStatus",
+          "type": "text"
+        },
+        {
+          "key": "firstResponseAt",
+          "type": "datetime"
+        },
+        {
+          "key": "resolvedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "closedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "satisfactionRating",
+          "type": "number"
+        },
+        {
+          "key": "messageCount",
+          "type": "number"
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime"
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime"
+        }
+      ],
+      "permission": "tickets:read"
+    }
+  }
+}

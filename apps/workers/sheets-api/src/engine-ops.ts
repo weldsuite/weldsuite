@@ -5,7 +5,8 @@
  * conformance mode the tests hand the same functions to the harness. Each
  * one is what the route it names computes, step for step; the routes
  * themselves keep calling the engine directly. A new workbook comes back as
- * the gzipped checkpoint `writeSnapshot` stores.
+ * the gzipped checkpoint `writeSnapshot` stores. A connected table's listing
+ * reads the workspace's database, so that one needs the env (`sheetEngineFor`).
  */
 
 import {
@@ -19,9 +20,14 @@ import {
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import type { SheetFileLocale } from '@weldsuite/app-api-client/schemas/sheets';
+import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
+import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import type { Env } from './types';
 import { newTabId } from './room/people';
 import { exportEngine } from './room/sheet-room';
 import { convertLegacyModel, readLegacyModel } from './services/legacy-project-sheet';
+import { buildRefresh, type RefreshResult } from './services/data-sources/refresh';
+import type { DataSourceRecord } from './services/data-sources/sources';
 
 /** As in routes/sheets/index.ts. */
 const MAX_IMPORT_CELLS = 250_000;
@@ -109,7 +115,33 @@ async function exportWorkbook(workbookJson: string, locale?: SheetFileLocale | n
 
 export const sheetEngine = { newSheet, importFile, convertLegacy, exportWorkbook };
 
-/** `sheetEngine` shaped as a namespace binding (`ns.get(ns.idFromName(name))[method]`). */
-export function sheetEngineNamespace() {
-  return { idFromName: (name: string) => ({ name }), get: () => sheetEngine };
+/** What a connected table's listing reads of its `sheet_data_sources` row. */
+export type DataTableSource = Pick<DataSourceRecord, 'id' | 'objectType' | 'definition' | 'createdById'>;
+
+/**
+ * The data source routes' listing (`refreshNow`'s `buildRefresh`): what
+ * `source` lists now, with the access of the person who connected it, or why
+ * it cannot be refreshed. `workspaceId` is the Clerk org id, as in the room's
+ * meta; `file` is the sheet's drive file.
+ */
+async function listDataTable(env: Env, workspaceId: string, source: DataTableSource, file: DriveFileRef): Promise<RefreshResult> {
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  return buildRefresh(db, source as DataSourceRecord, file);
+}
+
+/** `sheetEngine` with the functions that read the workspace's database through `env`. */
+export function sheetEngineFor(env: Env) {
+  return {
+    ...sheetEngine,
+    listDataTable: (workspaceId: string, source: DataTableSource, file: DriveFileRef) => listDataTable(env, workspaceId, source, file),
+  };
+}
+
+/**
+ * The engine shaped as a namespace binding (`ns.get(ns.idFromName(name))[method]`).
+ * Tests that mock `getTenantDbForWorkspace` can leave `env` out.
+ */
+export function sheetEngineNamespace(env: Env = {} as Env) {
+  const engine = sheetEngineFor(env);
+  return { idFromName: (name: string) => ({ name }), get: () => engine };
 }
