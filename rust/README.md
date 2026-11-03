@@ -136,8 +136,21 @@ modules, each with conformance suites that reach every route:
   in through Haraka: see "Inbound mail" below. The AI label of a reply is
   not available (no AI port, as for mail AI): a reply that answers a
   campaign is labelled `unclassified`, as reach-api does without a model,
-  and a person labels it. Not yet: the warmup network
-  (`reach-warmup-worker`))
+  and a person labels it. The warmup network (`reach-warmup-worker`,
+  `modules/reach/src/warmup_network`): the pool's mailboxes write to each
+  other over their own SMTP logins (lettre) and the recipient engages each
+  mail over IMAP (`async-imap` over rustls, the `ImapConnector` port:
+  found, rescued from Junk, opened, flagged, sometimes answered), as
+  `weldsuite cron reach-warmup-dispatch` (every minute),
+  `reach-warmup-plan` (every 30 minutes, with the login recheck) and
+  `reach-warmup-daily` (02:30 UTC: ramp, stats, auto-pause and resume,
+  cleanup of old warmup mail), and the `reach-warmup-send` and
+  `reach-warmup-engage` subscribers of `weldsuite consume` (NATS stream
+  `REACH_WARMUP`; without NATS the dispatch sends and engages itself); kill
+  switch `weldreach-warmup`. The corpus is the built-in one: Global
+  refreshes it monthly with AI, which these editions do not have. Parity:
+  `tests/warmup_parity.rs` and `tests/warmup_planner_parity.rs` against
+  fixtures the worker wrote (`pnpm rust:reach-warmup-fixtures`))
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -177,7 +190,7 @@ rust/
   crates/migrations/    the journaled Drizzle migrations, embedded at build time, and the runner behind
                         `weldsuite migrate` (the TypeScript runners' twin; see "Migrations" below)
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity, database provisioning),
+  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity, database provisioning, IMAP),
                         their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
@@ -188,7 +201,7 @@ rust/
                         `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
                         `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
-                        files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
+                        files over the S3 API, system mail over SMTP, IMAP (async-imap), identity on Zitadel, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
                         events, replay log, presence)
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
@@ -211,7 +224,7 @@ rust/
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
                         slugs and rate limits),
                         modules/reach (WeldReach, with crates/reach-domain: campaigns, prospects,
-                        the inbox, the send window, the warmup pool, MIME),
+                        the inbox, the send window, the warmup pool and network, MIME),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
@@ -254,6 +267,7 @@ pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker doe
 pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
 pnpm rust:reach-inbound-fixtures # re-export what reach-api's email() handler does, for modules/reach/tests/inbound_parity.rs
+pnpm rust:reach-warmup-fixtures # re-export reach-warmup-worker's rules, corpus and a planner run, for modules/reach/tests/warmup_*parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -273,6 +287,7 @@ The integration tests need throwaway services and are skipped without them:
 | `WELDSUITE_TEST_S3_ENDPOINT` (+ `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`) | an S3 store, e.g. `docker run -p 9000:9000 rustfs/rustfs:1.0.1` | S3 file store |
 | `WELDSUITE_TEST_RESTATE_INGRESS`, `_ADMIN`, `_ENDPOINT_HOST` | a Restate server, e.g. `docker run -p 8080:8080 -p 9070:9070 --add-host=host.docker.internal:host-gateway restatedev/restate:1.7.14`, with `host.docker.internal` as the host it reaches the test on | Restate jobs adapter |
 | `WELDSUITE_TEST_SMTP_URL` | an SMTP server, e.g. `docker run -p 1025:1025 axllent/mailpit:v1.31.6` (`smtp://127.0.0.1:1025`) | SMTP mail |
+| `WELDSUITE_TEST_IMAPS`, `WELDSUITE_TEST_IMAP_PLAIN` | an IMAP server on implicit TLS and plain (`host:port`), e.g. `docker run -p 3993:3993 -p 3143:3143 -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=warm1:secret1@alpha.test -Dgreenmail.users.login=local_part" greenmail/standalone:2.1.3` | IMAP adapter (`crates/adapters-oss/tests/imap_server.rs`) |
 
 CI (`Rust · checks`) starts all of them.
 
@@ -345,7 +360,12 @@ and breaches), `reach-send-sweep` every minute (WeldReach's sends: queued
 on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
 which the chart sets with `consume.enabled`, else sent by the job itself),
 `reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
-warmup progress and Mailpool slots), `identity-sync` every minute (the identity provider's
+warmup progress and Mailpool slots), `reach-warmup-dispatch` every minute,
+`reach-warmup-plan` every 30 minutes and `reach-warmup-daily` at 02:30 UTC
+(WeldReach's warmup network; the dispatch queues on NATS for
+`weldsuite consume`'s `reach-warmup-send` and `reach-warmup-engage` with
+`REACH_WARMUP_QUEUE=nats`, which the chart sets with `consume.enabled`, else
+sends and engages itself), `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
 `workspace-deletion` daily, `workspace-teardown` hourly and
 `domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
@@ -366,8 +386,9 @@ which stays with Global). The server reads environment variables only (`bins/wel
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
-| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`, and no replies are taken in: `serve`'s RCPT check and `consume` read it too) |
+| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`, and the warmup jobs cannot open any login, so they park the mailboxes they touch with `credentials_unavailable`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`, and no replies are taken in: `serve`'s RCPT check and `consume` read it too) |
 | `REACH_SEND_QUEUE` | `nats`: `weldsuite cron reach-send-sweep` queues each workspace with outreach due on NATS for the `reach-send` subscriber of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends itself |
+| `REACH_WARMUP_QUEUE` | `nats`: `weldsuite cron reach-warmup-dispatch` queues the warmup mail due to be sent or engaged on NATS (`REACH_WARMUP`) for the `reach-warmup-send` and `reach-warmup-engage` subscribers of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends and engages itself |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `REALTIME_REGISTER_API_KEY`, `REALTIME_REGISTER_CUSTOMER`, `REALTIME_REGISTER_OTE`, `REALTIME_REGISTER_ADAC_API_KEY`, `REALTIME_REGISTER_ADAC_TLD_SET_TOKEN`, `REALTIME_REGISTER_CONTACT_ADMIN`/`_TECH`/`_BILLING`, `REALTIME_REGISTER_WEBHOOK_SECRET` | WeldHost: Realtime Register's API key and customer handle (unset: search, availability, transfers and the registrar toggles answer as the worker does without them), `true` for its OTE, the ADAC key and TLD set for search, the platform contact handles domains are registered on, and the `?token=` of its process webhook (unset: every delivery is refused) |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
