@@ -733,6 +733,12 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/** A generated id inside an MCP tool result's text. */
+const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
+/** The same, for `test` (a global pattern's `test` keeps state). */
+const MCP_TEXT_HAS_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/;
+/** A humanised created/updated time in an MCP tool result (`- Created At: 2026-11-03 07:12`). */
+const MCP_TEXT_MINUTE = /((?:Created|Updated) At: )\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?/g;
 /** A WeldDesk helpdesk mail account id: `helpdesk_` and a generated id (`helpdesk_hd_<id>`). */
 const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
@@ -854,6 +860,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
+  // An MCP tool result's text (mcp-server): a record written by the call is
+  // presented with its new ids and the minute it was written.
+  if (key === 'text' && MCP_TEXT_HAS_ID.test(value)) {
+    return value.replaceAll(MCP_TEXT_ID, '<id>').replaceAll(MCP_TEXT_MINUTE, '$1<minute>');
+  }
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 

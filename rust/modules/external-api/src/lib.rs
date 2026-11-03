@@ -55,7 +55,7 @@ mod table;
 #[rustfmt::skip]
 mod tables_gen;
 mod user_apps;
-mod zod;
+pub mod zod;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -71,7 +71,7 @@ use weldsuite_ports::DynCache;
 
 pub use auth::{authenticate, insert_session};
 pub use gates::{licence_gate, module_for_external_path, rate_limit};
-pub use session::{ApiSession, KeyType, has_scope};
+pub use session::{ApiSession, KeyType, MemberScopeRule, MemberScopes, has_scope};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]

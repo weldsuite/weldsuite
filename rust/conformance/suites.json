@@ -2937,6 +2937,19 @@
       ]
     },
     {
+      "name": "mcp-server",
+      "module": "mcp-server",
+      "workspace": "apps/workers/mcp-server",
+      "tests": [
+        "src/test/mcp.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mcp-server/src/",
+        "rust/modules/mcp/",
+        "rust/modules/external-api/"
+      ]
+    },
+    {
       "name": "external-api: objects",
       "module": "external-api",
       "workspace": "apps/workers/external-api",

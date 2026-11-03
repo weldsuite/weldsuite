@@ -161,6 +161,8 @@ pub(crate) fn router(state: AppState) -> Router {
     // So does WeldPanel's collector: tracked sites send from anywhere.
     let collector =
         crate::routes::panel_collector(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // So does the MCP server (`/mcp`, OAuth bearer tokens).
+    let mcp = crate::routes::mcp(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     // The public API (`/v1`) has its own authentication and answers CORS for
     // any origin, as external-api does.
     let public_api =
@@ -184,6 +186,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(widget)
         .merge(collector)
         .merge(public_api)
+        .merge(mcp)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
         .layer(

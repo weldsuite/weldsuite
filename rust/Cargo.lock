@@ -3870,6 +3870,7 @@ dependencies = [
  "weldsuite-mail",
  "weldsuite-mail-domain",
  "weldsuite-mail-inbound",
+ "weldsuite-mcp",
  "weldsuite-meet",
  "weldsuite-migrations",
  "weldsuite-panel",
@@ -5050,6 +5051,30 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-mail-domain",
  "weldsuite-notifications",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-mcp"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-db",
+ "weldsuite-external-api",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 

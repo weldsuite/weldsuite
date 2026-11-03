@@ -52,6 +52,7 @@ weldsuite-host = { workspace = true }
 weldsuite-hr = { workspace = true }
 weldsuite-integrations = { workspace = true }
 weldsuite-external-api = { workspace = true }
+weldsuite-mcp = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-docs = { workspace = true }
 weldsuite-pass = { workspace = true }
