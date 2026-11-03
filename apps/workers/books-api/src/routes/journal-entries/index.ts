@@ -33,6 +33,7 @@ import {
 } from '@weldsuite/books-domain/accounting-guards';
 import {
   assertDimensionsBelongToEntity,
+  assertProjectsExist,
   postDraftJournalEntry,
   PostingError,
   reverseJournalEntry,
@@ -56,6 +57,8 @@ const journalLineSchema = z.object({
   /** Reporting dimensions: ids of accounting_dimension_values of the entity (dimension class / location). */
   classId: z.string().max(30).nullable().optional(),
   locationId: z.string().max(30).nullable().optional(),
+  /** The WeldFlow project the line's cost belongs to (FLOW-019). A line of a manual entry only; null leaves it untagged. */
+  projectId: z.string().max(255).nullable().optional(),
 });
 
 const createJournalEntrySchema = z.object({
@@ -160,6 +163,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
     });
 
     await assertDimensionsBelongToEntity(db, entityId, data.lines);
+    await assertProjectsExist(db, data.lines);
 
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');
@@ -197,6 +201,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       currency,
       classId: line.classId || null,
       locationId: line.locationId || null,
+      projectId: line.projectId || null,
       sortOrder: line.sortOrder ?? idx,
       createdAt: now,
       updatedAt: now,

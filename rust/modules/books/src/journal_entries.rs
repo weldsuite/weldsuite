@@ -25,8 +25,8 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::{parse_float, parse_int, to_fixed};
 use weldsuite_books_domain::posting::{
-    PostError, ReverseArgs, assert_dimensions_belong_to_entity, post_draft_journal_entry,
-    reverse_journal_entry,
+    PostError, ReverseArgs, assert_dimensions_belong_to_entity, assert_projects_exist,
+    post_draft_journal_entry, reverse_journal_entry,
 };
 use weldsuite_books_domain::tables::{JOURNAL_ENTRIES, JOURNAL_LINES};
 use weldsuite_catalogs::entity_events::{
@@ -98,6 +98,8 @@ struct LineInput {
     sort_order: Option<f64>,
     class_id: Option<String>,
     location_id: Option<String>,
+    /// The `WeldFlow` project the line's cost belongs to (FLOW-019).
+    project_id: Option<String>,
 }
 
 struct CreateInput {
@@ -119,6 +121,7 @@ fn read_line(issues: &mut Issues, item: &Value) -> Option<LineInput> {
     let sort_order = issues.number(fields, "sortOrder", Presence::Optional, Number::default());
     let class_id = issues.text(fields, "classId", Presence::Nullish, None, Some(30));
     let location_id = issues.text(fields, "locationId", Presence::Nullish, None, Some(30));
+    let project_id = issues.text(fields, "projectId", Presence::Nullish, None, Some(255));
     Some(LineInput {
         account_id: account_id.into_option()?,
         description: description.into_option(),
@@ -130,6 +133,7 @@ fn read_line(issues: &mut Issues, item: &Value) -> Option<LineInput> {
         sort_order: sort_order.into_option(),
         class_id: class_id.into_option(),
         location_id: location_id.into_option(),
+        project_id: project_id.into_option(),
     })
 }
 
@@ -343,6 +347,9 @@ async fn create_entry(
     assert_dimensions_belong_to_entity(db, &entity_id, &dims)
         .await
         .map_err(posting_refusal)?;
+    assert_projects_exist(db, data.lines.iter().map(|l| l.project_id.clone()))
+        .await
+        .map_err(posting_refusal)?;
 
     let entry_number = next_entity_number(db, &entity_id, SequenceType::Journal)
         .await?
@@ -393,6 +400,7 @@ async fn create_entry(
                 ("currency", json!(currency)),
                 ("classId", or_null(line.class_id.as_ref())),
                 ("locationId", or_null(line.location_id.as_ref())),
+                ("projectId", or_null(line.project_id.as_ref())),
                 (
                     "sortOrder",
                     line.sort_order
