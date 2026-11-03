@@ -461,6 +461,7 @@ pub(crate) fn cron_connect_state(
         env: Arc::new(env),
         webhooks: connect_webhook_http(),
         trusted_proxies: 1,
+        storage: infra.public_files.clone(),
     }
 }
 
