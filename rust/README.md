@@ -340,7 +340,7 @@ with publishing through `social-domain`), WeldBooks
 (knowledge-spaces and -pages, on `know-domain`'s access rules), the
 drive (files with their content, folders, drive aggregates), WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
-schedules and executions; served once `connect` is in `RUST_PORTED_MODULES`)
+schedules and executions)
 and WeldFlow's project-sheets list (with `sheets`).
 Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
