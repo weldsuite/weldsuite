@@ -370,9 +370,19 @@ async fn send_attendee_mail(
         member.and_then(|m| m.language.as_deref()),
         options.workspace_language.as_deref(),
     ]);
+    // The organizer's own copy is published, not requested, so their mail
+    // client does not ask them to RSVP to themselves; a cancellation stays a
+    // CANCEL (`sendAttendeeMail`).
+    let own_copy =
+        !organizer.email.is_empty() && email.to_lowercase() == organizer.email.to_lowercase();
+    let method = if own_copy && batch.method == "REQUEST" {
+        "PUBLISH"
+    } else {
+        batch.method
+    };
     let ics = IcsEvent {
         uid: format!("{}@weldsuite.org", event.id),
-        method: batch.method.to_owned(),
+        method: method.to_owned(),
         sequence: batch.sequence,
         title: event.title.clone(),
         description: event.description.clone(),
@@ -385,10 +395,14 @@ async fn send_attendee_mail(
             email: organizer.email.clone(),
             name: Some(organizer.name.clone()),
         }),
-        attendees: vec![IcsPerson {
-            email: email.to_owned(),
-            name: None,
-        }],
+        attendees: if method == "PUBLISH" {
+            Vec::new()
+        } else {
+            vec![IcsPerson {
+                email: email.to_owned(),
+                name: None,
+            }]
+        },
         url: batch.meeting_url.clone().or_else(|| event_url.clone()),
         meeting_url: batch.meeting_url.clone(),
         product: "WeldCalendar".to_owned(),
@@ -492,9 +506,9 @@ async fn reserve_batch(
         })
 }
 
-/// `sendCalendarEventEmails`: one message per attendee (never the
-/// organizer), after the guard reserved the batch; each send on its own, and
-/// what went out is committed.
+/// `sendCalendarEventEmails`: one message per attendee (the organizer too
+/// when they put themselves on the list), after the guard reserved the batch;
+/// each send on its own, and what went out is committed.
 pub(crate) async fn send_calendar_event_emails(context: &MailContext, options: SendOptions) {
     let Some(transport) = context.bindings.transport.clone() else {
         return;
@@ -525,15 +539,10 @@ pub(crate) async fn send_calendar_event_emails(context: &MailContext, options: S
             options.sequence.unwrap_or(0).max(next_ics_sequence())
         },
     };
-    let organizer_email = options.organizer.email.to_lowercase();
     let recipients: Vec<&Attendee> = options
         .attendees
         .iter()
-        .filter(|a| {
-            a.email
-                .as_deref()
-                .is_some_and(|email| !email.is_empty() && email.to_lowercase() != organizer_email)
-        })
+        .filter(|a| a.email.as_deref().is_some_and(|email| !email.is_empty()))
         .collect();
     if recipients.is_empty() {
         return;
