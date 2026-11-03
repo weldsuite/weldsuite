@@ -50,6 +50,7 @@ weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-host = { workspace = true }
 weldsuite-hr = { workspace = true }
+weldsuite-external-api = { workspace = true }
 weldsuite-integrations = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-docs = { workspace = true }
@@ -89,7 +90,7 @@ time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 tower = { workspace = true, features = ["util"] }
-tower-http = { workspace = true, features = ["fs", "trace"] }
+tower-http = { workspace = true, features = ["cors", "fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }

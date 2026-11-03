@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { createExternalTestApp } from './harness';
 import { createPgliteDb } from './pglite';
 import type { Database } from '../db';
+import { schema } from '../db';
 
 let db: Database;
 
@@ -53,6 +54,27 @@ describe('external-api · special routes', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown[] };
     expect(Array.isArray(body.data)).toBe(true);
+  });
+
+  it('GET /v1/settings/members/:id → the member, 404 when unknown, 403 without the scope', async () => {
+    await db.insert(schema.workspaceMembers).values({
+      id: 'wm_special',
+      userId: 'user_special',
+      role: 'MEMBER',
+      hoursPerWeek: '32.50',
+    } as typeof schema.workspaceMembers.$inferInsert);
+    const found = await app()('/v1/settings/members/wm_special');
+    expect(found.status).toBe(200);
+    expect(((await found.json()) as { data: { hoursPerWeek: string } }).data.hoursPerWeek).toBe('32.50');
+    const page = await app()('/v1/settings/members?limit=1');
+    expect(page.status).toBe(200);
+    expect((await app()('/v1/settings/members?limit=0')).status).toBe(400);
+    expect((await app()('/v1/settings/members/wm_missing')).status).toBe(404);
+    const noScope = createExternalTestApp({ scopes: ['settings:read'], tenantDb: db }).request;
+    expect((await noScope('/v1/settings/members/wm_special')).status).toBe(403);
+    expect((await noScope('/v1/settings/workspace')).status).toBe(200);
+    const noSession = createExternalTestApp({ session: null, tenantDb: db }).request;
+    expect((await noSession('/v1/settings/members')).status).toBe(401);
   });
 
   it('GET /v1/project-sheets → 200 list', async () => {

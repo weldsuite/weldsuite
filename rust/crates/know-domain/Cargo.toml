@@ -1,0 +1,20 @@
+[package]
+name = "weldsuite-know-domain"
+description = "WeldKnow rules the know API and the public API share: who may see, read, write and manage which teamspace (@weldsuite/know-domain/access)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-db = { workspace = true }
+weldsuite-kit = { workspace = true }
+axum = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

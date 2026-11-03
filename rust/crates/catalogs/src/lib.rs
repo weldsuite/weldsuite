@@ -306,6 +306,15 @@ mod tests {
     }
 
     #[test]
+    fn the_declared_order_names_every_entity_type_once() {
+        let mut order = entity_events::ORDER.to_vec();
+        order.sort_unstable();
+        let mut all: Vec<&str> = entity_events::ALL.iter().map(|(t, _)| *t).collect();
+        all.sort_unstable();
+        assert_eq!(order, all);
+    }
+
+    #[test]
     fn runtime_event_checks() {
         assert!(entity_events::is_known_entity_type("sign_template"));
         assert!(entity_events::is_known_action("sign_template", "created"));
