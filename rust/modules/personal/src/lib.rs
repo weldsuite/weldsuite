@@ -27,6 +27,10 @@
 //! belong to Global (ADR MAIL-010), as for mail-api's `/api/mail-weldmail`.
 //! Those paths answer the worker's 404.
 
+// The handlers return the response a check ends with; the readers follow
+// the Zod schemas field by field.
+#![allow(clippy::result_large_err, clippy::too_many_lines)]
+
 mod account;
 mod booking_pages;
 mod bookings;
@@ -171,4 +175,70 @@ async fn not_found(request: Request) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use http::Request;
+    use http_body_util::BodyExt;
+    use serde_json::Value;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    fn app() -> Router {
+        router(PersonalState {
+            master: None,
+            personal: None,
+            verifier: None,
+            outbound: OutboundBindings::default(),
+            http: None,
+            tracker: TaskTracker::new(),
+            environment: "test".to_owned(),
+            env: Arc::default(),
+        })
+    }
+
+    async fn call(path: &str, authorization: Option<&str>) -> (StatusCode, Value) {
+        let mut request = Request::builder().uri(path);
+        if let Some(value) = authorization {
+            request = request.header(http::header::AUTHORIZATION, value);
+        }
+        let response = app()
+            .oneshot(request.body(Body::empty()).expect("request"))
+            .await
+            .expect("response");
+        let status = response.status();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_worker_s_own_answers() {
+        let (status, body) = call("/health", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["environment"], "test");
+        let (status, body) = call("/nowhere", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["details"]["path"], "/nowhere");
+        let (status, body) = call("/api/me", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            body["error"]["message"],
+            "Missing or invalid Authorization header"
+        );
+        // Without a verifier no token passes.
+        let (status, body) = call("/api/nothing", Some("Bearer x")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"]["message"], "Token verification failed");
+    }
 }

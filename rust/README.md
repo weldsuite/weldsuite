@@ -229,6 +229,33 @@ Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/sla
 `/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
 the ad metrics sweep, and the WooCommerce app-auth forward.
 
+personal-api (consumer WeldMail and WeldCalendar on a person's own account,
+outside any workspace: ADR MAIL-008, DATA-011) has no module id either:
+`modules/personal` serves it at `/personal-api` on this host, the worker's
+own paths below it (`/personal-api/api/me`, …), because they collide with
+app-api's and calendar-api's (`/api/me`, `/api/calendars`) on the one host
+(OPS-013). A consumer app's personal-api base URL is `https://<host>/personal-api`
+there (`VITE_PERSONAL_API_URL`, `EXPO_PUBLIC_PERSONAL_API_URL`), as it is
+`https://personal-api.weldsuite.org` on Global. It is served when
+`DATABASE_URL_PERSONAL` names the shared personal database (a database of its
+own, `packages/core/db/drizzle/personal-migrations`, migrated by `weldsuite
+migrate`); without it `/personal-api` is the server's 404. Everything is
+ported: the session (the deployment's verifier, with Clerk's authorized
+parties being the consumer apps' and the Clerk Billing plan claims read for
+the entitlements; an OIDC token has neither, so the free plan), the personal
+account lookup, onboarding, the profile, push tokens, calendars, events,
+booking pages and their slots, bookings, the mailboxes, labels, drafts,
+messages with the "email read" Expo push, compose, reply and forward through
+WeldMail's transport and outbound ledgers (`MAIL_SMTP_URL`, ledger key
+`personal:<accountId>`, the plan's daily limit), and subscriptions (the scan
+reads the stored raw headers, one-click, the unsubscribe mail, the link).
+Not served: the free `@weldmail.com` addresses (`/api/mail/weldmail`,
+`mail-free-addresses` below), whose domain belongs to Global (MAIL-010), so
+on Kubernetes no personal mailbox gets created and the inbound path
+(`crates/mail-inbound`) still skips personal addresses. Suites
+`personal: account`, `personal: calendar`, `personal: booking` and
+`personal: mail`.
+
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
@@ -243,7 +270,8 @@ and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 connect, agent and sheets, and the edge workers (`external-api`,
-`mcp-server`, the rest of the integration workers, above). WeldAgent stays
+`mcp-server`, the rest of the integration workers, above; personal-api is
+ported). WeldAgent stays
 off on Kubernetes while there is no AI provider: an agent that cannot chat
 or run does nothing for a user, so its data routes are not ported either
 and wait for an EU AI provider. Its event subscriber (`weldagent`) and the
@@ -312,6 +340,8 @@ rust/
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
+                        modules/personal (personal-api at /personal-api: consumer WeldMail
+                        and WeldCalendar on the shared personal database),
                         modules/integrations (the integration workers: the bank feed and
                         GitHub App receivers, the GitHub jobs, the bank feed due sweep;
                         tests/fixtures from `pnpm rust:integration-fixtures`),
@@ -411,8 +441,11 @@ PR that touches the module, so a feature lands in both backends.
 ## Migrations
 
 `weldsuite migrate` applies the journaled Drizzle SQL
-(`packages/core/db/drizzle/{master,tenant}-migrations`) to the master database
-and to every active workspace's tenant database. `crates/migrations/build.rs`
+(`packages/core/db/drizzle/{master,tenant,personal}-migrations`) to the master database,
+to every active workspace's tenant database, and to personal-api's shared
+personal database when `DATABASE_URL_PERSONAL` is set (`--personal`;
+`pnpm db:migrate:personal`'s twin, `drizzle.__drizzle_migrations`; skipped
+without the URL). `crates/migrations/build.rs`
 embeds the SQL in the binary, so an image carries exactly the migrations its
 code was built for and needs no Node (the image build copies their SQL and
 journals from the repo root, its context; `rust/Dockerfile.dockerignore`
@@ -432,6 +465,7 @@ that way.
 ```bash
 DATABASE_URL_MASTER=postgres://… DATABASE_ENCRYPTION_KEY_V2=… weldsuite migrate --dry-run
 weldsuite migrate --master --tenants --concurrency 4
+DATABASE_URL_PERSONAL=postgres://… weldsuite migrate --personal
 weldsuite migrate --tenants --only ws_123 --check-journal
 ```
 
@@ -479,6 +513,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | Variable | |
 |---|---|
 | `DATABASE_URL_MASTER` | master database (required) |
+| `DATABASE_URL_PERSONAL`, `PERSONAL_DB_MAX_CONNECTIONS` | personal-api's shared personal database (optional; set, `/personal-api` is served) and its pool size (default 5) |
 | `AUTH_PROVIDER` | `clerk` (default) or `oidc` (ADR SEC-012) |
 | `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | with `clerk`: session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |

@@ -231,13 +231,12 @@ async fn list_drafts(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 /// body set.
 fn read_draft(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Map<String, Value> {
     let mut out = Map::new();
-    if create {
-        if let Some(account) = issues
+    if create
+        && let Some(account) = issues
             .text(body, "accountId", Presence::Required, Some(1), None)
             .into_option()
-        {
-            out.insert("accountId".to_owned(), Value::String(account));
-        }
+    {
+        out.insert("accountId".to_owned(), Value::String(account));
     }
     let any = Text::length(None, None);
     let text =

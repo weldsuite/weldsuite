@@ -148,6 +148,10 @@ fn parse_raw_headers(raw: &str) -> Vec<(String, String)> {
     headers
 }
 
+/// A stored message the scan reads: from, subject, received and sent dates,
+/// the head of the raw message.
+type ScannedRow = (Value, Option<String>, Option<Value>, Value, Option<String>);
+
 /// `SubscriptionAggregate`.
 struct Aggregate {
     sender_email: String,
@@ -182,7 +186,7 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         let db = caller.personal()?;
         mailbox(db, &account, &mailbox_id).await?;
         let since = iso(now_ms() - SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-        let found: Vec<(Value, Option<String>, Option<Value>, Value, Option<String>)> = sqlx::query_as(
+        let found: Vec<ScannedRow> = sqlx::query_as(
             "select \"from\", subject, to_jsonb(received_date), to_jsonb(sent_date),
                     substring(raw_message from 1 for 32000)
              from personal_mail_messages
@@ -216,13 +220,11 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                 .and_then(stamp_ms)
                 .or_else(|| stamp_ms(sent))
                 .unwrap_or(0);
-            match by_sender.get_mut(&email) {
-                Some(aggregate) => {
-                    aggregate.message_count += 1;
-                    aggregate.first_received_at = aggregate.first_received_at.min(received_at);
-                    aggregate.last_received_at = aggregate.last_received_at.max(received_at);
-                }
-                None => {
+            if let Some(aggregate) = by_sender.get_mut(&email) {
+                aggregate.message_count += 1;
+                aggregate.first_received_at = aggregate.first_received_at.min(received_at);
+                aggregate.last_received_at = aggregate.last_received_at.max(received_at);
+            } else {
                     order.push(email.clone());
                     by_sender.insert(email.clone(), Aggregate {
                         sender_name: from["name"]
@@ -240,7 +242,6 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                         first_received_at: received_at,
                         last_received_at: received_at,
                     });
-                }
             }
         }
         let now = now_iso();

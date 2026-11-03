@@ -188,12 +188,19 @@ pub(crate) fn unhandled(result: Result<Response, Failure>) -> Response {
 
 /// `{ data }`.
 pub(crate) fn data(value: Value) -> Response {
-    axum::Json(json!({ "data": value })).into_response()
+    axum::Json(enveloped(value)).into_response()
+}
+
+/// `{ data: value }`.
+fn enveloped(value: Value) -> Value {
+    let mut envelope = Map::new();
+    envelope.insert("data".to_owned(), value);
+    Value::Object(envelope)
 }
 
 /// `{ data }` with 201.
 pub(crate) fn created(value: Value) -> Response {
-    (StatusCode::CREATED, axum::Json(json!({ "data": value }))).into_response()
+    (StatusCode::CREATED, axum::Json(enveloped(value))).into_response()
 }
 
 /// `list(c, rows, cursorPagination(totalCount, hasMore, cursor))`.

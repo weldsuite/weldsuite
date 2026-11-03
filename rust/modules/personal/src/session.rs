@@ -306,15 +306,15 @@ pub(crate) async fn session(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs());
-    let verified = match verifier
+    let session = match verifier
         .authenticate_with(authorization.as_deref(), now, &is_authorized_party)
         .await
     {
-        Ok(verified) => verified,
+        Ok(session) => session,
         Err(error) => return error.into_response(),
     };
-    let user_id = verified.context.user_id;
-    let entitlements = entitlements_from_claims(&verified.claims);
+    let user_id = session.context.user_id;
+    let entitlements = entitlements_from_claims(&session.claims);
 
     // The personal account, from the master database.
     let master = request
@@ -367,7 +367,10 @@ mod tests {
     use super::*;
 
     fn claims(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().unwrap_or_default()
+        match value {
+            Value::Object(map) => map,
+            _ => Map::new(),
+        }
     }
 
     #[test]
