@@ -49,6 +49,7 @@ mod index;
 mod know;
 mod list;
 mod oauth;
+mod project_sheets;
 mod schemas;
 #[rustfmt::skip]
 mod schemas_gen;
@@ -223,6 +224,11 @@ where
     };
     let router = if mounts("know") {
         know::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("sheets") {
+        project_sheets::routes(router)
     } else {
         router
     };

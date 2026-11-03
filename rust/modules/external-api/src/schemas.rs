@@ -457,3 +457,17 @@ pub(crate) const SCHEDULE_SOCIAL_POST: Z = Z::Obj(
     ],
     Keys::Strip,
 );
+
+// ---------------------------------------------------------------------------
+// project-sheets/index.ts
+// ---------------------------------------------------------------------------
+
+/// `listProjectSheetsQuery`.
+pub(crate) const LIST_PROJECT_SHEETS: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("projectId", OPT_STR),
+    ],
+    Keys::Strip,
+);

@@ -2730,12 +2730,6 @@
       "tests": [
         "src/test/contract.test.ts",
         "src/test/crud.test.ts"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "GET /v1/project-sheets",
-          "reason": "WeldFlow sheets (project_sheets) are not ported to Rust (the sheets module is not served on the Kubernetes editions)."
-        }
       ]
     },
     {

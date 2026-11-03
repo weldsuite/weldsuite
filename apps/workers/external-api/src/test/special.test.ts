@@ -84,6 +84,48 @@ describe('external-api · special routes', () => {
     expect(Array.isArray(body.data)).toBe(true);
   });
 
+  it("GET /v1/project-sheets lists a project's live spreadsheets, newest first, a page at a time", async () => {
+    const sheet = (id: string, fields: Partial<typeof schema.files.$inferInsert>) => ({
+      id,
+      fileName: `${id}.sheet`,
+      mimeType: 'application/vnd.weldsuite.sheet',
+      fileSize: 1,
+      storagePath: `sheets/${id}`,
+      fileType: 'spreadsheet',
+      entityType: 'project',
+      entityId: 'prj_sheets_a',
+      ...fields,
+    });
+    await db
+      .insert(schema.files)
+      .values([
+        sheet('fil_sheet_a1', { createdAt: new Date('2026-01-01T10:00:00Z') }),
+        sheet('fil_sheet_a2', { createdAt: new Date('2026-01-02T10:00:00Z') }),
+        sheet('fil_sheet_b1', { entityId: 'prj_sheets_b', createdAt: new Date('2026-01-03T10:00:00Z') }),
+        sheet('fil_sheet_gone', { deletedAt: new Date('2026-01-04T10:00:00Z') }),
+        sheet('fil_sheet_doc', { fileType: 'document' }),
+        sheet('fil_sheet_task', { entityType: 'task' }),
+      ] as (typeof schema.files.$inferInsert)[]);
+    const ids = async (path: string) => {
+      const res = await app()(path);
+      expect(res.status, path).toBe(200);
+      const body = (await res.json()) as {
+        data: { id: string }[];
+        pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
+      };
+      return { ids: body.data.map((row) => row.id), pagination: body.pagination };
+    };
+    expect((await ids('/v1/project-sheets')).ids).toEqual(['fil_sheet_b1', 'fil_sheet_a2', 'fil_sheet_a1']);
+    const first = await ids('/v1/project-sheets?projectId=prj_sheets_a&limit=1');
+    expect(first.ids).toEqual(['fil_sheet_a2']);
+    expect(first.pagination).toMatchObject({ totalCount: 2, hasMore: true });
+    const next = await ids(`/v1/project-sheets?projectId=prj_sheets_a&limit=1&cursor=${first.pagination.cursor}`);
+    expect(next.ids).toEqual(['fil_sheet_a1']);
+    expect((await app()('/v1/project-sheets?limit=0')).status).toBe(400);
+    const noScope = createExternalTestApp({ scopes: ['projects:read'], tenantDb: db }).request;
+    expect((await noScope('/v1/project-sheets')).status).toBe(403);
+  });
+
   it('GET /v1/tickets/:ticketId/messages → 200 or 404', async () => {
     const res = await app()('/v1/tickets/missing_ticket_id/messages');
     expect([200, 404]).toContain(res.status);

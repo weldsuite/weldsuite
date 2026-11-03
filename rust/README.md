@@ -290,15 +290,15 @@ with publishing through `social-domain`), WeldBooks
 (the read-only ledger, accounting-settings, accounting-contacts), WeldHost
 (domains with their DNS zones and records, kept local as on Global), WeldKnow
 (knowledge-spaces and -pages, on `know-domain`'s access rules), the
-drive (files with their content, folders, drive aggregates) and WeldConnect
+drive (files with their content, folders, drive aggregates), WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
-schedules and executions; served once `connect` is in `RUST_PORTED_MODULES`).
+schedules and executions; served once `connect` is in `RUST_PORTED_MODULES`)
+and WeldFlow's project-sheets list (with `sheets`).
 Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
 statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
-yet: mail (8 groups), custom-objects and reach. Flow's sheets are not
-served on Kubernetes yet.
+yet: mail (8 groups), custom-objects and reach.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
