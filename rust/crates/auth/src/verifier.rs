@@ -26,6 +26,21 @@ pub struct AuthContext {
     pub factor_verification_age: Option<[f64; 2]>,
 }
 
+/// A verified session token: what `clerkMiddleware` puts on the context,
+/// and every claim, for a surface that reads more of them (personal-api's
+/// Clerk Billing plan claims).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerifiedSession {
+    pub context: AuthContext,
+    pub claims: Map<String, Value>,
+}
+
+/// The authorized-party rule a Clerk token is checked against: its `azp`
+/// claim and the configured extra origins (`CLERK_AUTHORIZED_PARTIES`).
+/// The API's is [`weldsuite_kit::is_authorized_party`] (first-party origins);
+/// personal-api's names the consumer apps' origins instead.
+pub type PartyCheck<'a> = &'a (dyn Fn(Option<&Value>, &[String]) -> bool + Send + Sync);
+
 /// Why a token was refused. Never contains the token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenError {
@@ -299,6 +314,19 @@ impl ClerkRules {
         token: &str,
         now: u64,
     ) -> Result<AuthContext, TokenError> {
+        self.verify_claims(keys, token, now, &is_authorized_party)
+            .map(|session| session.context)
+    }
+
+    /// [`ClerkRules::verify`] with another rule for the authorized party,
+    /// keeping the claims.
+    pub(crate) fn verify_claims(
+        &self,
+        keys: &KeySet,
+        token: &str,
+        now: u64,
+        parties: PartyCheck<'_>,
+    ) -> Result<VerifiedSession, TokenError> {
         let header = jsonwebtoken::decode_header(token).map_err(|_| TokenError::Malformed)?;
         if !matches!(
             header.alg,
@@ -316,7 +344,7 @@ impl ClerkRules {
 
         let user_id = subject(&claims)?;
 
-        if !is_authorized_party(claims.get("azp"), &self.extra_authorized_parties) {
+        if !parties(claims.get("azp"), &self.extra_authorized_parties) {
             // The origin only, never the token; truncated, as the claim is
             // client-influenced.
             let azp = claims.get("azp").map(Value::to_string).unwrap_or_default();
@@ -331,11 +359,14 @@ impl ClerkRules {
             .or_else(|| non_empty_str(claims.get("org_id")));
         let session_id = non_empty_str(claims.get("sid")).unwrap_or_default();
 
-        Ok(AuthContext {
-            user_id,
-            org_id,
-            session_id,
-            factor_verification_age: parse_factor_verification_age(claims.get("fva")),
+        Ok(VerifiedSession {
+            context: AuthContext {
+                user_id,
+                org_id,
+                session_id,
+                factor_verification_age: parse_factor_verification_age(claims.get("fva")),
+            },
+            claims,
         })
     }
 }

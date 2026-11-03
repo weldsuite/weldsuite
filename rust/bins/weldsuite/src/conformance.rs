@@ -649,6 +649,28 @@ pub(crate) async fn public_tenant(
     next.run(request).await
 }
 
+/// Middleware for personal-api (`weldsuite-personal`): the test's database
+/// is the shared personal database (personal-api has no tenant), so the
+/// context's `databaseUrl` goes in as the request's
+/// [`weldsuite_personal::RequestPersonalDb`]. Runs inside [`public`].
+pub(crate) async fn personal_db(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request
+                    .extensions_mut()
+                    .insert(weldsuite_personal::RequestPersonalDb(db));
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
+}
+
 /// Middleware for WeldMeet's public routes (the video provider's webhooks,
 /// the recording stream): what [`public_tenant`] inserts, and the test's
 /// other workspaces' tenant databases (`context.tenantDbs`, the backfill's

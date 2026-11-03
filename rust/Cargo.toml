@@ -78,6 +78,7 @@ weldsuite-social-domain = { path = "crates/social-domain" }
 weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
+weldsuite-personal = { path = "modules/personal" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }

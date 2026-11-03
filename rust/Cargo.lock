@@ -3874,6 +3874,7 @@ dependencies = [
  "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
+ "weldsuite-personal",
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-reach",
@@ -4197,6 +4198,7 @@ dependencies = [
 name = "weldsuite-calendar-domain"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "serde_json",
  "sqlx",
  "time",
@@ -5147,6 +5149,34 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-personal"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "http",
+ "http-body-util",
+ "jiff",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-calendar-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-mail-inbound",
+ "weldsuite-notifications",
+ "weldsuite-ports",
 ]
 
 [[package]]

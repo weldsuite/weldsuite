@@ -42,7 +42,15 @@ use weldsuite_kit::ApiError;
 /// Paths the backend owns even where it has no route: never the SPA.
 /// The realtime gateway's are here too, so a socket never gets `index.html`
 /// when the gateway is off.
-const BACKEND_PREFIXES: [&str; 5] = ["/api", "/public", "/ws", "/publish", "/internal"];
+const BACKEND_PREFIXES: [&str; 6] = [
+    "/api",
+    "/public",
+    "/ws",
+    "/publish",
+    "/internal",
+    // personal-api, served there when `DATABASE_URL_PERSONAL` is set.
+    "/personal-api",
+];
 
 /// Cloudflare Pages' own files: configuration, never served.
 const PAGES_FILES: [&str; 2] = ["/_headers", "/_redirects"];
