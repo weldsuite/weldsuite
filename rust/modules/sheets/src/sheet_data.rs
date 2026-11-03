@@ -417,7 +417,10 @@ mod tests {
     use super::*;
 
     fn def(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().unwrap_or_default()
+        match value {
+            Value::Object(fields) => fields,
+            _ => Map::new(),
+        }
     }
 
     #[test]

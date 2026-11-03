@@ -55,6 +55,7 @@ import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { isApiError } from '@weldsuite/api-client';
 import { useProject } from '@/hooks/queries/use-projects-queries';
 import { useProjectTabPreference } from '@/hooks/queries/use-weldflow-preferences';
+import { isModuleOffered } from '@/lib/edition';
 import {
   DndContext,
   closestCenter,

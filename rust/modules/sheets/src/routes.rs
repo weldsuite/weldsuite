@@ -17,7 +17,7 @@ use weldsuite_core_domain::files::{
     Change, FileUpdate, NewFile, UpdatedFile, create_file, soft_delete_file, update_file,
 };
 use weldsuite_flow_domain::access::resolve_project_access;
-use weldsuite_kit::validation::{Number, Presence, Text, js_number, js_trim};
+use weldsuite_kit::validation::{Field, Number, Presence, Text, js_number, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_ports::collab::{bytes_value, value_bytes};
 use weldsuite_ports::files::{PutOptions, get_stored};
@@ -542,7 +542,7 @@ struct DriveImport {
     file_id: String,
     name: Option<String>,
     /// Absent, or set (to a folder or null).
-    folder_id: Option<Option<String>>,
+    folder_id: Field<String>,
     locale: Option<String>,
 }
 
@@ -561,11 +561,7 @@ fn drive_import(body: &Bytes) -> Result<DriveImport, Refusal> {
                 Text::trimmed(Some(1), Some(255)),
             )
             .into_option();
-        let folder_id = match issues.text(fields, "folderId", Presence::Nullish, None, None) {
-            weldsuite_kit::validation::Field::Set(id) => Some(Some(id)),
-            weldsuite_kit::validation::Field::Null => Some(None),
-            weldsuite_kit::validation::Field::Absent => None,
-        };
+        let folder_id = issues.text(fields, "folderId", Presence::Nullish, None, None);
         let locale = issues
             .choice(fields, "locale", Presence::Optional, &LOCALES)
             .into_option();
@@ -654,14 +650,15 @@ async fn drive_source(
     let Some(bytes) = stored_bytes(state, caller, &file.key).await? else {
         return Err(Refusal::not_found("File content", &input.file_id));
     };
-    let asked = input.folder_id.is_some();
+    let asked = !input.folder_id.is_absent();
     Ok(ImportSource {
         bytes,
         file_name: file.name,
         name: input.name,
         folder_id: match input.folder_id {
-            Some(folder) => folder,
-            None => file.file.folder_id,
+            Field::Set(folder) => Some(folder),
+            Field::Null => None,
+            Field::Absent => file.file.folder_id,
         },
         folder_asked: asked,
         locale: input.locale,
@@ -690,19 +687,24 @@ fn import_name(source: &ImportSource) -> String {
 pub(crate) async fn import(
     State(state): State<SheetsState>,
     caller: Caller,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response {
     answer(
         async {
             let org = caller.org()?.to_owned();
+            let (parts, body) = request.into_parts();
+            let headers = parts.headers;
             let length = headers
                 .get(CONTENT_LENGTH)
                 .and_then(|value| value.to_str().ok())
                 .map_or(f64::NAN, js_number);
+            // Refused by its declared size before the body is read, as the worker does.
             if length > IMPORT_MAX_BYTES + MULTIPART_SLACK {
                 return Err(too_large());
             }
+            let body = axum::body::to_bytes(body, crate::IMPORT_BODY_LIMIT)
+                .await
+                .map_err(|_| too_large())?;
             let multipart = headers
                 .get(CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())

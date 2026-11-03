@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, FromRequestParts};
+use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
@@ -71,8 +71,9 @@ impl std::fmt::Debug for SheetsState {
 }
 
 /// The largest request `POST /api/sheets/import` reads: the 25 MB import
-/// limit with room to spare, so a larger file still gets the route's own 400.
-const IMPORT_BODY_LIMIT: usize = 64 * 1024 * 1024;
+/// limit with room to spare. A body that says it is larger is refused by
+/// its `Content-Length` before it is read (the route's own 400).
+pub(crate) const IMPORT_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 /// `/api/sheets`, to nest under `/api` behind the session, tenant database,
 /// licence and flag layers. Each route carries its `requirePermission`.
@@ -91,9 +92,7 @@ where
         )
         .route(
             "/import",
-            post(routes::import)
-                .route_layer(gate.require([SHEETS_CREATE]))
-                .layer(DefaultBodyLimit::max(IMPORT_BODY_LIMIT)),
+            post(routes::import).route_layer(gate.require([SHEETS_CREATE])),
         )
         .route("/convert", post(routes::convert).route_layer(read()))
         .route("/{id}/export", get(routes::export).route_layer(read()))
