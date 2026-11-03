@@ -1,22 +1,35 @@
 /**
- * Purchase order routes — flat /api/purchase-orders/* surface backed by `purchaseOrders`.
+ * Purchase order routes — flat /api/purchase-orders/* surface backed by `purchaseOrders`,
+ * and its lines under /api/purchase-orders/:id/items backed by `purchaseOrderItems`.
+ *
+ * A line carries the WeldFlow project its cost belongs to (`projectId`, FLOW-019).
+ * The server works out the line's amounts (services/purchase-order-items.ts); the
+ * purchase order's own totals are not recomputed. Each line change publishes
+ * `purchase_order` `updated`, as the header's own update does.
  *
  * Permissions: orders:read | orders:create | orders:update | orders:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createPurchaseOrderSchema, updatePurchaseOrderSchema } from '@weldsuite/core-api-client/schemas/purchase-orders';
+import {
+  createPurchaseOrderItemSchema,
+  createPurchaseOrderSchema,
+  updatePurchaseOrderItemSchema,
+  updatePurchaseOrderSchema,
+} from '@weldsuite/core-api-client/schemas/purchase-orders';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { liveProjectExists, lineAmounts } from '../../services/purchase-order-items';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.purchaseOrders;
+const items = schema.purchaseOrderItems;
 
 /** Filter conditions derived from the list query string. */
 function buildPurchaseOrderFilters(q: Record<string, string>): SQL[] {
@@ -130,6 +143,173 @@ app.delete('/:id', requirePermission('orders:delete'), async (c) => {
   } catch (err) {
     console.error('[app-api/purchase-orders] delete failed:', err);
     return error.internal(c, 'Failed to delete purchase order');
+  }
+});
+
+// ── Lines ────────────────────────────────────────────────────────────────────
+
+type PurchaseOrderRow = typeof t.$inferSelect;
+type PurchaseOrderItemRow = typeof items.$inferSelect;
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** The same event the header's own update publishes: a line is part of the purchase order. */
+function publishPurchaseOrderUpdated(c: AppContext, po: PurchaseOrderRow) {
+  publishEntityEvent({
+    c,
+    entityType: 'purchase_order',
+    entityId: po.id,
+    action: 'updated',
+    data: { id: po.id, poNumber: po.poNumber, status: po.status, supplierId: po.supplierId },
+  });
+}
+
+/** The line's figures as the stored row has them, for the amounts the server works out. */
+function figuresOf(row: PurchaseOrderItemRow) {
+  return {
+    quantityOrdered: row.quantityOrdered,
+    quantityReceived: row.quantityReceived ?? 0,
+    unitPrice: Number(row.unitPrice),
+    discountPercent: Number(row.discountPercent ?? '0'),
+    taxPercent: Number(row.taxPercent ?? '0'),
+  };
+}
+
+app.get('/:id/items', requirePermission('orders:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [po] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!po) return error.notFound(c, 'Purchase order', id);
+    const rows = await db.select().from(items).where(eq(items.purchaseOrderId, id)).orderBy(asc(items.createdAt), asc(items.id));
+    return list(c, rows, cursorPagination(rows.length, false, null));
+  } catch (err) {
+    console.error('[stash-api/purchase-orders] list lines failed:', err);
+    return error.internal(c, 'Failed to list purchase order lines');
+  }
+});
+
+app.post('/:id/items', requirePermission('orders:create'), zValidator('json', createPurchaseOrderItemSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const [po] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!po) return error.notFound(c, 'Purchase order', id);
+    if (data.projectId && !(await liveProjectExists(db, data.projectId))) {
+      return error.badRequest(c, `Project ${data.projectId} does not exist`);
+    }
+    const quantityOrdered = data.quantityOrdered ?? 1;
+    const quantityReceived = data.quantityReceived ?? 0;
+    const amounts = lineAmounts({
+      quantityOrdered,
+      quantityReceived,
+      unitPrice: data.unitPrice,
+      discountPercent: data.discountPercent ?? 0,
+      taxPercent: data.taxPercent ?? 0,
+    });
+    const now = new Date();
+    const [row] = await db
+      .insert(items)
+      .values({
+        id: generateId('poi'),
+        purchaseOrderId: id,
+        productId: data.productId ?? null,
+        variantId: data.variantId ?? null,
+        sku: data.sku ?? null,
+        name: data.name,
+        description: data.description ?? null,
+        quantityOrdered,
+        quantityReceived,
+        quantityPending: amounts.quantityPending,
+        quantityRejected: data.quantityRejected ?? 0,
+        unitPrice: amounts.unitPrice,
+        discountPercent: amounts.discountPercent,
+        discountAmount: amounts.discountAmount,
+        taxPercent: amounts.taxPercent,
+        taxAmount: amounts.taxAmount,
+        total: amounts.total,
+        notes: data.notes ?? null,
+        projectId: data.projectId || null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    publishPurchaseOrderUpdated(c, po);
+    return success(c, row, 201);
+  } catch (err) {
+    console.error('[stash-api/purchase-orders] create line failed:', err);
+    return error.internal(c, 'Failed to create purchase order line');
+  }
+});
+
+app.patch('/:id/items/:itemId', requirePermission('orders:update'), zValidator('json', updatePurchaseOrderItemSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  const data = c.req.valid('json');
+  try {
+    const [po] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!po) return error.notFound(c, 'Purchase order', id);
+    const [existing] = await db.select().from(items).where(and(eq(items.id, itemId), eq(items.purchaseOrderId, id))).limit(1);
+    if (!existing) return error.notFound(c, 'Purchase order line', itemId);
+    if (data.projectId && !(await liveProjectExists(db, data.projectId))) {
+      return error.badRequest(c, `Project ${data.projectId} does not exist`);
+    }
+    const before = figuresOf(existing);
+    const amounts = lineAmounts({
+      quantityOrdered: data.quantityOrdered ?? before.quantityOrdered,
+      quantityReceived: data.quantityReceived ?? before.quantityReceived,
+      unitPrice: data.unitPrice ?? before.unitPrice,
+      discountPercent: data.discountPercent ?? before.discountPercent,
+      taxPercent: data.taxPercent ?? before.taxPercent,
+    });
+    const [row] = await db
+      .update(items)
+      .set({
+        ...(data.productId !== undefined && { productId: data.productId }),
+        ...(data.variantId !== undefined && { variantId: data.variantId }),
+        ...(data.sku !== undefined && { sku: data.sku }),
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.quantityOrdered !== undefined && { quantityOrdered: data.quantityOrdered }),
+        ...(data.quantityReceived !== undefined && { quantityReceived: data.quantityReceived }),
+        ...(data.quantityRejected !== undefined && { quantityRejected: data.quantityRejected }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.projectId !== undefined && { projectId: data.projectId || null }),
+        quantityPending: amounts.quantityPending,
+        unitPrice: amounts.unitPrice,
+        discountPercent: amounts.discountPercent,
+        discountAmount: amounts.discountAmount,
+        taxPercent: amounts.taxPercent,
+        taxAmount: amounts.taxAmount,
+        total: amounts.total,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, itemId))
+      .returning();
+    publishPurchaseOrderUpdated(c, po);
+    return success(c, row);
+  } catch (err) {
+    console.error('[stash-api/purchase-orders] update line failed:', err);
+    return error.internal(c, 'Failed to update purchase order line');
+  }
+});
+
+app.delete('/:id/items/:itemId', requirePermission('orders:delete'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const itemId = c.req.param('itemId');
+  try {
+    const [po] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!po) return error.notFound(c, 'Purchase order', id);
+    const [existing] = await db.select({ id: items.id }).from(items).where(and(eq(items.id, itemId), eq(items.purchaseOrderId, id))).limit(1);
+    if (!existing) return error.notFound(c, 'Purchase order line', itemId);
+    await db.delete(items).where(eq(items.id, itemId));
+    publishPurchaseOrderUpdated(c, po);
+    return noContent(c);
+  } catch (err) {
+    console.error('[stash-api/purchase-orders] delete line failed:', err);
+    return error.internal(c, 'Failed to delete purchase order line');
   }
 });
 
