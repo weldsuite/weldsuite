@@ -127,7 +127,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('banking:update'), zValidator
   try {
     const [rule] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!rule) return error.notFound(c, 'Rule', id);
-    await db.update(t).set({ ...data, updatedAt: new Date() }).where(eq(t.id, id));
+    const updatedAt = new Date();
+    await db.update(t).set({ ...data, updatedAt }).where(eq(t.id, id));
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: rule.entityId,
@@ -145,9 +146,9 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('banking:update'), zValidator
       entityType: 'reconciliation_rule',
       entityId: id,
       action: 'updated',
-      data: { ...rule, ...data } as unknown as Record<string, unknown>,
+      data: { ...rule, ...data, updatedAt } as unknown as Record<string, unknown>,
     });
-    return success(c, { ...rule, ...data });
+    return success(c, { ...rule, ...data, updatedAt });
   } catch (err) {
     console.error('[app-api/reconciliation-rules] update failed:', err);
     return error.internal(c, 'Failed to update rule');

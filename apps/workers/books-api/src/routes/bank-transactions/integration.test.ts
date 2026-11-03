@@ -503,3 +503,74 @@ describe('/api/bank-transactions import, delete and undo · pglite integration',
     expect(res.status).toBe(403);
   });
 });
+
+describe('/api/bank-transactions reconciliation rules · pglite integration', () => {
+  async function seedRuleEntity(entityId: string, bankAccountId: string) {
+    await db.insert(schema.entities).values({ id: entityId, name: entityId, jurisdictionCode: 'NL', baseCurrency: 'EUR', locale: 'nl-NL' });
+    await db.insert(schema.accounts).values([
+      { id: `${entityId}_bank`, entityId, code: '1100', name: 'Bank', type: 'asset', subtype: 'bank', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },
+      { id: `${entityId}_rent`, entityId, code: '4210', name: 'Huur', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },
+    ]);
+    await db.insert(schema.bankAccounts).values({
+      id: bankAccountId, entityId, name: 'E2E Bank', currency: 'EUR', currentBalance: '0.00',
+      ledgerAccountId: `${entityId}_bank`, createdAt: new Date(), updatedAt: new Date(),
+    });
+    await db.insert(schema.reconciliationRules).values({
+      id: `${entityId}_rule`, entityId, name: 'E2E rent rule', isActive: true, matchMode: 'all',
+      conditions: [{ field: 'description', operator: 'contains', value: 'huur' }],
+      actions: { categoryAccountId: `${entityId}_rent` }, matchCount: 0,
+    });
+    await db.insert(schema.bankTransactions).values([
+      { id: `${entityId}_rent_line`, entityId, bankAccountId, date: new Date('2026-10-08'), amount: '-1200.00', description: 'Huur kantoor oktober', status: 'unreconciled', createdAt: new Date(), updatedAt: new Date() },
+      { id: `${entityId}_other_line`, entityId, bankAccountId, date: new Date('2026-10-08'), amount: '-30.00', description: 'Koffie', status: 'unreconciled', createdAt: new Date(), updatedAt: new Date() },
+    ]);
+  }
+
+  it('GET /:id/suggestions offers the matching rule with its category account', async () => {
+    await seedRuleEntity('ent_rule_suggest', 'ba_rule_suggest');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:read'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_suggest_rent_line/suggestions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ type: string; id: string; number: string; categoryAccountId?: string }> };
+    expect(body.data).toContainEqual(
+      expect.objectContaining({ type: 'rule', id: 'ent_rule_suggest_rule', number: 'E2E rent rule', categoryAccountId: 'ent_rule_suggest_rent' }),
+    );
+
+    const other = await request('/api/bank-transactions/ent_rule_suggest_other_line/suggestions');
+    const otherBody = (await other.json()) as { data: Array<{ type: string }> };
+    expect(otherBody.data.some((s) => s.type === 'rule')).toBe(false);
+  });
+
+  it('POST /auto-reconcile categorizes a line a rule matches and counts the match', async () => {
+    await seedRuleEntity('ent_rule_auto', 'ba_rule_auto');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/auto-reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bankAccountId: 'ba_rule_auto' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { reconciledCount: number } };
+    expect(body.data.reconciledCount).toBe(1);
+
+    const [rent] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_auto_rent_line')).limit(1);
+    expect(rent?.status).toBe('reconciled');
+    expect(rent?.reconciliationType).toBe('auto');
+    expect(rent?.categoryAccountId).toBe('ent_rule_auto_rent');
+    const lines = await db.select().from(schema.journalLines).where(eq(schema.journalLines.journalEntryId, rent!.journalEntryId!));
+    const byAccount = Object.fromEntries(lines.map((l) => [l.accountId, l]));
+    expect(byAccount.ent_rule_auto_rent?.debit).toBe('1200.00');
+    expect(byAccount.ent_rule_auto_bank?.credit).toBe('1200.00');
+
+    const [other] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_auto_other_line')).limit(1);
+    expect(other?.status).toBe('unreconciled');
+
+    const [rule] = await db.select().from(schema.reconciliationRules).where(eq(schema.reconciliationRules.id, 'ent_rule_auto_rule')).limit(1);
+    expect(rule?.matchCount).toBe(1);
+    expect(rule?.lastMatchedAt).toBeInstanceOf(Date);
+  });
+});

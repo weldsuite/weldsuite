@@ -718,6 +718,7 @@ app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
         amount: m.amount,
         confidence: m.confidence,
         reasons: m.reasons,
+        ...(m.categoryAccountId ? { categoryAccountId: m.categoryAccountId } : {}),
       })),
     );
   } catch (err) {
