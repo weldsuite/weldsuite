@@ -142,10 +142,24 @@ export function createCollabServer(options: CollabServerOptions): CollabServer {
       const host = await pending;
       host.touch();
       const hosted = new HostedSocket(host);
+      // The room counts the peer from `accept` on, but only an attached socket
+      // reports its close. One that closes before that (the client left while
+      // the room loaded, or ws refused the handshake) is closed here instead.
+      let accepted = false;
+      let attached = false;
+      let closedEarly = false;
+      socket.once('close', () => {
+        if (attached) return;
+        closedEarly = true;
+        if (accepted) host.socketClosed(hosted, 1006, '');
+      });
       const outcome = await host.object.accept(hosted, ticket.split('.')[1] ?? null);
       if (outcome === 'invalid') return refuse(socket, 401, 'Invalid or expired ticket');
       if (outcome === 'unavailable') return refuse(socket, 503, 'Document unavailable');
+      accepted = true;
+      if (closedEarly || socket.destroyed) return host.socketClosed(hosted, 1006, '');
       sockets.handleUpgrade(req, socket, head, (ws) => {
+        attached = true;
         hosted.attach(ws);
         if (hosted.closed) ws.close(1000);
       });

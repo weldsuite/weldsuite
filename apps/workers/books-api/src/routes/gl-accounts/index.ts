@@ -388,6 +388,71 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createAcc
   }
 });
 
+interface UpdateRejection {
+  status: 'badRequest' | 'conflict';
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/** Why an update of `account` with `data` is refused, or null when it may go ahead. */
+async function updateRejection(
+  db: Database,
+  account: typeof t.$inferSelect,
+  data: z.infer<typeof updateAccountSchema>,
+): Promise<UpdateRejection | null> {
+  if (account.isSystemAccount && (data.code || data.type || data.normalSide)) {
+    return { status: 'badRequest', message: 'Cannot change code, type, or normalSide of a system account' };
+  }
+
+  if (data.code && data.code !== account.code) {
+    const dup = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.code, data.code), eq(t.entityId, account.entityId), isNull(t.deletedAt)))
+      .limit(1);
+    if (dup.length > 0) return { status: 'conflict', message: `Account code '${data.code}' already exists` };
+  }
+
+  if (data.isActive === false && account.isActive !== false) {
+    const conflict = await deactivationConflict(db, account);
+    if (conflict) return { status: 'conflict', ...conflict };
+  }
+
+  const invalidMapping = await mappingError(db, account.entityId, data);
+  if (invalidMapping) return { status: 'badRequest', message: invalidMapping };
+
+  return treeRejection(db, account, data);
+}
+
+/** A new parent, or a new type under the current parent, must still fit the tree. */
+async function treeRejection(
+  db: Database,
+  account: typeof t.$inferSelect,
+  data: z.infer<typeof updateAccountSchema>,
+): Promise<UpdateRejection | null> {
+  const type = data.type ?? account.type;
+  const parentAccountId = data.parentAccountId === undefined ? account.parentAccountId : data.parentAccountId;
+  if (parentAccountId && (data.parentAccountId !== undefined || type !== account.type)) {
+    const invalidParent = await parentError(db, { accountId: account.id, entityId: account.entityId, type, parentAccountId });
+    if (invalidParent) return { status: 'badRequest', ...invalidParent };
+  }
+  if (type !== account.type) {
+    const [child] = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.parentAccountId, account.id), isNull(t.deletedAt)))
+      .limit(1);
+    if (child) {
+      return {
+        status: 'badRequest',
+        message: 'Move or remove the sub-accounts before changing the type of this account.',
+        details: { code: 'ACCOUNT_HAS_SUB_ACCOUNTS' },
+      };
+    }
+  }
+  return null;
+}
+
 // PUT/PATCH /:id — update account (legacy client uses PUT; app-api convention is PATCH)
 app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidator('json', updateAccountSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -403,48 +468,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidato
 
     if (!account) return error.notFound(c, 'Account', accountId);
 
-    if (account.isSystemAccount && (data.code || data.type || data.normalSide)) {
-      return error.badRequest(c, 'Cannot change code, type, or normalSide of a system account');
-    }
-
-    if (data.code && data.code !== account.code) {
-      const dup = await db
-        .select({ id: t.id })
-        .from(t)
-        .where(and(eq(t.code, data.code), eq(t.entityId, account.entityId), isNull(t.deletedAt)))
-        .limit(1);
-      if (dup.length > 0) {
-        return error.conflict(c, `Account code '${data.code}' already exists`);
-      }
-    }
-
-    if (data.isActive === false && account.isActive !== false) {
-      const conflict = await deactivationConflict(db, account);
-      if (conflict) return error.conflict(c, conflict.message, conflict.details);
-    }
-
-    const invalidMapping = await mappingError(db, account.entityId, data);
-    if (invalidMapping) return error.badRequest(c, invalidMapping);
-
-    // A new parent, or a new type under the current parent, must still fit the tree.
-    const type = data.type ?? account.type;
-    const parentAccountId = data.parentAccountId === undefined ? account.parentAccountId : data.parentAccountId;
-    if (parentAccountId && (data.parentAccountId !== undefined || type !== account.type)) {
-      const invalidParent = await parentError(db, { accountId, entityId: account.entityId, type, parentAccountId });
-      if (invalidParent) return error.badRequest(c, invalidParent.message, invalidParent.details);
-    }
-    if (type !== account.type) {
-      const [child] = await db
-        .select({ id: t.id })
-        .from(t)
-        .where(and(eq(t.parentAccountId, accountId), isNull(t.deletedAt)))
-        .limit(1);
-      if (child) {
-        return error.badRequest(c, 'Move or remove the sub-accounts before changing the type of this account.', {
-          code: 'ACCOUNT_HAS_SUB_ACCOUNTS',
-        });
-      }
-    }
+    const rejection = await updateRejection(db, account, data);
+    if (rejection) return error[rejection.status](c, rejection.message, rejection.details);
 
     await db
       .update(t)
