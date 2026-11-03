@@ -92,3 +92,59 @@ impl BooksBridges {
         Some(RequestBooksInternal(Arc::clone(books)))
     }
 }
+
+/// The test's `BOOKS_INTERNAL` as the integration workers call it
+/// (`weldsuite_integrations::ServiceBinding`): the same bridge, any path.
+struct BridgedBinding {
+    bridge: String,
+    binding: &'static str,
+    client: Client,
+}
+
+impl weldsuite_integrations::ServiceBinding for BridgedBinding {
+    fn fetch(
+        &self,
+        request: weldsuite_integrations::BindingRequest,
+    ) -> weldsuite_ports::BoxFuture<'_, Result<weldsuite_integrations::BindingResponse, String>>
+    {
+        Box::pin(async move {
+            let method = reqwest::Method::from_bytes(request.method.as_bytes())
+                .map_err(|error| error.to_string())?;
+            let url = reqwest::Url::parse_with_params(
+                &format!("{}/fetch", self.bridge),
+                [("binding", self.binding), ("path", request.path.as_str())],
+            )
+            .map_err(|error| error.to_string())?;
+            let mut call = self
+                .client
+                .request(method, url)
+                .header("content-type", "application/json")
+                .header("x-workspace-id", &request.workspace_key);
+            if let Some(body) = request.body {
+                call = call.body(body);
+            }
+            let response = call.send().await.map_err(|error| error.to_string())?;
+            let threw = response.headers().contains_key("x-binding-error");
+            let status = response.status().as_u16();
+            let body = response.text().await.map_err(|error| error.to_string())?;
+            if threw {
+                return Err(body);
+            }
+            Ok(weldsuite_integrations::BindingResponse { status, body })
+        })
+    }
+}
+
+/// The test's `BOOKS_INTERNAL` for the integration workers, or none when
+/// the test binds none (the worker then runs without it).
+pub(crate) fn integrations_books(
+    services: &HashMap<String, String>,
+) -> weldsuite_integrations::RequestBooksBinding {
+    weldsuite_integrations::RequestBooksBinding(services.get("BOOKS_INTERNAL").map(|url| {
+        Arc::new(BridgedBinding {
+            bridge: url.trim_end_matches('/').to_owned(),
+            binding: "BOOKS_INTERNAL",
+            client: Client::new(),
+        }) as Arc<dyn weldsuite_integrations::ServiceBinding>
+    }))
+}

@@ -84,6 +84,7 @@ mod link;
 mod notify;
 mod settings;
 mod simple;
+pub mod sla_sweep;
 // Shared with the helpdesk widget API, with the webchat tables.
 use weldsuite_desk_domain::table;
 #[rustfmt::skip]
@@ -224,6 +225,8 @@ pub(crate) struct Caller {
     pub(crate) user_id: String,
     /// `c.get('clerkOrgId')`: realtime topics and notification links.
     pub(crate) clerk_org_id: String,
+    /// `workspaces.id`: the due index's key.
+    pub(crate) workspace_id: String,
     pub(crate) permissions: Permissions,
     pub(crate) events: EventContext,
     /// The test's env (conformance), read before the process's.
@@ -236,6 +239,34 @@ pub(crate) struct Caller {
     pub(crate) outbound: Option<RequestOutbound>,
     /// The test's master database (conformance), before the state's.
     pub(crate) master: Option<weldsuite_db::MasterDb>,
+}
+
+/// `markDeskSlaDue(c, slaCheckAt)` (`lib/sla-due.ts`): tell the SLA sweep
+/// ([`sla_sweep`]) when a conversation's SLA clock next comes due, in the
+/// due index (kind `desk_sla`, keyed by `workspaces.id`). Best effort and
+/// after the response; it can only pull the workspace's due time earlier.
+pub(crate) fn mark_sla_due(state: &DeskState, caller: &Caller, sla_check_at: Option<i64>) {
+    let Some(at) = sla_check_at.and_then(weldsuite_desk_domain::sla::instant) else {
+        return;
+    };
+    let Some(master) = caller
+        .master
+        .as_ref()
+        .map(|master| master.0.clone())
+        .or_else(|| state.master.clone())
+    else {
+        return;
+    };
+    let workspace_id = caller.workspace_id.clone();
+    state.events.tracker().spawn(async move {
+        weldsuite_db::due_index::mark_due(
+            &master,
+            weldsuite_desk_domain::sla::DUE_KIND,
+            &workspace_id,
+            at,
+        )
+        .await;
+    });
 }
 
 #[allow(dead_code)] // filled in route group by route group
@@ -339,6 +370,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                         .clerk_org_id
                         .clone()
                         .unwrap_or_else(|| tenant.workspace_id.clone()),
+                    workspace_id: tenant.workspace_id.clone(),
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
                     env: parts.extensions.get::<RequestEnv>().cloned(),

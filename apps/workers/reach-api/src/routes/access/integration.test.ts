@@ -12,14 +12,15 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { WELDREACH_DEFAULT_LIMITS } from '@weldsuite/app-api-client/schemas/reach';
 import { resetReachTenant, seedMailbox, seedReachDomain } from '../../lib/mailpool/testing-db';
-import { approvedAccess, withAppAccess } from '../../lib/mailpool/testing-routes';
+import { approvedAccess } from '../../lib/mailpool/testing-routes';
 import { default as accessRoutes } from './index';
 
 let db: Database;
 
 function api(options: { keys?: string[]; access?: ReturnType<typeof approvedAccess>; flags?: { isOn: () => Promise<boolean> } } = {}) {
-  return createTestApp('/api/reach/access', withAppAccess(accessRoutes, options.access), {
+  return createTestApp('/api/reach/access', accessRoutes, {
     context: {
+      appAccess: options.access ?? approvedAccess(),
       permissions: permissions(...(options.keys ?? ['reach_campaigns:read'])),
       tenantDb: db,
       flags: options.flags as never,

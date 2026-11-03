@@ -25,6 +25,12 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/db/src/schema/index.ts',
       ),
+      // Workers-only module; src/index.ts exports the Workflow classes
+      // (crm-sync, github-project-*), which extend WorkflowEntrypoint.
+      'cloudflare:workers': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-kit/src/testing/cloudflare-workers-stub.ts',
+      ),
     },
   },
 });

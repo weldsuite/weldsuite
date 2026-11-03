@@ -37,6 +37,7 @@ import { NumberInput } from '@/components/shared/number-input';
 import { useReachSettings, useUpdateReachSettings } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
+import { isFeatureAvailable } from '@/lib/edition';
 import { TIMEZONES } from '@/lib/timezones';
 import { ErrorPanel, useReachBreadcrumbs } from '../components/page-kit';
 import { useBillingReturn } from '../components/use-payment-method-setup';
@@ -335,7 +336,7 @@ function SettingsForm({ settings }: Readonly<{ settings: ReachSettings }>) {
           </Form>
 
           <SuppressionsSection />
-          <BillingSection />
+          {isFeatureAvailable('billing') && <BillingSection />}
         </div>
       </div>
     </div>

@@ -22,6 +22,7 @@ weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-ads = { path = "modules/ads" }
 weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
+weldsuite-call = { path = "modules/call" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-books = { path = "modules/books" }
@@ -30,12 +31,16 @@ weldsuite-books-purchases = { path = "modules/books-purchases" }
 weldsuite-apps-domain = { path = "crates/apps-domain" }
 weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-books-sales = { path = "modules/books-sales" }
+weldsuite-books-reports = { path = "modules/books-reports" }
 weldsuite-books-sales-tax = { path = "modules/books-sales-tax" }
+weldsuite-books-tax = { path = "modules/books-tax" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-commerce = { path = "modules/commerce" }
 weldsuite-commerce-domain = { path = "crates/commerce-domain" }
+weldsuite-connect-domain = { path = "crates/connect-domain" }
+weldsuite-connect = { path = "modules/connect" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
@@ -55,12 +60,17 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
+weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-docs = { path = "modules/docs" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
+weldsuite-meet = { path = "modules/meet" }
+weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
@@ -75,6 +85,8 @@ weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
 weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
+weldsuite-reach = { path = "modules/reach" }
+weldsuite-reach-domain = { path = "crates/reach-domain" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }
@@ -83,6 +95,7 @@ axum = { version = "0.8.9", default-features = false }
 base64 = "0.22.1"
 bytes = "1.12.1"
 encoding_rs = "0.8.42"
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.31", default-features = false }
 getrandom = "0.4.3"
@@ -98,6 +111,8 @@ opentelemetry-otlp = { version = "0.33.1", default-features = false, features = 
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
 png = "0.18.1"
+# Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
+qrcodegen = "1.8.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }

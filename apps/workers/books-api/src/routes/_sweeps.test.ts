@@ -20,6 +20,7 @@ import {
   type ListSweepCase,
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../types';
 import { bankAccountsRoutes } from './bank-accounts';
 import { bankDepositsRoutes } from './bank-deposits';
@@ -120,10 +121,16 @@ describe('entity-event coverage', () => {
   });
 });
 
+// One empty pglite tenant for every auth gate case: a conformance run sends
+// the calls to the Rust server too, which needs a database it can reach.
+let gateDb: Promise<Database> | undefined;
+const emptyTenant = () => (gateDb ??= createPgliteDb().then(({ db }) => db));
+
 describe.skipIf(AUTH_CASES.length === 0).each(AUTH_CASES)('$mount · auth gates', (c) => {
+  // 60 s: the first case boots pglite (WASM Postgres) for this test process.
   it('refuses every standard CRUD call without its permission', async () => {
-    for (const r of await authGateStatuses(c)) expect(r.status, r.label).toBe(403);
-  });
+    for (const r of await authGateStatuses(c, await emptyTenant())) expect(r.status, r.label).toBe(403);
+  }, 60_000);
 });
 
 describe.skipIf(LIST_CASES.length === 0).each(LIST_CASES)('$mount · GET / (list endpoint sweep)', (c) => {

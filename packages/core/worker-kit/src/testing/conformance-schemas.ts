@@ -520,15 +520,26 @@ import { DESK_TEAM_ROUTES } from './conformance-schemas-desk-team';
 import { ADS_ROUTES } from './conformance-schemas-ads';
 import { EXTERNAL_ROUTES } from './conformance-schemas-external';
 import { SOCIAL_ROUTES } from './conformance-schemas-social';
+import { CALL_ROUTES } from './conformance-schemas-call';
+import { REACH_ROUTES } from './conformance-schemas-reach';
 import { DATA_ROUTES } from './conformance-schemas-data';
+import { CONNECT_ROUTES } from './conformance-schemas-connect';
+import { CONNECT_ACTION_ROUTES } from './conformance-schemas-connect-actions';
+import { CONNECT_INTEGRATION_ROUTES } from './conformance-schemas-connect-integrations';
+import { DOCS_ROUTES } from './conformance-schemas-docs';
+import { SHEETS_ROUTES } from './conformance-schemas-sheets';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
 import { COMMERCE_ROUTES } from './conformance-schemas-commerce';
 import { COMMERCE_SHIPPING_ROUTES } from './conformance-schemas-commerce-shipping';
 import { HR_ROUTES } from './conformance-schemas-hr';
+import { MEET_ROUTES } from './conformance-schemas-meet';
 import { STASH_ROUTES } from './conformance-schemas-stash';
 import { BOOKS_ROUTES } from './conformance-schemas-books';
+import { HOST_ROUTES } from './conformance-schemas-host';
+import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
+import { PANEL_ROUTES } from './conformance-schemas-panel';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -1376,15 +1387,26 @@ const ROUTES: RouteSchema[] = [
   ...ADS_ROUTES,
   ...EXTERNAL_ROUTES,
   ...SOCIAL_ROUTES,
+  ...CALL_ROUTES,
+  ...REACH_ROUTES,
   ...DATA_ROUTES,
+  ...CONNECT_ROUTES,
+  ...CONNECT_ACTION_ROUTES,
+  ...CONNECT_INTEGRATION_ROUTES,
+  ...DOCS_ROUTES,
+  ...SHEETS_ROUTES,
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,
   ...COMMERCE_ROUTES,
   ...COMMERCE_SHIPPING_ROUTES,
   ...HR_ROUTES,
+  ...MEET_ROUTES,
   ...STASH_ROUTES,
   ...BOOKS_ROUTES,
+  ...HOST_ROUTES,
+  ...INTEGRATION_WEBHOOK_ROUTES,
+  ...PANEL_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

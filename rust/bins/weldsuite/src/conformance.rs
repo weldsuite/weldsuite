@@ -89,6 +89,7 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         // routes answer as app-api without its workspace worker).
         identity: None,
         provisioner: None,
+        panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
     };
     (infra, recorders)
 }
@@ -191,6 +192,9 @@ fn hono_pattern(axum_path: &str) -> String {
 struct TestContext {
     user_id: String,
     org_id: Option<String>,
+    /// Empty when the test runs without one (`workspaceId: undefined`): the
+    /// routes then answer as without `c.get('workspaceId')`.
+    #[serde(default)]
     workspace_id: String,
     clerk_org_id: Option<String>,
     #[serde(default)]
@@ -207,6 +211,13 @@ struct TestContext {
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
+    /// `c.get('appAccess')` of an on-request app (`context.appAccess`).
+    #[serde(default)]
+    app_access: Option<Value>,
+    /// The test's `SMTP_SEND` double over HTTP (`smtp-bridge.ts`): WeldReach's
+    /// customer-mailbox SMTP.
+    #[serde(default)]
+    smtp: Option<String>,
     #[serde(default)]
     env: HashMap<String, String>,
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
@@ -232,6 +243,10 @@ struct TestContext {
     /// Its Workflow bindings over HTTP (`conformance_workflows`).
     #[serde(default)]
     workflows: HashMap<String, String>,
+    /// The header names of the test's request as the Hono app saw them
+    /// (`requestHeaders`), for a route that keeps the request's headers.
+    #[serde(default)]
+    request_headers: Option<Vec<String>>,
     /// Its service bindings over HTTP (`{ BOOKS_INTERNAL: url }`,
     /// `conformance_books`).
     #[serde(default)]
@@ -240,6 +255,10 @@ struct TestContext {
     /// `/v1` routes then answer 401.
     #[serde(default)]
     api_session: Option<weldsuite_external_api::ApiSession>,
+    /// Its stream bindings over HTTP (`{ PANEL_EVENTS: url }`,
+    /// `conformance_panel`).
+    #[serde(default)]
+    pipelines: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -286,6 +305,8 @@ pub(crate) struct Pools {
     workflows: crate::conformance_workflows::WorkflowBridges,
     /// The test's books-api binding (WeldHR's pay run journal).
     books: crate::conformance_books::BooksBridges,
+    /// The test's WeldPanel collector bindings.
+    panel: crate::conformance_panel::PanelBridges,
 }
 
 impl Pools {
@@ -313,6 +334,11 @@ impl Pools {
     /// What the test shares with Rust beyond the session: its env, buckets,
     /// KV, session key and outbound bridge.
     fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        if let Some(url) = context.smtp.as_deref().filter(|url| !url.is_empty()) {
+            extensions.insert(weldsuite_reach::RequestSmtp(Arc::new(BridgedSmtp {
+                url: url.trim_end_matches('/').to_owned(),
+            })));
+        }
         extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
             context.env.clone(),
         )));
@@ -341,6 +367,16 @@ impl Pools {
         ));
         // WeldCommerce's portal rate limits: the test's namespace, or none.
         extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
+        // WeldDocs' and WeldSheets' rooms and engines: the test's own fakes,
+        // served by the ledger bridge in the collab-rooms service's wire format.
+        if let Some(bridge) = ["DOC_ROOM", "SHEET_ROOM", "DOC_ENGINE", "SHEET_ENGINE"]
+            .iter()
+            .find_map(|binding| context.ledgers.get(*binding))
+        {
+            extensions.insert(weldsuite_ports::RequestCollab(Arc::new(
+                weldsuite_adapters_oss::collab::HttpCollabRooms::new(vec![bridge.clone()], None),
+            )));
+        }
         // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
@@ -354,9 +390,42 @@ impl Pools {
         if let Some(books) = self.books.request_books(&context.services) {
             extensions.insert(books);
         }
+        // The integration workers' bank feed events and syncs too.
+        extensions.insert(crate::conformance_books::integrations_books(
+            &context.services,
+        ));
+        // And the GitHub App webhook's project syncs.
+        extensions.insert(self.workflows.github_sync_runs(&context.workflows));
+        // WeldPanel's collector: the test's events stream, salt and usage
+        // objects, each one it binds.
+        extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
+        ));
+        // WeldConnect's runs start on the test's `EXECUTE_WORKFLOW`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestWorkflowRuns(
+            self.workflows.execute_runs(&context.workflows),
+        ));
+        // GitHub project syncs start on the test's `GITHUB_PROJECT_SYNC`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestProjectSyncRuns(
+            self.workflows.project_sync_runs(&context.workflows),
+        ));
+        // CRM syncs start on the test's `CRM_SYNC`, or nowhere.
+        extensions.insert(weldsuite_connect::RequestCrmSyncRuns(
+            self.workflows.crm_sync_runs(&context.workflows),
+        ));
+        // The headers the test's request carried, as the Hono app saw them.
+        if let Some(names) = &context.request_headers {
+            extensions.insert(weldsuite_connect::RequestHeaderNames(names.clone()));
+        }
+        // WeldMeet: the test's `MEETING_RECORDINGS` bucket and its three
+        // Workflow bindings, or none, as the worker runs without them.
+        extensions.insert(weldsuite_meet::RequestRecordings(
+            self.buckets.meeting_recordings(&context.files),
+        ));
+        extensions.insert(weldsuite_meet::RequestMeetWorkflows(
+            self.workflows.meet_workflows(&context.workflows),
         ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
@@ -480,6 +549,9 @@ pub(crate) async fn auth(
             },
         ));
     }
+    if let Some(access) = context.app_access.as_ref().filter(|a| a.is_object()) {
+        extensions.insert(app_access_of(access));
+    }
     extensions.insert(Tenant {
         workspace_id: context.workspace_id,
         clerk_org_id: context.clerk_org_id,
@@ -557,6 +629,22 @@ async fn run_reporting_route(request: Request, next: Next) -> Response {
     response
 }
 
+/// The test's `appAccess` as the app-access gate would set it.
+fn app_access_of(access: &Value) -> weldsuite_pipeline::AppAccess {
+    let text = |key: &str| access.get(key).and_then(Value::as_str).map(str::to_owned);
+    weldsuite_pipeline::AppAccess {
+        workspace_id: text("workspaceId"),
+        status: text("status").unwrap_or_else(|| "none".to_owned()),
+        limits: access
+            .get("limits")
+            .filter(|l| !l.is_null())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        billing_status: text("billingStatus").unwrap_or_else(|| "none".to_owned()),
+        billing_status_at: text("billingStatusAt"),
+    }
+}
+
 /// Middleware for the routes that run before authentication (the upload
 /// PUT, the private-object read, the WeldApps bundle host, the CLI's device
 /// login): no session from the test, only what it shares (master database,
@@ -596,6 +684,44 @@ pub(crate) async fn public_tenant(
     next: Next,
 ) -> Response {
     if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
+}
+
+/// Middleware for WeldMeet's public routes (the video provider's webhooks,
+/// the recording stream): what [`public_tenant`] inserts, and the test's
+/// other workspaces' tenant databases (`context.tenantDbs`, the backfill's
+/// per-workspace lookups) when it names any. Runs inside [`public`].
+pub(crate) async fn meet_public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        let mut tenants = HashMap::new();
+        for (reference, url) in &context.tenant_database_urls {
+            match pools.get(url) {
+                Ok(pool) => {
+                    tenants.insert(reference.clone(), pool);
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        request
+            .extensions_mut()
+            .insert(weldsuite_meet::RequestTenants(Arc::new(tenants)));
         match pools.get(&context.database_url) {
             Ok(db) => {
                 request.extensions_mut().insert(Tenant {
@@ -767,6 +893,192 @@ pub(crate) async fn calendar_replan_sweep(
     let result =
         weldsuite_calendar::run_replan_sweep(&master, &tenants, Some(cache.as_ref()), now).await;
     axum::Json(json!(result)).into_response()
+}
+
+/// `POST /__conformance/cron/desk-sla-sweep`: one tick of the WeldDesk SLA
+/// sweep against the test's databases, as `runSlaSweep(env, now)` runs it
+/// there. Every workspace opens the test's tenant database, with the Clerk
+/// org id the test maps it to. The test's env has no mail or realtime
+/// binding, so neither has the sweep here.
+pub(crate) async fn desk_sla_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_desk::sla_sweep::SlaTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_desk::sla_sweep::SlaTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_desk::sla_sweep::SweepServices {
+        events: state.infra.events.clone(),
+        realtime: None,
+        mail: None,
+    };
+    let result = weldsuite_desk::sla_sweep::run_sla_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
+/// WeldReach's SMTP transport in conformance builds: each submission goes to
+/// the test's `SMTP_SEND` double over the bridge (`smtp-bridge.ts`), which
+/// answers `sendMail`'s result, or 500 when it threw.
+struct BridgedSmtp {
+    url: String,
+}
+
+impl weldsuite_reach::weldsuite_reach_domain::smtp::SmtpTransport for BridgedSmtp {
+    fn send(
+        &self,
+        config: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpConfig,
+        envelope: weldsuite_reach::weldsuite_reach_domain::smtp::SmtpEnvelope,
+        raw: String,
+    ) -> weldsuite_ports::BoxFuture<
+        '_,
+        Result<weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult, String>,
+    > {
+        Box::pin(async move {
+            let body = serde_json::json!({
+                "config": config.to_json(),
+                "envelope": { "from": envelope.from, "to": envelope.to },
+                "raw": raw,
+            });
+            let response = reqwest::Client::new()
+                .post(format!("{}/send", self.url))
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            let ok = response.status().is_success();
+            let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+            let value: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            if ok {
+                Ok(
+                    weldsuite_reach::weldsuite_reach_domain::smtp::SmtpSendResult::from_json(
+                        &value,
+                    ),
+                )
+            } else {
+                Err(value
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("send failed")
+                    .to_owned())
+            }
+        })
+    }
+}
+
+/// `POST /__conformance/cron/books-tax-reminders`: one run of WeldBooks' daily
+/// tax reminders (`runTaxReminders(db, options)`, part of `books-sweep`)
+/// against the test's tenant database, with the test's markers (in memory)
+/// and a notifier that records each notice and refuses the members the test
+/// names, as the test's own recorder does. Answers the result, the notices
+/// sent and the markers afterwards.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemindersRequest {
+    now: String,
+    database_url: String,
+    #[serde(default)]
+    input: RemindersInput,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RemindersInput {
+    #[serde(default)]
+    markers: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    fail_for: Vec<String>,
+    recipients: Option<Vec<String>>,
+    #[serde(default)]
+    force_nexus: bool,
+}
+
+/// The test's `recorder(failFor)`.
+struct RecordingNotifier {
+    fail_for: Vec<String>,
+    sent: Mutex<Vec<serde_json::Value>>,
+}
+
+impl weldsuite_books_sales_tax::reminders::ReminderNotifier for RecordingNotifier {
+    fn send<'a>(
+        &'a self,
+        user_id: &'a str,
+        notice: &'a weldsuite_books_sales_tax::reminders::ReminderNotice,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<(), String>> {
+        let outcome = if self.fail_for.iter().any(|u| u == user_id) {
+            Err("delivery failed".to_owned())
+        } else {
+            self.sent
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(json!({ "userId": user_id, "notice": notice.to_json() }));
+            Ok(())
+        };
+        Box::pin(std::future::ready(outcome))
+    }
+}
+
+pub(crate) async fn books_tax_reminders(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<RemindersRequest>,
+) -> Response {
+    use weldsuite_books_sales_tax::reminders::{
+        MemoryMarkers, TaxReminderOptions, run_tax_reminders,
+    };
+    let db = match state.conformance_pools.get(&request.database_url) {
+        Ok(db) => db,
+        Err(error) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let input = request.input;
+    let markers = MemoryMarkers::with(input.markers);
+    let notifier = RecordingNotifier {
+        fail_for: input.fail_for,
+        sent: Mutex::new(Vec::new()),
+    };
+    let options = TaxReminderOptions {
+        notifier: &notifier,
+        markers: &markers,
+        now,
+        recipients: input.recipients,
+        force_nexus: input.force_nexus,
+    };
+    match run_tax_reminders(&db, &options).await {
+        Ok(result) => axum::Json(json!({
+            "result": result.to_json(),
+            "sent": notifier.sent.into_inner().unwrap_or_else(PoisonError::into_inner),
+            "markers": markers.snapshot(),
+        }))
+        .into_response(),
+        Err(error) => ApiError::internal()
+            .with_message(format!("conformance: tax reminders: {error}"))
+            .into_response(),
+    }
 }
 
 #[cfg(test)]

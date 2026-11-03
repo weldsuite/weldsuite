@@ -1,0 +1,188 @@
+{{- if .Values.collabRooms.enabled }}
+{{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "COLLAB_ROOMS_SECRET")) }}
+{{- fail "collabRooms.enabled needs COLLAB_ROOMS_SECRET in the Secret (secret.values or secret.existingSecret): the rooms and the server share it" }}
+{{- end }}
+{{- if not .Values.config.files.endpoint }}
+{{- fail "collabRooms.enabled needs config.files (S3): the rooms keep their storage and checkpoints in the private bucket" }}
+{{- end }}
+# WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md): the workers'
+# DocRoom and SheetRoom on Node. One room lives on one pod: the server sends
+# a room's calls and sockets to the pod that wins rendezvous hashing on its
+# id, over the pod URLs in COLLAB_ROOMS_URLS. Changing replicaCount moves
+# rooms between pods; a room two pods briefly hold reloads from the bucket.
+{{- $svc := include "weldsuite.collabRooms.fullname" . }}
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "weldsuite.collabRooms.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "weldsuite.collabRooms.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $svc }}
+  replicas: {{ .Values.collabRooms.replicaCount }}
+  podManagementPolicy: Parallel
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "weldsuite.collabRooms.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # The server routes by this list: every pod restarts with it.
+        checksum/pods: {{ include "weldsuite.collabRooms.urls" . | sha256sum }}
+        {{- if not .Values.secret.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+      labels:
+        {{- include "weldsuite.collabRooms.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if .Values.serviceAccount.create }}{{ $svc }}{{ else }}{{ include "weldsuite.serviceAccountName" . }}{{ end }}
+      automountServiceAccountToken: false
+      # Long enough for every room to checkpoint once its sockets close.
+      terminationGracePeriodSeconds: {{ .Values.collabRooms.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: collab-rooms
+          image: "{{ .Values.collabRooms.image.repository }}:{{ .Values.collabRooms.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.collabRooms.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8090"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: COLLAB_ROOMS_SELF
+              value: {{ printf "http://$(POD_NAME).%s.%s.svc:8090" $svc .Release.Namespace | quote }}
+            - name: COLLAB_ROOMS_URLS
+              value: {{ include "weldsuite.collabRooms.urls" . | quote }}
+            - name: COLLAB_EVENTS_URL
+              value: {{ printf "http://%s.%s.svc:%v/internal/collab/events" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.config.environment | quote }}
+            - name: NODE_OPTIONS
+              value: {{ printf "--max-old-space-size=%v" .Values.collabRooms.heapMegabytes | quote }}
+            {{- with .Values.config.files }}
+            - name: S3_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: S3_REGION
+              value: {{ .region | quote }}
+            - name: S3_BUCKET_PRIVATE
+              value: {{ .privateBucket | quote }}
+            {{- if .publicBucket }}
+            - name: S3_BUCKET_PUBLIC
+              value: {{ .publicBucket | quote }}
+            {{- end }}
+            - name: S3_FORCE_PATH_STYLE
+              value: {{ .forcePathStyle | toString | quote }}
+            {{- end }}
+            # From the server's Secret: only what the rooms use.
+            {{- range $key := list "COLLAB_ROOMS_SECRET" "DATABASE_URL_MASTER" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- range $key := list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ $key }}
+                  optional: true
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.collabRooms.resources | nindent 12 }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "weldsuite.collabRooms.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Headless: each pod is addressed by name (<pod>.<service>), as the server routes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "weldsuite.collabRooms.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "weldsuite.collabRooms.selectorLabels" . | nindent 4 }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# Only the server calls the rooms (RPCs, and the sockets it proxies).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "weldsuite.collabRooms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weldsuite.collabRooms.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.selectorLabels" . | nindent 14 }}
+{{- end }}
+{{- end }}

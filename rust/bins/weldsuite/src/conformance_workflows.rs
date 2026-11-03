@@ -87,6 +87,96 @@ impl SequenceRuns for BridgedWorkflow {
     }
 }
 
+impl BridgedWorkflow {
+    /// One call, answering the bridge's `result` (`{ id }` for a `create`).
+    async fn call_for_result(&self, method: &str, id: Value, args: Value) -> Result<Value, String> {
+        let response = self
+            .client
+            .post(format!("{}/rpc", self.bridge))
+            .header("content-type", "application/json")
+            .body(
+                json!({ "binding": self.binding, "method": method, "id": id, "args": args })
+                    .to_string(),
+            )
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let ok = response.status().is_success();
+        let text = response.text().await.unwrap_or_default();
+        let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        if ok {
+            return Ok(body["result"].clone());
+        }
+        Err(body["error"]
+            .as_str()
+            .unwrap_or("workflow call failed")
+            .to_owned())
+    }
+}
+
+impl weldsuite_connect::WorkflowRuns for BridgedWorkflow {
+    /// `binding.create({ params })`: the instance id the fake answered.
+    fn create<'a>(&'a self, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+        weldsuite_connect::WorkflowRuns::start(self, None, params)
+    }
+
+    /// `binding.create({ id, params })` (`{ params }` without an id).
+    fn start<'a>(
+        &'a self,
+        id: Option<&'a str>,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
+        Box::pin(async move {
+            let (recorded, args) = match id {
+                Some(id) => (Value::from(id), json!({ "id": id, "params": params })),
+                None => (Value::Null, json!({ "params": params })),
+            };
+            let result = self.call_for_result("create", recorded, args).await?;
+            Ok(result["id"].as_str().unwrap_or_default().to_owned())
+        })
+    }
+
+    /// `(await binding.get(id)).terminate()`.
+    fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            self.call("get", id, Value::Null).await?;
+            self.call("terminate", id, Value::Null).await
+        })
+    }
+
+    /// `(await binding.get(id)).sendEvent({ type, payload })`.
+    fn send_event<'a>(
+        &'a self,
+        id: &'a str,
+        event_type: &'a str,
+        payload: &'a Value,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            self.call("get", id, Value::Null).await?;
+            self.call(
+                "sendEvent",
+                id,
+                json!({ "type": event_type, "payload": payload }),
+            )
+            .await
+        })
+    }
+}
+
+impl weldsuite_connect::ProjectSyncRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
+impl weldsuite_integrations::WorkflowRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 impl weldsuite_data::EnrichRuns for BridgedWorkflow {
     /// `binding.create(options)`, without an instance id.
     fn create<'a>(&'a self, options: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -118,6 +208,13 @@ impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_meet::MeetWorkflow for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 /// The bridged Workflow bindings, one HTTP client per process.
 #[derive(Default)]
 pub(crate) struct WorkflowBridges {
@@ -125,6 +222,28 @@ pub(crate) struct WorkflowBridges {
 }
 
 impl WorkflowBridges {
+    /// WeldMeet's `MEETING_RECORDING_COPY`, `MEETING_AI` and
+    /// `MEETING_RECORDING_BACKFILL`, each the test's or none.
+    pub(crate) fn meet_workflows(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> weldsuite_meet::MeetWorkflows {
+        let binding = |name: &'static str| {
+            workflows.get(name).map(|bridge| {
+                Arc::new(BridgedWorkflow {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding: name,
+                    client: self.client.clone(),
+                }) as Arc<dyn weldsuite_meet::MeetWorkflow>
+            })
+        };
+        weldsuite_meet::MeetWorkflows {
+            copy: binding("MEETING_RECORDING_COPY"),
+            ai: binding("MEETING_AI"),
+            backfill: binding("MEETING_RECORDING_BACKFILL"),
+        }
+    }
+
     /// The test's `SEND_SCHEDULED_EMAIL`, from `{ SEND_SCHEDULED_EMAIL: url }`.
     pub(crate) fn scheduled_runs(
         &self,
@@ -150,6 +269,66 @@ impl WorkflowBridges {
                 binding: "WELDDATA_ENRICH",
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_data::EnrichRuns>
+        })
+    }
+
+    /// The test's `EXECUTE_WORKFLOW`, from `{ EXECUTE_WORKFLOW: url }`.
+    pub(crate) fn execute_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::WorkflowRuns>> {
+        workflows.get("EXECUTE_WORKFLOW").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "EXECUTE_WORKFLOW",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::WorkflowRuns>
+        })
+    }
+
+    /// The test's `GITHUB_PROJECT_SYNC`, from `{ GITHUB_PROJECT_SYNC: url }`.
+    pub(crate) fn project_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::ProjectSyncRuns>> {
+        workflows.get("GITHUB_PROJECT_SYNC").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "GITHUB_PROJECT_SYNC",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
+        })
+    }
+
+    /// The test's `GITHUB_PROJECT_SYNC` as the integration workers start it
+    /// (the App's webhook).
+    pub(crate) fn github_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> weldsuite_integrations::RequestGithubProjectSync {
+        weldsuite_integrations::RequestGithubProjectSync(workflows.get("GITHUB_PROJECT_SYNC").map(
+            |bridge| {
+                Arc::new(BridgedWorkflow {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding: "GITHUB_PROJECT_SYNC",
+                    client: self.client.clone(),
+                }) as Arc<dyn weldsuite_integrations::WorkflowRuns>
+            },
+        ))
+    }
+
+    /// The test's `CRM_SYNC`, from `{ CRM_SYNC: url }` (same shape as
+    /// `GITHUB_PROJECT_SYNC`: `create({ id, params })`).
+    pub(crate) fn crm_sync_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_connect::ProjectSyncRuns>> {
+        workflows.get("CRM_SYNC").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "CRM_SYNC",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
         })
     }
 

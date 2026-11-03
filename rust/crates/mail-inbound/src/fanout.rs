@@ -433,6 +433,21 @@ async fn publish_desk_inbound(
     .await;
 }
 
+/// `markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', …)`: the SLA sweep
+/// (desk-api) only opens workspaces the due index lists (keyed by
+/// `workspaces.id`). Best effort.
+async fn mark_sla_due(ctx: &InboundContext, workspace_id: &str, sla_check_at: Option<i64>) {
+    if let Some(at) = sla_check_at.and_then(weldsuite_desk_domain::sla::instant) {
+        weldsuite_db::due_index::mark_due(
+            &ctx.master,
+            weldsuite_desk_domain::sla::DUE_KIND,
+            workspace_id,
+            at,
+        )
+        .await;
+    }
+}
+
 /// `autoAssignDeskEmailConversation`: an open, unowned conversation gets an
 /// owner when the workspace has auto-assignment on; the change goes live
 /// and to the hub as `assigned`.
@@ -458,7 +473,10 @@ async fn auto_assign(
         None => weldsuite_desk_domain::assignment::Picker::Local,
     };
     match weldsuite_desk_domain::assignment::auto_assign_with(db, &id, &picker).await {
-        Ok(Some((assigned, message))) => {
+        Ok(Some(appended)) => {
+            // The owner can change which SLA policy applies (desk-api's SLA sweep).
+            mark_sla_due(ctx, workspace_id, appended.sla_check_at).await;
+            let (assigned, message) = appended.pair();
             publish_all(
                 ctx,
                 vec![
@@ -547,6 +565,7 @@ async fn ingest_helpdesk(
             return None;
         }
     };
+    mark_sla_due(ctx, &inbox.workspace_id, ingested.sla_check_at).await;
     tracing::info!(
         conversation = ingested.conversation["id"].as_str().unwrap_or_default(),
         created = ingested.created,

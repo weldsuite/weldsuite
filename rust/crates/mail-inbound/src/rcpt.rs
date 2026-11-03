@@ -4,9 +4,12 @@
 //!
 //! | Answer | Haraka replies |
 //! |---|---|
-//! | 200 `{ "accept": true, "match": "exact" \| "catch-all" }` | 250 |
+//! | 200 `{ "accept": true, "match": "exact" \| "catch-all" \| "extra" }` | 250 |
 //! | 404 `{ "accept": false }` | 550 5.1.1 |
 //! | 503 (lookup failed, or no secret configured), 401 | 451 |
+//!
+//! `extra` is an address another module receives through this MX and the
+//! registry does not hold ([`ExtraRecipients`]): WeldReach's reply domain.
 
 use std::sync::Arc;
 
@@ -21,10 +24,34 @@ use weldsuite_db::PgPool;
 
 use crate::recipients::lookup_recipient;
 
+/// Addresses another module receives through this MX (WeldReach's
+/// `reply+<token>@REACH_INBOUND_DOMAIN`): `Ok(true)` accepts one the
+/// registry does not hold; an error defers it (451).
+pub type ExtraRecipients =
+    Arc<dyn Fn(String) -> weldsuite_ports::BoxFuture<'static, Result<bool, String>> + Send + Sync>;
+
 #[derive(Clone)]
 struct RcptState {
     master: PgPool,
     secret: Option<Arc<str>>,
+    extra: Option<ExtraRecipients>,
+}
+
+fn not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        axum::Json(json!({ "accept": false })),
+    )
+        .into_response()
+}
+
+fn lookup_failed(err: &dyn std::fmt::Display) -> Response {
+    tracing::error!(error = %err, "[MailInbound] recipient lookup failed");
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "LOOKUP_FAILED",
+        "Recipient lookup failed",
+    )
 }
 
 /// Equal in time independent of where they differ.
@@ -74,19 +101,15 @@ async fn recipients(State(state): State<RcptState>, headers: HeaderMap, body: By
         Ok(Some(matched)) => {
             axum::Json(json!({ "accept": true, "match": matched.as_str() })).into_response()
         }
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            axum::Json(json!({ "accept": false })),
-        )
-            .into_response(),
-        Err(err) => {
-            tracing::error!(error = %err, "[MailInbound] recipient lookup failed");
-            error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "LOOKUP_FAILED",
-                "Recipient lookup failed",
-            )
-        }
+        Ok(None) => match &state.extra {
+            Some(extra) => match extra(address).await {
+                Ok(true) => axum::Json(json!({ "accept": true, "match": "extra" })).into_response(),
+                Ok(false) => not_found(),
+                Err(err) => lookup_failed(&err),
+            },
+            None => not_found(),
+        },
+        Err(err) => lookup_failed(&err),
     }
 }
 
@@ -96,11 +119,24 @@ pub fn router<S>(master: PgPool, secret: Option<String>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
+    router_with(master, secret, None)
+}
+
+/// [`router`], also accepting the `extra` addresses.
+pub fn router_with<S>(
+    master: PgPool,
+    secret: Option<String>,
+    extra: Option<ExtraRecipients>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     Router::new()
         .route("/recipients", post(recipients))
         .with_state(RcptState {
             master,
             secret: secret.filter(|s| !s.is_empty()).map(Arc::from),
+            extra,
         })
 }
 

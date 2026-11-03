@@ -118,7 +118,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const method = (req.method ?? 'GET').toUpperCase();
   const bytes = await readBody(req);
   const text = bytes.byteLength > 0 ? new TextDecoder().decode(bytes) : null;
-  rustCalls.push({ method, url: target, body: bodyOf(text) });
+  // A multipart form is recorded as the TypeScript side records a `FormData`
+  // body (`textOf`): its boundary is drawn per run.
+  const multipart = (req.headers['content-type'] ?? '').toLowerCase().startsWith('multipart/form-data');
+  rustCalls.push({ method, url: target, body: multipart ? '<body>' : bodyOf(text) });
 
   // The call's own headers (a forwarded request carries the app's), minus
   // the hop-by-hop ones of this leg.
@@ -186,6 +189,14 @@ export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result:
   }
 }
 
+/**
+ * Reads each backend caches for its whole process, so when each one makes
+ * them depends on what ran before, not on the request: RealtimeKit's
+ * published webhook key (both verify each delivery against it and keep it an
+ * hour). Left out of the compared calls.
+ */
+const PROCESS_CACHED_READS = new Set(['GET https://api.realtime.cloudflare.com/.well-known/webhooks.json']);
+
 /** `value` with every object's keys sorted. */
 function sortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedKeys);
@@ -212,5 +223,7 @@ function sortKey(call: OutboundCall): string {
  * order (TypeScript) or with sorted keys (Rust's `serde_json`).
  */
 export function sortOutbound(calls: OutboundCall[]): OutboundCall[] {
-  return [...calls].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  return calls
+    .filter((call) => !PROCESS_CACHED_READS.has(`${call.method} ${call.url}`))
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }

@@ -2101,6 +2101,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+
+[[package]]
 name = "quinn"
 version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3803,6 +3809,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
+ "futures-util",
  "http",
  "http-body-util",
  "opentelemetry",
@@ -3814,6 +3821,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tower-http 0.7.1",
  "tracing",
@@ -3826,13 +3834,17 @@ dependencies = [
  "weldsuite-books-banking",
  "weldsuite-books-domain",
  "weldsuite-books-purchases",
+ "weldsuite-books-reports",
  "weldsuite-books-sales",
  "weldsuite-books-sales-tax",
+ "weldsuite-books-tax",
  "weldsuite-calendar",
+ "weldsuite-call",
  "weldsuite-catalogs",
  "weldsuite-chat",
  "weldsuite-commerce",
  "weldsuite-commerce-domain",
+ "weldsuite-connect",
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
@@ -3845,26 +3857,33 @@ dependencies = [
  "weldsuite-desk",
  "weldsuite-desk-domain",
  "weldsuite-desk-widget",
+ "weldsuite-docs",
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-external-api",
  "weldsuite-flow",
+ "weldsuite-host",
  "weldsuite-hr",
+ "weldsuite-integrations",
  "weldsuite-kit",
  "weldsuite-know",
  "weldsuite-mail",
  "weldsuite-mail-domain",
  "weldsuite-mail-inbound",
+ "weldsuite-meet",
  "weldsuite-migrations",
+ "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-reach",
  "weldsuite-realtime",
  "weldsuite-sign",
  "weldsuite-social",
  "weldsuite-stash",
  "weldsuite-subscribers",
+ "weldsuite-video-rooms",
 ]
 
 [[package]]
@@ -4023,7 +4042,9 @@ dependencies = [
  "hmac",
  "http",
  "icu_collator",
+ "jiff",
  "jsonwebtoken 11.1.0",
+ "qrcodegen",
  "regex",
  "serde",
  "serde_json",
@@ -4067,6 +4088,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-books-reports"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-books-sales"
 version = "0.0.0"
 dependencies = [
@@ -4095,6 +4140,32 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "jiff",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-tax"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "encoding_rs",
+ "form_urlencoded",
+ "getrandom 0.4.3",
+ "http",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",
@@ -4152,6 +4223,34 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-call"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hmac",
+ "http",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -4228,8 +4327,10 @@ dependencies = [
  "tracing",
  "url",
  "weldsuite-auth",
+ "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-commerce-domain",
+ "weldsuite-connect-domain",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -4250,6 +4351,62 @@ dependencies = [
  "sha2 0.11.1",
  "tokio",
  "tracing",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-connect"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
+ "http",
+ "jiff",
+ "jsonwebtoken 11.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-ads-domain",
+ "weldsuite-auth",
+ "weldsuite-calendar-domain",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-connect-domain",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-subscribers",
+]
+
+[[package]]
+name = "weldsuite-connect-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-db",
+ "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
 ]
@@ -4534,6 +4691,7 @@ dependencies = [
 name = "weldsuite-desk-domain"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "regex",
  "serde",
  "serde_json",
@@ -4545,6 +4703,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-notifications",
  "weldsuite-ports",
 ]
 
@@ -4569,6 +4728,27 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-notifications",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-docs"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "flate2",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 
@@ -4679,6 +4859,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-host"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "http",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-hr"
 version = "0.0.0"
 dependencies = [
@@ -4704,6 +4909,32 @@ dependencies = [
  "weldsuite-payroll-domain",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-integrations"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
+ "http",
+ "jsonwebtoken 11.1.0",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 
@@ -4823,6 +5054,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-meet"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "getrandom 0.4.3",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-video-rooms",
+]
+
+[[package]]
 name = "weldsuite-migrations"
 version = "0.0.0"
 dependencies = [
@@ -4850,6 +5110,35 @@ dependencies = [
  "tracing",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-panel"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "http",
+ "http-body-util",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 
@@ -4940,6 +5229,60 @@ dependencies = [
  "tokio-util",
  "tracing",
  "weldsuite-catalogs",
+]
+
+[[package]]
+name = "weldsuite-reach"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "getrandom 0.4.3",
+ "hex",
+ "hmac",
+ "http",
+ "jiff",
+ "lettre",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-inbound",
+ "weldsuite-permissions",
+ "weldsuite-pipeline",
+ "weldsuite-ports",
+ "weldsuite-reach-domain",
+]
+
+[[package]]
+name = "weldsuite-reach-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "futures-util",
+ "jiff",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-inbound",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -5087,10 +5430,12 @@ dependencies = [
 name = "weldsuite-video-rooms"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "getrandom 0.4.3",
  "jsonwebtoken 11.1.0",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "time",
  "tokio",
  "tracing",

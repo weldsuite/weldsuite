@@ -5,6 +5,7 @@
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
 
+mod collab;
 mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
@@ -19,6 +20,8 @@ mod conformance_mail;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 #[cfg(feature = "conformance")]
+mod conformance_panel;
+#[cfg(feature = "conformance")]
 mod conformance_portal;
 #[cfg(feature = "conformance")]
 mod conformance_workflows;
@@ -28,6 +31,7 @@ mod desk_http;
 mod edition;
 mod infra;
 mod migrate;
+mod reach;
 mod realtime;
 mod routes;
 mod server;
@@ -52,7 +56,9 @@ commands:
   consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge
+             calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
+             reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, bank-feed-due,
+             workflow-schedules
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit
@@ -173,6 +179,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
+        collab: (!config.collab_rooms_urls.is_empty()).then(|| {
+            Arc::new(weldsuite_adapters_oss::collab::HttpCollabRooms::new(
+                config.collab_rooms_urls.clone(),
+                config.collab_rooms_secret.clone(),
+            ))
+        }),
+        collab_secret: config.collab_rooms_secret.as_deref().map(Arc::from),
         mail_inbound_secret: config.mail_inbound_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         widget_token_secret: config

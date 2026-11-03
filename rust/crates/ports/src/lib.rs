@@ -30,6 +30,7 @@ use std::fmt;
 use std::pin::Pin;
 
 pub mod cache;
+pub mod collab;
 pub mod consume;
 pub mod database;
 pub mod embeddings;
@@ -48,6 +49,7 @@ pub mod transport;
 pub mod video_rooms;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
+pub use collab::{CollabError, CollabRooms, RequestCollab};
 pub use consume::{BatchHandler, Delivery, Disposition};
 pub use database::{
     DatabaseProvisioner, DatabaseUrl, MemoryProvisioner, Placement, ProvisionCall, ProvisionError,

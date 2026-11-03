@@ -138,19 +138,19 @@ async fn has_backup_withholding(
     Ok(payment.is_some())
 }
 
-/// `entityCalendar(db, entity, year)`.
+/// `entityCalendar(db, entity, year, now)`, `today` being `todayIn(entity.timezone, now)`
+/// (the route's clock, or the cron's for its reminders).
 #[allow(
     clippy::too_many_lines,
     reason = "mirrors tax-calendar.ts's entityCalendar()"
 )]
-async fn entity_calendar(
-    caller: &Caller,
-    state: &BooksState,
+pub(crate) async fn entity_calendar(
+    db: &PgPool,
     entity: &Value,
     year: i64,
+    today: &str,
 ) -> Result<Value, sqlx::Error> {
-    let db = &caller.db;
-    let today = today_in(caller, state, text(entity, "timezone"));
+    let today = today.to_owned();
     if text(entity, "jurisdictionCode") != Some("US") {
         return Ok(json!({
             "supported": false,
@@ -336,7 +336,8 @@ async fn calendar(
             let Some(year) = year.filter(|y| (2000..=2100).contains(y)) else {
                 return Err(Refusal::bad_request("year must be between 2000 and 2100"));
             };
-            Ok(ok(entity_calendar(&caller, &state, &entity, year).await?))
+            let today = today_in(&caller, &state, text(&entity, "timezone"));
+            Ok(ok(entity_calendar(&caller.db, &entity, year, &today).await?))
         }
         .await,
         "Failed to fetch the tax calendar",

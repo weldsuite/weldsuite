@@ -15,6 +15,7 @@
 import { BUCKET_BINDINGS, isBucketLike, type BucketLike } from './bucket-bridge';
 import { KV_BINDINGS, isKvLike, kvText, type KvLike } from './kv-bridge';
 import { LEDGER_BINDINGS } from './ledger-bridge';
+import { PIPELINE_BINDINGS } from './pipeline-bridge';
 
 interface ScratchObject {
   key: string;
@@ -131,6 +132,12 @@ function isolatedKv(kv: KvLike): KvLike {
   });
 }
 
+/** The binding's own copy (`fork()`), for a stub that can make one; else undefined. */
+function forkOf(binding: unknown): unknown {
+  const fork = (binding as { fork?: () => unknown } | undefined)?.fork;
+  return typeof fork === 'function' ? fork.call(binding) : undefined;
+}
+
 /** `env` with each shared bucket and KV binding behind a copy-on-write view. */
 export function isolatedEnv(env: Record<string, unknown>): Record<string, unknown> {
   const isolated: Record<string, unknown> = { ...env };
@@ -138,13 +145,17 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
     if (isBucketLike(env[name])) isolated[name] = isolatedBucket(env[name] as BucketLike);
   }
   for (const name of KV_BINDINGS) {
-    if (isKvLike(env[name])) isolated[name] = isolatedKv(env[name] as KvLike);
+    if (!isKvLike(env[name])) continue;
+    // A stub that can copy itself (one whose writes fail on purpose) gives
+    // the TypeScript run that copy, so the run meets the same failures.
+    isolated[name] = forkOf(env[name]) ?? isolatedKv(env[name] as KvLike);
   }
   // A Durable Object namespace stub that can copy its state (the portal's
-  // rate-limit counters) counts the TypeScript run on the copy.
-  for (const name of LEDGER_BINDINGS) {
-    const ns = env[name] as { fork?: () => unknown } | undefined;
-    if (ns && typeof ns.fork === 'function') isolated[name] = ns.fork();
+  // rate-limit counters) counts the TypeScript run on the copy, and a stream
+  // stub that can copy itself takes the TypeScript run's rows on the copy.
+  for (const name of [...LEDGER_BINDINGS, ...PIPELINE_BINDINGS]) {
+    const copy = forkOf(env[name]);
+    if (copy !== undefined) isolated[name] = copy;
   }
   return isolated;
 }

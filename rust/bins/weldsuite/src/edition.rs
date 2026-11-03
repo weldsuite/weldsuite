@@ -10,6 +10,10 @@
 //! - `env`: public settings the platform would otherwise bake in at build
 //!   time, by their `VITE_*` name (`PUBLIC_ENV`), limited to
 //!   [`PUBLIC_ENV_KEYS`] because the document is public.
+//! - `videoProvider` and `videoUrl`: which client joins WeldMeet rooms
+//!   (`livekit` or `realtimekit`) and the `LiveKit` server it connects to,
+//!   from the same `VIDEO_PROVIDER`/`LIVEKIT_URL` the meet module reads
+//!   (`weldsuite_video_rooms::client_settings`).
 //!
 //! The platform reads them in `apps/web/platform/lib/edition.ts` and
 //! `lib/runtime-config.ts`. Global serves no `/config.json` and offers
@@ -18,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
+use weldsuite_video_rooms::ClientSettings;
 
 /// The Kubernetes edition (`EDITION`): `self-hosted` (the default) or `eu`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +81,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
+    // WeldConnect's "Generate with AI" (`POST /api/workflows/generate`) runs
+    // on Workers AI through the Cloudflare AI Gateway; the Rust backend has
+    // no AI port yet.
+    "weldconnect-ai",
     // WeldHR payroll: sending the loonaangifte over Digipoort needs the
     // worker's PKIoverheid client certificate binding. The return is filed
     // by hand and marked as filed (`POST …/filings/:id/submit` answers
@@ -85,6 +94,38 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // reads the file with a model on Workers AI; the route keeps its refusals
     // and answers 503 where it would call the model.
     "books-ocr",
+    // WeldCall: buying a phone number and submitting a number port are Stripe
+    // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
+    // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
+    "phone-number-purchase",
+    // WeldBooks VAT: sending the BTW-aangifte and the Opgaaf ICP to Digipoort
+    // needs the worker's PKIoverheid client certificate binding. Without it
+    // the worker builds the envelope and answers a simulated submission, as
+    // Rust always does (`POST /api/vat-returns/:id/file`,
+    // `/api/icp-declarations/:id/file`); the platform hides filing and the
+    // status check, and the XBRL download is filed by hand.
+    "vat-digipoort",
+    // WeldHost: buying and renewing domains charge through Stripe, which
+    // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
+    // "Stripe is not configured", as the worker without the key does).
+    // Managing, transferring and external domains stay available.
+    "domain-purchase",
+    // WeldMeet transcripts and summaries: Whisper and the summary model run in
+    // the worker's MEETING_AI Workflow, and the video provider's own
+    // transcript and summary are RealtimeKit's. `POST …/recording/transcribe`
+    // and `…/summarize` answer 503 as the worker without the binding does,
+    // and the AI options of a live meeting need RealtimeKit.
+    "meet-transcription",
+    // WeldMeet recordings: RealtimeKit's recorder uploads the file and the
+    // worker's MEETING_RECORDING_COPY Workflow copies it into the private
+    // MEETING_RECORDINGS bucket. On LiveKit that would be an Egress into the
+    // files store, which isn't built: access, streaming and deletes answer
+    // 503 "Recording storage is not configured".
+    "meet-recordings",
+    // WeldAgent's AI: chat turns, agent runs, routine tests, connector
+    // events and teach mode run on Claude Managed Agents and `@weldsuite/ai`
+    // on Global; the Kubernetes editions have no AI provider yet.
+    "agent-ai",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
@@ -110,6 +151,8 @@ pub(crate) struct EditionConfig {
     pub(crate) edition: Edition,
     /// Name → value, only names in [`PUBLIC_ENV_KEYS`].
     pub(crate) public_env: BTreeMap<String, String>,
+    /// The video client the frontends join rooms with.
+    pub(crate) video: ClientSettings,
 }
 
 impl Default for EditionConfig {
@@ -117,6 +160,7 @@ impl Default for EditionConfig {
         Self {
             edition: Edition::SelfHosted,
             public_env: BTreeMap::new(),
+            video: ClientSettings::default(),
         }
     }
 }
@@ -144,6 +188,7 @@ impl EditionConfig {
         Self {
             edition,
             public_env,
+            video: weldsuite_video_rooms::client_settings(lookup),
         }
     }
 
@@ -154,6 +199,10 @@ impl EditionConfig {
         body["unavailableFeatures"] = json!(UNAVAILABLE_FEATURES);
         if !self.public_env.is_empty() {
             body["env"] = json!(self.public_env);
+        }
+        body["videoProvider"] = json!(self.video.provider.as_str());
+        if let Some(url) = &self.video.url {
+            body["videoUrl"] = json!(url);
         }
     }
 }
@@ -207,6 +256,8 @@ mod tests {
         config.describe(&mut body);
         assert_eq!(body["edition"], "self-hosted");
         assert!(body.get("env").is_none());
+        assert_eq!(body["videoProvider"], "realtimekit");
+        assert!(body.get("videoUrl").is_none());
         assert_eq!(
             body["unavailableFeatures"]
                 .as_array()
@@ -232,6 +283,23 @@ mod tests {
         assert_eq!(body["edition"], "eu");
         // Blank values are left out, like unset ones.
         assert_eq!(body["env"], json!({ "VITE_MAPBOX_ACCESS_TOKEN": "pk.eu" }));
+    }
+
+    #[test]
+    fn names_the_livekit_server_the_clients_join() {
+        let (config, problems) = read(&[
+            ("VIDEO_PROVIDER", "livekit"),
+            ("LIVEKIT_URL", "wss://lk.example.eu"),
+            ("LIVEKIT_API_URL", "http://livekit.video:7880"),
+            ("LIVEKIT_API_SECRET", "never-published"),
+        ]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut body = json!({});
+        config.describe(&mut body);
+        assert_eq!(body["videoProvider"], "livekit");
+        // The address the browsers reach, never the in-cluster API URL.
+        assert_eq!(body["videoUrl"], "wss://lk.example.eu");
+        assert!(!body.to_string().contains("never-published"));
     }
 
     #[test]

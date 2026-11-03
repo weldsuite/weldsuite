@@ -2,12 +2,18 @@
  * Daily tax reminders (pglite): sales tax returns 7 days, 1 day and overdue,
  * calendar deadlines, expiring certificates, nexus; sent once per key and
  * threshold; the in-app delivery; and the books sweep wiring.
+ *
+ * In conformance mode each run of the reminders (`remind`) runs on the Rust
+ * server too (part of `weldsuite cron books-sweep` there), through
+ * `conformanceSweep`: the result, the notices sent and the markers must
+ * match, and the test reads Rust's.
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { conformanceSweep } from '@weldsuite/worker-kit/testing/conformance-cron';
 import { addAgency, createUsFixture, postSale, type UsFixture } from '../services/sales-tax-returns/test-fixtures';
 import { createInAppNotifier } from './reminder-notifier';
 import {
@@ -42,6 +48,46 @@ function recorder(failFor: string[] = []) {
   return { sent, notifier, titles: () => [...new Set(sent.map((s) => s.notice.title))].sort() };
 }
 
+type Markers = ReturnType<typeof memoryMarkers>;
+
+/**
+ * `runTaxReminders` with a recording notifier that refuses the members in
+ * `failFor`, on a copy of `markers` that `markers` then takes over.
+ */
+async function remind(opts: { markers: Markers; now: Date; failFor?: string[]; recipients?: string[]; forceNexus?: boolean }) {
+  const run = async (tenantDb: Database) => {
+    const markers = memoryMarkers();
+    for (const [marker, ttl] of opts.markers.all) markers.all.set(marker, ttl);
+    const { sent, notifier } = recorder(opts.failFor);
+    const result = await runTaxReminders(tenantDb, {
+      notifier,
+      markers,
+      now: opts.now,
+      ...(opts.recipients ? { recipients: opts.recipients } : {}),
+      ...(opts.forceNexus ? { forceNexus: true } : {}),
+    });
+    return { result, sent, markers: Object.fromEntries(markers.all) };
+  };
+  const out = await conformanceSweep({
+    job: 'books-tax-reminders',
+    now: opts.now,
+    tenantDb: db,
+    env: {},
+    workspaces: {},
+    input: {
+      markers: Object.fromEntries(opts.markers.all),
+      failFor: opts.failFor ?? [],
+      recipients: opts.recipients ?? null,
+      forceNexus: opts.forceNexus ?? false,
+    },
+    runTypeScript: run,
+    takeTypeScriptEvents: () => [],
+  });
+  opts.markers.all.clear();
+  for (const [marker, ttl] of Object.entries(out.markers)) opts.markers.all.set(marker, ttl);
+  return { result: out.result, sent: out.sent, titles: () => [...new Set(out.sent.map((s) => s.notice.title))].sort() };
+}
+
 const at = (iso: string) => new Date(iso);
 const zero = (code: string, name: string) => [{ code, name, level: 'state' as const, rate: 0, tax: 0 }];
 
@@ -73,8 +119,7 @@ describe('sales tax return reminders', () => {
   const markers = memoryMarkers();
 
   it('7 days before the due date, with the calendar deadline due in 2 days', async () => {
-    const { sent, notifier, titles } = recorder();
-    const result = await runTaxReminders(db, { notifier, markers, now: at('2026-10-13T10:00:00Z') });
+    const { result, sent, titles } = await remind({ markers, now: at('2026-10-13T10:00:00Z') });
     expect(result).toMatchObject({ entities: 1, sent: 2, skipped: 0, failed: 0 });
     expect(titles()).toEqual([
       'Sales tax return due in 7 days: Texas Comptroller',
@@ -91,37 +136,33 @@ describe('sales tax return reminders', () => {
   });
 
   it('does not send the same reminder twice, even when the run repeats', async () => {
-    const { sent, notifier } = recorder();
-    const result = await runTaxReminders(db, { notifier, markers, now: at('2026-10-13T22:00:00Z') });
+    const { result, sent } = await remind({ markers, now: at('2026-10-13T22:00:00Z') });
     expect(result).toMatchObject({ sent: 0, skipped: 2 });
     expect(sent).toEqual([]);
-    const next = await runTaxReminders(db, { notifier, markers, now: at('2026-10-14T10:00:00Z') });
-    expect(next).toMatchObject({ sent: 0 });
+    const next = await remind({ markers, now: at('2026-10-14T10:00:00Z') });
+    expect(next.result).toMatchObject({ sent: 0 });
+    expect(next.sent).toEqual([]);
   });
 
   it('1 day before the due date, once', async () => {
-    const { notifier, titles } = recorder();
-    const result = await runTaxReminders(db, { notifier, markers, now: at('2026-10-19T10:00:00Z') });
+    const { result, titles } = await remind({ markers, now: at('2026-10-19T10:00:00Z') });
     expect(result.sent).toBe(1);
     expect(titles()).toEqual(['Sales tax return due tomorrow: Texas Comptroller']);
     expect(markers.all.has('sales_tax:agy_tx:2026-09-30:1d')).toBe(true);
   });
 
   it('overdue once the due date has passed, once', async () => {
-    const { sent, notifier, titles } = recorder();
-    await runTaxReminders(db, { notifier, markers, now: at('2026-10-21T10:00:00Z') });
+    const { sent, titles } = await remind({ markers, now: at('2026-10-21T10:00:00Z') });
     expect(titles()).toEqual(['Sales tax return overdue: Texas Comptroller']);
     expect(sent[0]!.notice.severity).toBe('error');
     expect(sent[0]!.notice.body).toContain('due 2026-10-20 (yesterday)');
-    const again = recorder();
-    await runTaxReminders(db, { notifier: again.notifier, markers, now: at('2026-10-22T10:00:00Z') });
+    const again = await remind({ markers, now: at('2026-10-22T10:00:00Z') });
     expect(again.sent).toEqual([]);
   });
 
   it('a missed day still sends the reminder the next day', async () => {
     // Fresh markers, first run on the due day itself (the 7-day window was missed).
-    const { titles, notifier } = recorder();
-    await runTaxReminders(db, { notifier, markers: memoryMarkers(), now: at('2026-10-20T10:00:00Z') });
+    const { titles } = await remind({ markers: memoryMarkers(), now: at('2026-10-20T10:00:00Z') });
     expect(titles()).toEqual(['Sales tax return due today: Texas Comptroller']);
   });
 });
@@ -134,9 +175,9 @@ describe('certificate and nexus reminders', () => {
       { id: 'cert_far', entityId: f.entityId, partyId: 'pty_3', states: ['TX'], reason: 'resale', certificateNumber: 'C-FAR', form: 'state_form', expiresOn: '2027-03-01' },
     ]);
     const markers = memoryMarkers();
-    const first = recorder();
     // 12 October 2026 is a Monday; nothing else is due, so only the certificates and (Monday) nexus run
-    const result = await runTaxReminders(db, { notifier: first.notifier, markers, now: at('2026-10-12T10:00:00Z'), recipients: ['user_admin'] });
+    const first = await remind({ markers, now: at('2026-10-12T10:00:00Z'), recipients: ['user_admin'] });
+    const result = first.result;
     const certificateNotices = first.sent.filter((s) => s.notice.entityType === 'exemption_certificate');
     expect(certificateNotices).toHaveLength(1);
     expect(certificateNotices[0]!.notice.title).toBe('2 exemption certificates expire within 30 days');
@@ -151,8 +192,7 @@ describe('certificate and nexus reminders', () => {
     await db.insert(schema.exemptionCertificates).values({
       id: 'cert_3', entityId: f.entityId, partyId: 'pty_4', states: ['TX'], reason: 'resale', certificateNumber: 'C-3', form: 'state_form', expiresOn: '2026-11-10',
     });
-    const second = recorder();
-    await runTaxReminders(db, { notifier: second.notifier, markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'] });
+    const second = await remind({ markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'] });
     const fresh = second.sent.filter((s) => s.notice.entityType === 'exemption_certificate');
     expect(fresh).toHaveLength(1);
     expect(fresh[0]!.notice.title).toBe('Exemption certificate expiring');
@@ -167,29 +207,26 @@ describe('certificate and nexus reminders', () => {
       });
     }
     const markers = memoryMarkers();
-    const tuesday = recorder();
-    await runTaxReminders(db, { notifier: tuesday.notifier, markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'] });
+    const tuesday = await remind({ markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'] });
     expect(tuesday.sent.some((s) => s.notice.entityType === 'nexus')).toBe(false);
 
-    const monday = recorder();
-    await runTaxReminders(db, { notifier: monday.notifier, markers, now: at('2026-10-12T10:00:00Z'), recipients: ['user_admin'] });
+    const monday = await remind({ markers, now: at('2026-10-12T10:00:00Z'), recipients: ['user_admin'] });
     const nexus = monday.sent.filter((s) => s.notice.entityType === 'nexus');
     expect(nexus).toHaveLength(1);
     expect(nexus[0]!.notice).toMatchObject({ title: 'Economic nexus reached in Washington', severity: 'error', entityId: 'WA' });
     expect(nexus[0]!.notice.body).toContain('Collect sales tax from 2026-09-26');
     expect(markers.all.has('nexus:WA:2026-09-25:exceeded')).toBe(true);
 
-    const forced = recorder();
-    await runTaxReminders(db, { notifier: forced.notifier, markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'], forceNexus: true });
+    const forced = await remind({ markers, now: at('2026-10-13T10:00:00Z'), recipients: ['user_admin'], forceNexus: true });
     expect(forced.sent.some((s) => s.notice.entityType === 'nexus')).toBe(false);
   });
 });
 
 describe('delivery failures', () => {
   it('marks a reminder once one member got it, and retries when nobody did', async () => {
-    const partial = recorder(['user_admin']);
     const markers = memoryMarkers();
-    const first = await runTaxReminders(db, { notifier: partial.notifier, markers, now: at('2026-10-13T10:00:00Z') });
+    const partial = await remind({ markers, now: at('2026-10-13T10:00:00Z'), failFor: ['user_admin'] });
+    const first = partial.result;
     // the sales tax return, the calendar deadline and the certificates (earlier tests added two): one notice each
     expect(first.sent).toBe(3);
     expect(first.failed).toBe(3);
@@ -197,24 +234,22 @@ describe('delivery failures', () => {
     // two markers for the notices of one reminder each, one per certificate in the combined notice
     expect(markers.all.size).toBe(5);
 
-    const nobody = recorder(['user_admin', 'user_owner']);
     const failing = memoryMarkers();
-    const second = await runTaxReminders(db, { notifier: nobody.notifier, markers: failing, now: at('2026-10-13T10:00:00Z') });
-    expect(second.sent).toBe(0);
+    const second = await remind({ markers: failing, now: at('2026-10-13T10:00:00Z'), failFor: ['user_admin', 'user_owner'] });
+    expect(second.result.sent).toBe(0);
     expect(failing.all.size).toBe(0);
-    const retry = recorder();
-    const third = await runTaxReminders(db, { notifier: retry.notifier, markers: failing, now: at('2026-10-14T10:00:00Z') });
-    expect(third.sent).toBeGreaterThan(0);
+    const third = await remind({ markers: failing, now: at('2026-10-14T10:00:00Z') });
+    expect(third.result.sent).toBeGreaterThan(0);
   });
 
   it('does nothing for a tenant without a US entity or without admins', async () => {
     // (the test database is shared, so the entity is taken out of play for a moment instead)
     await db.update(schema.entities).set({ deletedAt: new Date() });
-    const result = await runTaxReminders(db, { notifier: recorder().notifier, markers: memoryMarkers(), now: at('2026-10-13T10:00:00Z') });
+    const { result } = await remind({ markers: memoryMarkers(), now: at('2026-10-13T10:00:00Z') });
     await db.update(schema.entities).set({ deletedAt: null });
     expect(result).toEqual({ entities: 0, sent: 0, skipped: 0, failed: 0 });
-    const noAdmins = await runTaxReminders(db, { notifier: recorder().notifier, markers: memoryMarkers(), now: at('2026-10-13T10:00:00Z'), recipients: [] });
-    expect(noAdmins.sent).toBe(0);
+    const noAdmins = await remind({ markers: memoryMarkers(), now: at('2026-10-13T10:00:00Z'), recipients: [] });
+    expect(noAdmins.result.sent).toBe(0);
   });
 });
 
@@ -312,6 +347,6 @@ describe('books sweep', () => {
     // The next run the same day sends nothing new.
     const before = (await db.select().from(schema.notifications)).length;
     await runBooksDailySweep(env, at('2026-10-20T11:00:00Z'));
-    expect((await db.select().from(schema.notifications)).length).toBe(before);
+    expect(await db.select().from(schema.notifications)).toHaveLength(before);
   });
 });

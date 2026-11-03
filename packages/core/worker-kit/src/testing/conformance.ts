@@ -52,10 +52,12 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileRealtime, maskVolatileText } from './conformance-volatile';
 import { sameBody } from './conformance-binary';
+import { coveragePrefixes, inCoverage } from './conformance-coverage';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
+import { smtpUrl } from './smtp-bridge';
 import {
   type WorkflowCall,
   recordTypeScriptWorkflowCalls,
@@ -78,6 +80,12 @@ import {
   takeRustServiceCalls,
 } from './service-binding-bridge';
 import {
+  type PipelineCall,
+  pipelineUrls,
+  recordTypeScriptPipelineCalls,
+  takeRustPipelineCalls,
+} from './pipeline-bridge';
+import {
   type OutboundCall,
   outboundBridgeUrl,
   recordOutbound,
@@ -94,6 +102,13 @@ export interface ConformanceTarget {
   strict: boolean;
   reportDir: string | undefined;
 }
+
+/**
+ * The harness's own calls to the Rust server, taken before any test runs: a
+ * test that stubs the global `fetch` for a third-party API (`vi.stubGlobal`)
+ * must not answer them.
+ */
+export const harnessFetch: typeof fetch = globalThis.fetch.bind(globalThis);
 
 /** The Rust server to send requests to, or null outside conformance mode. */
 export function conformanceTarget(): ConformanceTarget | null {
@@ -178,6 +193,22 @@ export const FORWARDED_ENV = [
   'DISCORD_CLIENT_SECRET',
   'SLACK_CLIENT_ID',
   'SLACK_CLIENT_SECRET',
+  // WeldConnect: this API's public origin (the workflow webhook URLs), the
+  // workflow integrations' Google OAuth app, and the GitHub App (its id,
+  // slug and key; the install state is signed with CLERK_SECRET_KEY).
+  'CONNECT_API_URL',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GITHUB_APP_ID',
+  'GITHUB_APP_SLUG',
+  'GITHUB_APP_PRIVATE_KEY',
+  'CLERK_SECRET_KEY',
+  // WeldConnect's CRM integrations: the Attio and HubSpot OAuth apps (the
+  // Google Calendar one is forwarded for WeldCalendar above).
+  'ATTIO_CLIENT_ID',
+  'ATTIO_CLIENT_SECRET',
+  'HUBSPOT_CLIENT_ID',
+  'HUBSPOT_CLIENT_SECRET',
   // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
   // tokens are signed with, the realtime origin it advertises to the widget, and
   // the secret its realtime publishes carry.
@@ -227,6 +258,53 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
+  // The integration workers' webhook receivers: Stripe Financial
+  // Connections' endpoint secret and the GitHub App's webhook secret.
+  'STRIPE_FC_WEBHOOK_SECRET',
+  'GITHUB_WEBHOOK_SECRET',
+  // WeldCall: Telnyx (the API key, the Call Control and WebRTC connections,
+  // the webhook signing key), Stripe (phone-number fulfilment) and the
+  // public base URL the voice agent's tool is called back on.
+  'TELNYX_API_KEY',
+  'TELNYX_CONNECTION_ID',
+  'TELNYX_SIP_CONNECTION_ID',
+  'TELNYX_PUBLIC_KEY',
+  'STRIPE_SECRET_KEY',
+  'APP_API_PUBLIC_URL',
+  // WeldHost: Realtime Register (the registrar and ADAC keys, the customer
+  // handle, OTE, the platform contact handles and the webhook secret) and
+  // Cloudflare (zones and DNS records, the legacy registrar).
+  'REALTIME_REGISTER_API_KEY',
+  'REALTIME_REGISTER_CUSTOMER',
+  'REALTIME_REGISTER_OTE',
+  'REALTIME_REGISTER_ADAC_API_KEY',
+  'REALTIME_REGISTER_ADAC_TLD_SET_TOKEN',
+  'REALTIME_REGISTER_CONTACT_ADMIN',
+  'REALTIME_REGISTER_CONTACT_TECH',
+  'REALTIME_REGISTER_CONTACT_BILLING',
+  'REALTIME_REGISTER_WEBHOOK_SECRET',
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_ACCOUNT_ID',
+  'CF_ACCOUNT_ID',
+  // WeldMeet: RealtimeKit's app (the video provider conformance compares),
+  // its webhook's operator token, the meeting portal invitation links point
+  // at, and the system mail sender override.
+  'CF_REALTIME_APP_ID',
+  'CF_REALTIME_APP_SECRET',
+  'CF_REALTIME_WEBHOOK_TOKEN',
+  'MEETING_PORTAL_URL',
+  'SYSTEM_EMAIL_FROM',
+  // WeldReach: Mailpool (the API key and base URL, the webhook secret), the
+  // warmup network's key and the domain forwarded replies arrive on.
+  'MAILPOOL_API_KEY',
+  'MAILPOOL_API_URL',
+  'MAILPOOL_WEBHOOK_SECRET',
+  'WELDREACH_WARMUP_KEY',
+  'REACH_INBOUND_DOMAIN',
+  // WeldPanel: the collector origin the install snippets point at, and the
+  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  'PANEL_COLLECTOR_URL',
+  'PANEL_SDK_FILE',
 ] as const;
 
 /**
@@ -272,6 +350,22 @@ const WRITING_READS: RegExp[] = [
   // MICR print data and the Positive Pay file log the account numbers they reveal.
   /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
   /^\/api\/payment-runs\/positive-pay(\?|$)/,
+  // WeldBooks 1099: the IRIS file, the TIN Matching file and the form copies
+  // log the TINs they reveal (tax_id_reveals).
+  /^\/api\/form-1099\/filings\/[^/?]+\/iris-csv(\?|$)/,
+  /^\/api\/form-1099\/filings\/[^/?]+\/lines\/[^/?]+\/copies(\?|$)/,
+  /^\/api\/form-1099\/tin-matching\/file(\?|$)/,
+  // WeldHost: a zone's records, synced from the DNS host first when it has
+  // none or never synced; a registration's status, its process driven forward.
+  /^\/api\/dns-records(\/by-(zone|domain)\/[^/?]+)?(\?|$)/,
+  /^\/api\/domains\/registrations\/[^/?]+\/status(\?|$)/,
+  // WeldMeet: the live session, an abandoned one ended once RealtimeKit
+  // confirms its room is empty.
+  /^\/api\/meeting-sessions\/active(\?|$)/,
+  // WeldMeet: a recording's state, settled from RealtimeKit's recordings, and
+  // the per-meeting alias that also mints stream tokens into KV.
+  /^\/api\/meeting-sessions\/[^/?]+\/recording(\?|$)/,
+  /^\/api\/meetings\/[^/?]+\/recording(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -289,6 +383,8 @@ interface ConformanceContext {
   permissions?: unknown;
   /** The test's flag evaluator (`context.flags`), if any. */
   flags?: unknown;
+  /** `c.get('appAccess')` of an on-request app (`context.appAccess`), if any. */
+  appAccess?: unknown;
 }
 
 // ── side effects ────────────────────────────────────────────────────────────
@@ -310,6 +406,8 @@ export interface SideEffects {
   workflows?: WorkflowCall[];
   /** Calls over service bindings (`BOOKS_INTERNAL`, ./service-binding-bridge.ts). */
   services?: ServiceCall[];
+  /** Rows written to stream bindings (`PANEL_EVENTS`, ./pipeline-bridge.ts). */
+  pipelines?: PipelineCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -435,7 +533,7 @@ interface RustSideEffects {
 }
 
 export async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
-  const response = await fetch(`${target.url}/__conformance/side-effects`);
+  const response = await harnessFetch(`${target.url}/__conformance/side-effects`);
   const body = (await response.json()) as Omit<SideEffects, 'mail'> & { mail?: RustMail[] };
   const mail = body.mail ?? [];
   return {
@@ -644,11 +742,32 @@ const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 /** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
 const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/** A WeldReach mailbox's inbound token (24 random lower-case letters). */
+const REACH_INBOUND_TOKEN = /^[a-z]{24}$/;
+/** The reply address Mailpool forwards a WeldReach mailbox's mail to. */
+const REACH_REPLY_ADDRESS = /reply\+[a-z]{24}@/g;
 /**
  * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
  * value), on its own or inside a string. New on every run of a write.
  */
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
+/** `crypto.randomUUID()` (an OAuth `state`), alone or inside a URL. New on every run of a write. */
+const RANDOM_UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/g;
+/**
+ * A WeldMeet join code (`wm-abc-def-ghi`, drawn from the random source),
+ * alone or in a join link.
+ */
+const MEETING_JOIN_CODE = /\bwm-[a-z]{3}-[a-z]{3}-[a-z]{3}\b/g;
+/** A WeldMeet recording token (24 random bytes, base64url) in its stream URL. */
+const RECORDING_TOKEN = /\/public\/meeting-recordings\/[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g;
+/**
+ * A WeldMeet Workflow instance that carries `Date.now().toString(36)`: a
+ * summary run (`summarize-<session>-<stamp>`) or a backfill
+ * (`bf-<workspace>-<stamp>`).
+ */
+const MEETING_RUN_STAMP = /^((?:summarize|bf)-.+)-[0-9a-z]{8}$/;
+/** A WeldMeet Whisper Workflow instance (`whisper-<transcription id>`). */
+const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -728,6 +847,12 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
+  // A WeldMeet summary run's id (`Date.now().toString(36)`), and the
+  // Workflow instances that carry one.
+  if (key === 'runId' && /^[0-9a-z]{8}$/.test(value)) return '<run-id>';
+  if (MEETING_RUN_STAMP.test(value)) return value.replace(MEETING_RUN_STAMP, '$1-<stamp>');
+  // A WeldMeet Whisper run, named after the transcript the request just created.
+  if (WHISPER_RUN.test(value)) return 'whisper-<id>';
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
@@ -746,8 +871,18 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'url' && W9_LINK.test(value)) return value.replace(W9_LINK, '/w9/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
+  // WeldConnect: a workflow webhook's inbound HMAC secret, new per run (create, rotate).
+  if (key === 'secret' && WEBHOOK_SECRET.test(value)) return '<webhook-secret>';
+  // A WeldReach mailbox's inbound token: 24 random letters, new per run.
+  if (key === 'inboundToken' && REACH_INBOUND_TOKEN.test(value)) return '<inbound-token>';
   return undefined;
 }
+
+/** A provider webhook target of an integration connection. */
+const INTEGRATION_WEBHOOK_TARGET = /\/webhook\/(gcal\/)?intc_/;
+
+/** `generateWebhookSecret()`: 32 alphanumeric characters. */
+const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 
 /** Timestamps, generated ids and the links and slugs that carry one; undefined when none applies. */
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
@@ -763,6 +898,12 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
   // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
   if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
+  // WeldConnect: the receiver URL of a webhook the request just created
+  // (`…/api/workflows/webhook/wh_<id>`).
+  if (value.includes('/api/workflows/webhook/')) return value.replace(LINKED_ID, '$1<id>');
+  // WeldConnect: the webhook target a provider is given for a connection the
+  // request just created (`…/webhook/intc_<id>`, `…/webhook/gcal/intc_<id>`).
+  if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
 }
@@ -774,13 +915,18 @@ function normalizeRandomParts(value: string): string {
   // any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
+    .replace(MEETING_JOIN_CODE, 'wm-<join-code>')
+    .replace(RECORDING_TOKEN, '/public/meeting-recordings/<token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
     .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
     .replace(DESK_ATTACHMENT_ID, '_att_<id>_')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
-    .replace(EPOCH_MS, '<epoch-ms>');
+    // WeldReach's reply address carries the mailbox's new inbound token.
+    .replace(REACH_REPLY_ADDRESS, 'reply+<inbound-token>@')
+    .replace(EPOCH_MS, '<epoch-ms>')
+    .replace(RANDOM_UUID, '<uuid>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
@@ -878,6 +1024,8 @@ export async function record(dir: string, entry: ConformanceRecord): Promise<voi
 /**
  * Record the routes of an app under test, so the coverage report can list the
  * ones no test reaches. Called once per `createTestApp()` in conformance mode.
+ * Only the routes the file's suite must reach (`coverage` in suites.json,
+ * ./conformance-coverage.ts).
  */
 export async function recordInventory(
   target: ConformanceTarget,
@@ -885,9 +1033,12 @@ export async function recordInventory(
 ): Promise<void> {
   if (!target.reportDir) return;
   const { file } = await currentTest();
+  const prefixes = coveragePrefixes(file);
   await appendLines(
     target.reportDir,
-    routes.filter((r) => r.method !== 'ALL').map((r) => ({ kind: 'inventory', file, method: r.method, route: r.path })),
+    routes
+      .filter((r) => r.method !== 'ALL' && inCoverage(r.path, prefixes))
+      .map((r) => ({ kind: 'inventory', file, method: r.method, route: r.path })),
   );
 }
 
@@ -967,6 +1118,7 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     tenantDatabaseUrls: await tenantDatabaseUrls(ctx.tenantDbs),
     permissions: ctx.permissions,
     flags: await flagValues(ctx.flags),
+    appAccess: ctx.appAccess ?? null,
     env: forwardedEnv(env),
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
@@ -978,11 +1130,15 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     realtime: (await realtimeUrl(env)) ?? null,
     // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
     sendEmail: await sendEmailUrl(env),
+    // Customer-mailbox SMTP through its `SMTP_SEND` double (./smtp-bridge.ts).
+    smtp: (await smtpUrl(env)) ?? null,
     ledgers: await ledgerUrls(env),
     // Its Workflow bindings (runs started and woken).
     workflows: await workflowUrls(env),
     // Its service bindings (`BOOKS_INTERNAL`).
     services: await serviceBindingUrls(env),
+    // Its stream bindings (`PANEL_EVENTS`).
+    pipelines: await pipelineUrls(env),
   };
 }
 
@@ -1017,6 +1173,7 @@ async function runBoth(
   takeRustLedgerCalls();
   takeRustWorkflowCalls();
   takeRustServiceCalls();
+  takeRustPipelineCalls();
 
   // The Hono app's run, its `waitUntil` work included, with its outbound calls,
   // its customer mail and its ledger calls.
@@ -1026,9 +1183,10 @@ async function runBoth(
     const ledger = recordTypeScriptLedgerCalls(sends.env);
     const workflows = recordTypeScriptWorkflowCalls(ledger.env);
     const services = recordTypeScriptServiceCalls(workflows.env);
+    const pipelines = recordTypeScriptPipelineCalls(services.env);
     const { result, calls } = await recordOutbound(async () => {
       // The test's own env when there was nothing to wrap, as before.
-      const ts = await runTypeScript(db, services.env === base ? env : services.env);
+      const ts = await runTypeScript(db, pipelines.env === base ? env : pipelines.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
@@ -1040,6 +1198,7 @@ async function runBoth(
         ...mailEffects(sends.finish(), ledger.finish()),
         ...workflowEffects(workflows.finish()),
         ...serviceEffects(services.finish()),
+        ...pipelineEffects(pipelines.finish()),
       },
       tsMail: request.sideEffects.lastMail(),
     };
@@ -1057,6 +1216,7 @@ async function runBoth(
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
         ...workflowEffects(takeRustWorkflowCalls()),
         ...serviceEffects(takeRustServiceCalls()),
+        ...pipelineEffects(takeRustPipelineCalls()),
       },
       rustMail: side.mail,
     };
@@ -1123,6 +1283,11 @@ function serviceEffects(calls: ServiceCall[]): Pick<SideEffects, 'services'> {
   return calls.length > 0 ? { services: sortServiceCalls(calls) } : {};
 }
 
+/** Stream writes as a side effect, present only when there were any. */
+function pipelineEffects(calls: PipelineCall[]): Pick<SideEffects, 'pipelines'> {
+  return calls.length > 0 ? { pipelines: calls } : {};
+}
+
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
@@ -1144,15 +1309,28 @@ function compareRuns(
     );
     if (body) return body;
   } else if (!sameBody(route, ts.bytes, rust.bytes)) {
-    // PDFs by their drawing, generated files without the moment they were made (./conformance-binary.ts).
-    return 'response bodies differ';
+    // PDFs by their drawing, generated files without the moment they were made (./conformance-binary.ts);
+    // a body built with the current time (an XML message) is compared with that part masked.
+    const masked = maskVolatileText(method, route, ts.text);
+    if (masked === null || masked !== maskVolatileText(method, route, rust.text)) return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read, and
   // so does what a route draws per run where its events carry it.
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
   const prepare = (effects: SideEffects) => {
     const normalized = own(effects);
-    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events) };
+    // Masked calls are sorted again: what was masked (a random secret) decided their order.
+    const outbound = normalized.outbound
+      ? [...maskVolatileOutbound(method, route, normalized.outbound)].sort((a, b) =>
+          JSON.stringify(normalizeForDiff(a, true)).localeCompare(JSON.stringify(normalizeForDiff(b, true))),
+        )
+      : undefined;
+    return {
+      ...normalized,
+      events: maskVolatileEvents(method, route, normalized.events),
+      realtime: maskVolatileRealtime(method, route, normalized.realtime),
+      ...(outbound ? { outbound } : {}),
+    };
   };
   const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
@@ -1214,11 +1392,20 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
       'Conformance mode needs a pglite tenantDb (createPgliteDb()): this test uses a mock database, which the Rust server cannot reach.',
     );
   }
-  const context = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
+  const baseContext = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
 
   // A request body can be read once: keep it as text or bytes for both runs.
   const headers = new Headers(init?.headers);
   const body = await replayableBody(init?.body, headers);
+  // The header names the Hono app sees (a string body adds its content
+  // type), for the routes that keep the request's headers (WeldConnect's
+  // webhook receiver): the Rust server gets more from its HTTP client.
+  const seen = new Request('http://localhost/', {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' ? undefined : body,
+  }).headers;
+  const context = { ...baseContext, requestHeaders: [...seen.keys()] };
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
   // The Hono app sees the test's URL (`http://localhost/...` for a bare
@@ -1235,7 +1422,7 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     isWrite,
     // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
     () =>
-      fetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
+      harnessFetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
         ...init,
         method,
         headers: rustHeaders,

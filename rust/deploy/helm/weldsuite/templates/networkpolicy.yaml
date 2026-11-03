@@ -23,6 +23,12 @@ spec:
             matchLabels:
               {{- include "weldsuite.mx.selectorLabels" $ | nindent 14 }}
         {{- end }}
+        {{- if $.Values.collabRooms.enabled }}
+        # The rooms post their entity events to /internal/collab/events.
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.collabRooms.selectorLabels" $ | nindent 14 }}
+        {{- end }}
         {{- if $.Values.signPortal.enabled }}
         # The sign portal calls /public/sign-portal/* (ADR FE-017).
         - podSelector:

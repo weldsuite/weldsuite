@@ -180,6 +180,16 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md).
+      - name: Build the collab-rooms image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: collab-rooms
+          load: true
+          tags: weldsuite-collab-rooms:dev
+          cache-from: type=gha,scope=rust-image
       # Haraka, WeldMail's MX on Kubernetes (MAIL-010).
       - name: Build the MX image
         uses: docker/build-push-action@v6

@@ -229,6 +229,17 @@ impl Caller {
         }
     }
 
+    /// `Date.now()` as the request sees it: the test's faked clock in
+    /// conformance (`CONFORMANCE_NOW`, which only the harness sets, in the
+    /// request's env), else the real one.
+    pub fn now_ms(&self) -> i64 {
+        self.env
+            .as_ref()
+            .and_then(|env| env.get("CONFORMANCE_NOW"))
+            .and_then(crate::js::millis_of)
+            .unwrap_or_else(now_ms)
+    }
+
     /// A value of `c.env`: the request's (conformance), else the process's.
     pub fn env<'a>(&'a self, state: &'a BooksState, name: &str) -> Option<&'a str> {
         match &self.env {

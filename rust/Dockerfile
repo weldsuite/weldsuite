@@ -19,6 +19,7 @@
 # same file:
 #
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 
 ARG RUST_VERSION=1.99.1
 ARG NODE_VERSION=22
@@ -37,7 +38,7 @@ COPY patches patches
 COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal...
+      --filter platform... --filter sign-portal... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -54,6 +55,53 @@ RUN set -eux; \
     rm -f dist/stats.html; \
     UV_THREADPOOL_SIZE=16 node /usr/local/lib/precompress.mjs dist; \
     mv dist /spa
+
+# ── WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md) ──────────────
+# The workers' DocRoom and SheetRoom with the Node runtime of
+# apps/tools/collab-rooms, bundled into one file by esbuild.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS collab-rooms-build
+ENV CI=true \
+    PNPM_HOME=/pnpm
+RUN corepack enable
+WORKDIR /repo
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches patches
+COPY --parents apps/tools/collab-rooms/package.json apps/workers/docs-api/package.json apps/workers/sheets-api/package.json packages/*/*/package.json ./
+RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
+      --filter collab-rooms... --filter docs-api... --filter sheets-api...
+COPY packages packages
+COPY apps/workers/docs-api apps/workers/docs-api
+COPY apps/workers/sheets-api apps/workers/sheets-api
+COPY apps/tools/collab-rooms apps/tools/collab-rooms
+RUN set -eux; \
+    cd apps/tools/collab-rooms; \
+    node build.mjs; \
+    mkdir /collab; \
+    mv dist/server.mjs dist/server.mjs.map /collab/
+
+# The rooms' container: Node and the bundle (configured by the Helm chart's
+# collabRooms values: S3, the master database, COLLAB_ROOMS_SECRET).
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS collab-rooms
+LABEL org.opencontainers.image.title="weldsuite-collab-rooms" \
+      org.opencontainers.image.description="WeldDocs' and WeldSheets' collaborative rooms for the Kubernetes editions" \
+      org.opencontainers.image.source="https://github.com/weldsuite/weldsuite" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+WORKDIR /app
+COPY --from=collab-rooms-build /collab /app
+ENV NODE_ENV=production \
+    PORT=8090
+USER nonroot:nonroot
+EXPOSE 8090
+CMD ["--enable-source-maps", "server.mjs"]
+
+# ── WeldPanel's browser SDK, the script the collector serves as /s.js ───────
+FROM web-deps AS panel-sdk
+RUN set -eux; \
+    cd packages/sdk/panel-sdk; \
+    pnpm build; \
+    mkdir /panel; \
+    mv dist/panel.global.js /panel/
 
 # ── The sign portal, TanStack Start's Node build ────────────────────────────
 FROM web-deps AS sign-portal-build
@@ -131,6 +179,8 @@ LABEL org.opencontainers.image.title="weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /weldsuite /usr/local/bin/weldsuite
 COPY --from=spa /spa /srv/spa
+# WeldPanel's SDK bundle (PANEL_SDK_FILE's default).
+COPY --from=panel-sdk /panel /srv/panel
 # Serve the SPA for every path the API doesn't answer; SPA_DIR= (empty) for
 # the API alone.
 ENV SPA_DIR=/srv/spa

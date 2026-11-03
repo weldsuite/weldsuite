@@ -36,6 +36,7 @@ mod date;
 mod escape;
 pub mod hr;
 pub mod ics;
+pub mod meet;
 pub mod portal;
 mod send;
 pub mod sign;

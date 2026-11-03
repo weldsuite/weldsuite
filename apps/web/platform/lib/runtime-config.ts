@@ -47,6 +47,12 @@
  *   "apiBaseUrl": "https://weldsuite.example.eu",
  *   // Realtime WebSocket URL (`…/ws`).
  *   "realtimeUrl": "wss://weldsuite.example.eu/ws",
+ *   // Which client joins WeldMeet rooms: "livekit" or "realtimekit" (absent
+ *   // = RealtimeKit, Global's), and the LiveKit server it connects to. The
+ *   // Rust backend writes them from VIDEO_PROVIDER and LIVEKIT_URL
+ *   // (`lib/video-provider.ts`).
+ *   "videoProvider": "livekit",
+ *   "videoUrl": "wss://livekit.example.eu",
  *   // Who signs people in (`lib/auth`). Absent = Clerk with the build's key.
  *   // The Rust backend fills it from AUTH_PROVIDER=oidc and OIDC_* (its
  *   // `session_verifier` in rust/bins/weldsuite/src/main.rs).
@@ -108,6 +114,10 @@ export const runtimeConfigSchema = z.object({
   unavailableFeatures: z.array(z.string().min(1)).optional(),
   apiBaseUrl: z.string().url().optional(),
   realtimeUrl: z.string().url().optional(),
+  // Checked where they are used (`lib/video-provider.ts`), so a bad value
+  // only stops joining a meeting, never the whole document.
+  videoProvider: z.string().min(1).optional(),
+  videoUrl: z.string().min(1).optional(),
   auth: authSchema.optional(),
   env: z.record(z.string()).optional(),
 });

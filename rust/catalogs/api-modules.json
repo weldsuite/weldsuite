@@ -259,7 +259,7 @@
       "/api/received-fiscal-documents",
       "/public/fiscal-webhooks"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "books-api"
   },
   {
@@ -339,7 +339,7 @@
       "/api/email-forwards",
       "/public/webhooks/realtime-register"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "host-api"
   },
   {
@@ -378,7 +378,7 @@
       "/api/webhooks/cloudflare-realtime",
       "/public/meeting-recordings"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "meet-api"
   },
   {
@@ -428,7 +428,7 @@
       "/api/telephony",
       "/public/webhooks/telnyx"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "call-api"
   },
   {
@@ -583,7 +583,7 @@
       "/api/reach",
       "/public/reach"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "reach-api"
   },
   {
@@ -622,7 +622,7 @@
     "prefixes": [
       "/api/docs"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "docs-api"
   },
   {
@@ -635,7 +635,7 @@
     "prefixes": [
       "/api/panel"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "panel-api"
   }
 ]

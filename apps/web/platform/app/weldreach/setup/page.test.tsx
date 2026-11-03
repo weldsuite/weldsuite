@@ -41,6 +41,7 @@ vi.mock('@/lib/router', () => ({
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import ReachSetupPage from './page';
 
 const emptySettings: ReachSettings = {
@@ -153,6 +154,32 @@ describe('Setup wizard', () => {
     await waitFor(() =>
       expect(router.navigate).toHaveBeenCalledWith({ to: '/weldreach/setup', search: { step: 'domains' }, replace: true }),
     );
+  });
+
+  describe('without billing', () => {
+    afterEach(() => setRuntimeConfig(null));
+
+    it('leaves out the payment step where the edition has no billing, never asking for it', async () => {
+      setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['billing'] });
+      api.reach.getSettings.mockResolvedValue({
+        data: { ...emptySettings, senderCompanyName: 'Acme', senderAddress: 'Street 1', optOutText: 'stop' },
+      });
+      renderWizard();
+      await waitFor(() =>
+        expect(router.navigate).toHaveBeenCalledWith({ to: '/weldreach/setup', search: { step: 'domains' }, replace: true }),
+      );
+      expect(api.reach.billing).not.toHaveBeenCalled();
+    });
+
+    it('lets mailboxes be created without a payment method when the backend reports no subscription', async () => {
+      api.reach.billing.mockResolvedValue({ data: null });
+      api.reach.listDomains.mockResolvedValue(list([connectedDomain()]));
+      renderWizard('mailboxes');
+
+      expect(await screen.findByLabelText('Address')).toBeInTheDocument();
+      expect(screen.queryByText('Add a payment method in step 2 first.')).not.toBeInTheDocument();
+      expect(screen.getByText('Step 3 of 4: Mailboxes')).toBeInTheDocument();
+    });
   });
 
   describe('step 1: sender identity', () => {

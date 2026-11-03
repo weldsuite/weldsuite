@@ -33,6 +33,8 @@ secret:
     SIGN_SESSION_SECRET: kind-session-secret
     # Haraka's RCPT TO check (MAIL-010).
     MAIL_INBOUND_SECRET: kind-mail-inbound-secret
+    # Between the server and the collab-rooms pods (rust/docs/collab-rooms.md).
+    COLLAB_ROOMS_SECRET: kind-collab-secret
 podDisruptionBudget:
   enabled: false
 # The entity-event subscribers and the inbound mail one (MAIL-010).
@@ -65,3 +67,10 @@ signPortal:
     tag: dev
     pullPolicy: Never
   replicaCount: 1
+# WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md).
+collabRooms:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi

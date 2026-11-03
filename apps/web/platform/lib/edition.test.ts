@@ -16,7 +16,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr'],
+  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai'],
 };
 
 afterEach(() => setRuntimeConfig(null));

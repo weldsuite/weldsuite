@@ -9,6 +9,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { decryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { accountingEntitiesRoutes } from '../accounting-entities';
@@ -202,6 +203,14 @@ describe('CSV import, summary shape', () => {
     expect((await payroll('/connections')).data).toEqual([]);
   });
 
+  it('lists the categories an account mapping can set', async () => {
+    const res = await payroll('/categories', { perms: ['journal:read'] });
+    expect(res.status).toBe(200);
+    expect(res.data).toContainEqual(expect.objectContaining({ key: 'net_pay', side: 'credit' }));
+    expect(res.data.every((c: { side: string }) => c.side === 'debit' || c.side === 'credit')).toBe(true);
+    expect((await payroll('/categories', { perms: [] })).status).toBe(403);
+  });
+
   it('is gated by the journal permissions', async () => {
     expect((await payroll('/imports', { perms: [] })).status).toBe(403);
     expect((await payroll('/imports/csv', { perms: ['journal:read'], method: 'POST', body: { csv: 'a' } })).status).toBe(403);
@@ -337,7 +346,8 @@ describe('Gusto', () => {
     expect(JSON.stringify(res.data)).not.toContain('gusto-secret-token-123');
     expect(res.data).not.toHaveProperty('credentialsEncrypted');
 
-    expect(calls).toHaveLength(1);
+    // In conformance mode the stub answers both backends' calls; TypeScript's comes first.
+    expect(calls).toHaveLength(conformanceTarget() ? 2 : 1);
     expect(calls[0].url.origin).toBe('https://api.gusto-demo.com');
     expect(calls[0].url.pathname).toBe('/v1/companies/company-1');
     expect(calls[0].headers).toMatchObject({ Authorization: 'Bearer gusto-secret-token-123', 'X-Gusto-API-Version': '2024-04-01' });

@@ -252,6 +252,37 @@ impl LiveKit {
     }
 }
 
+/// The participant attribute that keeps a guest in the waiting room. The
+/// `LiveKit` client in `@weldsuite/weldmeet-ui` (`providers/livekit`) lists such
+/// a participant as waitlisted; a host admits them by clearing it and
+/// granting publish and subscribe (`UpdateParticipant`), or rejects them by
+/// removing them.
+pub const WAITING_ATTRIBUTE: &str = "weldsuite.waiting";
+
+/// What a `RealtimeKit` preset means for a `LiveKit` token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// The meeting's host (`HOST_PRESET`): `roomAdmin` on the room, so their
+    /// client can admit and reject waiting guests, mute and remove people
+    /// itself, as `RealtimeKit`'s host preset allows.
+    Host,
+    /// A guest who waits to be let in (`GUEST_WAITING_PRESET`): connected,
+    /// seen by the host, but sends and receives nothing until admitted.
+    Waiting,
+    /// Everyone else (members and admitted guests).
+    Participant,
+}
+
+impl Role {
+    fn of(preset: Option<&str>) -> Self {
+        match preset {
+            Some(crate::HOST_PRESET) => Self::Host,
+            Some(crate::GUEST_WAITING_PRESET) => Self::Waiting,
+            _ => Self::Participant,
+        }
+    }
+}
+
 /// A participant still connected (state not `DISCONNECTED`), who is a person
 /// rather than a recorder (kind `EGRESS`). Protobuf JSON writes enums as
 /// names or numbers.
@@ -329,6 +360,13 @@ impl DynVideoRooms for LiveKit {
             if let Some(picture) = participant.picture.as_deref().filter(|p| !p.is_empty()) {
                 metadata["picture"] = Value::from(picture);
             }
+            let role = Role::of(participant.preset_name.as_deref());
+            let mut attributes =
+                json!({ "customParticipantId": participant.custom_participant_id });
+            if role == Role::Waiting {
+                attributes[WAITING_ATTRIBUTE] = Value::from("true");
+            }
+            let admitted = role != Role::Waiting;
             let token = self.sign(&Claims {
                 iss: &self.config.api_key,
                 sub: &identity,
@@ -337,15 +375,14 @@ impl DynVideoRooms for LiveKit {
                 jti: Some(&identity),
                 name: Some(&participant.name),
                 metadata: Some(metadata.to_string()),
-                attributes: Some(
-                    json!({ "customParticipantId": participant.custom_participant_id }),
-                ),
+                attributes: Some(attributes),
                 video: VideoGrant {
                     room: Some(room_id),
                     room_join: true,
-                    can_publish: Some(true),
-                    can_subscribe: Some(true),
-                    can_publish_data: Some(true),
+                    room_admin: role == Role::Host,
+                    can_publish: Some(admitted),
+                    can_subscribe: Some(admitted),
+                    can_publish_data: Some(admitted),
                     ..VideoGrant::default()
                 },
             })?;
@@ -497,6 +534,55 @@ mod tests {
         assert_eq!(metadata["picture"], "https://img/ann.png");
         let lifetime = claims["exp"].as_i64().expect("exp") - claims["nbf"].as_i64().expect("nbf");
         assert_eq!(lifetime, 600);
+    }
+
+    /// The host can administer the room from their client; a waiting guest
+    /// connects with nothing to send or receive until a host admits them.
+    #[tokio::test]
+    async fn grants_follow_the_preset() {
+        let fake = Fake::new(|_| answer(200, &json!({})));
+        let lk = livekit(&fake);
+        let token = |preset: &'static str| {
+            let lk = &lk;
+            async move {
+                let joined = lk
+                    .add_participant(
+                        "ws-room",
+                        &NewParticipant {
+                            name: "Ann".to_owned(),
+                            custom_participant_id: "user_1".to_owned(),
+                            preset_name: Some(preset.to_owned()),
+                            picture: None,
+                        },
+                    )
+                    .await
+                    .expect("a token");
+                decode(&joined.token)
+            }
+        };
+
+        let host = token(crate::HOST_PRESET).await;
+        assert_eq!(
+            host["video"],
+            json!({ "room": "ws-room", "roomJoin": true, "roomAdmin": true, "canPublish": true, "canSubscribe": true, "canPublishData": true })
+        );
+        assert!(host["attributes"].get(WAITING_ATTRIBUTE).is_none());
+
+        let waiting = token(crate::GUEST_WAITING_PRESET).await;
+        assert_eq!(
+            waiting["video"],
+            json!({ "room": "ws-room", "roomJoin": true, "canPublish": false, "canSubscribe": false, "canPublishData": false })
+        );
+        assert_eq!(waiting["attributes"][WAITING_ATTRIBUTE], "true");
+        assert_eq!(waiting["attributes"]["customParticipantId"], "user_1");
+
+        for preset in [crate::MEMBER_PRESET, crate::GUEST_PRESET] {
+            let claims = token(preset).await;
+            assert_eq!(
+                claims["video"],
+                json!({ "room": "ws-room", "roomJoin": true, "canPublish": true, "canSubscribe": true, "canPublishData": true })
+            );
+        }
     }
 
     #[tokio::test]

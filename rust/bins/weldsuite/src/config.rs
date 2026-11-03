@@ -177,6 +177,13 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_SECRET`: the key the signer portal sends with every call
     /// to `/public/sign-portal` (ADR FE-017); without it those calls are refused.
     pub(crate) sign_portal_secret: Option<String>,
+    /// `COLLAB_ROOMS_URLS`: the collab-rooms pods (WeldDocs and WeldSheets'
+    /// rooms, `rust/docs/collab-rooms.md`), comma separated; empty: no live
+    /// editing (the room routes answer 503).
+    pub(crate) collab_rooms_urls: Vec<String>,
+    /// `COLLAB_ROOMS_SECRET`: the `x-internal-secret` between this server
+    /// and the collab-rooms pods, both ways.
+    pub(crate) collab_rooms_secret: Option<String>,
     /// `MAIL_INBOUND_SECRET`: the key Haraka sends with the `RCPT TO` check
     /// (`/internal/mail-inbound/recipients`, MAIL-010); without it the check
     /// is refused (503) and Haraka defers every recipient.
@@ -222,6 +229,12 @@ pub(crate) struct InfraConfig {
     pub(crate) nats_token: Option<String>,
     pub(crate) nats_stream: String,
     pub(crate) nats_subject_prefix: String,
+    /// WeldPanel's events stream and subject prefix
+    /// (`NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`), and how long
+    /// it keeps rows (`NATS_PANEL_EVENTS_MAX_AGE_DAYS`, 0 = no age limit).
+    pub(crate) nats_panel_stream: String,
+    pub(crate) nats_panel_subject: String,
+    pub(crate) nats_panel_max_age_days: u64,
     /// `NATS_ENSURE_STREAMS=true`: create or update the stream at start.
     pub(crate) nats_ensure_streams: bool,
     pub(crate) flags: FlagSourceKind,
@@ -463,6 +476,13 @@ impl InfraConfig {
                 .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_ENTITY_EVENTS_STREAM.to_owned()),
             nats_subject_prefix: lookup("NATS_ENTITY_EVENTS_SUBJECT")
                 .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned()),
+            nats_panel_stream: lookup("NATS_PANEL_EVENTS_STREAM")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_STREAM.to_owned()),
+            nats_panel_subject: lookup("NATS_PANEL_EVENTS_SUBJECT")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned()),
+            nats_panel_max_age_days: lookup("NATS_PANEL_EVENTS_MAX_AGE_DAYS")
+                .and_then(|days| days.parse().ok())
+                .unwrap_or(0),
             nats_ensure_streams: lookup("NATS_ENSURE_STREAMS").as_deref() == Some("true"),
             flags,
             flags_refresh: Duration::from_secs(refresh_seconds),
@@ -616,6 +636,16 @@ impl Config {
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
             sign_portal_secret: lookup("SIGN_PORTAL_SECRET").filter(|s| !s.is_empty()),
+            collab_rooms_urls: lookup("COLLAB_ROOMS_URLS")
+                .map(|urls| {
+                    urls.split(',')
+                        .map(str::trim)
+                        .filter(|url| !url.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            collab_rooms_secret: lookup("COLLAB_ROOMS_SECRET").filter(|s| !s.is_empty()),
             mail_inbound_secret: lookup("MAIL_INBOUND_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),

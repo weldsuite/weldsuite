@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has sixteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-three
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -34,7 +34,9 @@ modules, each with conformance suites that reach every route:
   workflow engine, `helpdesk-workflow-worker`, in process: its
   `ConversationWorkflow` is the `desk.conversation-workflow` job and its
   `AssignmentRouter` keeps each workspace's round robin on Valkey;
-  `crates/desk-domain/src/workflow`) and **stash** (the WMS, with the
+  `crates/desk-domain/src/workflow`; the SLA engine, `crates/desk-domain/src/sla.rs`,
+  re-derives a conversation's clocks on every write and `weldsuite cron
+  desk-sla-sweep` announces warnings and breaches) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -63,18 +65,156 @@ modules, each with conformance suites that reach every route:
   engines are `crates/payroll-domain`, checked against vectors the
   TypeScript engines write, `pnpm rust:payroll-fixtures`)
 - **commerce** (WeldCommerce: products and their sales channels on
-  WooCommerce, Shopify and Picqer, categories, orders with WeldBooks' manual
-  sales tax engine, parcels, shipments, pickups, returns, shipping rules and
-  prices, carriers, parcel analytics, rates, settings, wallet and
-  notifications, Sendcloud and PrintNode, and the B2B order portal: its staff
-  routes and the public portal at `/public/commerce-portal`, with the
-  sign-in limits on the cache's atomic counters and the sign-in mail as
-  system mail; `crates/commerce-domain` holds the portal's tokens, slugs and
-  limits. Not yet: the Stripe Tax and Avalara engines (an order an entity on
-  one of them taxes answers 503, never zero tax), the portal's invoice
-  document (503 until WeldBooks' invoice generator is ported) and
-  WooCommerce's app-auth callback, which completes a WeldConnect
-  authorisation)
+  WooCommerce, Shopify and Picqer, categories, orders with WeldBooks' sales
+  tax engines (manual, Stripe Tax and Avalara, `crates/books-domain`),
+  parcels, shipments, pickups, returns, shipping rules and prices, carriers,
+  parcel analytics, rates, settings, wallet and notifications, Sendcloud and
+  PrintNode, and the B2B order portal: its staff routes and the public portal
+  at `/public/commerce-portal` (its invoice document is WeldBooks' invoice
+  layout), with the sign-in limits on the cache's atomic counters and the
+  sign-in mail as system mail; `crates/commerce-domain` holds the portal's
+  tokens, slugs and limits; the sales channels' store clients and field crypto
+  are `crates/connect-domain`'s. Not yet: WooCommerce's app-auth callback, which
+  completes a WeldConnect authorisation)
+- **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
+  call intelligence (phone numbers, the WebRTC token, statistics, call
+  transcriptions), the WeldDesk phone channel's voice agents (Telnyx AI
+  assistants) and inbound routes, number porting with its documents in the
+  `STORAGE` bucket, telephony (searching and syncing the account's numbers,
+  addresses, ordering requirements, the price list), and the Telnyx webhook
+  at `/public/webhooks/telnyx`, its Ed25519 signatures checked as on Global:
+  porting events, inbound calls routed by the dialled number into a WeldDesk
+  phone conversation, call events, the live AI transcript, and the voice
+  agent's `lookup_crm` tool. Telnyx is called through the outbound HTTP port.
+  Buying a number and submitting a port are Stripe checkouts through Global's
+  billing-worker: they answer as when billing-worker cannot be reached, and
+  billing-worker's fulfilment callback (`/api/internal/telephony`) as without
+  Stripe. An inbound call marks the desk SLA due, as the worker does)
+- **host** (WeldHost: domains, their dashboard, search and availability
+  through Realtime Register's ADAC checker (its REST check on OTE), priced
+  from the master `domain_pricing`, the registrar toggles, sync, auth codes,
+  registration polling and incoming transfers on Realtime Register (and the
+  legacy Cloudflare Registrar for its rows), external domains and their
+  ownership check over DNS over HTTPS, DNS zones and records on Cloudflare's
+  API (behind the `DnsHost` port, so another DNS host can be plugged in),
+  email forwards and Realtime Register's process webhook at
+  `/public/webhooks/realtime-register`; the WeldReach guards read the tenant's
+  `reach_domains`. Buying and renewing a domain is a Stripe charge, so the
+  checkout and renewal routes answer as the worker does without Stripe, and
+  `weldsuite cron domain-auto-renew` does nothing yet. Not ported: the test
+  environment's DNS sandbox (a D1 emulator of Cloudflare's API))
+- **meet** (WeldMeet: meetings, invitations with their calendar file,
+  instant meetings, live sessions with join, leave, end and the waiting
+  room, host controls, the in-meeting chat, CRM transcripts, the wallet gate
+  for meeting AI, and the video provider behind `crates/video-rooms`:
+  RealtimeKit, which conformance compares, or LiveKit, which
+  `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
+  served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
+  presence and the end of a room, with no recorder or AI events. Not served:
+  WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
+  the transcript, summary, recording-copy and backfill Workflows (the routes
+  answer as the worker without the binding does), and the recordings bucket;
+  see `meet-transcription` and `meet-recordings` below)
+- **reach** (WeldReach, cold-email outreach: access, settings, domains
+  connected to Mailpool through its Cloudflare integration with the DNS
+  guards over DNS-over-HTTPS, mailboxes provisioned at Mailpool and entered
+  in the warmup pool, prospects and their imports, lists, campaigns,
+  suppressions, the overview, the reply inbox with answers sent from the
+  customer's own mailbox over SMTP (lettre), the CRM hand-off, and
+  Mailpool's webhook at `/public/reach/webhooks/mailpool`, all behind the
+  `weldreach` app-access gate; the shared logic is `crates/reach-domain`.
+  The inbox subscription is Global's billing-worker (Stripe); here billing
+  is off, as for bank connections: mailboxes are provisioned unbilled,
+  `GET /billing` is `null` and `POST /billing/setup` answers 409
+  `BILLING_OFF` (the platform leaves out the payment step). The send engine
+  runs as `weldsuite cron reach-send-sweep` and the `reach-send`
+  subscriber of `weldsuite consume` (NATS stream `REACH_SEND`; without
+  NATS the cron sends itself), with the hourly `reach-warmup-sweep` and the
+  daily `reach-slot-reconciliation`. Replies, auto-replies and bounces
+  (reach-api's `email()` handler, Cloudflare Email Routing on Global) come
+  in through Haraka: see "Inbound mail" below. The AI label of a reply is
+  not available (no AI port, as for mail AI): a reply that answers a
+  campaign is labelled `unclassified`, as reach-api does without a model,
+  and a person labels it. Not yet: the warmup network
+  (`reach-warmup-worker`))
+- **books** (WeldBooks, one crate per area on `crates/books-domain`, plan
+  and status in `modules/books/PORTING.md`: the ledger (entities, settings,
+  GL accounts, journal entries, fiscal periods, tax rates, FX rates on the
+  ECB feed, dimensions); sales (invoices with their designed templates and
+  the printed invoice, Brazil's Pix BR Code included, payments, recurring
+  invoices); purchases (bills, accounting contacts, documents, W-9 requests
+  and `/public/w9`, payment runs with NACHA, checks and Positive Pay);
+  banking (accounts, transactions, deposits, reconciliation and its rules,
+  bank feeds on Plaid, Stripe Financial Connections, Ponto over mTLS and
+  Enable Banking); US sales tax (settings, agencies, jurisdictions, rules,
+  zones, exemption certificates, reports, nexus, returns and the tax
+  calendar, on the manual engine, Stripe Tax and Avalara); reports and US
+  compliance (financial reports, dashboard, XAF export, payroll imports and
+  Gusto, fixed assets and depreciation, Form 1099 and its filings); VAT, GST
+  and Brazil (VAT returns, ICP declarations, the GST worksheet, br-tax, NF-e
+  and NFS-e on Focus NFe, received fiscal documents and the Focus webhook at
+  `/public/fiscal-webhooks`). Every third-party API goes through the
+  outbound HTTP port. `weldsuite cron books-sweep` runs the daily sweep:
+  overdue invoices, due recurring invoices, the ECB rates, the US tax
+  reminders (in-app notifications to owners and admins, sent once: the
+  markers live in the cache with their TTL) and the depreciation due. hr's
+  pay run journal posts in process (`books_domain::payroll`); the
+  integration workers' bank feed endpoints are `books_domain::bank_feeds`,
+  for when those workers are ported. Not ported: document OCR (Workers AI)
+  and filing through Digipoort, both in `unavailableFeatures`)
+- **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
+  snapshot, version history with restore). Live editing runs in the
+  collab-rooms service, the workers' own `DocRoom` on Node beside this
+  server (`rust/docs/collab-rooms.md`, the chart's `collabRooms`): the
+  server calls each room over HTTP on the pod that holds it and proxies the
+  room sockets (`/api/docs/connect`); the engine stays TypeScript)
+- **panel** (WeldPanel, product analytics, phase 1: projects with their
+  token, settings, pausing, rotation and the install check at
+  `/api/panel/projects`, kept in step with the master
+  `panel_project_registry` row and the cache record the collector reads;
+  and the public collector panel-ingest is on Global, served at
+  `/public/panel` and, so a snippet's script origin is a collector, at
+  `/s.js`, `/c/{token}` and `/e` on every host. What Cloudflare gives the
+  collector is, here: the events stream (Pipelines into the Basin table
+  `panel.events_v1`) is a NATS JetStream stream, one message per row on
+  `panel.events.v1.<workspace>`, deduplicated on the event id; the daily
+  salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
+  the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
+  claimed by the first pod and expiring as the object's alarm deletes it;
+  the client address is the ingress's `X-Forwarded-For` entry, and there is
+  no geo (Cloudflare's `request.cf`), so `country`, `region` and `city` stay
+  null. A project record missing from the cache is read from the master
+  registry. Nothing reads the events yet: reports, recordings and people
+  are later WeldPanel phases, and their store (a consumer of the stream
+  into Postgres or a columnar store) comes with them)
+
+The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
+have no module id; `modules/integrations` serves their parts that are ported at the
+workers' own paths beside `/api` (point a provider, or an `integration-webhooks.<domain>`
+ingress host, at the server), with conformance suites named `integrations: …`:
+
+- **bank feeds**: `POST /webhooks/bank-feeds/:provider` (Stripe Financial Connections'
+  HMAC with `STRIPE_FC_WEBHOOK_SECRET`, Plaid's ES256 token with its key fetched from
+  Plaid and cached; Ponto and Enable Banking are polled, so refused), forwarding to
+  WeldBooks' internal bank-connection routes in process (`books.rs`, once books is in
+  `RUST_PORTED_MODULES`; until then the forward fails as without `BOOKS_INTERNAL` and
+  the delivery is still acknowledged), and `weldsuite cron bank-feed-due` (the master
+  `bank_feed_connection_index`)
+- **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
+  per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
+  (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
+  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`; registered, but
+  WeldFlow's Rust task routes do not dispatch it yet)
+- the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
+  `webhooks` subscriber (`crates/subscribers`), already
+
+Not yet: the CRM sync (`CRM_SYNC`: Attio, HubSpot, Google Calendar; WeldConnect's
+CRM routes answer as without the binding), its webhooks (`/webhook/:connectionId`,
+`/webhook/hubspot`, `/webhook/gcal/:connectionId`) and due sweep, the connector
+receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
+Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
+`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
+the ad metrics sweep, and the WooCommerce app-auth forward.
 
 The public API (external-api, `api.weldsuite.org` on Global) is served at
 `/v1` on the same host as `/api` (`modules/external-api`, in progress): its own
@@ -108,12 +248,20 @@ Features this backend lacks inside the modules it serves are listed in
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
-sending the loonaangifte over Digipoort and WeldBooks document OCR.
+sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
+returns through Digipoort, buying or porting phone numbers, buying or
+renewing domains, WeldMeet transcripts and summaries and recordings,
+WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
+WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
+and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
-reason. Not ported yet (P8): books,
-host, meet, call, connect, agent, reach, sheets, docs and
-panel, and the edge workers (the rest of `external-api`, `mcp-server`, the
-integration workers).
+reason. Not ported yet (P8):
+connect, agent and sheets, and the edge workers (the rest of `external-api`,
+`mcp-server`, the rest of the integration workers, above). WeldAgent stays
+off on Kubernetes while there is no AI provider: an agent that cannot chat
+or run does nothing for a user, so `agent` is not offered even once its
+data routes are ported; its event subscriber (`weldagent`) and the hourly
+routine sweep run agents and stay off with it.
 
 ## Layout
 
@@ -157,8 +305,11 @@ rust/
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
-                        the helpdesk workflow engine (`workflow/`: handlers, the desk.conversation-workflow job);
-                        tests/fixtures from `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite)
+                        the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps),
+                        the SLA engine (sla.rs, sla_calendar.rs), the helpdesk workflow engine (`workflow/`:
+                        handlers, the desk.conversation-workflow job); tests/fixtures from
+                        `pnpm rust:desk-workflow-fixtures` (helpdesk-workflow-worker on pglite) and
+                        `pnpm rust:desk-sla-fixtures` (the TypeScript SLA engine)
   crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
                         scopes, reserved codes, and adopting first-party installs onto an official hosted app
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
@@ -175,8 +326,30 @@ rust/
                         modules/data (WeldData, and the welddata-enrich job),
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
                         slugs and rate limits),
+                        modules/reach (WeldReach, with crates/reach-domain: campaigns, prospects,
+                        the inbox, the send window, the warmup pool, MIME),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
-                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
+                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
+                        modules/call (WeldCall: Telnyx, the webhook),
+                        modules/integrations (the integration workers: the bank feed and
+                        GitHub App receivers, the GitHub jobs, the bank feed due sweep;
+                        tests/fixtures from `pnpm rust:integration-fixtures`),
+                        modules/host (WeldHost: Realtime Register, Cloudflare's zones and
+                        registrar, DNS over HTTPS, the Realtime Register webhook),
+                        modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
+                        rooms, and LiveKit's webhook verification),
+                        modules/panel (WeldPanel: projects, the registry sync, and the public
+                        collector in `collector/`: the wire format, rows, URLs, user agents,
+                        IP filters, the cookieless visitor id),
+                        modules/books (the WeldBooks ledger) and one crate per books area,
+                        modules/books-sales, -purchases, -banking, -sales-tax, -reports and
+                        -tax, with crates/books-domain (everything two areas or another module
+                        share: tables, the posting engine, currency and FX, jurisdictions, the
+                        sales tax engines, the invoice layouts, bank feeds, payroll posting;
+                        commerce and hr use it; plan in modules/books/PORTING.md),
+                        modules/docs (WeldDocs; its rooms through the CollabRooms port and
+                        the collab-rooms service, apps/tools/collab-rooms);
+
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -185,7 +358,8 @@ rust/
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
-  deploy/helm/weldsuite the Helm chart
+  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs' and WeldSheets' rooms, apps/tools/collab-rooms)
+  docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
@@ -209,7 +383,10 @@ pnpm rust:conformance  # the worker tests of every ported route, against Rust (r
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
 pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engines' vectors, for crates/payroll-domain
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
+pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
+pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub Workflows do, for modules/integrations/tests
+pnpm rust:reach-inbound-fixtures # re-export what reach-api's email() handler does, for modules/reach/tests/inbound_parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -280,6 +457,7 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
+docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs' and WeldSheets' rooms (Node, docs/collab-rooms.md)
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
@@ -296,9 +474,19 @@ share one origin and the app finds the API through `/config.json`
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
-every 15 minutes, `identity-sync` every minute (the identity provider's
+every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
+and breaches), `reach-send-sweep` every minute (WeldReach's sends: queued
+on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
+which the chart sets with `consume.enabled`, else sent by the job itself),
+`reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
+warmup progress and Mailpool slots), `identity-sync` every minute (the identity provider's
 changes into the databases, what Clerk's webhooks do on Global),
-`workspace-deletion` daily and `workspace-teardown` hourly. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+`workspace-deletion` daily, `workspace-teardown` hourly,
+`domain-auto-renew` daily (off: WeldHost's renewals charge through Stripe,
+which stays with Global), `workflow-schedules` every minute (WeldConnect's
+scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
+`bank-feed-due` every 15 minutes (WeldBooks' bank feeds due a sync; nothing while
+books is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -308,26 +496,41 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials |
+| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
+| `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
+| `APP_API_PUBLIC_URL` | WeldDesk and WeldCall: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
+| `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `CONNECT_API_URL` | WeldConnect: the GitHub App (WeldFlow's repositories and Projects, the workflow GitHub integration; unset: those routes answer 500 `GitHub App is not configured`) and the public origin of the workflow webhook URLs (default by `ENVIRONMENT`). The install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the install callback lands on `PUBLIC_APP_URL`. `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`: the workflow integrations' OAuth apps |
+| `TELNYX_API_KEY` | WeldConnect: the `send_sms` step's Telnyx key (unset: the step fails `TELNYX_API_KEY not configured`). `send_email` steps go out through the customer-mail relay (`MAIL_SMTP_URL`) and the outbound guard, from one of the workspace's mailboxes; `INTERNAL_API_SECRET` is the bearer of `/api/internal/workflow-actions/*` (the engine runs those actions in the process) |
 | `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
+| `MAILPOOL_API_KEY`, `MAILPOOL_API_URL`, `MAILPOOL_WEBHOOK_SECRET`, `WELDREACH_WARMUP_KEY`, `REACH_INBOUND_DOMAIN` | WeldReach: the Mailpool account mailboxes and domains are provisioned on (unset: those routes answer 503 `SERVICE_UNAVAILABLE`), its API base (default `https://app.mailpool.io/v1/api`), the secret its webhooks are signed with (unset: 503), the key the warmup pool seals mailbox logins with (the workers' value; unset: a mailbox create answers 503 `WARMUP_NOT_CONFIGURED`), and the domain Mailpool forwards replies to (`reply+<token>@…`; unset: 503 `INBOUND_NOT_CONFIGURED`, and no replies are taken in: `serve`'s RCPT check and `consume` read it too) |
+| `REACH_SEND_QUEUE` | `nats`: `weldsuite cron reach-send-sweep` queues each workspace with outreach due on NATS for the `reach-send` subscriber of `weldsuite consume` (the chart sets it with `consume.enabled`); unset: the job sends itself |
 | `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
+| `REALTIME_REGISTER_API_KEY`, `REALTIME_REGISTER_CUSTOMER`, `REALTIME_REGISTER_OTE`, `REALTIME_REGISTER_ADAC_API_KEY`, `REALTIME_REGISTER_ADAC_TLD_SET_TOKEN`, `REALTIME_REGISTER_CONTACT_ADMIN`/`_TECH`/`_BILLING`, `REALTIME_REGISTER_WEBHOOK_SECRET` | WeldHost: Realtime Register's API key and customer handle (unset: search, availability, transfers and the registrar toggles answer as the worker does without them), `true` for its OTE, the ADAC key and TLD set for search, the platform contact handles domains are registered on, and the `?token=` of its process webhook (unset: every delivery is refused) |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
+| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). See "WeldMeet on LiveKit" below |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
+| `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
+| `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
+| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE` | WeldPanel: the collector origin the install snippets point at (default: the request's own origin, which serves the collector too), and the SDK bundle served as `/s.js` (default `/srv/panel/panel.global.js`, which the image carries; missing: `/s.js` answers 404). The day's salt and the daily counts need `VALKEY_URL` across pods |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
+| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: the session, live snapshot, version save and restore routes answer 503 |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
@@ -356,7 +559,8 @@ stream. It reads the same database, NATS and Valkey variables, needs no sign-in
 settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_STREAM_MAX_BYTES`,
 `NATS_DEAD_LETTER_MAX_BYTES`,
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
-`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`,
+`RESTATE_INGRESS_URL` for the `weldconnect` subscriber's workflow runs):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.
 With `S3_BUCKET_MAIL` set it also runs `mail-inbound` (in the default list then;
 named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
@@ -364,6 +568,82 @@ named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
 files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
 attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
 (`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+
+## WeldMeet on LiveKit
+
+Global's meetings run on Cloudflare RealtimeKit; the Kubernetes editions run
+them on a LiveKit server (Apache-2.0) that the install provides. Same API,
+same call UI:
+
+- **Server.** With `VIDEO_PROVIDER=livekit` (chart: `config.video`) the meet
+  module creates rooms over LiveKit's `RoomService`, and the session start
+  and join routes answer a LiveKit join token as `authToken`. The token
+  follows the RealtimeKit preset it stands for: the host's carries
+  `roomAdmin` on its room, a waiting guest's grants nothing and carries the
+  `weldsuite.waiting` attribute (`crates/video-rooms/src/livekit.rs`).
+  `/config.json` tells the platform `videoProvider: "livekit"` and `videoUrl`
+  (`LIVEKIT_URL`). LiveKit's webhook (`/api/webhooks/livekit`) keeps presence
+  and ends the session when the room closes.
+- **Client.** `@weldsuite/weldmeet-ui/providers/livekit` is a LiveKit client
+  (`livekit-client`, pinned) behind the RealtimeKit client surface the
+  WeldMeet UI is written against, so the platform's call context, the
+  meeting overlay and the meeting portal keep one UI and pick the client by
+  provider (`apps/web/platform/lib/video-provider.ts`; the portal by its join
+  answer). Global has no `/config.json` and never loads it. Covered: join and
+  leave with reconnects, camera, microphone, screen share (with its audio),
+  device switching, the participant grid and active speaker, connection
+  quality, hand raise, host-control updates and the meeting tools (timer,
+  Q&A, breakout rooms) over reliable data packets, the waiting room (the host
+  admits with `UpdateParticipant`, rejects with `RemoveParticipant`), host
+  mute and remove (`MutePublishedTrack`, `RemoveParticipant` with the host's
+  token; the server-side removal and "end for all" go through the meet API
+  as on Global), and RNNoise noise suppression (the same `getUserMedia`
+  patch). Not on LiveKit, hidden there: recording and transcripts
+  (`meet-recordings`, `meet-transcription`), RealtimeKit's live transcript,
+  captions, translation, polls and live stream (the tools panel leaves out
+  what the client lacks), and background effects (RealtimeKit video
+  middlewares). The in-meeting chat is the meet API's, as on Global.
+- **Meeting portal (guests).** Its join route mints the guest's LiveKit token
+  itself (`@weldsuite/meet-domain/livekit`, the claims above) when it runs
+  with `VIDEO_PROVIDER=livekit`, `LIVEKIT_URL`, `LIVEKIT_API_KEY` and
+  `LIVEKIT_API_SECRET`, and tells the guest's client where to connect. The
+  portal is not part of this chart yet: it reads the tenant databases and
+  calls the realtime worker directly (see its `lib/`).
+
+What a cluster needs (the EU cluster has none of it yet; this chart does not
+deploy it):
+
+1. A LiveKit server (`livekit/livekit-server`, v1.13 or later for the pinned
+   `livekit-client`; the official `livekit/livekit-server` Helm chart, or
+   the image as a Deployment). One replica is enough to start; more need
+   Valkey (`redis:` in its config) for routing. It needs public UDP for media
+   (`rtc.port_range_start`/`_end` or a single `rtc.udp_port` with
+   `use_external_ip: true`, or the node's IP), TCP 7881 as the fallback, and
+   its HTTP/WebSocket port 7880 behind the ingress as `wss://livekit.<domain>`.
+   Run it with `hostNetwork` or a LoadBalancer for the UDP range: media does
+   not go through an HTTP ingress.
+2. TURN for clients behind strict firewalls: LiveKit's embedded TURN
+   (`turn.enabled`, TLS on 443 or 5349 with a certificate for
+   `turn.<domain>`), or a coturn next to it.
+3. Its config: one API key pair (`keys:`), the same pair in the WeldSuite
+   Secret (`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`), and
+   `webhook.urls: [https://<weldsuite host>/api/webhooks/livekit]` signed
+   with that key (`webhook.api_key`).
+4. The chart: `config.video.provider: livekit`, `config.video.livekit.url:
+   wss://livekit.<domain>`, and `apiUrl` when the server reaches LiveKit's
+   API inside the cluster (`http://livekit.livekit:7880`); the network policy
+   must let the server out to it.
+5. Recording later is LiveKit Egress (and its own deployment), writing into
+   the files store; not built (`meet-recordings`).
+
+Checked locally against `livekit/livekit-server:v1.13.10` (`--config` with
+`node_ip: 127.0.0.1`, a webhook to the server) and this server with
+`VIDEO_PROVIDER=livekit`: tokens from the session start and join routes,
+three Chrome pages on the LiveKit client (host, member, a waiting guest
+minted as the portal mints it): media both ways, broadcasts, camera on and
+off, the waiting room with admit, host mute and remove, end for all, and the
+webhook keeping the session. v1.9 servers are too old for the pinned client
+(its `/rtc/v1` signalling and negotiation time out).
 
 ## Inbound mail
 
@@ -394,6 +674,19 @@ On Global, Cloudflare Email Routing hands each message to
    until then that one is a no-op). A storage failure is retried with
    backoff, then dead-lettered; a redelivery after success finds no spooled
    object and does nothing, and every mailbox ignores a Message-ID it holds.
+5. **WeldReach's replies.** Each Mailpool mailbox forwards its mail to
+   `reply+<token>@REACH_INBOUND_DOMAIN`; with that domain's MX on Haraka and
+   `REACH_INBOUND_DOMAIN` set for `serve` and `consume`, the RCPT check
+   accepts the address while master `reach_routes` has an active
+   `inbound_token` route for the token, and `consume` hands those
+   recipients to WeldReach (`modules/reach/src/inbound`, reach-api's
+   `email()` handler) before WeldMail sees the rest: the warmup screen,
+   matching, the raw copy in `STORAGE`, the stop, suppression and guardrail
+   effects, the CRM hand-off. A message only for WeldReach is removed from
+   the spool there; what WeldReach cannot process is parked in `STORAGE`
+   (`reach/<org>/_failed/<sha256>.eml`), never retried, as on Global.
+   Parity: `modules/reach/tests/inbound_parity.rs` against fixtures
+   reach-api wrote (`pnpm rust:reach-inbound-fixtures`, checked in CI).
 
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per
@@ -406,8 +699,9 @@ wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
-Not there yet in the realtime gateway: the whiteboard and document rooms
-(Flow's REST routes are ported, its collaborative rooms are not), and the
+Not there yet in the realtime gateway: the whiteboard rooms (Flow's REST
+routes are ported, its collaborative rooms are not; WeldDocs' document rooms
+run in the collab-rooms service, `docs/collab-rooms.md`), and the
 support side of support rooms
 (WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
 docs have the design).

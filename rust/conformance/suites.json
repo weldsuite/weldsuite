@@ -1,5 +1,5 @@
 {
-  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route left out on purpose goes in the suite's `excludedRoutes`, with the reason.",
+  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route left out on purpose goes in the suite's `excludedRoutes`, with the reason. A suite whose test files mount another route group's router only to set up their data lists the route prefixes it owns in `coverage`: only those routes count as its to reach (the others are their own suite's, and their requests are still compared); a cross-area suite lists none (packages/core/worker-kit/src/testing/conformance-coverage.ts).",
   "suites": [
     {
       "name": "core: me",
@@ -342,6 +342,23 @@
         "packages/domains/know/src/",
         "packages/clients/core-api-client/src/schemas/knowledge.ts",
         "rust/modules/know/"
+      ]
+    },
+    {
+      "name": "docs",
+      "module": "docs",
+      "workspace": "apps/workers/docs-api",
+      "tests": [
+        "src/routes/docs/index.test.ts",
+        "src/routes/docs/versions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/docs-api/src/",
+        "packages/clients/app-api-client/src/schemas/docs.ts",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "rust/modules/docs/",
+        "rust/crates/adapters-oss/src/collab.rs",
+        "rust/bins/weldsuite/src/collab.rs"
       ]
     },
     {
@@ -1209,6 +1226,7 @@
       "tests": [
         "src/routes/desk-conversations/routes.test.ts",
         "src/routes/desk-conversations/attributes.integration.test.ts",
+        "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1219,6 +1237,8 @@
         "apps/workers/desk-api/src/routes/integrations/",
         "apps/workers/desk-api/src/routes/public-helpcenter/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
@@ -1227,6 +1247,26 @@
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
+      ]
+    },
+    {
+      "name": "desk: SLA sweep",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/cron/sla-sweep.due-index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/cron/",
+        "apps/workers/desk-api/src/lib/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
+        "packages/core/notifications/src/helpers/helpdesk.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/",
+        "rust/bins/weldsuite/src/conformance.rs"
       ]
     },
     {
@@ -1240,12 +1280,15 @@
         "src/routes/conversations-assignment.integration.test.ts",
         "src/routes/realtime.integration.test.ts",
         "src/routes/attachments.integration.test.ts",
-        "src/routes/visitor.integration.test.ts"
+        "src/routes/visitor.integration.test.ts",
+        "src/routes/conversations-sla.integration.test.ts"
       ],
       "paths": [
         "apps/workers/helpdesk-widget-api/src/",
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-sla.ts",
+        "packages/core/db/src/lib/desk-sla-calendar.ts",
         "packages/core/db/src/lib/desk-portal.ts",
         "rust/modules/desk-widget/",
         "rust/crates/desk-domain/"
@@ -1881,6 +1924,22 @@
         "src/routes/parcel-settings/routes.test.ts",
         "src/routes/parcel-wallet/routes.test.ts"
       ],
+      "coverage": [
+        "/api/carriers",
+        "/api/return-reasons",
+        "/api/return-rules",
+        "/api/pickups",
+        "/api/returns",
+        "/api/shipments",
+        "/api/shipping-rules",
+        "/api/shipping-prices",
+        "/api/parcels",
+        "/api/parcel-analytics",
+        "/api/parcel-notifications",
+        "/api/parcel-rates",
+        "/api/parcel-settings",
+        "/api/parcel-wallet"
+      ],
       "paths": [
         "apps/workers/commerce-api/src/routes/carriers/",
         "apps/workers/commerce-api/src/routes/return-reasons/",
@@ -2063,7 +2122,8 @@
         "src/routes/journal-entries/journal-entries.integration.test.ts",
         "src/routes/accounting-dimensions/dimensions.integration.test.ts",
         "src/routes/accounting-settings/settings.integration.test.ts",
-        "src/routes/accounting-settings/catch-up.integration.test.ts"
+        "src/routes/accounting-settings/catch-up.integration.test.ts",
+        "src/routes/payroll/internal.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",
@@ -2084,6 +2144,222 @@
       ]
     },
     {
+      "name": "connect: workflows",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflows/integration.test.ts",
+        "src/routes/workflows/routes.test.ts",
+        "src/routes/workflows/webhook-provisioning.integration.test.ts",
+        "src/routes/workflow-executions/integration.test.ts",
+        "src/routes/workflow-executions/approval.integration.test.ts",
+        "src/routes/workflow-executions/routes.test.ts",
+        "src/routes/workflow-versions/integration.test.ts",
+        "src/routes/workflow-versions/routes.test.ts",
+        "src/routes/workflow-templates/integration.test.ts",
+        "src/routes/workflow-templates/routes.test.ts",
+        "src/routes/workflow-variables/integration.test.ts",
+        "src/routes/workflow-variables/routes.test.ts",
+        "src/routes/workflow-webhooks/integration.test.ts",
+        "src/routes/workflow-webhooks/routes.test.ts",
+        "src/routes/workflow-dashboard/errors.integration.test.ts",
+        "src/routes/workflow-dashboard/routes.test.ts",
+        "src/routes/workflow-schedules/routes.test.ts",
+        "src/routes/workflow-triggers/routes.test.ts",
+        "src/routes/workflow-builder/routes.test.ts",
+        "src/routes/public-workflow-webhook/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflows/",
+        "apps/workers/connect-api/src/routes/workflow-builder/",
+        "apps/workers/connect-api/src/routes/workflow-dashboard/",
+        "apps/workers/connect-api/src/routes/workflow-executions/",
+        "apps/workers/connect-api/src/routes/workflow-schedules/",
+        "apps/workers/connect-api/src/routes/workflow-templates/",
+        "apps/workers/connect-api/src/routes/workflow-triggers/",
+        "apps/workers/connect-api/src/routes/workflow-variables/",
+        "apps/workers/connect-api/src/routes/workflow-versions/",
+        "apps/workers/connect-api/src/routes/workflow-webhooks/",
+        "apps/workers/connect-api/src/routes/public-workflow-webhook/",
+        "apps/workers/connect-api/src/services/",
+        "apps/workers/connect-api/src/lib/",
+        "packages/clients/app-api-client/src/schemas/weldconnect.ts",
+        "packages/clients/app-api-client/src/schemas/weldconnect-templates.ts",
+        "packages/clients/core-api-client/src/schemas/workflow-executions.ts",
+        "packages/clients/core-api-client/src/schemas/weldconnect-builder.ts",
+        "packages/core/workflow-integrations/src/cron.ts",
+        "packages/core/db/src/lib/workflow-concurrency.ts",
+        "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/workflows/generate",
+          "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
+        }
+      ]
+    },
+    {
+      "name": "connect: workflow actions",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/internal-workflow-actions/chat.test.ts",
+        "src/routes/internal-workflow-actions/contacts.test.ts",
+        "src/routes/internal-workflow-actions/create-task.test.ts",
+        "src/routes/internal-workflow-actions/crm-actions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/internal-workflow-actions/",
+        "apps/workers/connect-api/src/services/workflow-actions.ts",
+        "apps/workers/connect-api/src/services/workflow-owner.ts",
+        "packages/domains/crm/src/",
+        "packages/domains/chat/src/post-system-message.ts",
+        "packages/domains/flow/src/",
+        "packages/core/notifications/src/",
+        "packages/clients/app-api-client/src/schemas/weldconnect-workflow-actions.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-actions.ts",
+        "rust/modules/connect/",
+        "rust/crates/crm-domain/",
+        "rust/crates/chat-domain/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "connect: workflow integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-integrations/integration.test.ts",
+        "src/routes/workflow-integrations/github.test.ts",
+        "src/routes/workflow-integrations/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-integrations/",
+        "apps/workers/connect-api/src/services/workflow-integrations/",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/core/workflow-integrations/src/",
+        "packages/domains/connect/src/github/",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
+    },
+    {
+      "name": "connect: github",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/workflow-github/routes.test.ts",
+        "src/routes/github-project-links/routes.test.ts",
+        "src/routes/github-connections/routes.test.ts",
+        "src/routes/public-github-callback.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/workflow-github/",
+        "apps/workers/connect-api/src/routes/github-project-links/",
+        "apps/workers/connect-api/src/routes/github-connections/",
+        "apps/workers/connect-api/src/routes/github-repo-links/",
+        "apps/workers/connect-api/src/routes/public-github-callback.ts",
+        "apps/workers/connect-api/src/services/github/",
+        "packages/clients/core-api-client/src/schemas/github.ts",
+        "packages/clients/core-api-client/src/schemas/github-connections.ts",
+        "packages/clients/core-api-client/src/schemas/github-repo-links.ts",
+        "packages/core/db/src/lib/crypto.ts",
+        "rust/modules/connect/"
+      ]
+    },
+    {
+      "name": "connect: integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/external-webhooks/routes.test.ts",
+        "src/routes/integrations/routes.test.ts",
+        "src/routes/integrations/internal.routes.test.ts",
+        "src/routes/connectors/routes.test.ts",
+        "src/routes/connectors/picqer-push.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/external-webhooks/",
+        "apps/workers/connect-api/src/services/external-webhooks.ts",
+        "apps/workers/connect-api/src/lib/tenant-work-index.ts",
+        "apps/workers/connect-api/src/routes/integrations/",
+        "apps/workers/connect-api/src/services/integrations/",
+        "apps/workers/connect-api/src/lib/crm-sync-index.ts",
+        "apps/workers/connect-api/src/routes/connectors/",
+        "apps/workers/connect-api/src/services/connectors/",
+        "packages/domains/connect/src/",
+        "packages/core/connectors/src/",
+        "packages/clients/core-api-client/src/schemas/integrations.ts",
+        "packages/domains/ads/src/",
+        "packages/core/entity-events/src/webhook-delivery.ts",
+        "packages/core/entity-events/src/webhook-events.ts",
+        "packages/clients/app-api-client/src/schemas/connect-integrations-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-integrations.ts",
+        "rust/crates/subscribers/src/webhooks.rs",
+        "rust/crates/ads-domain/",
+        "rust/crates/connect-domain/",
+        "rust/modules/connect/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/integrations/connections/:id/connector-event",
+          "reason": "Not ported yet: the inbound WooCommerce/Shopify webhook ingest of @weldsuite/connect-domain (connectors/webhooks.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/connections/:id/catch-up",
+          "reason": "Not ported yet: the connector catch-up sync of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/moneybird-push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts), still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/integrations/woocommerce-auth",
+          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with webhook registration and the first sync, still to come in rust/crates/connect-domain."
+        },
+        {
+          "route": "POST /api/connectors/connect",
+          "reason": "Not ported yet: webhook registration (connectors/webhooks.ts) and the first sync (connectors/sync.ts, ingest.ts) of @weldsuite/connect-domain, and the Stripe and Moneybird clients."
+        },
+        {
+          "route": "POST /api/connectors/authorize",
+          "reason": "Not ported yet: WooCommerce's app authorisation (signed user_id, callback URL) and the Stripe and Moneybird OAuth starts of @weldsuite/connect-domain (connectors/auth.ts, stripe-auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/oauth/callback",
+          "reason": "Not ported yet: the Stripe and Moneybird OAuth completions with the first sync (connectors/auth.ts, stripe-auth.ts, sync.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/select-account",
+          "reason": "Not ported yet: the Moneybird administration choice with the first sync (connectors/auth.ts, sync.ts)."
+        },
+        {
+          "route": "PATCH /api/connectors/connections/:id",
+          "reason": "Not ported yet: the Stripe and Moneybird credential tests, the Stripe re-sync after a start-date change and the Moneybird push after enabling it (connectors/sync.ts, moneybird-push.ts)."
+        },
+        {
+          "route": "DELETE /api/connectors/connections/:id",
+          "reason": "Not ported yet: the provider webhook removal and the Stripe deauthorisation (connectors/webhooks.ts, @weldsuite/connectors stripe/auth.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/sync",
+          "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/options",
+          "reason": "Not ported yet: the Moneybird client and push plan of @weldsuite/connect-domain (connectors/moneybird-push-plan.ts)."
+        },
+        {
+          "route": "GET /api/connectors/connections/:id/moneybird/push-status",
+          "reason": "Not ported yet: the Moneybird push status of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
+        },
+        {
+          "route": "POST /api/connectors/connections/:id/moneybird/push",
+          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
+        }
+      ]
+    },
+    {
       "name": "books: sales",
       "module": "books",
       "workspace": "apps/workers/books-api",
@@ -2094,6 +2370,12 @@
         "src/routes/invoice-templates/invoice-templates.integration.test.ts",
         "src/routes/recurring-invoices/crud.integration.test.ts",
         "src/routes/payments/payments.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/invoices",
+        "/api/recurring-invoices",
+        "/api/invoice-templates",
+        "/api/payments"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/invoices/",
@@ -2110,6 +2392,43 @@
       ]
     },
     {
+      "name": "books: reports",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/accounting-reports/reports.integration.test.ts",
+        "src/routes/accounting-dashboard/dashboard.integration.test.ts",
+        "src/routes/accounting-exports/xaf-ciphertext.integration.test.ts",
+        "src/routes/payroll/payroll.integration.test.ts",
+        "src/services/fixed-assets/fixed-assets.integration.test.ts",
+        "src/routes/form-1099/form-1099.integration.test.ts",
+        "src/services/form-1099/load.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/accounting-reports",
+        "/api/accounting-dashboard",
+        "/api/accounting-exports",
+        "/api/fixed-assets",
+        "/api/form-1099",
+        "/api/payroll"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/accounting-reports/",
+        "apps/workers/books-api/src/routes/accounting-dashboard/",
+        "apps/workers/books-api/src/routes/accounting-exports/",
+        "apps/workers/books-api/src/routes/fixed-assets/",
+        "apps/workers/books-api/src/routes/form-1099/",
+        "apps/workers/books-api/src/routes/payroll/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-reports.ts",
+        "packages/clients/app-api-client/src/schemas/books-reports-responses.ts",
+        "rust/modules/books-reports/",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
       "name": "books: banking",
       "module": "books",
       "workspace": "apps/workers/books-api",
@@ -2121,6 +2440,14 @@
         "src/routes/bank-deposits/bank-deposits.integration.test.ts",
         "src/routes/bank-reconciliations/bank-reconciliations.integration.test.ts",
         "src/routes/bank-connections/bank-connections.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/bank-accounts",
+        "/api/bank-transactions",
+        "/api/bank-connections",
+        "/api/bank-deposits",
+        "/api/bank-reconciliations",
+        "/api/reconciliation-rules"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/bank-accounts/",
@@ -2163,6 +2490,14 @@
         "src/routes/bills/lifecycle.integration.test.ts",
         "src/routes/payment-runs/payment-runs.integration.test.ts"
       ],
+      "coverage": [
+        "/api/bills",
+        "/api/accounting-contacts",
+        "/api/accounting-documents",
+        "/api/w9-requests",
+        "/public/w9",
+        "/api/payment-runs"
+      ],
       "paths": [
         "apps/workers/books-api/src/routes/bills/",
         "apps/workers/books-api/src/routes/accounting-contacts/",
@@ -2197,7 +2532,18 @@
         "src/routes/tax-calendar/integration.test.ts",
         "src/routes/sales-tax/reports.integration.test.ts",
         "src/routes/tax-returns/integration.test.ts",
-        "src/routes/exemption-certificates/certificate-cure.integration.test.ts"
+        "src/routes/exemption-certificates/certificate-cure.integration.test.ts",
+        "src/cron/tax-reminders.test.ts"
+      ],
+      "coverage": [
+        "/api/sales-tax",
+        "/api/sales-tax-agencies",
+        "/api/sales-tax-jurisdictions",
+        "/api/sales-tax-rules",
+        "/api/sales-tax-zones",
+        "/api/exemption-certificates",
+        "/api/tax-returns",
+        "/api/tax-calendar"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/sales-tax/",
@@ -2214,6 +2560,117 @@
         "apps/workers/books-api/src/services/",
         "packages/domains/books/src/",
         "rust/modules/books-sales-tax/",
+        "rust/crates/books-domain/",
+        "apps/workers/books-api/src/cron/"
+      ]
+    },
+    {
+      "name": "call: calls and call intelligence",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/calls/integration.test.ts",
+        "src/routes/calls/writes.integration.test.ts",
+        "src/routes/call-intelligence/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/calls/",
+        "apps/workers/call-api/src/routes/call-intelligence/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "call: telephony and porting",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/telephony/integration.test.ts",
+        "src/routes/porting/integration.test.ts",
+        "src/routes/internal-telephony/integration.test.ts",
+        "src/services/phone-number-sync.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/telephony/",
+        "apps/workers/call-api/src/routes/porting/",
+        "apps/workers/call-api/src/routes/internal-telephony/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "call: desk phone and the Telnyx webhook",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/desk-phone/integration.test.ts",
+        "src/routes/webhooks-telnyx/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/desk-phone/",
+        "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/domains/desk/src/",
+        "rust/crates/desk-domain/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "books: tax",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/services/btw-return-lifecycle.integration.test.ts",
+        "src/services/btw-return-filing.integration.test.ts",
+        "src/services/gst-worksheet.integration.test.ts",
+        "src/routes/br-tax/br-tax.integration.test.ts",
+        "src/routes/fiscal-documents/fiscal-documents.integration.test.ts",
+        "src/routes/received-fiscal-documents/received-fiscal-documents.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/vat-returns",
+        "/api/icp-declarations",
+        "/api/br-tax",
+        "/api/fiscal-documents",
+        "/api/received-fiscal-documents",
+        "/public/fiscal-webhooks"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/vat-returns/",
+        "apps/workers/books-api/src/routes/icp-declarations/",
+        "apps/workers/books-api/src/routes/br-tax/",
+        "apps/workers/books-api/src/routes/fiscal-documents/",
+        "apps/workers/books-api/src/routes/received-fiscal-documents/",
+        "apps/workers/books-api/src/routes/public-fiscal-webhooks/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-tax-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-tax.ts",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books-tax/",
         "rust/crates/books-domain/"
       ]
     },
@@ -2395,6 +2852,244 @@
       "tests": [
         "src/test/accounting-read-only.test.ts",
         "src/test/accounting-routes.test.ts"
+      ]
+    },
+    {
+      "name": "books: cross-area",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/_sweeps.test.ts",
+        "src/routes/invoices/brazil.integration.test.ts",
+        "src/routes/invoices/document-integrity.integration.test.ts",
+        "src/routes/invoices/india-gst.integration.test.ts",
+        "src/services/accounting-fx.integration.test.ts",
+        "src/services/bad-debt-vat.integration.test.ts",
+        "src/services/accounting-ledger.integration.test.ts"
+      ],
+      "coverage": [],
+      "paths": [
+        "apps/workers/books-api/src/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
+      "name": "books: cross-area: us",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/recurring-invoices/integration.test.ts",
+        "src/routes/accounting-reports/us-reports.integration.test.ts",
+        "src/services/accounting-us-banking.integration.test.ts",
+        "src/services/sales-tax/us-documents.integration.test.ts",
+        "src/services/sales-tax/us-provider.integration.test.ts"
+      ],
+      "coverage": [],
+      "paths": [
+        "apps/workers/books-api/src/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books",
+        "rust/crates/books-domain/"
+      ]
+    },
+    {
+      "name": "host",
+      "module": "host",
+      "workspace": "apps/workers/host-api",
+      "tests": [
+        "src/routes/weldreach-guards.test.ts",
+        "src/routes/domains/integration.test.ts",
+        "src/routes/host-routes.integration.test.ts",
+        "src/routes/host-providers.integration.test.ts",
+        "src/routes/host-search.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/host-api/src/",
+        "packages/domains/host/src/",
+        "packages/core/realtime-registrar/src/",
+        "packages/core/cloudflare-zones/src/",
+        "packages/core/cloudflare-registrar/src/",
+        "packages/core/worker-kit/src/dns-lookup.ts",
+        "packages/clients/core-api-client/src/schemas/domains.ts",
+        "packages/clients/core-api-client/src/schemas/dns-zones.ts",
+        "packages/clients/core-api-client/src/schemas/dns-records.ts",
+        "packages/clients/core-api-client/src/schemas/domain-transfers.ts",
+        "packages/clients/core-api-client/src/schemas/email-forwards.ts",
+        "packages/clients/app-api-client/src/schemas/host-responses.ts",
+        "rust/modules/host/"
+      ]
+    },
+    {
+      "name": "meet: meetings and sessions",
+      "module": "meet",
+      "workspace": "apps/workers/meet-api",
+      "tests": [
+        "src/routes/meetings/integration.test.ts",
+        "src/routes/meetings/start-instant.integration.test.ts",
+        "src/routes/meetings/cancel-delete.integration.test.ts",
+        "src/routes/meetings/invitation-mail.integration.test.ts",
+        "src/routes/meeting-sessions/lifecycle.integration.test.ts",
+        "src/routes/meeting-sessions/recording.integration.test.ts",
+        "src/routes/meeting-sessions/crud.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/meet-api/src/",
+        "packages/domains/meet/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "packages/clients/core-api-client/src/schemas/meetings.ts",
+        "packages/clients/core-api-client/src/schemas/weldmeet.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-messages.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-waitlist.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-recordings.ts",
+        "packages/clients/app-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/app-api-client/src/schemas/transcriptions.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-responses.ts",
+        "rust/modules/meet/",
+        "rust/crates/video-rooms/"
+      ]
+    },
+    {
+      "name": "meet: chat, waiting room and transcripts",
+      "module": "meet",
+      "workspace": "apps/workers/meet-api",
+      "tests": [
+        "src/routes/meeting-messages/integration.test.ts",
+        "src/routes/meeting-waitlist/integration.test.ts",
+        "src/routes/transcriptions/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/meet-api/src/",
+        "packages/domains/meet/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "packages/clients/core-api-client/src/schemas/meetings.ts",
+        "packages/clients/core-api-client/src/schemas/weldmeet.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-messages.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-waitlist.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-recordings.ts",
+        "packages/clients/app-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/app-api-client/src/schemas/transcriptions.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-responses.ts",
+        "rust/modules/meet/",
+        "rust/crates/video-rooms/"
+      ]
+    },
+    {
+      "name": "meet: webhooks",
+      "module": "meet",
+      "workspace": "apps/workers/meet-api",
+      "tests": [
+        "src/routes/webhooks-cloudflare-realtime/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/meet-api/src/",
+        "packages/domains/meet/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "packages/clients/core-api-client/src/schemas/meetings.ts",
+        "packages/clients/core-api-client/src/schemas/weldmeet.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-messages.ts",
+        "packages/clients/core-api-client/src/schemas/meeting-waitlist.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-recordings.ts",
+        "packages/clients/app-api-client/src/schemas/meeting-sessions.ts",
+        "packages/clients/app-api-client/src/schemas/transcriptions.ts",
+        "packages/clients/app-api-client/src/schemas/weldmeet-responses.ts",
+        "rust/modules/meet/",
+        "rust/crates/video-rooms/"
+      ]
+    },
+    {
+      "name": "reach",
+      "module": "reach",
+      "workspace": "apps/workers/reach-api",
+      "tests": [
+        "src/routes/access/integration.test.ts",
+        "src/routes/settings/integration.test.ts",
+        "src/routes/billing/integration.test.ts",
+        "src/routes/overview/index.test.ts",
+        "src/routes/prospects/index.test.ts",
+        "src/routes/lists/index.test.ts",
+        "src/routes/campaigns/index.test.ts",
+        "src/routes/suppressions/index.test.ts",
+        "src/routes/inbox/inbox.test.ts",
+        "src/routes/domains/conformance.test.ts",
+        "src/routes/mailboxes/conformance.test.ts",
+        "src/routes/public-webhooks/integration.test.ts",
+        "src/routes/inbox/reply.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/reach-api/src/",
+        "packages/domains/reach/src/",
+        "packages/clients/app-api-client/src/schemas/reach.ts",
+        "packages/clients/app-api-client/src/schemas/reach-responses.ts",
+        "rust/modules/reach/",
+        "rust/crates/reach-domain/"
+      ]
+    },
+    {
+      "name": "integrations: bank feeds",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/bank-feeds.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/bank-feeds/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/",
+        "rust/crates/books-domain/src/bank_feeds/"
+      ]
+    },
+    {
+      "name": "integrations: github",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/github.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "rust/modules/integrations/"
+      ]
+    },
+    {
+      "name": "panel",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/projects/projects.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel.ts",
+        "packages/sdk/panel-sdk/src/install.ts",
+        "packages/sdk/panel-sdk/src/host.ts",
+        "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "panel: collector",
+      "module": "panel",
+      "workspace": "apps/workers/panel-ingest",
+      "tests": [
+        "src/conformance.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-ingest/src/",
+        "packages/domains/panel/src/",
+        "packages/sdk/panel-sdk/src/",
+        "rust/modules/panel/"
       ]
     }
   ]
