@@ -659,6 +659,13 @@ export const host = {
       recordNamePlaceholder: '@ of subdomein',
       ttlSeconds: 'TTL (seconden)',
       priorityOptional: 'Prioriteit (optioneel)',
+      // Extern domein in afwachting — de TXT-eigendomscontrole opnieuw oppakken
+      pendingVerificationTitle: 'Verifieer eigendom van {domain}',
+      pendingVerificationDescription: 'Dit domein wacht op de eigendomscontrole. Voeg dit TXT-record toe bij uw huidige DNS-provider en klik dan op Eigendom verifiëren. DNS-records en nameservers zijn beschikbaar zodra het domein geverifieerd is.',
+      verifyOwnership: 'Eigendom verifiëren',
+      verifyingOwnership: 'Verifiëren…',
+      ownershipVerified: 'Domeineigendom geverifieerd',
+      ownershipVerifyFailed: 'Verificatie mislukt',
     },
 
     // SSL Certificates

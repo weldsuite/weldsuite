@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { useRouter } from '@/lib/router';
+import { useRouter, useSearchParams } from '@/lib/router';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '../../components/host-entity-form-layout';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -27,20 +27,20 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useAddExternalDomain,
+  useDomain,
   useVerifyDomainOwnership,
   useScanDnsRecords,
   useImportDnsRecords,
   type ScannedDnsRecord,
 } from '@/hooks/queries/use-host-queries';
-import { externalDomainProblem } from '@weldsuite/core-api-client/schemas/domains';
+import { PageLoader } from '@/components/page-loader';
+import {
+  externalDomainProblem,
+  isExternalDomainRegistrar,
+  type DomainVerificationRecord as VerificationRecord,
+} from '@weldsuite/core-api-client/schemas/domains';
 
 type Step = 'enter' | 'verify' | 'import' | 'nameservers';
-
-interface VerificationRecord {
-  name: string;
-  type: 'TXT';
-  value: string;
-}
 
 interface CopyRowProps {
   label: string;
@@ -101,6 +101,39 @@ export function ExternalDomainClient() {
   const verifyOwnership = useVerifyDomainOwnership();
   const scanDnsRecords = useScanDnsRecords();
   const importDnsRecords = useImportDnsRecords();
+
+  // `?domain=<id>` resumes the wizard for an external domain added earlier:
+  // at the TXT step while it is unverified, at the import step once it is.
+  const searchParams = useSearchParams();
+  const resumeId = searchParams.get('domain') ?? '';
+  const resumeQuery = useDomain(resumeId, !!resumeId);
+  const [resumeState, setResumeState] = useState<'idle' | 'resumed' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (!resumeId || resumeState !== 'idle') return;
+    if (resumeQuery.isError) {
+      setResumeState('failed');
+      return;
+    }
+    // Wait for the refetch after a verify elsewhere, not the cached pre-verify row.
+    const domain = resumeQuery.data?.data;
+    if (!domain || resumeQuery.isFetching) return;
+    if (!isExternalDomainRegistrar(domain.registrar)) {
+      router.replace(`/weldhost/domains/${domain.id}`);
+      return;
+    }
+    setDomainId(domain.id);
+    setDomainName(domain.fullDomain);
+    if (domain.registrar && domain.registrar !== 'External') setRegistrar(domain.registrar);
+    if (domain.verificationRecord) {
+      setVerificationRecord(domain.verificationRecord);
+      setStep('verify');
+    } else {
+      setNameservers(domain.nameservers ?? domain.dnsZone?.externalNameservers ?? []);
+      setStep('import');
+    }
+    setResumeState('resumed');
+  }, [resumeId, resumeState, resumeQuery.data, resumeQuery.isError, resumeQuery.isFetching, router]);
 
   const countText = (count: number, singular: string, plural: string) =>
     count === 1 ? singular : plural.replace('{count}', String(count));
@@ -226,6 +259,15 @@ export function ExternalDomainClient() {
       router.push('/weldhost/domains');
     }
   };
+
+  if (resumeId && resumeState === 'failed') {
+    return (
+      <div className="flex items-center justify-center p-8 text-muted-foreground">
+        {t.host.domainDetail.domainNotFound}
+      </div>
+    );
+  }
+  if (resumeId && resumeState === 'idle') return <PageLoader fullScreen={false} />;
 
   // ---- Step 1: Enter domain ---------------------------------------------
   if (step === 'enter') {
