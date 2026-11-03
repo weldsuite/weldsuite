@@ -82,6 +82,7 @@ import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
 import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
+import { Route as WeldflowIntakeRouteRouteImport } from './routes/weldflow/intake/route'
 import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
 import { Route as PreviewWeldsheetsRouteRouteImport } from './routes/preview/weldsheets/route'
@@ -139,11 +140,15 @@ import { Route as WeldhrAbsenteeismIndexRouteImport } from './routes/weldhr/abse
 import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
 import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
 import { Route as WeldflowWhiteboardIndexRouteImport } from './routes/weldflow/whiteboard/index'
+import { Route as WeldflowTemplatesIndexRouteImport } from './routes/weldflow/templates/index'
 import { Route as WeldflowSettingsIndexRouteImport } from './routes/weldflow/settings/index'
+import { Route as WeldflowReviewsIndexRouteImport } from './routes/weldflow/reviews/index'
 import { Route as WeldflowProjectsIndexRouteImport } from './routes/weldflow/projects/index'
 import { Route as WeldflowMyTasksIndexRouteImport } from './routes/weldflow/my-tasks/index'
+import { Route as WeldflowIntakeIndexRouteImport } from './routes/weldflow/intake/index'
 import { Route as WeldflowGoalsIndexRouteImport } from './routes/weldflow/goals/index'
 import { Route as WeldflowFilesIndexRouteImport } from './routes/weldflow/files/index'
+import { Route as WeldflowCapacityIndexRouteImport } from './routes/weldflow/capacity/index'
 import { Route as WeldflowAnalyticsIndexRouteImport } from './routes/weldflow/analytics/index'
 import { Route as WelddriveUploadsIndexRouteImport } from './routes/welddrive/uploads/index'
 import { Route as WelddriveTrashIndexRouteImport } from './routes/welddrive/trash/index'
@@ -321,6 +326,7 @@ import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldh
 import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
 import { Route as WeldflowTaskTaskIdIndexRouteImport } from './routes/weldflow/task/$taskId/index'
 import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
+import { Route as WeldflowIntakeRoadmapIndexRouteImport } from './routes/weldflow/intake/roadmap/index'
 import { Route as WeldflowAnalyticsBuilderIndexRouteImport } from './routes/weldflow/analytics/builder/index'
 import { Route as WeldflowAnalyticsIdIndexRouteImport } from './routes/weldflow/analytics/$id/index'
 import { Route as WelddeskSettingsTicketTypesIndexRouteImport } from './routes/welddesk/settings/ticket-types/index'
@@ -433,7 +439,11 @@ import { Route as SettingsIntegrationsGoogleCalendarCallbackRouteImport } from '
 import { Route as SettingsIntegrationsAttioCallbackRouteImport } from './routes/settings/integrations/attio/callback'
 import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/register/tasks/$'
 import { Route as AuthLoginTasksSplatRouteImport } from './routes/auth/login/tasks/$'
+import { Route as WeldflowProjectProjectIdScopeRouteRouteImport } from './routes/weldflow/project/$projectId/scope/route'
 import { Route as WeldflowProjectProjectIdRaidRouteRouteImport } from './routes/weldflow/project/$projectId/raid/route'
+import { Route as WeldflowProjectProjectIdGovernanceRouteRouteImport } from './routes/weldflow/project/$projectId/governance/route'
+import { Route as WeldflowProjectProjectIdGanttRouteRouteImport } from './routes/weldflow/project/$projectId/gantt/route'
+import { Route as WeldflowProjectProjectIdFinanceRouteRouteImport } from './routes/weldflow/project/$projectId/finance/route'
 import { Route as PreviewWeldmailAccountIdLabelSlugRouteRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/route'
 import { Route as PreviewWeldflowProjectProjectIdRouteRouteImport } from './routes/preview/weldflow/project/$projectId/route'
 import { Route as WeldpassPasswordsVaultsVaultIdIndexRouteImport } from './routes/weldpass/passwords/vaults/$vaultId/index'
@@ -451,15 +461,19 @@ import { Route as WeldflowProjectProjectIdTimelineIndexRouteImport } from './rou
 import { Route as WeldflowProjectProjectIdTasksIndexRouteImport } from './routes/weldflow/project/$projectId/tasks/index'
 import { Route as WeldflowProjectProjectIdTableIndexRouteImport } from './routes/weldflow/project/$projectId/table/index'
 import { Route as WeldflowProjectProjectIdSettingsIndexRouteImport } from './routes/weldflow/project/$projectId/settings/index'
+import { Route as WeldflowProjectProjectIdScopeIndexRouteImport } from './routes/weldflow/project/$projectId/scope/index'
 import { Route as WeldflowProjectProjectIdRaidIndexRouteImport } from './routes/weldflow/project/$projectId/raid/index'
 import { Route as WeldflowProjectProjectIdPipelineIndexRouteImport } from './routes/weldflow/project/$projectId/pipeline/index'
 import { Route as WeldflowProjectProjectIdMessagesIndexRouteImport } from './routes/weldflow/project/$projectId/messages/index'
 import { Route as WeldflowProjectProjectIdMembersIndexRouteImport } from './routes/weldflow/project/$projectId/members/index'
 import { Route as WeldflowProjectProjectIdListIndexRouteImport } from './routes/weldflow/project/$projectId/list/index'
+import { Route as WeldflowProjectProjectIdGovernanceIndexRouteImport } from './routes/weldflow/project/$projectId/governance/index'
 import { Route as WeldflowProjectProjectIdGoalsIndexRouteImport } from './routes/weldflow/project/$projectId/goals/index'
 import { Route as WeldflowProjectProjectIdGanttIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/index'
+import { Route as WeldflowProjectProjectIdFinanceIndexRouteImport } from './routes/weldflow/project/$projectId/finance/index'
 import { Route as WeldflowProjectProjectIdFilesIndexRouteImport } from './routes/weldflow/project/$projectId/files/index'
 import { Route as WeldflowProjectProjectIdDocumentsIndexRouteImport } from './routes/weldflow/project/$projectId/documents/index'
+import { Route as WeldflowProjectProjectIdCloseIndexRouteImport } from './routes/weldflow/project/$projectId/close/index'
 import { Route as WeldflowProjectProjectIdCalendarIndexRouteImport } from './routes/weldflow/project/$projectId/calendar/index'
 import { Route as WeldflowProjectProjectIdAnalyticsIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/index'
 import { Route as WelddeskSettingsIntegrationsProviderIndexRouteImport } from './routes/welddesk/settings/integrations/$provider/index'
@@ -517,10 +531,18 @@ import { Route as PreviewWeldcalendarSchedulingNewIndexRouteImport } from './rou
 import { Route as PreviewWeldcalendarSchedulingIdIndexRouteImport } from './routes/preview/weldcalendar/scheduling/$id/index'
 import { Route as WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/$whiteboardId/index'
 import { Route as WeldflowProjectProjectIdTableFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/table/$fileId/index'
+import { Route as WeldflowProjectProjectIdScopeValueIndexRouteImport } from './routes/weldflow/project/$projectId/scope/value/index'
 import { Route as WeldflowProjectProjectIdRaidIssuesIndexRouteImport } from './routes/weldflow/project/$projectId/raid/issues/index'
 import { Route as WeldflowProjectProjectIdRaidDependenciesIndexRouteImport } from './routes/weldflow/project/$projectId/raid/dependencies/index'
 import { Route as WeldflowProjectProjectIdRaidAssumptionsIndexRouteImport } from './routes/weldflow/project/$projectId/raid/assumptions/index'
 import { Route as WeldflowProjectProjectIdMembersMemberIdIndexRouteImport } from './routes/weldflow/project/$projectId/members/$memberId/index'
+import { Route as WeldflowProjectProjectIdGovernanceStakeholdersIndexRouteImport } from './routes/weldflow/project/$projectId/governance/stakeholders/index'
+import { Route as WeldflowProjectProjectIdGovernanceDecisionsIndexRouteImport } from './routes/weldflow/project/$projectId/governance/decisions/index'
+import { Route as WeldflowProjectProjectIdGovernanceChangesIndexRouteImport } from './routes/weldflow/project/$projectId/governance/changes/index'
+import { Route as WeldflowProjectProjectIdGanttPhasesIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/phases/index'
+import { Route as WeldflowProjectProjectIdGanttDependenciesIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/dependencies/index'
+import { Route as WeldflowProjectProjectIdFinanceForecastIndexRouteImport } from './routes/weldflow/project/$projectId/finance/forecast/index'
+import { Route as WeldflowProjectProjectIdFinanceCostsIndexRouteImport } from './routes/weldflow/project/$projectId/finance/costs/index'
 import { Route as WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/documents/$fileId/index'
 import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/builder/index'
 import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
@@ -899,6 +921,11 @@ const WeldhrMeRouteRoute = WeldhrMeRouteRouteImport.update({
   path: '/me',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
+const WeldflowIntakeRouteRoute = WeldflowIntakeRouteRouteImport.update({
+  id: '/intake',
+  path: '/intake',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
 const WeldcrmPeopleRouteRoute = WeldcrmPeopleRouteRouteImport.update({
   id: '/people',
   path: '/people',
@@ -1188,9 +1215,19 @@ const WeldflowWhiteboardIndexRoute = WeldflowWhiteboardIndexRouteImport.update({
   path: '/whiteboard/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
+const WeldflowTemplatesIndexRoute = WeldflowTemplatesIndexRouteImport.update({
+  id: '/templates/',
+  path: '/templates/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
 const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowReviewsIndexRoute = WeldflowReviewsIndexRouteImport.update({
+  id: '/reviews/',
+  path: '/reviews/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
 const WeldflowProjectsIndexRoute = WeldflowProjectsIndexRouteImport.update({
@@ -1203,6 +1240,11 @@ const WeldflowMyTasksIndexRoute = WeldflowMyTasksIndexRouteImport.update({
   path: '/my-tasks/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
+const WeldflowIntakeIndexRoute = WeldflowIntakeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldflowIntakeRouteRoute,
+} as any)
 const WeldflowGoalsIndexRoute = WeldflowGoalsIndexRouteImport.update({
   id: '/goals/',
   path: '/goals/',
@@ -1211,6 +1253,11 @@ const WeldflowGoalsIndexRoute = WeldflowGoalsIndexRouteImport.update({
 const WeldflowFilesIndexRoute = WeldflowFilesIndexRouteImport.update({
   id: '/files/',
   path: '/files/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowCapacityIndexRoute = WeldflowCapacityIndexRouteImport.update({
+  id: '/capacity/',
+  path: '/capacity/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
 const WeldflowAnalyticsIndexRoute = WeldflowAnalyticsIndexRouteImport.update({
@@ -2157,6 +2204,12 @@ const WeldflowProjectProjectIdIndexRoute =
     path: '/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
+const WeldflowIntakeRoadmapIndexRoute =
+  WeldflowIntakeRoadmapIndexRouteImport.update({
+    id: '/roadmap/',
+    path: '/roadmap/',
+    getParentRoute: () => WeldflowIntakeRouteRoute,
+  } as any)
 const WeldflowAnalyticsBuilderIndexRoute =
   WeldflowAnalyticsBuilderIndexRouteImport.update({
     id: '/analytics/builder/',
@@ -2814,10 +2867,34 @@ const AuthLoginTasksSplatRoute = AuthLoginTasksSplatRouteImport.update({
   path: '/login/tasks/$',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const WeldflowProjectProjectIdScopeRouteRoute =
+  WeldflowProjectProjectIdScopeRouteRouteImport.update({
+    id: '/scope',
+    path: '/scope',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdRaidRouteRoute =
   WeldflowProjectProjectIdRaidRouteRouteImport.update({
     id: '/raid',
     path: '/raid',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGovernanceRouteRoute =
+  WeldflowProjectProjectIdGovernanceRouteRouteImport.update({
+    id: '/governance',
+    path: '/governance',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGanttRouteRoute =
+  WeldflowProjectProjectIdGanttRouteRouteImport.update({
+    id: '/gantt',
+    path: '/gantt',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdFinanceRouteRoute =
+  WeldflowProjectProjectIdFinanceRouteRouteImport.update({
+    id: '/finance',
+    path: '/finance',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 const PreviewWeldmailAccountIdLabelSlugRouteRoute =
@@ -2922,6 +2999,12 @@ const WeldflowProjectProjectIdSettingsIndexRoute =
     path: '/settings/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
+const WeldflowProjectProjectIdScopeIndexRoute =
+  WeldflowProjectProjectIdScopeIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdScopeRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdRaidIndexRoute =
   WeldflowProjectProjectIdRaidIndexRouteImport.update({
     id: '/',
@@ -2952,6 +3035,12 @@ const WeldflowProjectProjectIdListIndexRoute =
     path: '/list/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
+const WeldflowProjectProjectIdGovernanceIndexRoute =
+  WeldflowProjectProjectIdGovernanceIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdGovernanceRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdGoalsIndexRoute =
   WeldflowProjectProjectIdGoalsIndexRouteImport.update({
     id: '/goals/',
@@ -2960,9 +3049,15 @@ const WeldflowProjectProjectIdGoalsIndexRoute =
   } as any)
 const WeldflowProjectProjectIdGanttIndexRoute =
   WeldflowProjectProjectIdGanttIndexRouteImport.update({
-    id: '/gantt/',
-    path: '/gantt/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdGanttRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdFinanceIndexRoute =
+  WeldflowProjectProjectIdFinanceIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdFinanceRouteRoute,
   } as any)
 const WeldflowProjectProjectIdFilesIndexRoute =
   WeldflowProjectProjectIdFilesIndexRouteImport.update({
@@ -2974,6 +3069,12 @@ const WeldflowProjectProjectIdDocumentsIndexRoute =
   WeldflowProjectProjectIdDocumentsIndexRouteImport.update({
     id: '/documents/',
     path: '/documents/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdCloseIndexRoute =
+  WeldflowProjectProjectIdCloseIndexRouteImport.update({
+    id: '/close/',
+    path: '/close/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 const WeldflowProjectProjectIdCalendarIndexRoute =
@@ -3318,6 +3419,12 @@ const WeldflowProjectProjectIdTableFileIdIndexRoute =
     path: '/table/$fileId/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
+const WeldflowProjectProjectIdScopeValueIndexRoute =
+  WeldflowProjectProjectIdScopeValueIndexRouteImport.update({
+    id: '/value/',
+    path: '/value/',
+    getParentRoute: () => WeldflowProjectProjectIdScopeRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdRaidIssuesIndexRoute =
   WeldflowProjectProjectIdRaidIssuesIndexRouteImport.update({
     id: '/issues/',
@@ -3341,6 +3448,48 @@ const WeldflowProjectProjectIdMembersMemberIdIndexRoute =
     id: '/members/$memberId/',
     path: '/members/$memberId/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute =
+  WeldflowProjectProjectIdGovernanceStakeholdersIndexRouteImport.update({
+    id: '/stakeholders/',
+    path: '/stakeholders/',
+    getParentRoute: () => WeldflowProjectProjectIdGovernanceRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGovernanceDecisionsIndexRoute =
+  WeldflowProjectProjectIdGovernanceDecisionsIndexRouteImport.update({
+    id: '/decisions/',
+    path: '/decisions/',
+    getParentRoute: () => WeldflowProjectProjectIdGovernanceRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGovernanceChangesIndexRoute =
+  WeldflowProjectProjectIdGovernanceChangesIndexRouteImport.update({
+    id: '/changes/',
+    path: '/changes/',
+    getParentRoute: () => WeldflowProjectProjectIdGovernanceRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGanttPhasesIndexRoute =
+  WeldflowProjectProjectIdGanttPhasesIndexRouteImport.update({
+    id: '/phases/',
+    path: '/phases/',
+    getParentRoute: () => WeldflowProjectProjectIdGanttRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGanttDependenciesIndexRoute =
+  WeldflowProjectProjectIdGanttDependenciesIndexRouteImport.update({
+    id: '/dependencies/',
+    path: '/dependencies/',
+    getParentRoute: () => WeldflowProjectProjectIdGanttRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdFinanceForecastIndexRoute =
+  WeldflowProjectProjectIdFinanceForecastIndexRouteImport.update({
+    id: '/forecast/',
+    path: '/forecast/',
+    getParentRoute: () => WeldflowProjectProjectIdFinanceRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdFinanceCostsIndexRoute =
+  WeldflowProjectProjectIdFinanceCostsIndexRouteImport.update({
+    id: '/costs/',
+    path: '/costs/',
+    getParentRoute: () => WeldflowProjectProjectIdFinanceRouteRoute,
   } as any)
 const WeldflowProjectProjectIdDocumentsFileIdIndexRoute =
   WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport.update({
@@ -3464,6 +3613,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldsheets': typeof PreviewWeldsheetsRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldflow/intake': typeof WeldflowIntakeRouteRouteWithChildren
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
@@ -3648,11 +3798,15 @@ export interface FileRoutesByFullPath {
   '/welddrive/trash/': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads/': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics/': typeof WeldflowAnalyticsIndexRoute
+  '/weldflow/capacity/': typeof WeldflowCapacityIndexRoute
   '/weldflow/files/': typeof WeldflowFilesIndexRoute
   '/weldflow/goals/': typeof WeldflowGoalsIndexRoute
+  '/weldflow/intake/': typeof WeldflowIntakeIndexRoute
   '/weldflow/my-tasks/': typeof WeldflowMyTasksIndexRoute
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
+  '/weldflow/reviews/': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
+  '/weldflow/templates/': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
@@ -3697,7 +3851,11 @@ export interface FileRoutesByFullPath {
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
   '/preview/weldflow/project/$projectId': typeof PreviewWeldflowProjectProjectIdRouteRouteWithChildren
   '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren
+  '/weldflow/project/$projectId/finance': typeof WeldflowProjectProjectIdFinanceRouteRouteWithChildren
+  '/weldflow/project/$projectId/gantt': typeof WeldflowProjectProjectIdGanttRouteRouteWithChildren
+  '/weldflow/project/$projectId/governance': typeof WeldflowProjectProjectIdGovernanceRouteRouteWithChildren
   '/weldflow/project/$projectId/raid': typeof WeldflowProjectProjectIdRaidRouteRouteWithChildren
+  '/weldflow/project/$projectId/scope': typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
@@ -3810,6 +3968,7 @@ export interface FileRoutesByFullPath {
   '/welddesk/settings/ticket-types/': typeof WelddeskSettingsTicketTypesIndexRoute
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
+  '/weldflow/intake/roadmap/': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
@@ -3898,15 +4057,19 @@ export interface FileRoutesByFullPath {
   '/welddesk/settings/integrations/$provider/': typeof WelddeskSettingsIntegrationsProviderIndexRoute
   '/weldflow/project/$projectId/analytics/': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar/': typeof WeldflowProjectProjectIdCalendarIndexRoute
+  '/weldflow/project/$projectId/close/': typeof WeldflowProjectProjectIdCloseIndexRoute
   '/weldflow/project/$projectId/documents/': typeof WeldflowProjectProjectIdDocumentsIndexRoute
   '/weldflow/project/$projectId/files/': typeof WeldflowProjectProjectIdFilesIndexRoute
+  '/weldflow/project/$projectId/finance/': typeof WeldflowProjectProjectIdFinanceIndexRoute
   '/weldflow/project/$projectId/gantt/': typeof WeldflowProjectProjectIdGanttIndexRoute
   '/weldflow/project/$projectId/goals/': typeof WeldflowProjectProjectIdGoalsIndexRoute
+  '/weldflow/project/$projectId/governance/': typeof WeldflowProjectProjectIdGovernanceIndexRoute
   '/weldflow/project/$projectId/list/': typeof WeldflowProjectProjectIdListIndexRoute
   '/weldflow/project/$projectId/members/': typeof WeldflowProjectProjectIdMembersIndexRoute
   '/weldflow/project/$projectId/messages/': typeof WeldflowProjectProjectIdMessagesIndexRoute
   '/weldflow/project/$projectId/pipeline/': typeof WeldflowProjectProjectIdPipelineIndexRoute
   '/weldflow/project/$projectId/raid/': typeof WeldflowProjectProjectIdRaidIndexRoute
+  '/weldflow/project/$projectId/scope/': typeof WeldflowProjectProjectIdScopeIndexRoute
   '/weldflow/project/$projectId/settings/': typeof WeldflowProjectProjectIdSettingsIndexRoute
   '/weldflow/project/$projectId/table/': typeof WeldflowProjectProjectIdTableIndexRoute
   '/weldflow/project/$projectId/tasks/': typeof WeldflowProjectProjectIdTasksIndexRoute
@@ -3934,10 +4097,18 @@ export interface FileRoutesByFullPath {
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder/': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/documents/$fileId/': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/finance/costs/': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
+  '/weldflow/project/$projectId/finance/forecast/': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
+  '/weldflow/project/$projectId/gantt/dependencies/': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
+  '/weldflow/project/$projectId/gantt/phases/': typeof WeldflowProjectProjectIdGanttPhasesIndexRoute
+  '/weldflow/project/$projectId/governance/changes/': typeof WeldflowProjectProjectIdGovernanceChangesIndexRoute
+  '/weldflow/project/$projectId/governance/decisions/': typeof WeldflowProjectProjectIdGovernanceDecisionsIndexRoute
+  '/weldflow/project/$projectId/governance/stakeholders/': typeof WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute
   '/weldflow/project/$projectId/members/$memberId/': typeof WeldflowProjectProjectIdMembersMemberIdIndexRoute
   '/weldflow/project/$projectId/raid/assumptions/': typeof WeldflowProjectProjectIdRaidAssumptionsIndexRoute
   '/weldflow/project/$projectId/raid/dependencies/': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues/': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
+  '/weldflow/project/$projectId/scope/value/': typeof WeldflowProjectProjectIdScopeValueIndexRoute
   '/weldflow/project/$projectId/table/$fileId/': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId/': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
 }
@@ -4129,11 +4300,15 @@ export interface FileRoutesByTo {
   '/welddrive/trash': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics': typeof WeldflowAnalyticsIndexRoute
+  '/weldflow/capacity': typeof WeldflowCapacityIndexRoute
   '/weldflow/files': typeof WeldflowFilesIndexRoute
   '/weldflow/goals': typeof WeldflowGoalsIndexRoute
+  '/weldflow/intake': typeof WeldflowIntakeIndexRoute
   '/weldflow/my-tasks': typeof WeldflowMyTasksIndexRoute
   '/weldflow/projects': typeof WeldflowProjectsIndexRoute
+  '/weldflow/reviews': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings': typeof WeldflowSettingsIndexRoute
+  '/weldflow/templates': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains': typeof WeldhostDomainsIndexRoute
@@ -4288,6 +4463,7 @@ export interface FileRoutesByTo {
   '/welddesk/settings/ticket-types': typeof WelddeskSettingsTicketTypesIndexRoute
   '/weldflow/analytics/$id': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder': typeof WeldflowAnalyticsBuilderIndexRoute
+  '/weldflow/intake/roadmap': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id': typeof WeldhostDomainsIdIndexRoute
@@ -4376,15 +4552,19 @@ export interface FileRoutesByTo {
   '/welddesk/settings/integrations/$provider': typeof WelddeskSettingsIntegrationsProviderIndexRoute
   '/weldflow/project/$projectId/analytics': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar': typeof WeldflowProjectProjectIdCalendarIndexRoute
+  '/weldflow/project/$projectId/close': typeof WeldflowProjectProjectIdCloseIndexRoute
   '/weldflow/project/$projectId/documents': typeof WeldflowProjectProjectIdDocumentsIndexRoute
   '/weldflow/project/$projectId/files': typeof WeldflowProjectProjectIdFilesIndexRoute
+  '/weldflow/project/$projectId/finance': typeof WeldflowProjectProjectIdFinanceIndexRoute
   '/weldflow/project/$projectId/gantt': typeof WeldflowProjectProjectIdGanttIndexRoute
   '/weldflow/project/$projectId/goals': typeof WeldflowProjectProjectIdGoalsIndexRoute
+  '/weldflow/project/$projectId/governance': typeof WeldflowProjectProjectIdGovernanceIndexRoute
   '/weldflow/project/$projectId/list': typeof WeldflowProjectProjectIdListIndexRoute
   '/weldflow/project/$projectId/members': typeof WeldflowProjectProjectIdMembersIndexRoute
   '/weldflow/project/$projectId/messages': typeof WeldflowProjectProjectIdMessagesIndexRoute
   '/weldflow/project/$projectId/pipeline': typeof WeldflowProjectProjectIdPipelineIndexRoute
   '/weldflow/project/$projectId/raid': typeof WeldflowProjectProjectIdRaidIndexRoute
+  '/weldflow/project/$projectId/scope': typeof WeldflowProjectProjectIdScopeIndexRoute
   '/weldflow/project/$projectId/settings': typeof WeldflowProjectProjectIdSettingsIndexRoute
   '/weldflow/project/$projectId/table': typeof WeldflowProjectProjectIdTableIndexRoute
   '/weldflow/project/$projectId/tasks': typeof WeldflowProjectProjectIdTasksIndexRoute
@@ -4412,10 +4592,18 @@ export interface FileRoutesByTo {
   '/weldflow/project/$projectId/analytics/$id': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/documents/$fileId': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/finance/costs': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
+  '/weldflow/project/$projectId/finance/forecast': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
+  '/weldflow/project/$projectId/gantt/dependencies': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
+  '/weldflow/project/$projectId/gantt/phases': typeof WeldflowProjectProjectIdGanttPhasesIndexRoute
+  '/weldflow/project/$projectId/governance/changes': typeof WeldflowProjectProjectIdGovernanceChangesIndexRoute
+  '/weldflow/project/$projectId/governance/decisions': typeof WeldflowProjectProjectIdGovernanceDecisionsIndexRoute
+  '/weldflow/project/$projectId/governance/stakeholders': typeof WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute
   '/weldflow/project/$projectId/members/$memberId': typeof WeldflowProjectProjectIdMembersMemberIdIndexRoute
   '/weldflow/project/$projectId/raid/assumptions': typeof WeldflowProjectProjectIdRaidAssumptionsIndexRoute
   '/weldflow/project/$projectId/raid/dependencies': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
+  '/weldflow/project/$projectId/scope/value': typeof WeldflowProjectProjectIdScopeValueIndexRoute
   '/weldflow/project/$projectId/table/$fileId': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
 }
@@ -4469,6 +4657,7 @@ export interface FileRoutesById {
   '/preview/weldsheets': typeof PreviewWeldsheetsRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldflow/intake': typeof WeldflowIntakeRouteRouteWithChildren
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
@@ -4653,11 +4842,15 @@ export interface FileRoutesById {
   '/welddrive/trash/': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads/': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics/': typeof WeldflowAnalyticsIndexRoute
+  '/weldflow/capacity/': typeof WeldflowCapacityIndexRoute
   '/weldflow/files/': typeof WeldflowFilesIndexRoute
   '/weldflow/goals/': typeof WeldflowGoalsIndexRoute
+  '/weldflow/intake/': typeof WeldflowIntakeIndexRoute
   '/weldflow/my-tasks/': typeof WeldflowMyTasksIndexRoute
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
+  '/weldflow/reviews/': typeof WeldflowReviewsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
+  '/weldflow/templates/': typeof WeldflowTemplatesIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
@@ -4702,7 +4895,11 @@ export interface FileRoutesById {
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
   '/preview/weldflow/project/$projectId': typeof PreviewWeldflowProjectProjectIdRouteRouteWithChildren
   '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugRouteRouteWithChildren
+  '/weldflow/project/$projectId/finance': typeof WeldflowProjectProjectIdFinanceRouteRouteWithChildren
+  '/weldflow/project/$projectId/gantt': typeof WeldflowProjectProjectIdGanttRouteRouteWithChildren
+  '/weldflow/project/$projectId/governance': typeof WeldflowProjectProjectIdGovernanceRouteRouteWithChildren
   '/weldflow/project/$projectId/raid': typeof WeldflowProjectProjectIdRaidRouteRouteWithChildren
+  '/weldflow/project/$projectId/scope': typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   '/auth/login/tasks/$': typeof AuthLoginTasksSplatRoute
   '/auth/register/tasks/$': typeof AuthRegisterTasksSplatRoute
   '/settings/integrations/attio/callback': typeof SettingsIntegrationsAttioCallbackRoute
@@ -4815,6 +5012,7 @@ export interface FileRoutesById {
   '/welddesk/settings/ticket-types/': typeof WelddeskSettingsTicketTypesIndexRoute
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
+  '/weldflow/intake/roadmap/': typeof WeldflowIntakeRoadmapIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
@@ -4903,15 +5101,19 @@ export interface FileRoutesById {
   '/welddesk/settings/integrations/$provider/': typeof WelddeskSettingsIntegrationsProviderIndexRoute
   '/weldflow/project/$projectId/analytics/': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar/': typeof WeldflowProjectProjectIdCalendarIndexRoute
+  '/weldflow/project/$projectId/close/': typeof WeldflowProjectProjectIdCloseIndexRoute
   '/weldflow/project/$projectId/documents/': typeof WeldflowProjectProjectIdDocumentsIndexRoute
   '/weldflow/project/$projectId/files/': typeof WeldflowProjectProjectIdFilesIndexRoute
+  '/weldflow/project/$projectId/finance/': typeof WeldflowProjectProjectIdFinanceIndexRoute
   '/weldflow/project/$projectId/gantt/': typeof WeldflowProjectProjectIdGanttIndexRoute
   '/weldflow/project/$projectId/goals/': typeof WeldflowProjectProjectIdGoalsIndexRoute
+  '/weldflow/project/$projectId/governance/': typeof WeldflowProjectProjectIdGovernanceIndexRoute
   '/weldflow/project/$projectId/list/': typeof WeldflowProjectProjectIdListIndexRoute
   '/weldflow/project/$projectId/members/': typeof WeldflowProjectProjectIdMembersIndexRoute
   '/weldflow/project/$projectId/messages/': typeof WeldflowProjectProjectIdMessagesIndexRoute
   '/weldflow/project/$projectId/pipeline/': typeof WeldflowProjectProjectIdPipelineIndexRoute
   '/weldflow/project/$projectId/raid/': typeof WeldflowProjectProjectIdRaidIndexRoute
+  '/weldflow/project/$projectId/scope/': typeof WeldflowProjectProjectIdScopeIndexRoute
   '/weldflow/project/$projectId/settings/': typeof WeldflowProjectProjectIdSettingsIndexRoute
   '/weldflow/project/$projectId/table/': typeof WeldflowProjectProjectIdTableIndexRoute
   '/weldflow/project/$projectId/tasks/': typeof WeldflowProjectProjectIdTasksIndexRoute
@@ -4939,10 +5141,18 @@ export interface FileRoutesById {
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder/': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/documents/$fileId/': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/finance/costs/': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
+  '/weldflow/project/$projectId/finance/forecast/': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
+  '/weldflow/project/$projectId/gantt/dependencies/': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
+  '/weldflow/project/$projectId/gantt/phases/': typeof WeldflowProjectProjectIdGanttPhasesIndexRoute
+  '/weldflow/project/$projectId/governance/changes/': typeof WeldflowProjectProjectIdGovernanceChangesIndexRoute
+  '/weldflow/project/$projectId/governance/decisions/': typeof WeldflowProjectProjectIdGovernanceDecisionsIndexRoute
+  '/weldflow/project/$projectId/governance/stakeholders/': typeof WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute
   '/weldflow/project/$projectId/members/$memberId/': typeof WeldflowProjectProjectIdMembersMemberIdIndexRoute
   '/weldflow/project/$projectId/raid/assumptions/': typeof WeldflowProjectProjectIdRaidAssumptionsIndexRoute
   '/weldflow/project/$projectId/raid/dependencies/': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues/': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
+  '/weldflow/project/$projectId/scope/value/': typeof WeldflowProjectProjectIdScopeValueIndexRoute
   '/weldflow/project/$projectId/table/$fileId/': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId/': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
 }
@@ -4997,6 +5207,7 @@ export interface FileRouteTypes {
     | '/preview/weldsheets'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldflow/intake'
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
@@ -5181,11 +5392,15 @@ export interface FileRouteTypes {
     | '/welddrive/trash/'
     | '/welddrive/uploads/'
     | '/weldflow/analytics/'
+    | '/weldflow/capacity/'
     | '/weldflow/files/'
     | '/weldflow/goals/'
+    | '/weldflow/intake/'
     | '/weldflow/my-tasks/'
     | '/weldflow/projects/'
+    | '/weldflow/reviews/'
     | '/weldflow/settings/'
+    | '/weldflow/templates/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
     | '/weldhost/domains/'
@@ -5230,7 +5445,11 @@ export interface FileRouteTypes {
     | '/weldstash/warehouses/'
     | '/preview/weldflow/project/$projectId'
     | '/preview/weldmail/$accountId/$labelSlug'
+    | '/weldflow/project/$projectId/finance'
+    | '/weldflow/project/$projectId/gantt'
+    | '/weldflow/project/$projectId/governance'
     | '/weldflow/project/$projectId/raid'
+    | '/weldflow/project/$projectId/scope'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
     | '/settings/integrations/attio/callback'
@@ -5343,6 +5562,7 @@ export interface FileRouteTypes {
     | '/welddesk/settings/ticket-types/'
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
+    | '/weldflow/intake/roadmap/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
@@ -5431,15 +5651,19 @@ export interface FileRouteTypes {
     | '/welddesk/settings/integrations/$provider/'
     | '/weldflow/project/$projectId/analytics/'
     | '/weldflow/project/$projectId/calendar/'
+    | '/weldflow/project/$projectId/close/'
     | '/weldflow/project/$projectId/documents/'
     | '/weldflow/project/$projectId/files/'
+    | '/weldflow/project/$projectId/finance/'
     | '/weldflow/project/$projectId/gantt/'
     | '/weldflow/project/$projectId/goals/'
+    | '/weldflow/project/$projectId/governance/'
     | '/weldflow/project/$projectId/list/'
     | '/weldflow/project/$projectId/members/'
     | '/weldflow/project/$projectId/messages/'
     | '/weldflow/project/$projectId/pipeline/'
     | '/weldflow/project/$projectId/raid/'
+    | '/weldflow/project/$projectId/scope/'
     | '/weldflow/project/$projectId/settings/'
     | '/weldflow/project/$projectId/table/'
     | '/weldflow/project/$projectId/tasks/'
@@ -5467,10 +5691,18 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/analytics/$id/'
     | '/weldflow/project/$projectId/analytics/builder/'
     | '/weldflow/project/$projectId/documents/$fileId/'
+    | '/weldflow/project/$projectId/finance/costs/'
+    | '/weldflow/project/$projectId/finance/forecast/'
+    | '/weldflow/project/$projectId/gantt/dependencies/'
+    | '/weldflow/project/$projectId/gantt/phases/'
+    | '/weldflow/project/$projectId/governance/changes/'
+    | '/weldflow/project/$projectId/governance/decisions/'
+    | '/weldflow/project/$projectId/governance/stakeholders/'
     | '/weldflow/project/$projectId/members/$memberId/'
     | '/weldflow/project/$projectId/raid/assumptions/'
     | '/weldflow/project/$projectId/raid/dependencies/'
     | '/weldflow/project/$projectId/raid/issues/'
+    | '/weldflow/project/$projectId/scope/value/'
     | '/weldflow/project/$projectId/table/$fileId/'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
   fileRoutesByTo: FileRoutesByTo
@@ -5662,11 +5894,15 @@ export interface FileRouteTypes {
     | '/welddrive/trash'
     | '/welddrive/uploads'
     | '/weldflow/analytics'
+    | '/weldflow/capacity'
     | '/weldflow/files'
     | '/weldflow/goals'
+    | '/weldflow/intake'
     | '/weldflow/my-tasks'
     | '/weldflow/projects'
+    | '/weldflow/reviews'
     | '/weldflow/settings'
+    | '/weldflow/templates'
     | '/weldflow/whiteboard'
     | '/weldflow/workload'
     | '/weldhost/domains'
@@ -5821,6 +6057,7 @@ export interface FileRouteTypes {
     | '/welddesk/settings/ticket-types'
     | '/weldflow/analytics/$id'
     | '/weldflow/analytics/builder'
+    | '/weldflow/intake/roadmap'
     | '/weldflow/project/$projectId'
     | '/weldflow/task/$taskId'
     | '/weldhost/domains/$id'
@@ -5909,15 +6146,19 @@ export interface FileRouteTypes {
     | '/welddesk/settings/integrations/$provider'
     | '/weldflow/project/$projectId/analytics'
     | '/weldflow/project/$projectId/calendar'
+    | '/weldflow/project/$projectId/close'
     | '/weldflow/project/$projectId/documents'
     | '/weldflow/project/$projectId/files'
+    | '/weldflow/project/$projectId/finance'
     | '/weldflow/project/$projectId/gantt'
     | '/weldflow/project/$projectId/goals'
+    | '/weldflow/project/$projectId/governance'
     | '/weldflow/project/$projectId/list'
     | '/weldflow/project/$projectId/members'
     | '/weldflow/project/$projectId/messages'
     | '/weldflow/project/$projectId/pipeline'
     | '/weldflow/project/$projectId/raid'
+    | '/weldflow/project/$projectId/scope'
     | '/weldflow/project/$projectId/settings'
     | '/weldflow/project/$projectId/table'
     | '/weldflow/project/$projectId/tasks'
@@ -5945,10 +6186,18 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/analytics/$id'
     | '/weldflow/project/$projectId/analytics/builder'
     | '/weldflow/project/$projectId/documents/$fileId'
+    | '/weldflow/project/$projectId/finance/costs'
+    | '/weldflow/project/$projectId/finance/forecast'
+    | '/weldflow/project/$projectId/gantt/dependencies'
+    | '/weldflow/project/$projectId/gantt/phases'
+    | '/weldflow/project/$projectId/governance/changes'
+    | '/weldflow/project/$projectId/governance/decisions'
+    | '/weldflow/project/$projectId/governance/stakeholders'
     | '/weldflow/project/$projectId/members/$memberId'
     | '/weldflow/project/$projectId/raid/assumptions'
     | '/weldflow/project/$projectId/raid/dependencies'
     | '/weldflow/project/$projectId/raid/issues'
+    | '/weldflow/project/$projectId/scope/value'
     | '/weldflow/project/$projectId/table/$fileId'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId'
   id:
@@ -6001,6 +6250,7 @@ export interface FileRouteTypes {
     | '/preview/weldsheets'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldflow/intake'
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
@@ -6185,11 +6435,15 @@ export interface FileRouteTypes {
     | '/welddrive/trash/'
     | '/welddrive/uploads/'
     | '/weldflow/analytics/'
+    | '/weldflow/capacity/'
     | '/weldflow/files/'
     | '/weldflow/goals/'
+    | '/weldflow/intake/'
     | '/weldflow/my-tasks/'
     | '/weldflow/projects/'
+    | '/weldflow/reviews/'
     | '/weldflow/settings/'
+    | '/weldflow/templates/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
     | '/weldhost/domains/'
@@ -6234,7 +6488,11 @@ export interface FileRouteTypes {
     | '/weldstash/warehouses/'
     | '/preview/weldflow/project/$projectId'
     | '/preview/weldmail/$accountId/$labelSlug'
+    | '/weldflow/project/$projectId/finance'
+    | '/weldflow/project/$projectId/gantt'
+    | '/weldflow/project/$projectId/governance'
     | '/weldflow/project/$projectId/raid'
+    | '/weldflow/project/$projectId/scope'
     | '/auth/login/tasks/$'
     | '/auth/register/tasks/$'
     | '/settings/integrations/attio/callback'
@@ -6347,6 +6605,7 @@ export interface FileRouteTypes {
     | '/welddesk/settings/ticket-types/'
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
+    | '/weldflow/intake/roadmap/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
@@ -6435,15 +6694,19 @@ export interface FileRouteTypes {
     | '/welddesk/settings/integrations/$provider/'
     | '/weldflow/project/$projectId/analytics/'
     | '/weldflow/project/$projectId/calendar/'
+    | '/weldflow/project/$projectId/close/'
     | '/weldflow/project/$projectId/documents/'
     | '/weldflow/project/$projectId/files/'
+    | '/weldflow/project/$projectId/finance/'
     | '/weldflow/project/$projectId/gantt/'
     | '/weldflow/project/$projectId/goals/'
+    | '/weldflow/project/$projectId/governance/'
     | '/weldflow/project/$projectId/list/'
     | '/weldflow/project/$projectId/members/'
     | '/weldflow/project/$projectId/messages/'
     | '/weldflow/project/$projectId/pipeline/'
     | '/weldflow/project/$projectId/raid/'
+    | '/weldflow/project/$projectId/scope/'
     | '/weldflow/project/$projectId/settings/'
     | '/weldflow/project/$projectId/table/'
     | '/weldflow/project/$projectId/tasks/'
@@ -6471,10 +6734,18 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/analytics/$id/'
     | '/weldflow/project/$projectId/analytics/builder/'
     | '/weldflow/project/$projectId/documents/$fileId/'
+    | '/weldflow/project/$projectId/finance/costs/'
+    | '/weldflow/project/$projectId/finance/forecast/'
+    | '/weldflow/project/$projectId/gantt/dependencies/'
+    | '/weldflow/project/$projectId/gantt/phases/'
+    | '/weldflow/project/$projectId/governance/changes/'
+    | '/weldflow/project/$projectId/governance/decisions/'
+    | '/weldflow/project/$projectId/governance/stakeholders/'
     | '/weldflow/project/$projectId/members/$memberId/'
     | '/weldflow/project/$projectId/raid/assumptions/'
     | '/weldflow/project/$projectId/raid/dependencies/'
     | '/weldflow/project/$projectId/raid/issues/'
+    | '/weldflow/project/$projectId/scope/value/'
     | '/weldflow/project/$projectId/table/$fileId/'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
   fileRoutesById: FileRoutesById
@@ -7051,6 +7322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldhrMeRouteRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
+    '/weldflow/intake': {
+      id: '/weldflow/intake'
+      path: '/intake'
+      fullPath: '/weldflow/intake'
+      preLoaderRoute: typeof WeldflowIntakeRouteRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
     '/weldcrm/people': {
       id: '/weldcrm/people'
       path: '/people'
@@ -7450,11 +7728,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowWhiteboardIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
+    '/weldflow/templates/': {
+      id: '/weldflow/templates/'
+      path: '/templates'
+      fullPath: '/weldflow/templates/'
+      preLoaderRoute: typeof WeldflowTemplatesIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
     '/weldflow/settings/': {
       id: '/weldflow/settings/'
       path: '/settings'
       fullPath: '/weldflow/settings/'
       preLoaderRoute: typeof WeldflowSettingsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/reviews/': {
+      id: '/weldflow/reviews/'
+      path: '/reviews'
+      fullPath: '/weldflow/reviews/'
+      preLoaderRoute: typeof WeldflowReviewsIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/projects/': {
@@ -7471,6 +7763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowMyTasksIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
+    '/weldflow/intake/': {
+      id: '/weldflow/intake/'
+      path: '/'
+      fullPath: '/weldflow/intake/'
+      preLoaderRoute: typeof WeldflowIntakeIndexRouteImport
+      parentRoute: typeof WeldflowIntakeRouteRoute
+    }
     '/weldflow/goals/': {
       id: '/weldflow/goals/'
       path: '/goals'
@@ -7483,6 +7782,13 @@ declare module '@tanstack/react-router' {
       path: '/files'
       fullPath: '/weldflow/files/'
       preLoaderRoute: typeof WeldflowFilesIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/capacity/': {
+      id: '/weldflow/capacity/'
+      path: '/capacity'
+      fullPath: '/weldflow/capacity/'
+      preLoaderRoute: typeof WeldflowCapacityIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/analytics/': {
@@ -8724,6 +9030,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
+    '/weldflow/intake/roadmap/': {
+      id: '/weldflow/intake/roadmap/'
+      path: '/roadmap'
+      fullPath: '/weldflow/intake/roadmap/'
+      preLoaderRoute: typeof WeldflowIntakeRoadmapIndexRouteImport
+      parentRoute: typeof WeldflowIntakeRouteRoute
+    }
     '/weldflow/analytics/builder/': {
       id: '/weldflow/analytics/builder/'
       path: '/analytics/builder'
@@ -9508,11 +9821,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginTasksSplatRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/weldflow/project/$projectId/scope': {
+      id: '/weldflow/project/$projectId/scope'
+      path: '/scope'
+      fullPath: '/weldflow/project/$projectId/scope'
+      preLoaderRoute: typeof WeldflowProjectProjectIdScopeRouteRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
     '/weldflow/project/$projectId/raid': {
       id: '/weldflow/project/$projectId/raid'
       path: '/raid'
       fullPath: '/weldflow/project/$projectId/raid'
       preLoaderRoute: typeof WeldflowProjectProjectIdRaidRouteRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/governance': {
+      id: '/weldflow/project/$projectId/governance'
+      path: '/governance'
+      fullPath: '/weldflow/project/$projectId/governance'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGovernanceRouteRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/gantt': {
+      id: '/weldflow/project/$projectId/gantt'
+      path: '/gantt'
+      fullPath: '/weldflow/project/$projectId/gantt'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGanttRouteRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/finance': {
+      id: '/weldflow/project/$projectId/finance'
+      path: '/finance'
+      fullPath: '/weldflow/project/$projectId/finance'
+      preLoaderRoute: typeof WeldflowProjectProjectIdFinanceRouteRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
     '/preview/weldmail/$accountId/$labelSlug': {
@@ -9634,6 +9975,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdSettingsIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
+    '/weldflow/project/$projectId/scope/': {
+      id: '/weldflow/project/$projectId/scope/'
+      path: '/'
+      fullPath: '/weldflow/project/$projectId/scope/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdScopeIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdScopeRouteRoute
+    }
     '/weldflow/project/$projectId/raid/': {
       id: '/weldflow/project/$projectId/raid/'
       path: '/'
@@ -9669,6 +10017,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdListIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
+    '/weldflow/project/$projectId/governance/': {
+      id: '/weldflow/project/$projectId/governance/'
+      path: '/'
+      fullPath: '/weldflow/project/$projectId/governance/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGovernanceIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGovernanceRouteRoute
+    }
     '/weldflow/project/$projectId/goals/': {
       id: '/weldflow/project/$projectId/goals/'
       path: '/goals'
@@ -9678,10 +10033,17 @@ declare module '@tanstack/react-router' {
     }
     '/weldflow/project/$projectId/gantt/': {
       id: '/weldflow/project/$projectId/gantt/'
-      path: '/gantt'
+      path: '/'
       fullPath: '/weldflow/project/$projectId/gantt/'
       preLoaderRoute: typeof WeldflowProjectProjectIdGanttIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+      parentRoute: typeof WeldflowProjectProjectIdGanttRouteRoute
+    }
+    '/weldflow/project/$projectId/finance/': {
+      id: '/weldflow/project/$projectId/finance/'
+      path: '/'
+      fullPath: '/weldflow/project/$projectId/finance/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdFinanceIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdFinanceRouteRoute
     }
     '/weldflow/project/$projectId/files/': {
       id: '/weldflow/project/$projectId/files/'
@@ -9695,6 +10057,13 @@ declare module '@tanstack/react-router' {
       path: '/documents'
       fullPath: '/weldflow/project/$projectId/documents/'
       preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/close/': {
+      id: '/weldflow/project/$projectId/close/'
+      path: '/close'
+      fullPath: '/weldflow/project/$projectId/close/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdCloseIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
     '/weldflow/project/$projectId/calendar/': {
@@ -10096,6 +10465,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdTableFileIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
+    '/weldflow/project/$projectId/scope/value/': {
+      id: '/weldflow/project/$projectId/scope/value/'
+      path: '/value'
+      fullPath: '/weldflow/project/$projectId/scope/value/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdScopeValueIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdScopeRouteRoute
+    }
     '/weldflow/project/$projectId/raid/issues/': {
       id: '/weldflow/project/$projectId/raid/issues/'
       path: '/issues'
@@ -10123,6 +10499,55 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldflow/project/$projectId/members/$memberId/'
       preLoaderRoute: typeof WeldflowProjectProjectIdMembersMemberIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/governance/stakeholders/': {
+      id: '/weldflow/project/$projectId/governance/stakeholders/'
+      path: '/stakeholders'
+      fullPath: '/weldflow/project/$projectId/governance/stakeholders/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGovernanceStakeholdersIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGovernanceRouteRoute
+    }
+    '/weldflow/project/$projectId/governance/decisions/': {
+      id: '/weldflow/project/$projectId/governance/decisions/'
+      path: '/decisions'
+      fullPath: '/weldflow/project/$projectId/governance/decisions/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGovernanceDecisionsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGovernanceRouteRoute
+    }
+    '/weldflow/project/$projectId/governance/changes/': {
+      id: '/weldflow/project/$projectId/governance/changes/'
+      path: '/changes'
+      fullPath: '/weldflow/project/$projectId/governance/changes/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGovernanceChangesIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGovernanceRouteRoute
+    }
+    '/weldflow/project/$projectId/gantt/phases/': {
+      id: '/weldflow/project/$projectId/gantt/phases/'
+      path: '/phases'
+      fullPath: '/weldflow/project/$projectId/gantt/phases/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGanttPhasesIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGanttRouteRoute
+    }
+    '/weldflow/project/$projectId/gantt/dependencies/': {
+      id: '/weldflow/project/$projectId/gantt/dependencies/'
+      path: '/dependencies'
+      fullPath: '/weldflow/project/$projectId/gantt/dependencies/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGanttDependenciesIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdGanttRouteRoute
+    }
+    '/weldflow/project/$projectId/finance/forecast/': {
+      id: '/weldflow/project/$projectId/finance/forecast/'
+      path: '/forecast'
+      fullPath: '/weldflow/project/$projectId/finance/forecast/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdFinanceForecastIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdFinanceRouteRoute
+    }
+    '/weldflow/project/$projectId/finance/costs/': {
+      id: '/weldflow/project/$projectId/finance/costs/'
+      path: '/costs'
+      fullPath: '/weldflow/project/$projectId/finance/costs/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdFinanceCostsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdFinanceRouteRoute
     }
     '/weldflow/project/$projectId/documents/$fileId/': {
       id: '/weldflow/project/$projectId/documents/$fileId/'
@@ -11052,6 +11477,85 @@ const WelddriveRouteRouteWithChildren = WelddriveRouteRoute._addFileChildren(
   WelddriveRouteRouteChildren,
 )
 
+interface WeldflowIntakeRouteRouteChildren {
+  WeldflowIntakeIndexRoute: typeof WeldflowIntakeIndexRoute
+  WeldflowIntakeRoadmapIndexRoute: typeof WeldflowIntakeRoadmapIndexRoute
+}
+
+const WeldflowIntakeRouteRouteChildren: WeldflowIntakeRouteRouteChildren = {
+  WeldflowIntakeIndexRoute: WeldflowIntakeIndexRoute,
+  WeldflowIntakeRoadmapIndexRoute: WeldflowIntakeRoadmapIndexRoute,
+}
+
+const WeldflowIntakeRouteRouteWithChildren =
+  WeldflowIntakeRouteRoute._addFileChildren(WeldflowIntakeRouteRouteChildren)
+
+interface WeldflowProjectProjectIdFinanceRouteRouteChildren {
+  WeldflowProjectProjectIdFinanceIndexRoute: typeof WeldflowProjectProjectIdFinanceIndexRoute
+  WeldflowProjectProjectIdFinanceCostsIndexRoute: typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
+  WeldflowProjectProjectIdFinanceForecastIndexRoute: typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
+}
+
+const WeldflowProjectProjectIdFinanceRouteRouteChildren: WeldflowProjectProjectIdFinanceRouteRouteChildren =
+  {
+    WeldflowProjectProjectIdFinanceIndexRoute:
+      WeldflowProjectProjectIdFinanceIndexRoute,
+    WeldflowProjectProjectIdFinanceCostsIndexRoute:
+      WeldflowProjectProjectIdFinanceCostsIndexRoute,
+    WeldflowProjectProjectIdFinanceForecastIndexRoute:
+      WeldflowProjectProjectIdFinanceForecastIndexRoute,
+  }
+
+const WeldflowProjectProjectIdFinanceRouteRouteWithChildren =
+  WeldflowProjectProjectIdFinanceRouteRoute._addFileChildren(
+    WeldflowProjectProjectIdFinanceRouteRouteChildren,
+  )
+
+interface WeldflowProjectProjectIdGanttRouteRouteChildren {
+  WeldflowProjectProjectIdGanttIndexRoute: typeof WeldflowProjectProjectIdGanttIndexRoute
+  WeldflowProjectProjectIdGanttDependenciesIndexRoute: typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
+  WeldflowProjectProjectIdGanttPhasesIndexRoute: typeof WeldflowProjectProjectIdGanttPhasesIndexRoute
+}
+
+const WeldflowProjectProjectIdGanttRouteRouteChildren: WeldflowProjectProjectIdGanttRouteRouteChildren =
+  {
+    WeldflowProjectProjectIdGanttIndexRoute:
+      WeldflowProjectProjectIdGanttIndexRoute,
+    WeldflowProjectProjectIdGanttDependenciesIndexRoute:
+      WeldflowProjectProjectIdGanttDependenciesIndexRoute,
+    WeldflowProjectProjectIdGanttPhasesIndexRoute:
+      WeldflowProjectProjectIdGanttPhasesIndexRoute,
+  }
+
+const WeldflowProjectProjectIdGanttRouteRouteWithChildren =
+  WeldflowProjectProjectIdGanttRouteRoute._addFileChildren(
+    WeldflowProjectProjectIdGanttRouteRouteChildren,
+  )
+
+interface WeldflowProjectProjectIdGovernanceRouteRouteChildren {
+  WeldflowProjectProjectIdGovernanceIndexRoute: typeof WeldflowProjectProjectIdGovernanceIndexRoute
+  WeldflowProjectProjectIdGovernanceChangesIndexRoute: typeof WeldflowProjectProjectIdGovernanceChangesIndexRoute
+  WeldflowProjectProjectIdGovernanceDecisionsIndexRoute: typeof WeldflowProjectProjectIdGovernanceDecisionsIndexRoute
+  WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute: typeof WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute
+}
+
+const WeldflowProjectProjectIdGovernanceRouteRouteChildren: WeldflowProjectProjectIdGovernanceRouteRouteChildren =
+  {
+    WeldflowProjectProjectIdGovernanceIndexRoute:
+      WeldflowProjectProjectIdGovernanceIndexRoute,
+    WeldflowProjectProjectIdGovernanceChangesIndexRoute:
+      WeldflowProjectProjectIdGovernanceChangesIndexRoute,
+    WeldflowProjectProjectIdGovernanceDecisionsIndexRoute:
+      WeldflowProjectProjectIdGovernanceDecisionsIndexRoute,
+    WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute:
+      WeldflowProjectProjectIdGovernanceStakeholdersIndexRoute,
+  }
+
+const WeldflowProjectProjectIdGovernanceRouteRouteWithChildren =
+  WeldflowProjectProjectIdGovernanceRouteRoute._addFileChildren(
+    WeldflowProjectProjectIdGovernanceRouteRouteChildren,
+  )
+
 interface WeldflowProjectProjectIdRaidRouteRouteChildren {
   WeldflowProjectProjectIdRaidIndexRoute: typeof WeldflowProjectProjectIdRaidIndexRoute
   WeldflowProjectProjectIdRaidAssumptionsIndexRoute: typeof WeldflowProjectProjectIdRaidAssumptionsIndexRoute
@@ -11076,14 +11580,36 @@ const WeldflowProjectProjectIdRaidRouteRouteWithChildren =
     WeldflowProjectProjectIdRaidRouteRouteChildren,
   )
 
+interface WeldflowProjectProjectIdScopeRouteRouteChildren {
+  WeldflowProjectProjectIdScopeIndexRoute: typeof WeldflowProjectProjectIdScopeIndexRoute
+  WeldflowProjectProjectIdScopeValueIndexRoute: typeof WeldflowProjectProjectIdScopeValueIndexRoute
+}
+
+const WeldflowProjectProjectIdScopeRouteRouteChildren: WeldflowProjectProjectIdScopeRouteRouteChildren =
+  {
+    WeldflowProjectProjectIdScopeIndexRoute:
+      WeldflowProjectProjectIdScopeIndexRoute,
+    WeldflowProjectProjectIdScopeValueIndexRoute:
+      WeldflowProjectProjectIdScopeValueIndexRoute,
+  }
+
+const WeldflowProjectProjectIdScopeRouteRouteWithChildren =
+  WeldflowProjectProjectIdScopeRouteRoute._addFileChildren(
+    WeldflowProjectProjectIdScopeRouteRouteChildren,
+  )
+
 interface WeldflowProjectProjectIdRouteRouteChildren {
+  WeldflowProjectProjectIdFinanceRouteRoute: typeof WeldflowProjectProjectIdFinanceRouteRouteWithChildren
+  WeldflowProjectProjectIdGanttRouteRoute: typeof WeldflowProjectProjectIdGanttRouteRouteWithChildren
+  WeldflowProjectProjectIdGovernanceRouteRoute: typeof WeldflowProjectProjectIdGovernanceRouteRouteWithChildren
   WeldflowProjectProjectIdRaidRouteRoute: typeof WeldflowProjectProjectIdRaidRouteRouteWithChildren
+  WeldflowProjectProjectIdScopeRouteRoute: typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   WeldflowProjectProjectIdIndexRoute: typeof WeldflowProjectProjectIdIndexRoute
   WeldflowProjectProjectIdAnalyticsIndexRoute: typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   WeldflowProjectProjectIdCalendarIndexRoute: typeof WeldflowProjectProjectIdCalendarIndexRoute
+  WeldflowProjectProjectIdCloseIndexRoute: typeof WeldflowProjectProjectIdCloseIndexRoute
   WeldflowProjectProjectIdDocumentsIndexRoute: typeof WeldflowProjectProjectIdDocumentsIndexRoute
   WeldflowProjectProjectIdFilesIndexRoute: typeof WeldflowProjectProjectIdFilesIndexRoute
-  WeldflowProjectProjectIdGanttIndexRoute: typeof WeldflowProjectProjectIdGanttIndexRoute
   WeldflowProjectProjectIdGoalsIndexRoute: typeof WeldflowProjectProjectIdGoalsIndexRoute
   WeldflowProjectProjectIdListIndexRoute: typeof WeldflowProjectProjectIdListIndexRoute
   WeldflowProjectProjectIdMembersIndexRoute: typeof WeldflowProjectProjectIdMembersIndexRoute
@@ -11106,19 +11632,27 @@ interface WeldflowProjectProjectIdRouteRouteChildren {
 
 const WeldflowProjectProjectIdRouteRouteChildren: WeldflowProjectProjectIdRouteRouteChildren =
   {
+    WeldflowProjectProjectIdFinanceRouteRoute:
+      WeldflowProjectProjectIdFinanceRouteRouteWithChildren,
+    WeldflowProjectProjectIdGanttRouteRoute:
+      WeldflowProjectProjectIdGanttRouteRouteWithChildren,
+    WeldflowProjectProjectIdGovernanceRouteRoute:
+      WeldflowProjectProjectIdGovernanceRouteRouteWithChildren,
     WeldflowProjectProjectIdRaidRouteRoute:
       WeldflowProjectProjectIdRaidRouteRouteWithChildren,
+    WeldflowProjectProjectIdScopeRouteRoute:
+      WeldflowProjectProjectIdScopeRouteRouteWithChildren,
     WeldflowProjectProjectIdIndexRoute: WeldflowProjectProjectIdIndexRoute,
     WeldflowProjectProjectIdAnalyticsIndexRoute:
       WeldflowProjectProjectIdAnalyticsIndexRoute,
     WeldflowProjectProjectIdCalendarIndexRoute:
       WeldflowProjectProjectIdCalendarIndexRoute,
+    WeldflowProjectProjectIdCloseIndexRoute:
+      WeldflowProjectProjectIdCloseIndexRoute,
     WeldflowProjectProjectIdDocumentsIndexRoute:
       WeldflowProjectProjectIdDocumentsIndexRoute,
     WeldflowProjectProjectIdFilesIndexRoute:
       WeldflowProjectProjectIdFilesIndexRoute,
-    WeldflowProjectProjectIdGanttIndexRoute:
-      WeldflowProjectProjectIdGanttIndexRoute,
     WeldflowProjectProjectIdGoalsIndexRoute:
       WeldflowProjectProjectIdGoalsIndexRoute,
     WeldflowProjectProjectIdListIndexRoute:
@@ -11163,14 +11697,18 @@ const WeldflowProjectProjectIdRouteRouteWithChildren =
   )
 
 interface WeldflowRouteRouteChildren {
+  WeldflowIntakeRouteRoute: typeof WeldflowIntakeRouteRouteWithChildren
   WeldflowIndexRoute: typeof WeldflowIndexRoute
   WeldflowProjectProjectIdRouteRoute: typeof WeldflowProjectProjectIdRouteRouteWithChildren
   WeldflowAnalyticsIndexRoute: typeof WeldflowAnalyticsIndexRoute
+  WeldflowCapacityIndexRoute: typeof WeldflowCapacityIndexRoute
   WeldflowFilesIndexRoute: typeof WeldflowFilesIndexRoute
   WeldflowGoalsIndexRoute: typeof WeldflowGoalsIndexRoute
   WeldflowMyTasksIndexRoute: typeof WeldflowMyTasksIndexRoute
   WeldflowProjectsIndexRoute: typeof WeldflowProjectsIndexRoute
+  WeldflowReviewsIndexRoute: typeof WeldflowReviewsIndexRoute
   WeldflowSettingsIndexRoute: typeof WeldflowSettingsIndexRoute
+  WeldflowTemplatesIndexRoute: typeof WeldflowTemplatesIndexRoute
   WeldflowWhiteboardIndexRoute: typeof WeldflowWhiteboardIndexRoute
   WeldflowWorkloadIndexRoute: typeof WeldflowWorkloadIndexRoute
   WeldflowAnalyticsIdIndexRoute: typeof WeldflowAnalyticsIdIndexRoute
@@ -11179,15 +11717,19 @@ interface WeldflowRouteRouteChildren {
 }
 
 const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
+  WeldflowIntakeRouteRoute: WeldflowIntakeRouteRouteWithChildren,
   WeldflowIndexRoute: WeldflowIndexRoute,
   WeldflowProjectProjectIdRouteRoute:
     WeldflowProjectProjectIdRouteRouteWithChildren,
   WeldflowAnalyticsIndexRoute: WeldflowAnalyticsIndexRoute,
+  WeldflowCapacityIndexRoute: WeldflowCapacityIndexRoute,
   WeldflowFilesIndexRoute: WeldflowFilesIndexRoute,
   WeldflowGoalsIndexRoute: WeldflowGoalsIndexRoute,
   WeldflowMyTasksIndexRoute: WeldflowMyTasksIndexRoute,
   WeldflowProjectsIndexRoute: WeldflowProjectsIndexRoute,
+  WeldflowReviewsIndexRoute: WeldflowReviewsIndexRoute,
   WeldflowSettingsIndexRoute: WeldflowSettingsIndexRoute,
+  WeldflowTemplatesIndexRoute: WeldflowTemplatesIndexRoute,
   WeldflowWhiteboardIndexRoute: WeldflowWhiteboardIndexRoute,
   WeldflowWorkloadIndexRoute: WeldflowWorkloadIndexRoute,
   WeldflowAnalyticsIdIndexRoute: WeldflowAnalyticsIdIndexRoute,
