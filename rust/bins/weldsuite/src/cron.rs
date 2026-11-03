@@ -84,7 +84,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -108,6 +108,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "bank-feed-due"
         | "crm-due"
         | "ad-sync"
+        | "connector-catchup"
+        | "moneybird-push"
         | "workflow-polls"
         | "workflow-schedules"),
     ) = job
@@ -156,6 +158,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "bank-feed-due" => bank_feed_due(config).await,
             "crm-due" => crm_due(config).await,
             "ad-sync" => ad_sync(config).await,
+            "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
             _ => sign_lifecycle(config).await,
         }
@@ -977,6 +980,99 @@ async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             },
         })
     );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// WeldConnect's store and accounting connectors (integration-sync-worker's
+/// `runConnectorCatchupSweep`, integration-webhook-worker's
+/// `runMoneybirdPushSweep`), through WeldConnect's internal routes in this
+/// process; while connect is not served the run only logs a skip.
+///
+/// - `connector-catchup`: the workspaces whose connector catch-up is due
+///   (the master `workspace_due_index`, kind `connector_catchup`, where
+///   Global keeps the D1 `connector_sync_index`): each due connection probed
+///   for changes and caught up when there are any;
+/// - `moneybird-push`: the workspaces whose last Moneybird push left work
+///   (kind `moneybird_push`), another pass each.
+async fn connectors(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let jobs = Arc::clone(&infra.jobs);
+    let connect = crate::routes::cron_connect_state(
+        &infra,
+        &workspaces,
+        &config.environment,
+        Arc::clone(&jobs),
+    );
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": job, "skipped": "connect is not served" })
+        );
+        return Ok(());
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result = if job == "moneybird-push" {
+        let result = weldsuite_integrations::connectors::run_moneybird_push_sweep(
+            &master,
+            binding.as_ref(),
+            now,
+        )
+        .await;
+        serde_json::json!({ "due": result.due, "processed": result.processed, "failed": result.failed })
+    } else {
+        let open: weldsuite_integrations::crm::due::WorkspaceOpener =
+            Arc::new(move |reference: String| {
+                let workspaces = Arc::clone(&workspaces);
+                Box::pin(async move {
+                    let tenant = workspaces
+                        .tenant(&reference)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    // Connect's internal routes take the Clerk org id (`X-Workspace-Id`).
+                    let org = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
+                    Ok((tenant.db, org))
+                })
+            });
+        // The probe reads the stored credentials and asks the providers.
+        let env = weldsuite_integrations::connectors::probe_env(
+            config.keyring.clone(),
+            std::env::var("STRIPE_SECRET_KEY").ok(),
+            crate::routes::shared_outbound(),
+            infra.events.clone(),
+        );
+        let (result, counts) = weldsuite_integrations::connectors::run_connector_catchup_sweep(
+            &master,
+            &open,
+            binding.as_ref(),
+            &env,
+            now,
+        )
+        .await;
+        serde_json::json!({
+            "due": result.due, "processed": result.processed, "failed": result.failed,
+            "connections": counts.to_json(),
+        })
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await

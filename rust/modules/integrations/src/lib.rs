@@ -19,6 +19,9 @@
 //!   `HubSpot` and Google Calendar webhooks, and the CRM due sweep, with
 //!   WeldConnect's internal routes over [`connect_internal`].
 //! - Meta's ad webhook and the ad metrics sweep ([`meta_ads`]).
+//! - WeldConnect's store and accounting connectors ([`connectors`]): their
+//!   webhooks and Stripe Connect's, the connector catch-up sweep and the
+//!   Moneybird push backlog, over [`connect_internal`].
 //! - WeldConnect's integration triggers: the Slack, Twilio and GitHub
 //!   receivers ([`workflow_events`]) and the Google and Airtable polls
 //!   ([`workflow_polls`]), dispatching to `EXECUTE_WORKFLOW`.
@@ -32,6 +35,7 @@ pub mod bank_feeds;
 pub mod binding;
 pub mod books;
 pub mod connect_internal;
+pub mod connectors;
 pub mod crm;
 pub mod github;
 pub mod meta_ads;
@@ -119,6 +123,8 @@ pub const ENV_NAMES: &[&str] = &[
     "SLACK_SIGNING_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
+    "STRIPE_CONNECT_WEBHOOK_SECRET",
+    "STRIPE_SECRET_KEY",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -145,6 +151,7 @@ where
         .merge(github::webhook::router(state.clone()))
         .merge(crm::webhooks::router(state.clone()))
         .merge(meta_ads::router(state.clone()))
+        .merge(connectors::router(state.clone()))
         .merge(workflow_events::router(state))
 }
 

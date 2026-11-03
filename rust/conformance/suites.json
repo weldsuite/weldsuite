@@ -1999,7 +1999,8 @@
       "tests": [
         "src/routes/sendcloud/integration.test.ts",
         "src/routes/sendcloud/routes.test.ts",
-        "src/routes/printnode/routes.test.ts"
+        "src/routes/printnode/routes.test.ts",
+        "src/routes/webhooks-woocommerce-auth.test.ts"
       ],
       "paths": [
         "apps/workers/commerce-api/src/routes/sendcloud/",
@@ -2016,12 +2017,6 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
         "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
         "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /webhooks/woocommerce/auth",
-          "reason": "WooCommerce's app-auth callback completes a WeldConnect authorisation (POST /api/connectors/authorize, the connector D1 index, webhook registration and the first sync), which the Kubernetes editions do not serve until WeldConnect is ported; the Rust backend does not mount it."
-        }
       ]
     },
     {
@@ -2297,7 +2292,11 @@
         "src/routes/integrations/routes.test.ts",
         "src/routes/integrations/internal.routes.test.ts",
         "src/routes/connectors/routes.test.ts",
-        "src/routes/connectors/picqer-push.test.ts"
+        "src/routes/connectors/picqer-push.test.ts",
+        "src/routes/connectors/moneybird.test.ts",
+        "src/routes/connectors/sync.test.ts",
+        "src/routes/connectors/connect.test.ts",
+        "src/routes/connectors/moneybird-push.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2319,65 +2318,8 @@
         "rust/crates/subscribers/src/webhooks.rs",
         "rust/crates/ads-domain/",
         "rust/crates/connect-domain/",
-        "rust/modules/connect/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/integrations/connections/:id/connector-event",
-          "reason": "Not ported yet: the inbound WooCommerce/Shopify webhook ingest of @weldsuite/connect-domain (connectors/webhooks.ts, ingest.ts), still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/integrations/connections/:id/catch-up",
-          "reason": "Not ported yet: the connector catch-up sync of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts), still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/integrations/moneybird-push",
-          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts), still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/integrations/woocommerce-auth",
-          "reason": "Not ported yet: completeWooCommerceAppAuth of @weldsuite/connect-domain (connectors/auth.ts) with webhook registration and the first sync, still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/connectors/connect",
-          "reason": "Not ported yet: webhook registration (connectors/webhooks.ts) and the first sync (connectors/sync.ts, ingest.ts) of @weldsuite/connect-domain, and the Stripe and Moneybird clients."
-        },
-        {
-          "route": "POST /api/connectors/authorize",
-          "reason": "Not ported yet: WooCommerce's app authorisation (signed user_id, callback URL) and the Stripe and Moneybird OAuth starts of @weldsuite/connect-domain (connectors/auth.ts, stripe-auth.ts)."
-        },
-        {
-          "route": "POST /api/connectors/oauth/callback",
-          "reason": "Not ported yet: the Stripe and Moneybird OAuth completions with the first sync (connectors/auth.ts, stripe-auth.ts, sync.ts)."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/select-account",
-          "reason": "Not ported yet: the Moneybird administration choice with the first sync (connectors/auth.ts, sync.ts)."
-        },
-        {
-          "route": "PATCH /api/connectors/connections/:id",
-          "reason": "Not ported yet: the Stripe and Moneybird credential tests, the Stripe re-sync after a start-date change and the Moneybird push after enabling it (connectors/sync.ts, moneybird-push.ts)."
-        },
-        {
-          "route": "DELETE /api/connectors/connections/:id",
-          "reason": "Not ported yet: the provider webhook removal and the Stripe deauthorisation (connectors/webhooks.ts, @weldsuite/connectors stripe/auth.ts)."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/sync",
-          "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
-        },
-        {
-          "route": "GET /api/connectors/connections/:id/moneybird/options",
-          "reason": "Not ported yet: the Moneybird client and push plan of @weldsuite/connect-domain (connectors/moneybird-push-plan.ts)."
-        },
-        {
-          "route": "GET /api/connectors/connections/:id/moneybird/push-status",
-          "reason": "Not ported yet: the Moneybird push status of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/moneybird/push",
-          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
-        }
+        "rust/modules/connect/",
+        "packages/domains/connect/src/connectors/"
       ]
     },
     {
@@ -3314,6 +3256,21 @@
         "packages/core/entity-events/src/workflow-dispatch.ts",
         "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
         "rust/modules/integrations/"
+      ]
+    },
+    {
+      "name": "integrations: connectors",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/connectors.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
+        "rust/modules/integrations/",
+        "rust/crates/connect-domain/src/webhooks.rs"
       ]
     }
   ]

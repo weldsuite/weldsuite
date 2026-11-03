@@ -334,3 +334,100 @@ export const picqerPushResultSchema = z.union([
   z.object({ externalId: z.string() }).strict(),
   z.object({ ok: z.literal(true) }).strict(),
 ]);
+
+/** `GET /api/connectors/connections/:id/moneybird/options`: what the push settings pick from. */
+export const moneybirdPushOptionsSchema = z
+  .object({
+    ledgerAccounts: z.array(
+      z.object({ id: z.string(), name: z.string(), accountType: z.string().nullable(), accountId: z.string().nullable() }).strict(),
+    ),
+    financialAccounts: z.array(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          type: z.string().nullable(),
+          identifier: z.string().nullable(),
+          currency: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    taxRates: z.array(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          percentage: z.number().nullable(),
+          taxRateType: z.string().nullable(),
+          country: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    stripeConnections: z.array(
+      z.object({ id: z.string(), displayName: z.string().nullable(), externalAccountId: z.string().nullable() }).strict(),
+    ),
+  })
+  .strict();
+
+/** `GET /api/connectors/connections/:id/moneybird/push-status`. */
+export const moneybirdPushStatusSchema = z
+  .object({
+    enabled: z.boolean(),
+    pushedInvoices: z.number(),
+    pendingInvoices: z.number(),
+    failedInvoices: z.number(),
+    pushedPayouts: z.number(),
+    pendingPayouts: z.number(),
+    lastRun: z
+      .object({
+        status: z.string(),
+        startedAt: z.string().nullable(),
+        finishedAt: z.string().nullable(),
+        error: z.string().nullable(),
+        errorSamples: z.array(z.object({ externalId: z.string(), message: z.string() }).strict()).nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+/** `POST /api/connectors/connections/:id/sync`: what was started. */
+export const connectorSyncTriggeredSchema = z.object({ triggered: z.array(z.string()), full: z.boolean() }).strict();
+
+/** `POST /api/integrations/connections/:id/catch-up`: the watermarks after the catch-up. */
+export const connectorCatchUpSchema = z.object({ watermarks: z.record(z.string()) }).strict();
+
+/** `POST /api/connectors/connect`: the new connection, and why its webhooks are missing. */
+export const connectorConnectedSchema = connectorConnectionSchema.extend({ warning: z.string().nullable() }).strict();
+
+/** `POST /api/connectors/authorize`: where the merchant approves (WooCommerce: on a pending connection). */
+export const connectorAuthorizeSchema = z.union([
+  z.object({ authorizeUrl: z.string(), connectionId: z.string() }).strict(),
+  z.object({ authorizeUrl: z.string() }).strict(),
+]);
+
+const administrationSchema = z
+  .object({ id: z.string(), name: z.string(), language: z.string().nullable().optional(), currency: z.string().nullable().optional() })
+  .strict();
+
+/** `POST /api/connectors/oauth/callback`: the connection, and the administrations to pick from. */
+export const connectorOAuthCallbackSchema = z
+  .object({
+    connection: connectorConnectionSchema,
+    administrations: z.array(administrationSchema),
+    needsPicker: z.boolean(),
+    returnUrl: z.string(),
+  })
+  .strict();
+
+/** `POST /api/connectors/connections/:id/select-account`. */
+export const connectorSelectAccountSchema = z.object({ connection: connectorConnectionSchema }).strict();
+
+/** `DELETE /api/connectors/connections/:id`. */
+export const connectorDisconnectedSchema = z.object({ id: z.string(), disconnected: z.literal(true) }).strict();
+
+/** `POST /api/connectors/connections/:id/moneybird/push`: the pass runs in the background. */
+export const moneybirdPushStartedSchema = z.object({ started: z.literal(true) }).strict();
+
+/** `POST /api/integrations/moneybird-push`: whether a connection still has work. */
+export const moneybirdPushPassSchema = z.object({ remaining: z.boolean() }).strict();

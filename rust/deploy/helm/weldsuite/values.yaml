@@ -686,6 +686,22 @@ cron:
       enabled: true
       schedule: "*/15 * * * *"
       activeDeadlineSeconds: 840
+    # WeldConnect's store and accounting connectors (WooCommerce, Shopify,
+    # Picqer, Moneybird, Stripe) whose catch-up is due (the master
+    # workspace_due_index, kind connector_catchup): each probed for changes
+    # and caught up through WeldConnect's internal route when there are any
+    # (integration-sync-worker's connector catch-up). Needs INTERNAL_API_SECRET.
+    connector-catchup:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
+    # WeldBooks to Moneybird: another push pass for the workspaces whose last
+    # pass left work (Moneybird's rate limit; kind moneybird_push), through
+    # WeldConnect's internal route. Needs INTERNAL_API_SECRET.
+    moneybird-push:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 280
     # WeldConnect's Google Sheets, Gmail, Google Calendar and Airtable poll
     # triggers (the master workspace_due_index, kind workflow_poll), new items
     # dispatched to their workflows on Restate. Needs
