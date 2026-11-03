@@ -25,24 +25,77 @@ pub(crate) fn is_unfiled(status: &str) -> bool {
     !FILED_STATUSES.contains(&status)
 }
 
-/// `parseReturnPeriod(start, end)`: the two instants as `toISOString()`, or
-/// the message of the 400.
-pub(crate) fn parse_period(start: &str, end: &str) -> Result<(String, String), &'static str> {
+const DAY_MS: i64 = 86_400_000;
+
+/// `PERIOD_MONTHS` and `PERIOD_SHAPE_ERRORS` of a `periodType`.
+fn period_shape(period_type: &str) -> Option<(i64, &'static str)> {
+    match period_type {
+        "monthly" => Some((
+            1,
+            "A monthly period runs from the first to the last day of one calendar month",
+        )),
+        "quarterly" => Some((
+            3,
+            "A quarterly period runs from the first day of a quarter (January, April, July or October) to its last day",
+        )),
+        "yearly" => Some((
+            12,
+            "A yearly period runs from 1 January to 31 December of one year",
+        )),
+        _ => None,
+    }
+}
+
+/// `parseReturnPeriod(start, end, periodType)`: the two instants as
+/// `toISOString()`, or the message of the 400. The end must not be before
+/// the start, and the dates must span exactly one calendar month, quarter or
+/// year of the period type.
+pub(crate) fn parse_period(
+    start: &str,
+    end: &str,
+    period_type: &str,
+) -> Result<(String, String), &'static str> {
     let (Some(from), Some(to)) = (js::js_date_millis(start), js::js_date_millis(end)) else {
         return Err("The period start and end must be valid dates");
     };
     if to < from {
         return Err("The period end must not be before the period start");
     }
-    match (js::iso_from_millis(from), js::iso_from_millis(to)) {
-        (Some(from), Some(to)) => Ok((from, to)),
-        _ => Err("The period start and end must be valid dates"),
+    let (Some(start), Some(end)) = (js::iso_from_millis(from), js::iso_from_millis(to)) else {
+        return Err("The period start and end must be valid dates");
+    };
+    if let Some((months, error)) = period_shape(period_type) {
+        let (year, month, day) = js::civil_from_days(from.div_euclid(DAY_MS));
+        // Day 0 of the month after the period is its last day.
+        let after = year * 12 + (month - 1) + months;
+        let last = js::days_from_civil(after.div_euclid(12), after.rem_euclid(12) + 1, 1) - 1;
+        let last_day = js::iso_from_millis(last * DAY_MS).map(|d| iso_day(&d));
+        if day != 1 || (month - 1) % months != 0 || last_day != Some(iso_day(&end)) {
+            return Err(error);
+        }
     }
+    Ok((start, end))
 }
 
 /// `isoDate(date)`: the day of a row's timestamp.
 pub(crate) fn iso_day(timestamp: &str) -> String {
     timestamp.chars().take(10).collect()
+}
+
+/// The first of `periods` (start and end days of the entity's other returns
+/// or declarations that touch `start`..`end`) that is not the same period
+/// (`isSamePeriod`), as `formatPeriod` writes it: periods never overlap, so
+/// a month already covered by a quarter is not declared twice.
+pub(crate) fn overlapping_period(
+    periods: &[(String, String)],
+    start: &str,
+    end: &str,
+) -> Option<String> {
+    let (start, end) = (iso_day(start), iso_day(end));
+    periods
+        .iter()
+        .find(|(from, to)| *from != start || *to != end)
+        .map(|(from, to)| format!("{from} to {to}"))
 }
 
 /// A tax-ledger row of the period (`PeriodTaxLine`).
@@ -245,14 +298,49 @@ mod tests {
     #[test]
     fn periods() {
         assert_eq!(
-            parse_period("2026-01-01", "2026-03-31"),
+            parse_period("2026-01-01", "2026-03-31", "quarterly"),
             Ok((
                 "2026-01-01T00:00:00.000Z".to_owned(),
                 "2026-03-31T00:00:00.000Z".to_owned()
             ))
         );
-        assert!(parse_period("2026-06-30", "2026-06-01").is_err());
-        assert!(parse_period("nope", "2026-06-01").is_err());
+        assert!(parse_period("2026-06-30", "2026-06-01", "monthly").is_err());
+        assert!(parse_period("nope", "2026-06-01", "monthly").is_err());
+        assert!(parse_period("2024-02-01", "2024-02-29", "monthly").is_ok());
+        assert!(parse_period("2026-10-01", "2026-12-31T23:59:59Z", "quarterly").is_ok());
+        assert!(parse_period("2026-01-01", "2026-12-31", "yearly").is_ok());
+        for (start, end, kind) in [
+            ("2026-05-01", "2026-07-31", "quarterly"),
+            ("2026-10-01", "2026-12-30", "quarterly"),
+            ("2026-10-02", "2026-10-31", "monthly"),
+            ("2027-01-01", "2027-06-30", "yearly"),
+        ] {
+            assert!(
+                parse_period(start, end, kind).is_err(),
+                "{start} {end} {kind}"
+            );
+        }
+        let periods = [
+            ("2026-04-01".to_owned(), "2026-06-30".to_owned()),
+            ("2026-05-01".to_owned(), "2026-05-31".to_owned()),
+        ];
+        assert_eq!(
+            overlapping_period(
+                &periods[..1],
+                "2026-04-01T00:00:00.000Z",
+                "2026-06-30T00:00:00.000Z"
+            ),
+            None
+        );
+        assert_eq!(
+            overlapping_period(
+                &periods,
+                "2026-04-01T00:00:00.000Z",
+                "2026-06-30T00:00:00.000Z"
+            )
+            .as_deref(),
+            Some("2026-05-01 to 2026-05-31")
+        );
         assert!(is_unfiled("calculated"));
         assert!(!is_unfiled("accepted"));
         assert_eq!(base36(35), "z");

@@ -3,13 +3,17 @@
 //! where the file has one, else a hash of its date, amount and text) and is
 //! a duplicate when the account already holds a line with the same id,
 //! amount and date. Importing never touches reconciled lines.
+//!
+//! The way back: [`delete_lines`] removes lines that were never booked
+//! (unreconciled or excluded), one at a time or a whole import batch, and
+//! takes their amounts back out of the account balance.
 
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::http::now;
-use weldsuite_books_domain::js::{js_number_value, slice_utf16, to_fixed};
+use weldsuite_books_domain::js::{js_number_value, math_round, slice_utf16, to_fixed};
 use weldsuite_books_domain::posting::iso_instant;
 use weldsuite_books_domain::tables::BANK_TRANSACTIONS;
 use weldsuite_kit::generate_id;
@@ -116,16 +120,24 @@ pub(crate) async fn count_duplicates(
         .count())
 }
 
+/// What an import wrote (`ImportCounts`).
+pub(crate) struct ImportCounts {
+    pub(crate) imported: usize,
+    pub(crate) duplicates: usize,
+    /// The imported lines' amounts added up, for files that carry no closing
+    /// balance.
+    pub(crate) net: f64,
+}
+
 /// `importParsedTransactions(db, args)`: insert the lines the account does
-/// not hold yet, as unreconciled `import` transactions. `(imported,
-/// duplicates)`.
+/// not hold yet, as unreconciled `import` transactions.
 pub(crate) async fn import_transactions(
     db: &PgPool,
     entity_id: &str,
     bank_account_id: &str,
     batch_id: &str,
     transactions: &[Txn],
-) -> Result<(usize, usize), sqlx::Error> {
+) -> Result<ImportCounts, sqlx::Error> {
     let lines = with_external_ids(transactions);
     let ids: Vec<String> = lines.iter().map(|(_, id)| id.clone()).collect();
     let mut known = existing(db, bank_account_id, &ids).await?;
@@ -183,6 +195,7 @@ pub(crate) async fn import_transactions(
         fresh.push(row);
     }
     let imported = fresh.len();
+    let net = sum_amounts(fresh.iter().map(|row| row.get("amount")));
     // Drizzle sends each chunk of 100 as one insert: all or nothing per chunk.
     for chunk in fresh.chunks(100) {
         let mut tx = db.begin().await?;
@@ -191,5 +204,107 @@ pub(crate) async fn import_transactions(
         }
         tx.commit().await?;
     }
-    Ok((imported, duplicates))
+    Ok(ImportCounts {
+        imported,
+        duplicates,
+        net,
+    })
+}
+
+/// `sumAmounts(rows)`: added up in whole cents.
+fn sum_amounts<'a>(amounts: impl Iterator<Item = Option<&'a Value>>) -> f64 {
+    let cents = amounts.fold(0.0, |total, amount| {
+        total + math_round(js_number_value(amount) * 100.0)
+    });
+    cents / 100.0
+}
+
+/// `adjustAccountBalance(db, bankAccountId, delta)`: move a bank account's
+/// balance by `delta` (positive or negative).
+pub(crate) async fn adjust_account_balance(
+    db: &PgPool,
+    bank_account_id: &str,
+    delta: f64,
+) -> Result<(), sqlx::Error> {
+    if delta == 0.0 {
+        return Ok(());
+    }
+    sqlx::query(
+        "update bank_accounts set current_balance = (coalesce(current_balance, 0)::numeric + $2::numeric), \
+         updated_at = $3::timestamp where id = $1",
+    )
+    .bind(bank_account_id)
+    .bind(to_fixed(delta, 2))
+    .bind(now())
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// `lineDeleteBlocker(line)`: why a line can't be deleted. Only lines that
+/// were never booked (unreconciled or excluded) go; a bank feed's would come
+/// back on the next sync, so they are excluded instead.
+pub(crate) fn line_delete_blocker(line: &Value) -> Option<&'static str> {
+    let status = line
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !matches!(status, "unreconciled" | "excluded") {
+        return Some("reconciled");
+    }
+    let source = line
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or("import");
+    if !matches!(source, "import" | "manual") {
+        return Some("feed");
+    }
+    None
+}
+
+/// `deleteBankLines(db, lines)`: soft-delete the deletable lines among
+/// `lines` and take their amounts back out of their accounts' balances. The
+/// deleted lines, and how many were left in place (reconciled, or from a
+/// bank feed).
+pub(crate) async fn delete_lines(
+    db: &PgPool,
+    lines: Vec<Value>,
+) -> Result<(Vec<Value>, usize), sqlx::Error> {
+    let total = lines.len();
+    let deleted: Vec<Value> = lines
+        .into_iter()
+        .filter(|line| line_delete_blocker(line).is_none())
+        .collect();
+    let stamp = now();
+    let ids: Vec<String> = deleted
+        .iter()
+        .filter_map(|line| line.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    for chunk in ids.chunks(LOOKUP_CHUNK) {
+        sqlx::query(
+            "update bank_transactions set deleted_at = $2::timestamp, updated_at = $2::timestamp \
+             where id = any($1)",
+        )
+        .bind(chunk)
+        .bind(&stamp)
+        .execute(db)
+        .await?;
+    }
+    let mut accounts: Vec<(&str, Vec<&Value>)> = Vec::new();
+    for line in &deleted {
+        let account = line
+            .get("bankAccountId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match accounts.iter_mut().find(|(id, _)| *id == account) {
+            Some((_, lines)) => lines.push(line),
+            None => accounts.push((account, vec![line])),
+        }
+    }
+    for (account, lines) in accounts {
+        let net = sum_amounts(lines.iter().map(|line| line.get("amount")));
+        adjust_account_balance(db, account, -net).await?;
+    }
+    let kept = total - deleted.len();
+    Ok((deleted, kept))
 }

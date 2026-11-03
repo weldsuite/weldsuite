@@ -13,7 +13,6 @@ mod bank_connections;
 mod bank_deposits;
 mod bank_reconciliations;
 mod bank_transactions;
-mod categorize;
 mod common;
 mod csv_format;
 mod import;

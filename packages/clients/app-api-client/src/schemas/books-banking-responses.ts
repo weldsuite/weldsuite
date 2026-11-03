@@ -162,15 +162,16 @@ export const autoReconcileResultSchema = z.object({
   ),
 });
 
-/** `GET /api/bank-transactions/:id/suggestions`: one match. */
+/** `GET /api/bank-transactions/:id/suggestions`: one match; a reconciliation rule names the account it posts to. */
 export const matchSuggestionSchema = z.object({
-  type: z.enum(['invoice', 'bill', 'payment', 'deposit']),
+  type: z.enum(['invoice', 'bill', 'payment', 'deposit', 'rule']),
   id: z.string(),
   number: nullableString,
   contactName: nullableString,
   amount: z.string(),
   confidence: z.number(),
   reasons: z.array(z.string()),
+  categoryAccountId: z.string().optional(),
 });
 
 /** What the matching routes answer: the line's id and new status, and what it was tied to. */
@@ -186,6 +187,9 @@ export const bankLineMatchSchema = z
 
 /** `POST /api/bank-transactions/:id/exclude`. */
 export const bankLineExcludedSchema = z.object({ message: z.string() });
+
+/** `DELETE /api/bank-transactions/import-batches/:batchId`: lines removed, and reconciled or bank feed lines kept. */
+export const importUndoneSchema = z.object({ batchId: z.string(), deleted: z.number(), kept: z.number() });
 
 // ── bank deposits ───────────────────────────────────────────────────────────
 

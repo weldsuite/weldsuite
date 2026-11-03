@@ -32,7 +32,8 @@ use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::filing::{
-    file_period, filing_status, is_unfiled, iso_day, load_period_lines, parse_period, submit_filing,
+    file_period, filing_status, is_unfiled, iso_day, load_period_lines, overlapping_period,
+    parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
 
@@ -272,8 +273,25 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
             "This entity uses the kleineondernemersregeling (KOR) — no BTW-aangifte is due while KOR is active. Disable KOR in the entity settings if the exemption no longer applies.",
         ));
     }
-    let (start, end) =
-        parse_period(&data.period_start, &data.period_end).map_err(Refusal::bad_request)?;
+    // `resolveNewPeriod`: one whole month, quarter or year, and no overlap
+    // with another return of the entity; recalculating the same period is fine.
+    let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
+        .map_err(Refusal::bad_request)?;
+    let periods: Vec<(String, String)> = sqlx::query_as(
+        "select to_char(period_start, 'YYYY-MM-DD'), to_char(period_end, 'YYYY-MM-DD') \
+         from vat_returns where entity_id = $1 and period_start <= $3::timestamp \
+         and period_end >= $2::timestamp and correction_of_id is null and deleted_at is null",
+    )
+    .bind(&entity_id)
+    .bind(&start)
+    .bind(&end)
+    .fetch_all(db)
+    .await?;
+    if let Some(clash) = overlapping_period(&periods, &start, &end) {
+        return Err(Refusal::bad_request(format!(
+            "This period overlaps the BTW-aangifte of {clash}."
+        )));
+    }
 
     let existing: Option<Value> = sqlx::query_scalar(concat!(
         "select ",

@@ -113,11 +113,13 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> M
         "subtype",
         issues.text(body, "subtype", Presence::Optional, None, Some(50)),
     );
-    keep(
-        &mut out,
-        "parentAccountId",
-        issues.text(body, "parentAccountId", Presence::Optional, None, Some(30)),
-    );
+    // The account this one rolls up into; an empty string clears it, like
+    // null (`z.preprocess`, older clients send "").
+    let parent = match body.get("parentAccountId") {
+        Some(Value::String(id)) if id.is_empty() => Field::Null,
+        _ => issues.text(body, "parentAccountId", Presence::Nullish, None, Some(30)),
+    };
+    keep(&mut out, "parentAccountId", parent);
     if let Field::Set(currency) = issues.text(body, "currency", Presence::Optional, None, None) {
         issues.string_length("currency", 3, currency.encode_utf16().count());
         out.insert("currency".to_owned(), json!(currency));
@@ -207,6 +209,105 @@ async fn mapping_error(
         return Ok(form_1099_box_error(code));
     }
     Ok(None)
+}
+
+/// `parentError(db, input)`: why `parent_id` can't be the parent of an
+/// account of `kind` (`account_id` is `None` on create), as the 400's
+/// message and details. The parent must be a live account of the same
+/// entity and type, and not the account itself or one of its own
+/// sub-accounts (a cycle would make every roll-up that walks the tree loop).
+async fn parent_error(
+    db: &PgPool,
+    account_id: Option<&str>,
+    entity_id: &str,
+    kind: &str,
+    parent_id: &str,
+) -> Result<Option<(String, Value)>, sqlx::Error> {
+    if Some(parent_id) == account_id {
+        return Ok(Some((
+            "An account can not be its own parent.".to_owned(),
+            json!({ "code": "PARENT_IS_SELF" }),
+        )));
+    }
+    let accounts: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "select id, type, parent_account_id from accounts where entity_id = $1 and deleted_at is null",
+    )
+    .bind(entity_id)
+    .fetch_all(db)
+    .await?;
+    let by_id = |id: &str| accounts.iter().find(|(a, _, _)| a == id);
+    let Some((_, parent_type, _)) = by_id(parent_id) else {
+        return Ok(Some((
+            "The parent account does not exist in this administration.".to_owned(),
+            json!({ "code": "PARENT_NOT_FOUND" }),
+        )));
+    };
+    if parent_type != kind {
+        return Ok(Some((
+            format!("A {kind} account can only sit under another {kind} account."),
+            json!({ "code": "PARENT_TYPE_MISMATCH", "parentType": parent_type }),
+        )));
+    }
+    // Walk up from the new parent: reaching the account means the parent is
+    // one of its sub-accounts.
+    if let Some(account_id) = account_id {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut at = Some(parent_id);
+        while let Some(id) = at.filter(|id| !id.is_empty() && !seen.contains(id)) {
+            if id == account_id {
+                return Ok(Some((
+                    "An account can not sit under one of its own sub-accounts.".to_owned(),
+                    json!({ "code": "PARENT_CYCLE" }),
+                )));
+            }
+            seen.push(id);
+            at = by_id(id).and_then(|(_, _, parent)| parent.as_deref());
+        }
+    }
+    Ok(None)
+}
+
+/// Why an update no longer fits the tree: a new parent, or a new type under
+/// the current parent, must still pass [`parent_error`], and an account with
+/// sub-accounts keeps its type.
+async fn tree_error(
+    db: &PgPool,
+    account: &Value,
+    data: &Map<String, Value>,
+) -> Result<Option<(String, Value)>, sqlx::Error> {
+    let id = account["id"].as_str().unwrap_or_default();
+    let entity_id = account["entityId"].as_str().unwrap_or_default();
+    let kind = data
+        .get("type")
+        .and_then(Value::as_str)
+        .or_else(|| account["type"].as_str())
+        .unwrap_or_default();
+    let type_changed = account["type"].as_str() != Some(kind);
+    let parent = match data.get("parentAccountId") {
+        Some(given) => given.as_str(),
+        None => account["parentAccountId"].as_str(),
+    };
+    if let Some(parent) = parent.filter(|p| !p.is_empty())
+        && (data.contains_key("parentAccountId") || type_changed)
+        && let Some(refusal) = parent_error(db, Some(id), entity_id, kind, parent).await?
+    {
+        return Ok(Some(refusal));
+    }
+    if !type_changed {
+        return Ok(None);
+    }
+    let child: Option<String> = sqlx::query_scalar(
+        "select id from accounts where parent_account_id = $1 and deleted_at is null limit 1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
+    Ok(child.map(|_| {
+        (
+            "Move or remove the sub-accounts before changing the type of this account.".to_owned(),
+            json!({ "code": "ACCOUNT_HAS_SUB_ACCOUNTS" }),
+        )
+    }))
 }
 
 async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
@@ -408,6 +509,16 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
     if let Some(message) = mapping_error(db, &entity_id, &data).await? {
         return Err(Refusal::bad_request(message));
     }
+    if let Some(parent) = data
+        .get("parentAccountId")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+    {
+        let kind = data["type"].as_str().unwrap_or_default();
+        if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent).await? {
+            return Err(Refusal::bad_request_with(message, details));
+        }
+    }
     let currency = match data.get("currency").and_then(Value::as_str) {
         Some(currency) => currency.to_owned(),
         None => resolve_entity_base_currency(db, &entity_id).await?,
@@ -548,6 +659,9 @@ async fn update_account(
     }
     if let Some(message) = mapping_error(db, &entity_id, &data).await? {
         return Err(Refusal::bad_request(message));
+    }
+    if let Some((message, details)) = tree_error(db, &account, &data).await? {
+        return Err(Refusal::bad_request_with(message, details));
     }
     let mut set = data.clone();
     set.insert("updatedAt".to_owned(), json!(now()));

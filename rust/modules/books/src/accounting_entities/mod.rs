@@ -4,10 +4,11 @@
 //! tax rates and the number sequences, and checks the tax identifiers. US
 //! entities carry an entity type and tax classification, a write-only SSN and
 //! tax lines on their accounts; lock dates and their exceptions are set here
-//! (the posting engine enforces them).
+//! (the posting engine enforces them), and so is the documents' numbering.
 
 mod body;
 mod locks;
+mod numbering;
 
 use std::sync::Arc;
 
@@ -86,6 +87,14 @@ where
         .route(
             "/{id}/lock-exceptions/{exception_id}/revoke",
             post(locks::revoke_exception).route_layer(need("entities:update")),
+        )
+        .route(
+            "/{id}/number-sequences",
+            get(numbering::list).route_layer(need("entities:read")),
+        )
+        .route(
+            "/{id}/number-sequences",
+            axum::routing::patch(numbering::update).route_layer(need("entities:update")),
         )
         .with_state(state)
 }
