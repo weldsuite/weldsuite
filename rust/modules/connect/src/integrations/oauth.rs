@@ -505,15 +505,24 @@ impl Provider {
     }
 }
 
-/// integration-webhook-worker's public host per environment
-/// (`getWebhookWorkerUrl`), where providers deliver their webhooks.
-pub(crate) fn webhook_worker_url(environment: Option<&str>) -> &'static str {
+/// Where providers deliver their webhooks (`getWebhookWorkerUrl`):
+/// integration-webhook-worker's public host per environment on Global. On
+/// the Kubernetes editions the receivers are this server's own routes, so
+/// its public origin (`APP_API_PUBLIC_URL`) wins when it is set.
+pub(crate) fn webhook_worker_url(public_url: Option<&str>, environment: Option<&str>) -> String {
+    if let Some(url) = public_url
+        .map(|url| url.trim().trim_end_matches('/'))
+        .filter(|url| !url.is_empty())
+    {
+        return url.to_owned();
+    }
     match environment {
         Some("test") => "https://integration-webhooks-test.weldsuite.org",
         Some("preview") => "https://integration-webhooks-preview.weldsuite.org",
         Some("production") => "https://integration-webhooks.weldsuite.org",
         _ => "http://localhost:8790",
     }
+    .to_owned()
 }
 
 /// `HubSpot`'s portal id for webhook routing (`fetchHubspotPortalId`): `None`
@@ -607,6 +616,19 @@ fn expiry(now: OffsetDateTime, expires_in: Option<&Value>) -> Result<String, Cal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webhooks_go_to_the_public_origin_when_it_is_set() {
+        assert_eq!(
+            webhook_worker_url(Some("https://weldsuite.example.eu/"), Some("production")),
+            "https://weldsuite.example.eu"
+        );
+        assert_eq!(
+            webhook_worker_url(Some(" "), Some("production")),
+            "https://integration-webhooks.weldsuite.org"
+        );
+        assert_eq!(webhook_worker_url(None, None), "http://localhost:8790");
+    }
 
     #[test]
     fn attio_authorize_url_has_no_scope() {

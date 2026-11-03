@@ -28,6 +28,38 @@ use crate::mvp::{
 };
 use crate::{Caller, ConnectState, now};
 
+/// The due-index kind of the integration polls (the integration workers'
+/// `weldsuite_integrations::workflow_polls::WORKFLOW_POLL_DUE_KIND`).
+pub(crate) const WORKFLOW_POLL_DUE_KIND: &str = "workflow_poll";
+
+/// `WORKFLOW_POLL_TRIGGER_EVENTS`.
+const POLL_TRIGGER_EVENTS: [(&str, &str); 4] = [
+    ("google_sheets", "google_sheets.new_row"),
+    ("gmail", "gmail.new_email"),
+    ("google_calendar", "google_calendar.new_event"),
+    ("airtable", "airtable.new_record"),
+];
+
+/// `triggersIncludeWorkflowPoll(triggers)`.
+fn includes_workflow_poll(triggers: &[Value]) -> bool {
+    triggers.iter().any(|t| {
+        if !t.is_object() || t.get("isEnabled") == Some(&Value::Bool(false)) {
+            return false;
+        }
+        let config = t.get("config").filter(|c| c.is_object());
+        let pick = |key: &str| {
+            t.get(key)
+                .filter(|v| !v.is_null())
+                .or_else(|| config.and_then(|c| c.get(key)).filter(|v| !v.is_null()))
+                .and_then(Value::as_str)
+        };
+        pick("type") == Some("integration_event")
+            && POLL_TRIGGER_EVENTS
+                .iter()
+                .any(|(p, e)| pick("provider") == Some(*p) && pick("event") == Some(*e))
+    })
+}
+
 /// The due-index kind of WeldConnect's schedules.
 pub(crate) const SCHEDULE_DUE_KIND: &str = "workflow_schedule";
 
@@ -52,6 +84,25 @@ impl SyncContext {
             workspace_id: caller.workspace_id.clone(),
             clerk_org_id: caller.clerk_org_id.clone(),
             public_api_base: caller.overrides.public_api_base(state),
+        }
+    }
+
+    /// `syncWorkflowPollIndex`: an active workflow with a Google Sheets,
+    /// Gmail, Google Calendar or Airtable poll trigger makes the integration
+    /// polls (`weldsuite cron workflow-polls`) look at this workspace on the
+    /// next tick; they drop it again once it has none. Best effort.
+    pub(crate) async fn poll_due(&self, triggers: Option<&Value>, active: bool) {
+        let polls = triggers
+            .and_then(Value::as_array)
+            .is_some_and(|triggers| includes_workflow_poll(triggers));
+        if let (true, true, Some(master)) = (active, polls, &self.master) {
+            weldsuite_db::due_index::mark_due(
+                master,
+                WORKFLOW_POLL_DUE_KIND,
+                &self.workspace_id,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await;
         }
     }
 
@@ -162,6 +213,7 @@ pub(crate) async fn sync_schedules(
     next: Option<&Value>,
     active: bool,
 ) -> Result<(), sqlx::Error> {
+    ctx.poll_due(next, active).await;
     let recurring = recurring_triggers(next);
     let once = one_time_triggers(next);
     let mut managed: Vec<String> = schedule_trigger_ids(previous);

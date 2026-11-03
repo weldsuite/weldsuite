@@ -1,0 +1,1772 @@
+[
+  {
+    "name": "attio: companies and people, deduped by email, an unchanged record skipped",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_attio",
+      "provider": "attio",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_attio', 'attio', 'attio', 'active', '{\"accessToken\":\"token-conn_attio\"}'::jsonb, null, null,\n      'last_write_wins', null, '{\"customer\":\"\",\"other\":\"x\"}'::jsonb, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into companies (id, name, display_name, email, created_at, updated_at)\n    values ('company_existing', 'Existing Co', 'Existing Co', 'existing@co.test', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into integration_entity_mappings (id, connection_id, external_entity_type, external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, created_at, updated_at)\n    values ('iem_same', 'conn_attio', 'contact', 'rec_same', 'person', 'person_same', 'e40219d04bb5ffc644569872c3351760c047d5bad61a3460d0113ccdae23108c', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-customer",
+      "sync-contact",
+      "finalize"
+    ],
+    "error": null,
+    "exchanges": [
+      {
+        "method": "POST",
+        "url": "https://api.attio.com/v2/objects/companies/records/query",
+        "body": {
+          "limit": 500,
+          "offset": 0
+        },
+        "status": 200,
+        "response": {
+          "data": [
+            {
+              "id": {
+                "record_id": "rec_acme"
+              },
+              "values": {
+                "name": [
+                  {
+                    "value": "Acme BV"
+                  }
+                ],
+                "domains": [
+                  {
+                    "domain": "acme.test"
+                  }
+                ],
+                "email_addresses": [
+                  {
+                    "email_address": "hello@acme.test"
+                  }
+                ],
+                "categories": [
+                  {
+                    "option": {
+                      "title": "B2B"
+                    }
+                  }
+                ]
+              },
+              "created_at": "2026-10-02T09:00:00.000000000Z"
+            },
+            {
+              "id": {
+                "record_id": "rec_dupe"
+              },
+              "values": {
+                "name": [
+                  {
+                    "value": "Renamed Co"
+                  }
+                ],
+                "email_addresses": [
+                  {
+                    "email_address": "existing@co.test"
+                  }
+                ]
+              },
+              "created_at": "2026-10-02T09:00:00Z"
+            }
+          ]
+        },
+        "responseText": "{\"data\":[{\"id\":{\"record_id\":\"rec_acme\"},\"values\":{\"name\":[{\"value\":\"Acme BV\"}],\"domains\":[{\"domain\":\"acme.test\"}],\"email_addresses\":[{\"email_address\":\"hello@acme.test\"}],\"categories\":[{\"option\":{\"title\":\"B2B\"}}]},\"created_at\":\"2026-10-02T09:00:00.000000000Z\"},{\"id\":{\"record_id\":\"rec_dupe\"},\"values\":{\"name\":[{\"value\":\"Renamed Co\"}],\"email_addresses\":[{\"email_address\":\"existing@co.test\"}]},\"created_at\":\"2026-10-02T09:00:00Z\"}]}"
+      },
+      {
+        "method": "POST",
+        "url": "https://api.attio.com/v2/objects/people/records/query",
+        "body": {
+          "limit": 500,
+          "offset": 0
+        },
+        "status": 200,
+        "response": {
+          "data": [
+            {
+              "id": {
+                "record_id": "rec_ada"
+              },
+              "values": {
+                "name": [
+                  {
+                    "first_name": "Ada",
+                    "last_name": "Lovelace",
+                    "full_name": "Ada Lovelace"
+                  }
+                ],
+                "email_addresses": [
+                  {
+                    "email_address": "ada@acme.test"
+                  }
+                ],
+                "phone_numbers": [
+                  {
+                    "original_phone_number": "",
+                    "phone_number": "+3120123"
+                  }
+                ],
+                "job_title": [
+                  {
+                    "value": "CTO"
+                  }
+                ],
+                "company": [
+                  {
+                    "target_record_id": "rec_acme"
+                  }
+                ]
+              },
+              "created_at": "2026-10-03T09:00:00Z"
+            },
+            {
+              "id": {
+                "record_id": "rec_solo"
+              },
+              "values": {
+                "name": [
+                  {
+                    "first_name": "Solo",
+                    "last_name": ""
+                  }
+                ],
+                "email_addresses": [
+                  {
+                    "email_address": "solo@home.test"
+                  }
+                ]
+              },
+              "created_at": "2026-10-03T09:00:00Z"
+            },
+            {
+              "id": {
+                "record_id": "rec_same"
+              },
+              "values": {
+                "name": [
+                  {
+                    "first_name": "Same",
+                    "last_name": "Again"
+                  }
+                ],
+                "company": [
+                  {
+                    "target_record_id": "rec_acme"
+                  }
+                ]
+              },
+              "created_at": "2026-10-03T09:00:00Z"
+            }
+          ]
+        },
+        "responseText": "{\"data\":[{\"id\":{\"record_id\":\"rec_ada\"},\"values\":{\"name\":[{\"first_name\":\"Ada\",\"last_name\":\"Lovelace\",\"full_name\":\"Ada Lovelace\"}],\"email_addresses\":[{\"email_address\":\"ada@acme.test\"}],\"phone_numbers\":[{\"original_phone_number\":\"\",\"phone_number\":\"+3120123\"}],\"job_title\":[{\"value\":\"CTO\"}],\"company\":[{\"target_record_id\":\"rec_acme\"}]},\"created_at\":\"2026-10-03T09:00:00Z\"},{\"id\":{\"record_id\":\"rec_solo\"},\"values\":{\"name\":[{\"first_name\":\"Solo\",\"last_name\":\"\"}],\"email_addresses\":[{\"email_address\":\"solo@home.test\"}]},\"created_at\":\"2026-10-03T09:00:00Z\"},{\"id\":{\"record_id\":\"rec_same\"},\"values\":{\"name\":[{\"first_name\":\"Same\",\"last_name\":\"Again\"}],\"company\":[{\"target_record_id\":\"rec_acme\"}]},\"created_at\":\"2026-10-03T09:00:00Z\"}]}"
+      }
+    ],
+    "rows": {
+      "companies": [
+        {
+          "account_manager_id": null,
+          "addresses": null,
+          "alternate_emails": null,
+          "angellist_url": null,
+          "annual_revenue": null,
+          "archived_at": null,
+          "avatar_url": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "custom_fields": null,
+          "deleted_at": null,
+          "description": null,
+          "display_name": "Existing Co",
+          "do_not_call": false,
+          "email": "existing@co.test",
+          "email_opt_in": false,
+          "employee_count": null,
+          "facebook_url": null,
+          "fax": null,
+          "first_contact_date": null,
+          "foundation_date": null,
+          "funding_raised": null,
+          "id": "company_existing",
+          "industry": null,
+          "instagram_url": null,
+          "internal_notes": null,
+          "is_favorite": false,
+          "is_lead": false,
+          "is_supplier": false,
+          "last_contact_date": null,
+          "lead_score": 0,
+          "lifecycle_stage": null,
+          "linkedin_url": null,
+          "marketing_consent": false,
+          "mobile": null,
+          "name": "Existing Co",
+          "next_follow_up_date": null,
+          "notes": null,
+          "nps_score": null,
+          "owner_id": null,
+          "party_code": null,
+          "phone": null,
+          "preferred_contact_method": null,
+          "preferred_language": null,
+          "primary_address": null,
+          "rating": null,
+          "registration_number": null,
+          "satisfaction_score": null,
+          "segment": null,
+          "sms_opt_in": false,
+          "source": "attio",
+          "status": "active",
+          "tags": null,
+          "timezone": null,
+          "trading_name": null,
+          "twitter_follower_count": null,
+          "twitter_handle": null,
+          "updated_at": "<ts>",
+          "vat_number": null,
+          "version": 1,
+          "website": null
+        }
+      ],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [
+        {
+          "connection_id": "conn_attio",
+          "created_at": "<ts>",
+          "external_entity_id": "rec_dupe",
+          "external_entity_type": "customer",
+          "id": "<id:iem>",
+          "internal_entity_id": "company_existing",
+          "internal_entity_type": "company",
+          "last_synced_at": "<ts>",
+          "sync_checksum": "97f3acc9f63a14873ddb5dd0e55604944ef7e497299d3fbb001433ea27579653",
+          "updated_at": "<ts>"
+        },
+        {
+          "connection_id": "conn_attio",
+          "created_at": "2026-10-01T09:00:00",
+          "external_entity_id": "rec_same",
+          "external_entity_type": "contact",
+          "id": "iem_same",
+          "internal_entity_id": "person_same",
+          "internal_entity_type": "person",
+          "last_synced_at": null,
+          "sync_checksum": "e40219d04bb5ffc644569872c3351760c047d5bad61a3460d0113ccdae23108c",
+          "updated_at": "2026-10-01T09:00:00"
+        }
+      ],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 2,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_attio",
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": "<ts>",
+          "last_sync_status": "completed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "attio",
+          "oauth_tokens": {
+            "accessToken": "token-conn_attio"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 3,
+          "provider": "attio",
+          "settings": null,
+          "status": "active",
+          "sync_cursor": {
+            "contact": "",
+            "customer": "",
+            "other": "x"
+          },
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_attio",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": "<ms>",
+          "entity_type": null,
+          "error_message": null,
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 3,
+          "items_processed": 5,
+          "items_skipped": 1,
+          "items_updated": 1,
+          "job_id": null,
+          "metadata": {
+            "contact": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 2,
+              "processed": 3,
+              "skipped": 1,
+              "updated": 0
+            },
+            "customer": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 1,
+              "processed": 2,
+              "skipped": 0,
+              "updated": 1
+            }
+          },
+          "platform": "attio",
+          "started_at": "<ts>",
+          "status": "completed",
+          "sync_type": "all",
+          "total_items": 5,
+          "triggered_by": "manual",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "hubspot: field mappings, a queued conflict, a lookup, paging and a deal Drizzle refuses",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_hub",
+      "provider": "hubspot",
+      "syncType": "incremental"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_hub', 'hubspot', 'hubspot', 'active', '{\"accessToken\":\"token-conn_hub\"}'::jsonb, '{\"syncPeople\":true,\"syncOpportunities\":true,\"syncCalendarEvents\":false}'::jsonb, '{\"customer\":\"bidirectional\",\"contact\":\"bidirectional\",\"opportunity\":\"inbound\"}'::jsonb,\n      'manual', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into companies (id, name, display_name, email, created_at, updated_at)\n    values ('company_conflict', 'Local name', 'Local name', null, '2026-10-01 09:00:00', '2026-10-03 09:00:00.250')",
+      "insert into integration_entity_mappings (id, connection_id, external_entity_type, external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, created_at, updated_at)\n    values ('iem_conflict', 'conn_hub', 'customer', '502', 'company', 'company_conflict', 'stale', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-customer",
+      "sync-contact",
+      "sync-opportunity",
+      "finalize"
+    ],
+    "error": null,
+    "exchanges": [
+      {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies?limit=100&properties=name%2Cdomain%2Cphone%2Cindustry%2Cdescription%2Cnumberofemployees%2Cannualrevenue%2Cwebsite%2Ccity%2Cstate%2Czip%2Ccountry%2Caddress",
+        "body": null,
+        "status": 200,
+        "response": {
+          "results": [
+            {
+              "id": "501",
+              "properties": {
+                "name": "Hub Co",
+                "domain": "hub.test",
+                "phone": "+1 555",
+                "industry": "SaaS",
+                "city": "Utrecht"
+              },
+              "updatedAt": "2026-10-04T10:00:00Z",
+              "archived": false
+            },
+            {
+              "id": "502",
+              "properties": {
+                "name": "Remote name",
+                "domain": "remote.test"
+              },
+              "updatedAt": "2026-10-04T10:00:00Z",
+              "archived": false
+            }
+          ]
+        },
+        "responseText": "{\"results\":[{\"id\":\"501\",\"properties\":{\"name\":\"Hub Co\",\"domain\":\"hub.test\",\"phone\":\"+1 555\",\"industry\":\"SaaS\",\"city\":\"Utrecht\"},\"updatedAt\":\"2026-10-04T10:00:00Z\",\"archived\":false},{\"id\":\"502\",\"properties\":{\"name\":\"Remote name\",\"domain\":\"remote.test\"},\"updatedAt\":\"2026-10-04T10:00:00Z\",\"archived\":false}]}"
+      },
+      {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts?limit=100&properties=firstname%2Clastname%2Cemail%2Cphone%2Cmobilephone%2Cjobtitle%2Ccompany%2Cwebsite%2Clifecyclestage%2Chs_lead_status%2Caddress%2Ccity%2Cstate%2Czip%2Ccountry",
+        "body": null,
+        "status": 200,
+        "response": {
+          "results": [
+            {
+              "id": "601",
+              "properties": {
+                "firstname": "Grace",
+                "lastname": "Hopper",
+                "email": "grace@hub.test",
+                "lifecyclestage": "lead",
+                "jobtitle": null
+              },
+              "createdAt": "2026-10-02T10:00:00Z"
+            }
+          ],
+          "paging": {
+            "next": {
+              "after": "c2"
+            }
+          }
+        },
+        "responseText": "{\"results\":[{\"id\":\"601\",\"properties\":{\"firstname\":\"Grace\",\"lastname\":\"Hopper\",\"email\":\"grace@hub.test\",\"lifecyclestage\":\"lead\",\"jobtitle\":null},\"createdAt\":\"2026-10-02T10:00:00Z\"}],\"paging\":{\"next\":{\"after\":\"c2\"}}}"
+      },
+      {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts?limit=100&properties=firstname%2Clastname%2Cemail%2Cphone%2Cmobilephone%2Cjobtitle%2Ccompany%2Cwebsite%2Clifecyclestage%2Chs_lead_status%2Caddress%2Ccity%2Cstate%2Czip%2Ccountry&after=c2",
+        "body": null,
+        "status": 200,
+        "response": {
+          "results": []
+        },
+        "responseText": "{\"results\":[]}"
+      },
+      {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=dealname%2Camount%2Cdealstage%2Cpipeline%2Cclosedate%2Chs_lastmodifieddate%2Cdescription%2Cdeal_currency_code",
+        "body": null,
+        "status": 200,
+        "response": {
+          "results": [
+            {
+              "id": "701",
+              "properties": {
+                "dealname": "Deal one",
+                "amount": "1000",
+                "dealstage": "closedwon",
+                "closedate": "2026-10-05T00:00:00Z"
+              },
+              "updatedAt": "2026-10-05T10:00:00Z"
+            },
+            {
+              "id": "702",
+              "properties": {
+                "dealname": "Deal two",
+                "dealstage": "unknownstage"
+              },
+              "updatedAt": "2026-10-05T10:00:00Z"
+            }
+          ]
+        },
+        "responseText": "{\"results\":[{\"id\":\"701\",\"properties\":{\"dealname\":\"Deal one\",\"amount\":\"1000\",\"dealstage\":\"closedwon\",\"closedate\":\"2026-10-05T00:00:00Z\"},\"updatedAt\":\"2026-10-05T10:00:00Z\"},{\"id\":\"702\",\"properties\":{\"dealname\":\"Deal two\",\"dealstage\":\"unknownstage\"},\"updatedAt\":\"2026-10-05T10:00:00Z\"}]}"
+      }
+    ],
+    "rows": {
+      "companies": [
+        {
+          "account_manager_id": null,
+          "addresses": null,
+          "alternate_emails": null,
+          "angellist_url": null,
+          "annual_revenue": null,
+          "archived_at": null,
+          "avatar_url": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "custom_fields": null,
+          "deleted_at": null,
+          "description": null,
+          "display_name": "Local name",
+          "do_not_call": false,
+          "email": null,
+          "email_opt_in": false,
+          "employee_count": null,
+          "facebook_url": null,
+          "fax": null,
+          "first_contact_date": null,
+          "foundation_date": null,
+          "funding_raised": null,
+          "id": "company_conflict",
+          "industry": null,
+          "instagram_url": null,
+          "internal_notes": null,
+          "is_favorite": false,
+          "is_lead": false,
+          "is_supplier": false,
+          "last_contact_date": null,
+          "lead_score": 0,
+          "lifecycle_stage": null,
+          "linkedin_url": null,
+          "marketing_consent": false,
+          "mobile": null,
+          "name": "Local name",
+          "next_follow_up_date": null,
+          "notes": null,
+          "nps_score": null,
+          "owner_id": null,
+          "party_code": null,
+          "phone": null,
+          "preferred_contact_method": null,
+          "preferred_language": null,
+          "primary_address": null,
+          "rating": null,
+          "registration_number": null,
+          "satisfaction_score": null,
+          "segment": null,
+          "sms_opt_in": false,
+          "source": null,
+          "status": "prospect",
+          "tags": null,
+          "timezone": null,
+          "trading_name": null,
+          "twitter_follower_count": null,
+          "twitter_handle": null,
+          "updated_at": "2026-10-03T09:00:00.25",
+          "vat_number": null,
+          "version": 1,
+          "website": null
+        }
+      ],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [
+        {
+          "connection_id": "conn_hub",
+          "created_at": "2026-10-01T09:00:00",
+          "external_entity_id": "502",
+          "external_entity_type": "customer",
+          "id": "iem_conflict",
+          "internal_entity_id": "company_conflict",
+          "internal_entity_type": "company",
+          "last_synced_at": null,
+          "sync_checksum": "stale",
+          "updated_at": "2026-10-01T09:00:00"
+        }
+      ],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [
+        {
+          "conflict_fields": [
+            "companyName",
+            "website",
+            "phone",
+            "industry",
+            "notes"
+          ],
+          "conflict_type": "field_mismatch",
+          "connection_id": "conn_hub",
+          "created_at": "<ts>",
+          "entity_type": "customer",
+          "external_data": {
+            "properties": {
+              "domain": "remote.test",
+              "name": "Remote name"
+            }
+          },
+          "external_entity_id": "502",
+          "id": "<id:cnfl>",
+          "internal_data": {
+            "accountManagerId": null,
+            "addresses": null,
+            "alternateEmails": null,
+            "angellistUrl": null,
+            "annualRevenue": null,
+            "archivedAt": null,
+            "avatarUrl": null,
+            "createdAt": "2026-10-01T09:00:00.000Z",
+            "createdBy": null,
+            "customFields": null,
+            "deletedAt": null,
+            "description": null,
+            "displayName": "Local name",
+            "doNotCall": false,
+            "email": null,
+            "emailOptIn": false,
+            "employeeCount": null,
+            "facebookUrl": null,
+            "fax": null,
+            "firstContactDate": null,
+            "foundationDate": null,
+            "fundingRaised": null,
+            "id": "company_conflict",
+            "industry": null,
+            "instagramUrl": null,
+            "internalNotes": null,
+            "isFavorite": false,
+            "isLead": false,
+            "isSupplier": false,
+            "lastContactDate": null,
+            "leadScore": 0,
+            "lifecycleStage": null,
+            "linkedinUrl": null,
+            "marketingConsent": false,
+            "mobile": null,
+            "name": "Local name",
+            "nextFollowUpDate": null,
+            "notes": null,
+            "npsScore": null,
+            "ownerId": null,
+            "partyCode": null,
+            "phone": null,
+            "preferredContactMethod": null,
+            "preferredLanguage": null,
+            "primaryAddress": null,
+            "rating": null,
+            "registrationNumber": null,
+            "satisfactionScore": null,
+            "segment": null,
+            "smsOptIn": false,
+            "source": null,
+            "status": "prospect",
+            "tags": null,
+            "timezone": null,
+            "tradingName": null,
+            "twitterFollowerCount": null,
+            "twitterHandle": null,
+            "updatedAt": "2026-10-03T09:00:00.250Z",
+            "vatNumber": null,
+            "version": 1,
+            "website": null
+          },
+          "internal_entity_id": "company_conflict",
+          "resolution": "pending",
+          "resolved_at": null,
+          "resolved_by": null
+        }
+      ],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 2,
+          "conflict_strategy": "manual",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": {
+            "contact": "bidirectional",
+            "customer": "bidirectional",
+            "opportunity": "inbound"
+          },
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_hub",
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": "<ts>",
+          "last_sync_status": "completed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "hubspot",
+          "oauth_tokens": {
+            "accessToken": "token-conn_hub"
+          },
+          "opportunities_synced": 2,
+          "people_synced": 1,
+          "provider": "hubspot",
+          "settings": null,
+          "status": "active",
+          "sync_cursor": {
+            "contact": "",
+            "customer": "",
+            "opportunity": ""
+          },
+          "sync_settings": {
+            "syncCalendarEvents": false,
+            "syncOpportunities": true,
+            "syncPeople": true
+          },
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_hub",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": "<ms>",
+          "entity_type": null,
+          "error_message": null,
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 4,
+          "items_processed": 5,
+          "items_skipped": 0,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": {
+            "contact": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 1,
+              "processed": 1,
+              "skipped": 0,
+              "updated": 0
+            },
+            "customer": {
+              "conflicts": 1,
+              "created": 0,
+              "failed": 1,
+              "processed": 2,
+              "skipped": 0,
+              "updated": 0
+            },
+            "opportunity": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 2,
+              "processed": 2,
+              "skipped": 0,
+              "updated": 0
+            }
+          },
+          "platform": "hubspot",
+          "started_at": "<ts>",
+          "status": "completed",
+          "sync_type": "all",
+          "total_items": 5,
+          "triggered_by": "scheduled",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "hubspot: last write wins keeps the newer internal record",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_lww",
+      "provider": "hubspot",
+      "syncType": "full",
+      "entityTypes": [
+        "customer"
+      ]
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_lww', 'hubspot', 'hubspot', 'active', '{\"accessToken\":\"token-conn_lww\"}'::jsonb, null, '{\"customer\":\"bidirectional\"}'::jsonb,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into companies (id, name, display_name, email, created_at, updated_at)\n    values ('company_newer', 'Local name', 'Local name', null, '2026-10-01 09:00:00', '2026-10-06 09:00:00')",
+      "insert into integration_entity_mappings (id, connection_id, external_entity_type, external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, created_at, updated_at)\n    values ('iem_newer', 'conn_lww', 'customer', '502', 'company', 'company_newer', 'stale', '2026-10-01 09:00:00', '2026-10-01 09:00:00')",
+      "insert into integration_field_mappings (id, connection_id, entity_type, external_field_path, internal_field_path, direction, transform_type, is_required)\n        values ('ifm_1', 'conn_lww', 'customer', 'properties.name', 'name', 'bidirectional', 'direct', true)"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-customer",
+      "finalize"
+    ],
+    "error": null,
+    "exchanges": [
+      {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies?limit=100&properties=name%2Cdomain%2Cphone%2Cindustry%2Cdescription%2Cnumberofemployees%2Cannualrevenue%2Cwebsite%2Ccity%2Cstate%2Czip%2Ccountry%2Caddress",
+        "body": null,
+        "status": 200,
+        "response": {
+          "results": [
+            {
+              "id": "502",
+              "properties": {
+                "name": "Remote name",
+                "domain": "remote.test"
+              },
+              "updatedAt": "2026-10-04T10:00:00Z",
+              "archived": false
+            }
+          ]
+        },
+        "responseText": "{\"results\":[{\"id\":\"502\",\"properties\":{\"name\":\"Remote name\",\"domain\":\"remote.test\"},\"updatedAt\":\"2026-10-04T10:00:00Z\",\"archived\":false}]}"
+      }
+    ],
+    "rows": {
+      "companies": [
+        {
+          "account_manager_id": null,
+          "addresses": null,
+          "alternate_emails": null,
+          "angellist_url": null,
+          "annual_revenue": null,
+          "archived_at": null,
+          "avatar_url": null,
+          "created_at": "2026-10-01T09:00:00",
+          "created_by": null,
+          "custom_fields": null,
+          "deleted_at": null,
+          "description": null,
+          "display_name": "Local name",
+          "do_not_call": false,
+          "email": null,
+          "email_opt_in": false,
+          "employee_count": null,
+          "facebook_url": null,
+          "fax": null,
+          "first_contact_date": null,
+          "foundation_date": null,
+          "funding_raised": null,
+          "id": "company_newer",
+          "industry": null,
+          "instagram_url": null,
+          "internal_notes": null,
+          "is_favorite": false,
+          "is_lead": false,
+          "is_supplier": false,
+          "last_contact_date": null,
+          "lead_score": 0,
+          "lifecycle_stage": null,
+          "linkedin_url": null,
+          "marketing_consent": false,
+          "mobile": null,
+          "name": "Local name",
+          "next_follow_up_date": null,
+          "notes": null,
+          "nps_score": null,
+          "owner_id": null,
+          "party_code": null,
+          "phone": null,
+          "preferred_contact_method": null,
+          "preferred_language": null,
+          "primary_address": null,
+          "rating": null,
+          "registration_number": null,
+          "satisfaction_score": null,
+          "segment": null,
+          "sms_opt_in": false,
+          "source": null,
+          "status": "prospect",
+          "tags": null,
+          "timezone": null,
+          "trading_name": null,
+          "twitter_follower_count": null,
+          "twitter_handle": null,
+          "updated_at": "2026-10-06T09:00:00",
+          "vat_number": null,
+          "version": 1,
+          "website": null
+        }
+      ],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [
+        {
+          "connection_id": "conn_lww",
+          "created_at": "2026-10-01T09:00:00",
+          "external_entity_id": "502",
+          "external_entity_type": "customer",
+          "id": "iem_newer",
+          "internal_entity_id": "company_newer",
+          "internal_entity_type": "company",
+          "last_synced_at": null,
+          "sync_checksum": "stale",
+          "updated_at": "2026-10-01T09:00:00"
+        }
+      ],
+      "integration_field_mappings": [
+        {
+          "connection_id": "conn_lww",
+          "created_at": "<ts>",
+          "direction": "bidirectional",
+          "entity_type": "customer",
+          "external_field_path": "properties.name",
+          "id": "ifm_1",
+          "internal_field_path": "name",
+          "is_default": false,
+          "is_required": true,
+          "position": 0,
+          "transform_config": null,
+          "transform_type": "direct",
+          "updated_at": "<ts>"
+        }
+      ],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 1,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": {
+            "customer": "bidirectional"
+          },
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_lww",
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": "<ts>",
+          "last_sync_status": "completed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "hubspot",
+          "oauth_tokens": {
+            "accessToken": "token-conn_lww"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "hubspot",
+          "settings": null,
+          "status": "active",
+          "sync_cursor": {
+            "customer": ""
+          },
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_lww",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": "<ms>",
+          "entity_type": null,
+          "error_message": null,
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 0,
+          "items_processed": 1,
+          "items_skipped": 1,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": {
+            "customer": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 0,
+              "processed": 1,
+              "skipped": 1,
+              "updated": 0
+            }
+          },
+          "platform": "hubspot",
+          "started_at": "<ts>",
+          "status": "completed",
+          "sync_type": "all",
+          "total_items": 1,
+          "triggered_by": "manual",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "google calendar: timed and all-day events with the connection defaults",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_gcal",
+      "provider": "google_calendar",
+      "syncType": "incremental"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_gcal', 'google_calendar', 'google_calendar', 'active', '{\"accessToken\":\"token-conn_gcal\"}'::jsonb, null, null,\n      'last_write_wins', '{\"googleCalendarId\":\"cal_1\"}'::jsonb, '{\"calendar_event\":\"tok_1\"}'::jsonb, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-calendar_event",
+      "finalize"
+    ],
+    "error": null,
+    "exchanges": [
+      {
+        "method": "GET",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=250&singleEvents=true&orderBy=updated&pageToken=tok_1&timeMin=<ts>",
+        "body": null,
+        "status": 200,
+        "response": {
+          "items": [
+            {
+              "id": "gev_timed",
+              "summary": "Planning",
+              "description": "Quarterly",
+              "start": {
+                "dateTime": "2026-10-06T10:00:00+02:00",
+                "timeZone": "Europe/Amsterdam"
+              },
+              "end": {
+                "dateTime": "2026-10-06T11:00:00+02:00"
+              },
+              "attendees": [
+                {
+                  "email": "ada@acme.test",
+                  "displayName": "Ada",
+                  "responseStatus": "accepted",
+                  "organizer": true
+                },
+                {
+                  "email": "bob@acme.test"
+                }
+              ],
+              "hangoutLink": "https://meet.google.com/abc",
+              "updated": "2026-10-05T08:00:00.000Z"
+            },
+            {
+              "id": "gev_allday",
+              "summary": "",
+              "start": {
+                "date": "2026-10-07"
+              },
+              "end": {
+                "date": "2026-10-08"
+              },
+              "recurrence": [
+                "RRULE:FREQ=WEEKLY"
+              ],
+              "status": "tentative"
+            }
+          ],
+          "nextPageToken": "tok_2"
+        },
+        "responseText": "{\"items\":[{\"id\":\"gev_timed\",\"summary\":\"Planning\",\"description\":\"Quarterly\",\"start\":{\"dateTime\":\"2026-10-06T10:00:00+02:00\",\"timeZone\":\"Europe/Amsterdam\"},\"end\":{\"dateTime\":\"2026-10-06T11:00:00+02:00\"},\"attendees\":[{\"email\":\"ada@acme.test\",\"displayName\":\"Ada\",\"responseStatus\":\"accepted\",\"organizer\":true},{\"email\":\"bob@acme.test\"}],\"hangoutLink\":\"https://meet.google.com/abc\",\"updated\":\"2026-10-05T08:00:00.000Z\"},{\"id\":\"gev_allday\",\"summary\":\"\",\"start\":{\"date\":\"2026-10-07\"},\"end\":{\"date\":\"2026-10-08\"},\"recurrence\":[\"RRULE:FREQ=WEEKLY\"],\"status\":\"tentative\"}],\"nextPageToken\":\"tok_2\"}"
+      },
+      {
+        "method": "GET",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=250&singleEvents=true&orderBy=updated&pageToken=tok_2&timeMin=<ts>",
+        "body": null,
+        "status": 200,
+        "response": {
+          "items": []
+        },
+        "responseText": "{\"items\":[]}"
+      }
+    ],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [
+        {
+          "all_day": false,
+          "attachments": null,
+          "attendees": [
+            {
+              "email": "ada@acme.test",
+              "name": "Ada",
+              "role": "organizer",
+              "status": "accepted"
+            },
+            {
+              "email": "bob@acme.test"
+            }
+          ],
+          "auto_scheduled": false,
+          "calendar_id": "cal_1",
+          "color": null,
+          "contact_id": null,
+          "created_at": "<ts>",
+          "custom_fields": null,
+          "customer_id": null,
+          "deleted_at": null,
+          "description": "Quarterly",
+          "end_time": "2026-10-06T09:00:00",
+          "id": "<id:evt>",
+          "is_virtual": false,
+          "location": null,
+          "meeting_url": "https://meet.google.com/abc",
+          "notes": null,
+          "organizer_id": "user_1",
+          "priority": "normal",
+          "reason": null,
+          "recurrence_id": null,
+          "recurrence_rule": null,
+          "reminders": null,
+          "source_id": null,
+          "source_type": null,
+          "start_time": "2026-10-06T08:00:00",
+          "status": "confirmed",
+          "tags": null,
+          "task_priority": null,
+          "timezone": "Europe/Amsterdam",
+          "title": "Planning",
+          "type": "event",
+          "updated_at": "<ts>"
+        },
+        {
+          "all_day": true,
+          "attachments": null,
+          "attendees": null,
+          "auto_scheduled": false,
+          "calendar_id": "cal_1",
+          "color": null,
+          "contact_id": null,
+          "created_at": "<ts>",
+          "custom_fields": null,
+          "customer_id": null,
+          "deleted_at": null,
+          "description": null,
+          "end_time": "2026-10-08T00:00:00",
+          "id": "<id:evt>",
+          "is_virtual": false,
+          "location": null,
+          "meeting_url": null,
+          "notes": null,
+          "organizer_id": "user_1",
+          "priority": "normal",
+          "reason": null,
+          "recurrence_id": null,
+          "recurrence_rule": "RRULE:FREQ=WEEKLY",
+          "reminders": null,
+          "source_id": null,
+          "source_type": null,
+          "start_time": "2026-10-07T00:00:00",
+          "status": "tentative",
+          "tags": null,
+          "task_priority": null,
+          "timezone": null,
+          "title": "(No title)",
+          "type": "event",
+          "updated_at": "<ts>"
+        }
+      ],
+      "integration_entity_mappings": [
+        {
+          "connection_id": "conn_gcal",
+          "created_at": "<ts>",
+          "external_entity_id": "gev_allday",
+          "external_entity_type": "calendar_event",
+          "id": "<id:iem>",
+          "internal_entity_id": "<id:evt>",
+          "internal_entity_type": "calendar_event",
+          "last_synced_at": "<ts>",
+          "sync_checksum": "b8da5f4bfa4122059d81418dd7710c50a2a3a1b17b4243717b774dba8beadf41",
+          "updated_at": "<ts>"
+        },
+        {
+          "connection_id": "conn_gcal",
+          "created_at": "<ts>",
+          "external_entity_id": "gev_timed",
+          "external_entity_type": "calendar_event",
+          "id": "<id:iem>",
+          "internal_entity_id": "<id:evt>",
+          "internal_entity_type": "calendar_event",
+          "last_synced_at": "<ts>",
+          "sync_checksum": "4aabd28b456f347347bfd9d9d89bd1dd019c5974567af959bfdebf7764408bc7",
+          "updated_at": "<ts>"
+        }
+      ],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 2,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_gcal",
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": "<ts>",
+          "last_sync_status": "completed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "google_calendar",
+          "oauth_tokens": {
+            "accessToken": "token-conn_gcal"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "google_calendar",
+          "settings": {
+            "googleCalendarId": "cal_1"
+          },
+          "status": "active",
+          "sync_cursor": {
+            "calendar_event": ""
+          },
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_gcal",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": "<ms>",
+          "entity_type": null,
+          "error_message": null,
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 2,
+          "items_failed": 0,
+          "items_processed": 2,
+          "items_skipped": 0,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": {
+            "calendar_event": {
+              "conflicts": 0,
+              "created": 2,
+              "failed": 0,
+              "processed": 2,
+              "skipped": 0,
+              "updated": 0
+            }
+          },
+          "platform": "google_calendar",
+          "started_at": "<ts>",
+          "status": "completed",
+          "sync_type": "all",
+          "total_items": 2,
+          "triggered_by": "scheduled",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "attio: an expired token is refreshed first",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_expired",
+      "provider": "attio",
+      "syncType": "full",
+      "entityTypes": [
+        "customer"
+      ]
+    },
+    "env": {
+      "ATTIO_CLIENT_ID": "attio-client",
+      "ATTIO_CLIENT_SECRET": "attio-secret"
+    },
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_expired', 'attio', 'attio', 'active', '{\"accessToken\":\"stale\",\"refreshToken\":\"refresh-1\",\"expiresAt\":\"2026-01-01T00:00:00.000Z\"}'::jsonb, null, null,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-customer",
+      "finalize"
+    ],
+    "error": null,
+    "exchanges": [
+      {
+        "method": "POST",
+        "url": "https://app.attio.com/oauth/token",
+        "body": null,
+        "status": 200,
+        "response": {
+          "access_token": "fresh",
+          "refresh_token": "refresh-2"
+        },
+        "responseText": "{\"access_token\":\"fresh\",\"refresh_token\":\"refresh-2\"}"
+      },
+      {
+        "method": "POST",
+        "url": "https://api.attio.com/v2/objects/companies/records/query",
+        "body": {
+          "limit": 500,
+          "offset": 0
+        },
+        "status": 200,
+        "response": {
+          "data": []
+        },
+        "responseText": "{\"data\":[]}"
+      }
+    ],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_expired",
+          "last_error": null,
+          "last_error_at": null,
+          "last_sync_at": "<ts>",
+          "last_sync_status": "completed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "attio",
+          "oauth_tokens": {
+            "accessToken": "fresh",
+            "refreshToken": "refresh-2",
+            "tokenType": "Bearer"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "attio",
+          "settings": null,
+          "status": "active",
+          "sync_cursor": {
+            "customer": ""
+          },
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_expired",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": "<ms>",
+          "entity_type": null,
+          "error_message": null,
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 0,
+          "items_processed": 0,
+          "items_skipped": 0,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": {
+            "customer": {
+              "conflicts": 0,
+              "created": 0,
+              "failed": 0,
+              "processed": 0,
+              "skipped": 0,
+              "updated": 0
+            }
+          },
+          "platform": "attio",
+          "started_at": "<ts>",
+          "status": "completed",
+          "sync_type": "all",
+          "total_items": 0,
+          "triggered_by": "manual",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "attio: an expired token without the OAuth client fails the run",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_noclient",
+      "provider": "attio",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_noclient', 'attio', 'attio', 'active', '{\"accessToken\":\"stale\",\"refreshToken\":\"r\",\"expiresAt\":\"2026-01-01T00:00:00.000Z\"}'::jsonb, null, null,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "handle-failure"
+    ],
+    "error": "Missing OAuth client credentials for provider attio",
+    "exchanges": [],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_noclient",
+          "last_error": "Missing OAuth client credentials for provider attio",
+          "last_error_at": "<ts>",
+          "last_sync_at": null,
+          "last_sync_status": "failed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "attio",
+          "oauth_tokens": {
+            "accessToken": "stale",
+            "expiresAt": "<ts>",
+            "refreshToken": "r"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "attio",
+          "settings": null,
+          "status": "error",
+          "sync_cursor": null,
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": []
+    }
+  },
+  {
+    "name": "attio: a provider error fails the step and marks the log and connection",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_err",
+      "provider": "attio",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_err', 'attio', 'attio', 'active', '{\"accessToken\":\"token-conn_err\"}'::jsonb, null, null,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "sync-customer",
+      "handle-failure"
+    ],
+    "error": "Attio API error 403: {\"code\":\"forbidden\"}",
+    "exchanges": [
+      {
+        "method": "POST",
+        "url": "https://api.attio.com/v2/objects/companies/records/query",
+        "body": {
+          "limit": 500,
+          "offset": 0
+        },
+        "status": 403,
+        "response": {
+          "code": "forbidden"
+        },
+        "responseText": "{\"code\":\"forbidden\"}"
+      }
+    ],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_err",
+          "last_error": "Attio API error 403: {\"code\":\"forbidden\"}",
+          "last_error_at": "<ts>",
+          "last_sync_at": null,
+          "last_sync_status": "failed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "attio",
+          "oauth_tokens": {
+            "accessToken": "token-conn_err"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "attio",
+          "settings": null,
+          "status": "error",
+          "sync_cursor": null,
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_err",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": null,
+          "entity_type": null,
+          "error_message": "Attio API error 403: {\"code\":\"forbidden\"}",
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 0,
+          "items_processed": 0,
+          "items_skipped": 0,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": null,
+          "platform": "attio",
+          "started_at": "<ts>",
+          "status": "failed",
+          "sync_type": "all",
+          "total_items": 0,
+          "triggered_by": "manual",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "an unknown connection fails",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_missing",
+      "provider": "attio",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [],
+    "steps": [
+      "load-connection",
+      "handle-failure"
+    ],
+    "error": "Connection conn_missing not found",
+    "exchanges": [],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [],
+      "sync_logs": []
+    }
+  },
+  {
+    "name": "a connection without a token fails",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_notoken",
+      "provider": "attio",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_notoken', 'attio', 'attio', 'active', null, null, null,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "handle-failure"
+    ],
+    "error": "No access token for connection conn_notoken",
+    "exchanges": [],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_notoken",
+          "last_error": "No access token for connection conn_notoken",
+          "last_error_at": "<ts>",
+          "last_sync_at": null,
+          "last_sync_status": "failed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "attio",
+          "oauth_tokens": null,
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "attio",
+          "settings": null,
+          "status": "error",
+          "sync_cursor": null,
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": []
+    }
+  },
+  {
+    "name": "a provider without an adapter fails after the log",
+    "payload": {
+      "workspaceId": "org_crm",
+      "connectionId": "conn_sf",
+      "provider": "salesforce",
+      "syncType": "full"
+    },
+    "env": {},
+    "seed": [
+      "insert into integration_connections (id, provider, name, status, oauth_tokens, sync_settings, entity_config, conflict_strategy, settings, sync_cursor, connected_by, created_at, updated_at)\n    values ('conn_sf', 'salesforce', 'salesforce', 'active', '{\"accessToken\":\"token-conn_sf\"}'::jsonb, null, null,\n      'last_write_wins', null, null, 'user_1', '2026-10-01 09:00:00', '2026-10-01 09:00:00')"
+    ],
+    "steps": [
+      "load-connection",
+      "create-sync-log",
+      "handle-failure"
+    ],
+    "error": "No CRM sync adapter registered for provider: salesforce",
+    "exchanges": [],
+    "rows": {
+      "companies": [],
+      "people": [],
+      "crm_opportunities": [],
+      "calendar_events": [],
+      "integration_entity_mappings": [],
+      "integration_field_mappings": [],
+      "integration_sync_conflicts": [],
+      "integration_connections": [
+        {
+          "activities_synced": 0,
+          "companies_synced": 0,
+          "conflict_strategy": "last_write_wins",
+          "connected_at": null,
+          "connected_by": "user_1",
+          "created_at": "2026-10-01T09:00:00",
+          "deleted_at": null,
+          "direction": "inbound",
+          "entity_config": null,
+          "external_account_id": null,
+          "field_mappings": null,
+          "id": "conn_sf",
+          "last_error": "No CRM sync adapter registered for provider: salesforce",
+          "last_error_at": "<ts>",
+          "last_sync_at": null,
+          "last_sync_status": "failed",
+          "leads_synced": 0,
+          "lists_synced": 0,
+          "name": "salesforce",
+          "oauth_tokens": {
+            "accessToken": "token-conn_sf"
+          },
+          "opportunities_synced": 0,
+          "people_synced": 0,
+          "provider": "salesforce",
+          "settings": null,
+          "status": "error",
+          "sync_cursor": null,
+          "sync_settings": null,
+          "tasks_synced": 0,
+          "trigger_schedule_id": null,
+          "updated_at": "<ts>",
+          "webhook_id": null,
+          "webhook_secret": null
+        }
+      ],
+      "sync_logs": [
+        {
+          "connection_id": "conn_sf",
+          "created_at": "<ts>",
+          "direction": null,
+          "duration_ms": null,
+          "entity_type": null,
+          "error_message": "No CRM sync adapter registered for provider: salesforce",
+          "errors": null,
+          "finished_at": "<ts>",
+          "id": "<id:slog>",
+          "items_created": 0,
+          "items_failed": 0,
+          "items_processed": 0,
+          "items_skipped": 0,
+          "items_updated": 0,
+          "job_id": null,
+          "metadata": null,
+          "platform": "salesforce",
+          "started_at": "<ts>",
+          "status": "failed",
+          "sync_type": "all",
+          "total_items": 0,
+          "triggered_by": "manual",
+          "triggered_by_user": null
+        }
+      ]
+    }
+  }
+]

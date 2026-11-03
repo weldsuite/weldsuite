@@ -84,7 +84,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, workflow-schedules";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -106,6 +106,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "reach-warmup-plan"
         | "reach-warmup-daily"
         | "bank-feed-due"
+        | "crm-due"
+        | "ad-sync"
+        | "workflow-polls"
         | "workflow-schedules"),
     ) = job
     else {
@@ -151,6 +154,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 reach_warmup_network(config, job).await
             }
             "bank-feed-due" => bank_feed_due(config).await,
+            "crm-due" => crm_due(config).await,
+            "ad-sync" => ad_sync(config).await,
+            "workflow-polls" => workflow_polls(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -763,6 +769,214 @@ async fn bank_feed_due(config: Config) -> Result<(), Box<dyn std::error::Error>>
         serde_json::json!({ "job": "bank-feed-due", "result": result.to_json() })
     );
     // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `workflow-polls`: WeldConnect's Google Sheets, Gmail, Google Calendar and
+/// Airtable poll triggers of the workspaces that are due (the master
+/// `workspace_due_index`, kind `workflow_poll`), each new item dispatched
+/// to the matching workflows (integration-webhook-worker's
+/// `runIntegrationPolls`). The runs go to Restate; without
+/// `RESTATE_INGRESS_URL`, or while connect is not served, the run only logs
+/// a skip.
+async fn workflow_polls(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(ingress) = config.infra.jobs.restate_ingress_url.clone() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "workflow-polls", "skipped": "RESTATE_INGRESS_URL is not set" })
+        );
+        return Ok(());
+    };
+    if !crate::routes::mounts("connect") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "workflow-polls", "skipped": "connect is not served" })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let jobs: Arc<dyn weldsuite_ports::DynJobs> = Arc::new(
+        weldsuite_adapters_oss::RestateJobs::new(&ingress, reqwest::Client::new()),
+    );
+    let runs = crate::routes::integrations::execute_workflow(jobs);
+    let open: weldsuite_integrations::crm::due::WorkspaceOpener =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                // Runs carry the Clerk org id, as Global's poll index did.
+                let org = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
+                Ok((tenant.db, org))
+            })
+        });
+    let read = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let google_client = read("GOOGLE_CLIENT_ID").zip(read("GOOGLE_CLIENT_SECRET"));
+    let http = crate::routes::shared_outbound();
+    let sweep = weldsuite_integrations::workflow_polls::PollSweep {
+        open: &open,
+        http: http.as_ref(),
+        runs: Some(runs.as_ref()),
+        keyring: &config.keyring,
+        google_client,
+    };
+    let (result, dispatched) = weldsuite_integrations::workflow_polls::run_workflow_polls(
+        &master,
+        &sweep,
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "workflow-polls",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed, "dispatched": dispatched },
+        })
+    );
+    Ok(())
+}
+
+/// `ad-sync`: WeldAds connections whose metrics sync is due (the master
+/// `ad_sync_index`), synced through WeldConnect's internal route in this
+/// process (integration-sync-worker's `runAdSyncSweep`). Nothing while
+/// connect is not served.
+async fn ad_sync(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let jobs = Arc::clone(&infra.jobs);
+    let connect = crate::routes::cron_connect_state(
+        &infra,
+        &workspaces,
+        &config.environment,
+        Arc::clone(&jobs),
+    );
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "ad-sync", "skipped": "connect is not served" })
+        );
+        return Ok(());
+    };
+    let result = weldsuite_integrations::meta_ads::run_ad_sync_sweep(
+        &master,
+        binding.as_ref(),
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "ad-sync", "result": { "due": result.due, "triggered": result.triggered } })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `crm-due`: CRM connections whose next sync is due (the master
+/// `workspace_due_index`, kind `crm_sync`, where Global keeps the D1
+/// `crm_sync_index`), synced and their Google watches renewed through
+/// WeldConnect's internal routes in this process (integration-sync-worker's
+/// `runCrmDueSweep`). The syncs run on Restate; without
+/// `RESTATE_INGRESS_URL`, or while connect is not served, the run only logs a
+/// skip.
+async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(ingress) = config.infra.jobs.restate_ingress_url.clone() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "crm-due", "skipped": "RESTATE_INGRESS_URL is not set" })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let jobs: Arc<dyn weldsuite_ports::DynJobs> = Arc::new(
+        weldsuite_adapters_oss::RestateJobs::new(&ingress, reqwest::Client::new()),
+    );
+    let connect = crate::routes::cron_connect_state(
+        &infra,
+        &workspaces,
+        &config.environment,
+        Arc::clone(&jobs),
+    );
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "crm-due", "skipped": "connect is not served" })
+        );
+        return Ok(());
+    };
+    let open: weldsuite_integrations::crm::due::WorkspaceOpener =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                // Connect's internal routes take the Clerk org id (`X-Workspace-Id`).
+                let org = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
+                Ok((tenant.db, org))
+            })
+        });
+    let (result, counts) = weldsuite_integrations::crm::due::run_crm_due_sweep(
+        &master,
+        &open,
+        binding.as_ref(),
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "crm-due",
+            "result": {
+                "due": result.due, "processed": result.processed, "failed": result.failed,
+                "triggered": counts.triggered, "renewed": counts.renewed, "syncFailed": counts.failed,
+            },
+        })
+    );
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await
