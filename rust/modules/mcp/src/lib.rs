@@ -12,8 +12,9 @@
 //!   answers, no sessions.
 //! - [`rpc`]: the JSON-RPC methods (`initialize`, `ping`, `tools/*`,
 //!   `resources/*`).
-//! - [`catalog`]: the tools as the TypeScript server lists them, generated
-//!   (`tools/generate.mts`), and the routes of the worker's `/v1` copy.
+//! - [`catalog`]: the tools as the TypeScript server lists them (titles and
+//!   annotations included), generated (`tools/generate.mts`), and the routes
+//!   of the worker's `/v1` copy; [`annotations`] derives the WeldApps tools'.
 //! - [`call`]: a tool call (`lib/proxy.ts`): arguments validated with the
 //!   tool's Zod shape, the request built, the public API's `/v1` router run in
 //!   process with the member as its caller, the answer presented
@@ -24,6 +25,7 @@
 
 #![allow(clippy::result_large_err)]
 
+mod annotations;
 #[rustfmt::skip]
 mod args_gen;
 pub mod auth;

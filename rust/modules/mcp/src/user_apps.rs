@@ -11,6 +11,7 @@ use http::Method;
 use http::request::Parts;
 use serde_json::{Map, Value, json};
 
+use crate::annotations::{annotations_for, tool_title};
 use crate::call::{Answer, dispatch, dispatch_with_app, tool_error, tool_result};
 use crate::js::{Order, as_text, encode_uri_component, string_of, stringify};
 use crate::present::present;
@@ -25,6 +26,8 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 pub(crate) struct AppTool {
     /// The name it is listed under.
     pub(crate) registered: String,
+    /// The name the manifest gives it.
+    name: String,
     app_code: String,
     app_name: String,
     description: String,
@@ -84,7 +87,8 @@ fn parse_entry(entry: &Value) -> Option<AppTool> {
     };
     let name = non_empty(entry, "name")?;
     Some(AppTool {
-        registered: name,
+        registered: name.clone(),
+        name,
         app_code: non_empty(entry, "appCode")?,
         app_name: non_empty(entry, "appName")?,
         description: entry.get("description")?.as_str()?.to_owned(),
@@ -144,7 +148,7 @@ pub(crate) async fn registered(
 ) -> Vec<AppTool> {
     let mut tools = load(state, session, parts).await;
     for tool in &mut tools {
-        let base = format!("{}_{}", tool.app_code, tool.registered);
+        let base = format!("{}_{}", tool.app_code, tool.name);
         let mut name = base.clone();
         let mut suffix = 2;
         while taken.contains(&name) {
@@ -203,6 +207,19 @@ impl AppTool {
         self.parameters.as_ref()?.get("properties")?.as_object()
     }
 
+    /// `userAppToolMethod`: the HTTP method the action calls, for its
+    /// annotations. An `api.request` passes its manifest method on as is.
+    fn method(&self) -> Option<&str> {
+        match self.action.get("type").and_then(Value::as_str)? {
+            "api.request" => self.action.get("method").and_then(Value::as_str),
+            "storage.list" => Some("GET"),
+            "storage.create" => Some("POST"),
+            "storage.update" => Some("PATCH"),
+            "storage.delete" => Some("DELETE"),
+            _ => None,
+        }
+    }
+
     /// The tool as `tools/list` answers it.
     pub(crate) fn definition(&self) -> Value {
         let required = self.required();
@@ -229,10 +246,13 @@ impl AppTool {
         {
             object.insert("required".to_owned(), Value::Array(listed_required));
         }
+        let title = format!("{}: {}", self.app_name, tool_title(&self.name));
         json!({
             "name": self.registered,
+            "title": title,
             "description": format!("[{}] {}", self.app_name, self.description),
             "inputSchema": input,
+            "annotations": annotations_for(self.method(), &title),
             "execution": { "taskSupport": "forbidden" },
         })
     }
@@ -548,4 +568,80 @@ async fn execute(
         });
     }
     tool_result(&present(&json))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::parse_entry;
+
+    /// One tool of the app `Stock` per action, as the API lists it.
+    fn definition(name: &str, action: Value) -> Value {
+        let mut entry = json!({
+            "appCode": "stock",
+            "appName": "Stock",
+            "name": name,
+            "description": name,
+            "parameters": null,
+        });
+        entry["action"] = action;
+        parse_entry(&entry).expect(name).definition()
+    }
+
+    #[test]
+    fn derives_hints_from_the_call_they_make() {
+        let list = definition(
+            "list_items",
+            json!({ "type": "storage.list", "collection": "items" }),
+        );
+        assert_eq!(list["title"], "Stock: List items");
+        assert_eq!(
+            list["annotations"],
+            json!({ "title": "Stock: List items", "readOnlyHint": true, "openWorldHint": false })
+        );
+        for (name, kind) in [
+            ("add_item", "storage.create"),
+            ("edit_item", "storage.update"),
+        ] {
+            let hints =
+                &definition(name, json!({ "type": kind, "collection": "items" }))["annotations"];
+            assert_eq!(hints["readOnlyHint"], false, "{name}");
+            assert_eq!(hints["destructiveHint"], false, "{name}");
+        }
+        let drop = definition(
+            "drop_item",
+            json!({ "type": "storage.delete", "collection": "items" }),
+        );
+        assert_eq!(drop["annotations"]["destructiveHint"], true);
+        let read = definition(
+            "read_contacts",
+            json!({ "type": "api.request", "method": "get", "path": "/v1/contacts" }),
+        );
+        assert_eq!(read["annotations"]["readOnlyHint"], true);
+        // An unknown method is refused at call time; until then assume the worst.
+        let odd = definition(
+            "odd_call",
+            json!({ "type": "api.request", "method": "TRACE", "path": "/v1/contacts" }),
+        );
+        assert_eq!(odd["annotations"]["readOnlyHint"], false);
+        assert_eq!(odd["annotations"]["destructiveHint"], true);
+    }
+
+    #[test]
+    fn titles_the_manifest_name_not_the_listed_one() {
+        let mut tool = parse_entry(&json!({
+            "appCode": "stock",
+            "appName": "Stock",
+            "name": "list_items",
+            "description": "",
+            "action": { "type": "storage.list", "collection": "items" },
+        }))
+        .expect("tool");
+        tool.registered = "stock_list_items_2".to_owned();
+        let definition = tool.definition();
+        assert_eq!(definition["name"], "stock_list_items_2");
+        assert_eq!(definition["title"], "Stock: List items");
+        assert_eq!(definition["annotations"]["title"], "Stock: List items");
+    }
 }

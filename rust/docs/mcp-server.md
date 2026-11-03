@@ -48,6 +48,12 @@ on the edition's own host (one host serves every path, OPS-013).
   /v1/user-apps/agent-tools`, named `<code>_<tool>`), and five tools per
   WeldObjects object (`custom-objects:read`; `GET
   /v1/custom-objects/agent-tools`), name collisions suffixed `_2`, `_3`.
+  Each is listed with a title (`search_tasks` → "Search tasks"; a WeldApps
+  tool's "App: List items") and annotations derived from the HTTP method it
+  calls (`lib/tool-annotations.ts`): GET is read-only, DELETE destructive,
+  PATCH/PUT idempotent, an unknown method a destructive write; a few tools
+  set their own on top (`openWorldHint` when the call leaves the workspace,
+  `destructiveHint` when it replaces data).
 - **Calling a tool.** The SDK validates the arguments with the Zod shape (an
   error result `MCP error -32602: Input validation error: …`, one line per
   issue). `lib/proxy.ts` fills the path from the inputs, puts the rest on the
@@ -94,12 +100,14 @@ on the edition's own host (one host serves every path, OPS-013).
   the routes that differ (above) are handled where the copy differs.
 - **Catalog as data.** `tools/generate.mts` runs the TypeScript server itself:
   it registers every tool with an all-permission session and writes
-  `catalog/tools.json` with what `tools/list` answers (name, description, the
-  SDK's input JSON Schema) next to each tool's routing (scope, method, path,
-  `pathParams`, `exactId`) and its Zod shape as data for argument validation
-  (`src/args_gen.rs`, read by external-api's Zod interpreter). `initialize`'s
-  answer (instructions included) comes from the same run. `tools/list` is
-  therefore the TypeScript list by construction; conformance checks it.
+  `catalog/tools.json` with what `tools/list` answers (name, title,
+  description, the SDK's input JSON Schema, annotations) next to each tool's
+  routing (scope, method, path, `pathParams`, `exactId`) and its Zod shape as
+  data for argument validation (`src/args_gen.rs`, read by external-api's Zod
+  interpreter). `initialize`'s answer (instructions included) comes from the
+  same run. `tools/list` is therefore the TypeScript list by construction;
+  conformance checks it. A WeldApps tool is built at run time, its title and
+  annotations derived as the worker derives them (`src/annotations.rs`).
 - **Presentation.** `present.rs` is `lib/present.ts`. JavaScript prints keys in
   insertion order and Drizzle rows in schema order; Rust's rows come back
   sorted, so the generator also writes every tenant table's column order and a
