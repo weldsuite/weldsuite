@@ -50,6 +50,7 @@ import {
   lineDeleteBlocker,
 } from '../../services/accounting-bank-import';
 import { autoReconcileBatch, findMatches } from '../../services/accounting-reconciliation';
+import { loadActiveRule, recordRuleMatch } from '../../services/accounting-reconciliation-rules';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -85,6 +86,8 @@ const reconcileSchema = z.object({
   categoryAccountId: z.string().optional(),
   taxRateId: z.string().optional(),
   contactId: z.string().optional(),
+  /** A rule suggestion picked by hand: the rule's account, tax rate and contact apply, and its match count goes up. */
+  ruleId: z.string().optional(),
 });
 
 const fileFormat = z.enum(['mt940', 'camt053', 'csv', 'ofx', 'qfx', 'qbo', 'bai2']);
@@ -718,6 +721,7 @@ app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
         amount: m.amount,
         confidence: m.confidence,
         reasons: m.reasons,
+        ...(m.categoryAccountId ? { categoryAccountId: m.categoryAccountId } : {}),
       })),
     );
   } catch (err) {
@@ -805,6 +809,51 @@ app.post('/:id/match-payment', requirePermission('banking:update'), zValidator('
   }
 });
 
+/**
+ * Where a manual categorization posts. A picked rule (ruleId) supplies its
+ * account, tax rate and contact, so the line is booked exactly as
+ * auto-reconcile books it; values in the request win over the rule's.
+ */
+async function resolveCategorization(
+  db: Database,
+  entityId: string,
+  data: z.infer<typeof reconcileSchema>,
+): Promise<
+  | { categoryAccountId: string; contactId: string | null; taxRateId: string | null; ruleId: string | null }
+  | 'unknown-rule'
+  | 'no-account'
+> {
+  const rule = data.ruleId ? await loadActiveRule(db, data.ruleId, entityId) : undefined;
+  if (data.ruleId && !rule) return 'unknown-rule';
+  const actions = rule?.actions;
+  const categoryAccountId = data.categoryAccountId ?? actions?.categoryAccountId;
+  if (!categoryAccountId) return 'no-account';
+  return {
+    categoryAccountId,
+    contactId: data.contactId ?? actions?.contactId ?? null,
+    taxRateId: data.taxRateId ?? actions?.taxRateId ?? null,
+    ruleId: rule?.id ?? null,
+  };
+}
+
+/** Categorize the line; a picked rule's match count goes up, as in auto-reconcile. */
+async function postCategorization(
+  db: Database,
+  txn: typeof schema.bankTransactions.$inferSelect,
+  target: Exclude<Awaited<ReturnType<typeof resolveCategorization>>, string>,
+  userId: string | null,
+) {
+  const posted = await categorizeBankTransaction(db, {
+    txn,
+    categoryAccountId: target.categoryAccountId,
+    contactId: target.contactId,
+    taxRateId: target.taxRateId,
+    userId,
+  });
+  if (target.ruleId) await recordRuleMatch(db, target.ruleId);
+  return posted;
+}
+
 // POST /:id/reconcile
 app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json', reconcileSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -818,16 +867,13 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
     if (!txn) return error.notFound(c, 'Transaction', txnId);
 
     if (data.type === 'manual') {
-      if (!data.categoryAccountId) {
+      const target = await resolveCategorization(db, txn.entityId, data);
+      if (target === 'unknown-rule') return error.notFound(c, 'Reconciliation rule', String(data.ruleId));
+      if (target === 'no-account') {
         return error.badRequest(c, 'categoryAccountId is required to categorize a transaction without an invoice or bill');
       }
-      const posted = await categorizeBankTransaction(db, {
-        txn,
-        categoryAccountId: data.categoryAccountId,
-        contactId: data.contactId,
-        taxRateId: data.taxRateId ?? null,
-        userId: c.get('userId') ?? null,
-      });
+      const { categoryAccountId } = target;
+      const posted = await postCategorization(db, txn, target, c.get('userId') ?? null);
       await writeAccountingAudit(c, db, {
         accountingEntityId: txn.entityId,
         entityType: 'bank_transaction',
@@ -836,7 +882,7 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
         changes: {
           status: { old: txn.status, new: 'reconciled' },
           reconciliationType: { old: txn.reconciliationType, new: 'manual' },
-          categoryAccountId: { old: txn.categoryAccountId, new: data.categoryAccountId },
+          categoryAccountId: { old: txn.categoryAccountId, new: categoryAccountId },
           journalEntryId: { old: txn.journalEntryId, new: posted.journalEntryId },
         },
       });

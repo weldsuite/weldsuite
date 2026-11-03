@@ -1003,7 +1003,7 @@ export const accountingApi = {
   importBankTransactions: (data: { bankAccountId: string; content: string; fileName: string; format?: string }) =>
     weldbooksApi.post<ApiResponse<{ batchId: string; format: string; totalParsed: number; imported: number; duplicates: number; autoReconciled: number; errors: Array<{ line?: number; message: string }> }>>('/bank-transactions/import', data),
   autoReconcile: (bankAccountId: string) =>
-    weldbooksApi.post<ApiResponse<{ reconciledCount: number }>>('/bank-transactions/auto-reconcile', { bankAccountId }),
+    weldbooksApi.post<ApiResponse<{ reconciledCount: number; results?: Array<{ transactionId: string; autoReconciled: boolean }> }>>('/bank-transactions/auto-reconcile', { bankAccountId }),
 
   // Reconciliation Rules
   listReconciliationRules: () =>

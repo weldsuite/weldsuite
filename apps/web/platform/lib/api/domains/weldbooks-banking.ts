@@ -265,7 +265,7 @@ export interface BankLineFilters {
 
 export type BankLinePage = CursorPage<BankLine>;
 
-export type SuggestionType = 'invoice' | 'bill' | 'payment' | 'deposit';
+export type SuggestionType = 'invoice' | 'bill' | 'payment' | 'deposit' | 'rule';
 
 export interface MatchSuggestion {
   type: SuggestionType;
@@ -276,6 +276,8 @@ export interface MatchSuggestion {
   /** 0 to 1. */
   confidence: number;
   reasons: string[];
+  /** A rule's category account: matching a rule suggestion categorizes the line to it. */
+  categoryAccountId?: string;
 }
 
 // ============================================================================

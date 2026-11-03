@@ -37,6 +37,8 @@ export interface CategorizeBankTransactionInput {
   categoryAccountId: string;
   contactId?: string | null;
   taxRateId?: string | null;
+  /** 'auto' when a reconciliation rule categorized the line. */
+  reconciliationType?: 'manual' | 'auto';
   userId: string | null;
 }
 
@@ -186,7 +188,7 @@ export async function categorizeBankTransaction(
         .update(bankTransactions)
         .set({
           status: 'reconciled',
-          reconciliationType: 'manual',
+          reconciliationType: args.reconciliationType ?? 'manual',
           categoryAccountId,
           taxRateId,
           journalEntryId: entry.journalEntryId,

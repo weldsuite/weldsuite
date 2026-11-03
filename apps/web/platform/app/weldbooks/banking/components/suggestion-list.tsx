@@ -25,7 +25,8 @@ type ReasonKey =
   | 'checkNumberMatchesAmountDiffers'
   | 'datesWithin30Days'
   | 'depositTotalMatches'
-  | 'depositDatedWithinWeek';
+  | 'depositDatedWithinWeek'
+  | 'ruleMatches';
 
 /** The reason strings books-api's matcher writes, mapped to translation keys. */
 const REASON_KEYS: Readonly<Record<string, ReasonKey>> = {
@@ -49,6 +50,7 @@ const REASON_KEYS: Readonly<Record<string, ReasonKey>> = {
   'dates within 30 days': 'datesWithin30Days',
   'deposit total matches': 'depositTotalMatches',
   'deposit dated within a week': 'depositDatedWithinWeek',
+  'reconciliation rule matches': 'ruleMatches',
 };
 
 /** A match reason in the user's language; one this app doesn't know is shown as the server wrote it. */
@@ -73,6 +75,7 @@ const TYPE_VARIANT: Record<SuggestionType, 'default' | 'secondary' | 'outline' |
   bill: 'secondary',
   payment: 'success',
   deposit: 'outline',
+  rule: 'secondary',
 };
 
 interface SuggestionListProps {
