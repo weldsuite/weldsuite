@@ -9,7 +9,8 @@
  * this bridge replays it into the binding:
  *
  *   <METHOD> /fetch?binding=<name>&path=<path>
- *     X-Workspace-Id: <key>, Content-Type, the body as sent
+ *     X-Workspace-Id: <key> (or X-Internal-Workspace-Id: <workspaces.id>,
+ *     connect-api's `CONNECT_INTERNAL`), Content-Type, the body as sent
  *
  * The bridge answers with the stub's status and body; a stub that threw is a
  * `502` with `x-binding-error: fetch-threw` and the error's message.
@@ -25,7 +26,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The service bindings the bridge serves. */
-export const SERVICE_BINDINGS = ['BOOKS_INTERNAL'] as const;
+export const SERVICE_BINDINGS = ['BOOKS_INTERNAL', 'CONNECT_INTERNAL'] as const;
 
 interface FetcherLike {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -42,6 +43,8 @@ export interface ServiceCall {
   path: string;
   /** `X-Workspace-Id`, the workspace the call is for. */
   workspace: string | null;
+  /** `X-Internal-Workspace-Id` (connect-api's internal routes), when sent. */
+  internalWorkspace: string | null;
   /** The body as JSON when it parses, else the text; null without one. */
   body: unknown;
 }
@@ -91,9 +94,12 @@ async function handle(env: Record<string, unknown>, req: IncomingMessage, res: S
   const method = (req.method ?? 'POST').toUpperCase();
   const text = await readText(req);
   const workspace = typeof req.headers['x-workspace-id'] === 'string' ? req.headers['x-workspace-id'] : null;
-  rustCalls.push({ binding: name, method, path, workspace, body: bodyOf(text) });
+  const internalWorkspace =
+    typeof req.headers['x-internal-workspace-id'] === 'string' ? req.headers['x-internal-workspace-id'] : null;
+  rustCalls.push({ binding: name, method, path, workspace, internalWorkspace, body: bodyOf(text) });
   const headers: Record<string, string> = { 'Content-Type': String(req.headers['content-type'] ?? 'application/json') };
   if (workspace) headers['X-Workspace-Id'] = workspace;
+  if (internalWorkspace) headers['X-Internal-Workspace-Id'] = internalWorkspace;
   let response: Response;
   try {
     response = await silently(binding, [`https://internal${path}`, { method, headers, body: text || undefined }]);
@@ -162,6 +168,7 @@ export function recordTypeScriptServiceCalls(env: Record<string, unknown>): {
           method,
           path: url.pathname + url.search,
           workspace: headers.get('x-workspace-id'),
+          internalWorkspace: headers.get('x-internal-workspace-id'),
           body: bodyOf(await requestText(input, init)),
         });
         return binding.fetch(input, init);

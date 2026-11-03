@@ -16,3 +16,21 @@ export const bankFeedWebhookAckSchema = z.object({
 export const githubWebhookAckSchema = z.object({
   received: z.literal(true),
 });
+
+/** `POST /webhook/:connectionId` (Attio and the other CRM providers): the events of a verified delivery, processed. */
+export const crmWebhookAckSchema = z.object({
+  status: z.literal('ok'),
+  processed: z.number().int().nonnegative(),
+});
+
+/** `POST /webhook/hubspot`: the events of a verified HubSpot delivery that were applied. */
+export const hubspotWebhookAckSchema = z.object({
+  received: z.literal(true),
+  processed: z.number().int().nonnegative(),
+});
+
+/** `POST /webhook/gcal/:connectionId`: a Google Calendar push notification, acknowledged. */
+export const googleCalendarWebhookAckSchema = z.object({
+  status: z.literal('ok'),
+  type: z.enum(['sync_handshake', 'sync_triggered']),
+});

@@ -15,6 +15,9 @@
 //!   Connections; Ponto and Enable Banking have no webhooks) and the bank
 //!   feed due sweep ([`bank_feeds`], [`bank_feed_due`]), with WeldBooks'
 //!   internal bank-connection routes in process ([`books`]).
+//! - The CRM sync ([`crm`]): the `integrations.crm-sync` job, the Attio,
+//!   `HubSpot` and Google Calendar webhooks, and the CRM due sweep, with
+//!   WeldConnect's internal routes over [`connect_internal`].
 
 // The workers' handlers and Workflows are ported step for step, so some are
 // long and take what the TypeScript function took.
@@ -24,6 +27,8 @@ pub mod bank_feed_due;
 pub mod bank_feeds;
 pub mod binding;
 pub mod books;
+pub mod connect_internal;
+pub mod crm;
 pub mod github;
 
 use std::collections::HashMap;
@@ -39,6 +44,7 @@ use weldsuite_ports::{DynCache, OutboundHttp, RequestCache};
 
 pub use binding::{BindingRequest, BindingResponse, RequestBooksBinding, ServiceBinding};
 pub use books::TenantResolver;
+pub use connect_internal::{ConnectCall, ConnectInternal, RequestConnectInternal};
 pub use github::{RequestGithubProjectSync, WorkflowRuns};
 
 /// The integration workers' handle on the app.
@@ -64,6 +70,9 @@ pub struct IntegrationsState {
     pub tenants: Option<TenantResolver>,
     /// `GITHUB_PROJECT_SYNC`: the `integrations.github-project-sync` job.
     pub github_sync: Option<Arc<dyn WorkflowRuns>>,
+    /// `CONNECT_INTERNAL`: WeldConnect's internal integration routes. None
+    /// while connect is not served, as the worker without the binding.
+    pub connect_internal: Option<Arc<dyn ConnectInternal>>,
 }
 
 impl std::fmt::Debug for IntegrationsState {
@@ -92,6 +101,9 @@ pub const ENV_NAMES: &[&str] = &[
     "GITHUB_WEBHOOK_SECRET",
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
+    "ATTIO_CLIENT_",
+    "HUBSPOT_CLIENT_",
+    "GOOGLE_CALENDAR_CLIENT_",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -114,7 +126,9 @@ pub fn public_router<S>(state: IntegrationsState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    bank_feeds::router(state.clone()).merge(github::webhook::router(state))
+    bank_feeds::router(state.clone())
+        .merge(github::webhook::router(state.clone()))
+        .merge(crm::webhooks::router(state))
 }
 
 /// What a public route reads off its request: in conformance builds the
@@ -128,6 +142,7 @@ pub(crate) struct PublicCtx {
     /// The test's tenant database, for every workspace.
     pub(crate) tenant: Option<PgPool>,
     pub(crate) github_sync: Option<RequestGithubProjectSync>,
+    pub(crate) connect_internal: Option<RequestConnectInternal>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
@@ -148,6 +163,7 @@ impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
             books: extensions.get::<RequestBooksBinding>().cloned(),
             tenant: extensions.get::<Tenant>().map(|tenant| tenant.db.clone()),
             github_sync: extensions.get::<RequestGithubProjectSync>().cloned(),
+            connect_internal: extensions.get::<RequestConnectInternal>().cloned(),
         }))
     }
 }
@@ -193,6 +209,17 @@ impl PublicCtx {
         match &self.github_sync {
             Some(runs) => runs.0.clone(),
             None => state.github_sync.clone(),
+        }
+    }
+
+    /// `CONNECT_INTERNAL`: the request's (conformance), else the state's.
+    pub(crate) fn connect_internal(
+        &self,
+        state: &IntegrationsState,
+    ) -> Option<Arc<dyn ConnectInternal>> {
+        match &self.connect_internal {
+            Some(binding) => binding.0.clone(),
+            None => state.connect_internal.clone(),
         }
     }
 

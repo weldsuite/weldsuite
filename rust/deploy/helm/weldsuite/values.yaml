@@ -628,6 +628,15 @@ cron:
       enabled: true
       schedule: "*/15 * * * *"
       activeDeadlineSeconds: 840
+    # CRM connections (Attio, HubSpot, Google Calendar) whose next sync is
+    # due (the master workspace_due_index, kind crm_sync): the sync started on
+    # Restate and Google watches renewed through WeldConnect's internal routes
+    # (integration-sync-worker's CRM due sweep). Needs
+    # config.jobs.restate.ingressUrl and INTERNAL_API_SECRET.
+    crm-due:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:

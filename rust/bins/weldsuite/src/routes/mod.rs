@@ -417,6 +417,40 @@ pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
     Some(router)
 }
 
+/// WeldConnect's handle for a cron run (no `AppState`): the same as
+/// [`connect_state`], with `jobs` (Restate) and the process's infra.
+pub(crate) fn cron_connect_state(
+    infra: &crate::infra::Infra,
+    workspaces: &Arc<weldsuite_db::Workspaces>,
+    environment: &str,
+    jobs: Arc<dyn weldsuite_ports::DynJobs>,
+) -> weldsuite_connect::ConnectState {
+    let opener = Arc::clone(workspaces);
+    let tenants: weldsuite_connect::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&opener);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let mut env = weldsuite_connect::env_from_process();
+    env.insert("ENVIRONMENT".to_owned(), environment.to_owned());
+    weldsuite_connect::ConnectState {
+        events: infra.events.clone(),
+        cache: infra.cache.clone(),
+        master: Some(workspaces.master().clone()),
+        http: shared_outbound(),
+        jobs: Some(jobs),
+        tenants: Some(tenants),
+        env: Arc::new(env),
+        webhooks: connect_webhook_http(),
+        trusted_proxies: 1,
+    }
+}
+
 /// WeldConnect's handle on the app: events, the cache (the webhook
 /// registry's), the master database, third-party HTTP, the jobs runs start
 /// on and the workspaces' tenant databases. Conformance builds take the
@@ -463,7 +497,7 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
 /// The outbound webhooks' HTTP client, for the test delivery of
 /// `/api/external-webhooks/:id/test` (`WEBHOOK_ALLOW_PRIVATE_NETWORKS` as
 /// `weldsuite consume` reads it: private addresses are refused unless set).
-fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
+pub(crate) fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
     static HTTP: OnceLock<Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>> =
         OnceLock::new();
     HTTP.get_or_init(|| {
@@ -686,7 +720,7 @@ fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 
 /// The third-party HTTP client the ported modules share (30 s), or none
 /// when it cannot be built.
-fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
+pub(crate) fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
     static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
     HTTP.get_or_init(|| {
         weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))

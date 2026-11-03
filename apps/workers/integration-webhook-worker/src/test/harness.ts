@@ -50,7 +50,13 @@ export const WORKER_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
 ];
 
 /** The routes the Rust server serves, as `METHOD path`. */
-export const RUST_ROUTES: ReadonlySet<string> = new Set(['POST /webhooks/bank-feeds/:provider', 'POST /webhooks/github']);
+export const RUST_ROUTES: ReadonlySet<string> = new Set([
+  'POST /webhooks/bank-feeds/:provider',
+  'POST /webhooks/github',
+  'POST /webhook/hubspot',
+  'POST /webhook/gcal/:connectionId',
+  'POST /webhook/:connectionId',
+]);
 
 function pathOf(input: string): string {
   return /^https?:\/\//.test(input) ? new URL(input).pathname : (input.split('?')[0] ?? input);

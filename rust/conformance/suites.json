@@ -2881,6 +2881,20 @@
         "apps/workers/integration-webhook-worker/src/",
         "rust/modules/integrations/"
       ]
+    },
+    {
+      "name": "integrations: crm",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/crm.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }

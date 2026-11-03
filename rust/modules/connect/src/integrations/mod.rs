@@ -238,6 +238,28 @@ fn provider_credentials(
     )
 }
 
+/// `upsertCrmIndex(..., dueNow: true)`: Global schedules the connection in
+/// the D1 `crm_sync_index`; the Kubernetes editions mark the workspace due
+/// in the master `workspace_due_index` (kind `crm_sync`), which the
+/// `crm-due` cron reads (`weldsuite_integrations::crm::due`). Best effort,
+/// and only with the app's own master database (conformance builds have
+/// none, as Global's tests bind no D1 index).
+async fn mark_crm_due(master: Option<&PgPool>, workspace_id: &str) {
+    if let Some(master) = master {
+        weldsuite_db::due_index::mark_due(
+            master,
+            CRM_SYNC_DUE_KIND,
+            workspace_id,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await;
+    }
+}
+
+/// The `workspace_due_index` kind of the CRM syncs (the same as
+/// `weldsuite_integrations::crm::due::CRM_SYNC_DUE_KIND`).
+const CRM_SYNC_DUE_KIND: &str = "crm_sync";
+
 /// `triggerCrmSync(env, payload)`: start the `CRM_SYNC` Workflow, or skip it
 /// without the binding.
 pub(crate) async fn trigger_crm_sync(
@@ -1277,6 +1299,7 @@ async fn attio_callback(
         .await
         .map_err(|error| thrown(error.to_string()))?;
         put_connection_mapping(&cache, &id, &caller.workspace_id, "attio").await?;
+        mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
         if let Err(error) =
             trigger_crm_sync(crm_runs(&extensions).as_ref(), &id, &org_id, "attio", "full").await
         {
@@ -1424,6 +1447,7 @@ async fn generic_callback(
                 .map_err(|error| thrown(error.to_string()))?;
         }
         put_connection_mapping(&cache, &id, &caller.workspace_id, &provider).await?;
+        mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
         if let Err(error) = trigger_crm_sync(
             crm_runs(&extensions).as_ref(),
             &id,

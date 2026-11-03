@@ -189,12 +189,23 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
   `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`; registered, but
   WeldFlow's Rust task routes do not dispatch it yet)
+- **CRM sync**: the `CRM_SYNC` Workflow as the `integrations.crm-sync` job (Attio,
+  HubSpot and Google Calendar into companies, people, opportunities and calendar
+  events, through the field mappings; WeldConnect's CRM routes and its internal sync
+  route start it), the providers' webhooks (`POST /webhook/:connectionId`, Attio's
+  HMAC; `POST /webhook/hubspot`, the portal found by KV or a scan of the workspaces;
+  `POST /webhook/gcal/:connectionId`, which starts an incremental sync through
+  WeldConnect's internal route, `CONNECT_INTERNAL` answered in process with
+  `INTERNAL_API_SECRET`), and `weldsuite cron crm-due`: where Global keeps one D1
+  `crm_sync_index` row per connection, the master `workspace_due_index` (kind
+  `crm_sync`, marked when a CRM connection is made) says which workspaces to open
+  and the tenant's connections say what is due (last sync plus the interval; a Google
+  watch renews a day before it expires). Parity of the job with the Workflow:
+  `tests/crm_jobs_parity.rs` against `tests/fixtures/crm_jobs.json`
 - the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
   `webhooks` subscriber (`crates/subscribers`), already
 
-Not yet: the CRM sync (`CRM_SYNC`: Attio, HubSpot, Google Calendar; WeldConnect's
-CRM routes answer as without the binding), its webhooks (`/webhook/:connectionId`,
-`/webhook/hubspot`, `/webhook/gcal/:connectionId`) and due sweep, the connector
+Not yet: the connector
 receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
 Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
 `/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
@@ -279,7 +290,8 @@ rust/
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
                         modules/integrations (the integration workers: the bank feed and
-                        GitHub App receivers, the GitHub jobs, the bank feed due sweep;
+                        GitHub App and CRM receivers, the GitHub and CRM sync jobs, the bank
+                        feed and CRM due sweeps;
                         tests/fixtures from `pnpm rust:integration-fixtures`),
                         modules/host (WeldHost: Realtime Register, Cloudflare's zones and
                         registrar, DNS over HTTPS, the Realtime Register webhook),
@@ -329,7 +341,7 @@ pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engi
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
 pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
-pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub Workflows do, for modules/integrations/tests
+pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub and CRM Workflows do, for modules/integrations/tests
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods

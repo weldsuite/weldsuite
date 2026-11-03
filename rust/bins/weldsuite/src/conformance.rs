@@ -380,6 +380,10 @@ impl Pools {
         extensions.insert(crate::conformance_books::integrations_books(
             &context.services,
         ));
+        // And their calls into WeldConnect's internal routes (the CRM webhooks).
+        extensions.insert(crate::conformance_books::integrations_connect_internal(
+            &context.services,
+        ));
         // And the GitHub App webhook's project syncs.
         extensions.insert(self.workflows.github_sync_runs(&context.workflows));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
