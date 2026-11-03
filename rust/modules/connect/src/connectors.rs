@@ -1,15 +1,14 @@
 //! `/api/connectors` (`routes/connectors/index.ts`): the store and
 //! accounting connectors (WooCommerce, Shopify, Picqer, Moneybird, Stripe)
-//! on `weldsuite_connect_domain`. Served here so far: the catalog, the
-//! connections and their runs, imported records and field mappings, the
-//! credential test (WooCommerce, Shopify and Picqer), the Picqer push
-//! ([`crate::picqer_push`]) and pause/resume.
-//! Not yet (they need connect-domain's sync engine, the Stripe and Moneybird
-//! clients, WooCommerce's app authorisation or provider webhooks, still on
-//! Global): connect, authorize, the OAuth callback, select-account, manual
-//! sync, the Moneybird push routes, PATCH and DELETE of a
-//! connection. Global keeps the connector sync schedule in its D1 index;
-//! nothing reads one here, so pause and resume write none.
+//! on `weldsuite_connect_domain`: the catalog, the connections and their
+//! runs, imported records and field mappings, the credential test, the
+//! Picqer push ([`crate::picqer_push`]), pause/resume, connecting and the
+//! OAuth flows ([`crate::connector_auth`]), manual sync
+//! ([`crate::connector_sync`]) and the Moneybird push
+//! ([`crate::connector_push`]). Global keeps the connector catch-up schedule
+//! in its D1 index; here a resume marks the workspace on the master due
+//! index (`weldsuite_connect_domain::catchup`), whose sweep reads the
+//! connection's own times.
 
 use std::sync::Arc;
 
@@ -387,6 +386,19 @@ async fn set_status(
         row_id,
         &json!({ "id": row_id, "provider": row["provider"], "status": status }),
     );
+    // `setConnectorIndexEnabled(true)`: the catch-up looks at it again (the
+    // app's own master database; none in conformance builds).
+    if status == "active"
+        && let Some(master) = &state.master
+    {
+        weldsuite_db::due_index::mark_due(
+            master,
+            weldsuite_connect_domain::catchup::DUE_KIND,
+            &caller.workspace_id,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await;
+    }
     Data(json!({ "status": status })).into_response()
 }
 

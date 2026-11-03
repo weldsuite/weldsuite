@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-two
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-three
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -74,8 +74,8 @@ modules, each with conformance suites that reach every route:
   layout), with the sign-in limits on the cache's atomic counters and the
   sign-in mail as system mail; `crates/commerce-domain` holds the portal's
   tokens, slugs and limits; the sales channels' store clients and field crypto
-  are `crates/connect-domain`'s. Not yet: WooCommerce's app-auth callback, which
-  completes a WeldConnect authorisation)
+  are `crates/connect-domain`'s, and so is WooCommerce's app-auth callback,
+  `POST /webhooks/woocommerce/auth`, which completes a WeldConnect authorisation)
 - **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
   call intelligence (phone numbers, the WebRTC token, statistics, call
   transcriptions), the WeldDesk phone channel's voice agents (Telnyx AI
@@ -171,6 +171,15 @@ modules, each with conformance suites that reach every route:
   server (`rust/docs/collab-rooms.md`, the chart's `collabRooms`): the
   server calls each room over HTTP on the pod that holds it and proxies the
   room sockets (`/api/docs/connect`); the engine stays TypeScript
+- **connect** (WeldConnect: workflows, their engine as the
+  `connect.execute-workflow` job and the scheduled runs, workflow
+  integrations and webhooks, GitHub, the CRM and ad integrations, and the
+  store and accounting connectors (WooCommerce, Shopify, Picqer, Moneybird,
+  Stripe): connecting (API keys, WooCommerce's app authorisation, the
+  Moneybird and Stripe OAuth flows), the sync engine with its mappers and
+  ingest (`crates/connect-domain`), provider webhook registration and ingest,
+  and the WeldBooks to Moneybird push. Not ported: AI workflow generation
+  and AI steps (`weldconnect-ai`)
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -221,12 +230,23 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   saved active (Global's one-time seed of every workspace has no equivalent). Parity of the
   polls with the worker's cron: `tests/poll_parity.rs` against
   `tests/fixtures/poll_jobs.json`
+- **WeldConnect's connectors**: `POST /webhooks/connectors/:connectionId` (a store's or
+  Moneybird's webhook, handed with its signature headers to WeldConnect's internal
+  `connector-event` route for the workspace of the `connconn:` KV entry) and
+  `POST /webhooks/stripe-connect` (`STRIPE_CONNECT_WEBHOOK_SECRET`; each connection of the
+  event's account, `stripeacct:`); `weldsuite cron connector-catchup`, where Global keeps
+  one D1 `connector_sync_index` row per connection with a copy of its credentials: the
+  master `workspace_due_index` (kind `connector_catchup`, marked by every sync a person or
+  a connect flow starts) says which workspaces to open, the tenant's connections say what
+  is due (six hours after the last sync, a back-off after a failed one), each due
+  connection is probed for changes and caught up through WeldConnect's internal
+  `catch-up` route on a hit (Global's daily count reconcile is not ported); and
+  `weldsuite cron moneybird-push`, another push pass for the workspaces whose last one
+  left work (kind `moneybird_push`, Global's `tenant_work_index`). The worker's
+  `POST /webhooks/woocommerce/auth` forward needs no port: commerce answers that path
 - the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
   `webhooks` subscriber (`crates/subscribers`), already
 
-Not yet: the connector
-receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
-Moneybird push sweep), and the WooCommerce app-auth forward.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -239,7 +259,7 @@ renewing domains, WeldMeet transcripts and summaries and recordings, and
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
-connect, agent, sheets and
+agent, sheets and
 panel, and the edge workers (`external-api`, `mcp-server`, the rest of the
 integration workers, above).
 
@@ -458,7 +478,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 which stays with Global), `workflow-schedules` every minute (WeldConnect's
 scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
 `bank-feed-due` every 15 minutes (WeldBooks' bank feeds due a sync; nothing while
-books is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+books is not served), `connector-catchup` every 15 minutes and `moneybird-push`
+every 5 (WeldConnect's connectors; nothing while connect is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -491,6 +512,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | The Stripe connector's ingress: the signing secret of the platform's Connect webhook endpoint (`POST /webhooks/stripe-connect`; unset: 503). `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_CLIENT_ID` are the platform key OAuth Stripe connections are read with and the Connect OAuth app; `MONEYBIRD_CLIENT_ID`/`MONEYBIRD_CLIENT_SECRET` the Moneybird OAuth app; `CONNECTOR_WEBHOOK_BASE_URL` the public origin stores deliver their webhooks to (default by `ENVIRONMENT`) |
 | `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |

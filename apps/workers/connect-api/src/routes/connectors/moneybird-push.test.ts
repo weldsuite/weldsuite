@@ -221,7 +221,7 @@ describe('Send to Moneybird', () => {
     await settled(2);
     const runs = await db.select().from(schema.connectorSyncRuns).where(eq(schema.connectorSyncRuns.syncName, 'moneybird-push')).orderBy(asc(schema.connectorSyncRuns.createdAt));
     expect(runs.at(-1)).toMatchObject({ status: 'partial', recordsCreated: 0, recordsFailed: 1 });
-    expect((await pushRows()).filter((r) => r.type === 'moneybird_external_sales_invoice').length).toBe(3);
+    expect((await pushRows()).filter((r) => r.type === 'moneybird_external_sales_invoice')).toHaveLength(3);
   });
 
   it('answers the cron\'s pass with whether work is left', async () => {
