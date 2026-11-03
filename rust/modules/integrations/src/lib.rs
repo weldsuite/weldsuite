@@ -18,6 +18,7 @@
 //! - The CRM sync ([`crm`]): the `integrations.crm-sync` job, the Attio,
 //!   `HubSpot` and Google Calendar webhooks, and the CRM due sweep, with
 //!   WeldConnect's internal routes over [`connect_internal`].
+//! - Meta's ad webhook and the ad metrics sweep ([`meta_ads`]).
 
 // The workers' handlers and Workflows are ported step for step, so some are
 // long and take what the TypeScript function took.
@@ -30,6 +31,7 @@ pub mod books;
 pub mod connect_internal;
 pub mod crm;
 pub mod github;
+pub mod meta_ads;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -104,6 +106,8 @@ pub const ENV_NAMES: &[&str] = &[
     "ATTIO_CLIENT_",
     "HUBSPOT_CLIENT_",
     "GOOGLE_CALENDAR_CLIENT_",
+    "FACEBOOK_APP_SECRET",
+    "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -128,7 +132,8 @@ where
 {
     bank_feeds::router(state.clone())
         .merge(github::webhook::router(state.clone()))
-        .merge(crm::webhooks::router(state))
+        .merge(crm::webhooks::router(state.clone()))
+        .merge(meta_ads::router(state))
 }
 
 /// What a public route reads off its request: in conformance builds the

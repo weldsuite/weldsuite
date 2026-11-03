@@ -637,6 +637,13 @@ cron:
       enabled: true
       schedule: "*/15 * * * *"
       activeDeadlineSeconds: 840
+    # WeldAds: connections whose metrics sync is due (the master
+    # ad_sync_index), synced through WeldConnect's internal route
+    # (integration-sync-worker's ad sweep). Needs INTERNAL_API_SECRET.
+    ad-sync:
+      enabled: true
+      schedule: "*/15 * * * *"
+      activeDeadlineSeconds: 840
     # Workspaces past their scheduled deletion lose their organization (the
     # identity sync then tears the database down). Needs config.identity.
     workspace-deletion:

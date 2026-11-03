@@ -367,6 +367,8 @@ pub(crate) struct WatchRenewal<'a> {
     pub(crate) client_id: Option<String>,
     pub(crate) client_secret: Option<String>,
     pub(crate) environment: Option<String>,
+    /// `APP_API_PUBLIC_URL`: this server's public origin (Kubernetes).
+    pub(crate) public_url: Option<String>,
 }
 
 /// `renewGoogleCalendarWatch`: refresh the token when possible, stop the old
@@ -432,7 +434,10 @@ pub(crate) async fn renew_google_calendar_watch(
     }
     let target = format!(
         "{}/webhook/gcal/{connection_id}",
-        webhook_worker_url(renewal.environment.as_deref())
+        webhook_worker_url(
+            renewal.public_url.as_deref(),
+            renewal.environment.as_deref()
+        )
     );
     let registration = adapter
         .register_webhooks(renewal.http, &access_token, &target)
@@ -1274,7 +1279,11 @@ async fn attio_callback(
             .map_err(thrown)?;
         let id = generate_id("intc");
         let environment = caller.overrides.env(&state, "ENVIRONMENT");
-        let target = format!("{}/webhook/{id}", webhook_worker_url(environment.as_deref()));
+        let public_url = caller.overrides.env(&state, "APP_API_PUBLIC_URL");
+        let target = format!(
+            "{}/webhook/{id}",
+            webhook_worker_url(public_url.as_deref(), environment.as_deref())
+        );
         let registration = adapter
             .register_webhooks(&http, tokens.bearer(), &target)
             .await
@@ -1389,9 +1398,10 @@ async fn generic_callback(
             id.clone()
         };
         let environment = caller.overrides.env(&state, "ENVIRONMENT");
+        let public_url = caller.overrides.env(&state, "APP_API_PUBLIC_URL");
         let target = format!(
             "{}/webhook/{path}",
-            webhook_worker_url(environment.as_deref())
+            webhook_worker_url(public_url.as_deref(), environment.as_deref())
         );
         let registration = adapter
             .register_webhooks(&http, tokens.bearer(), &target)
@@ -1755,6 +1765,7 @@ async fn renew_watch(
         client_id: caller.env_value(&state, "GOOGLE_CALENDAR_CLIENT_ID"),
         client_secret: caller.env_value(&state, "GOOGLE_CALENDAR_CLIENT_SECRET"),
         environment: caller.overrides.env(&state, "ENVIRONMENT"),
+        public_url: caller.overrides.env(&state, "APP_API_PUBLIC_URL"),
     };
     let result = renew_google_calendar_watch(&caller.db, renewal, &id).await;
     action_response(result, &id, false, "Failed to renew watch channel")

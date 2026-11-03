@@ -201,15 +201,23 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   `crm_sync`, marked when a CRM connection is made) says which workspaces to open
   and the tenant's connections say what is due (last sync plus the interval; a Google
   watch renews a day before it expires). Parity of the job with the Workflow:
-  `tests/crm_jobs_parity.rs` against `tests/fixtures/crm_jobs.json`
+  `tests/crm_jobs_parity.rs` against `tests/fixtures/crm_jobs.json`. The CRM providers
+  deliver to `APP_API_PUBLIC_URL` (this server) when it is set: WeldConnect registers
+  Attio's webhook and Google's watch channels there instead of Global's
+  integration-webhook hosts
+- **WeldAds**: Meta's `GET`/`POST /webhooks/meta/ads` (the subscription handshake with
+  `FACEBOOK_WEBHOOK_VERIFY_TOKEN`; changes signed with `FACEBOOK_APP_SECRET`, each handed
+  to WeldConnect's internal `/api/integrations/ad-events` for the account's `adsconn:` KV
+  entry) and `weldsuite cron ad-sync` (the master `ad_sync_index` rows that are due,
+  synced through WeldConnect's internal ad-connection sync)
 - the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
   `webhooks` subscriber (`crates/subscribers`), already
 
 Not yet: the connector
 receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
 Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
-`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
-the ad metrics sweep, and the WooCommerce app-auth forward.
+`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, and the WooCommerce
+app-auth forward.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -453,7 +461,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
-| `APP_API_PUBLIC_URL` | WeldDesk and WeldCall: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool); by `ENVIRONMENT` otherwise |
+| `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
 | `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |

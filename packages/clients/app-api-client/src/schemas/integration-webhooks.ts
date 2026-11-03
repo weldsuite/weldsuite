@@ -29,6 +29,20 @@ export const hubspotWebhookAckSchema = z.object({
   processed: z.number().int().nonnegative(),
 });
 
+/** `POST /webhooks/meta/ads`: each change of the delivery, handed to connect-api or not. */
+export const metaAdsWebhookAckSchema = z.object({
+  data: z.object({
+    processed: z.number().int().nonnegative(),
+    responses: z.array(
+      z.union([
+        z.object({ platformAccountId: z.string(), status: z.number().int() }),
+        z.object({ skipped: z.literal(true), platformAccountId: z.string() }),
+        z.object({ error: z.string(), platformAccountId: z.string() }),
+      ]),
+    ),
+  }),
+});
+
 /** `POST /webhook/gcal/:connectionId`: a Google Calendar push notification, acknowledged. */
 export const googleCalendarWebhookAckSchema = z.object({
   status: z.literal('ok'),

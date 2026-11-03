@@ -2895,6 +2895,20 @@
         "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
         "rust/modules/integrations/"
       ]
+    },
+    {
+      "name": "integrations: meta ads",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/meta-ads.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/meta-ads/src/webhooks.ts",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }

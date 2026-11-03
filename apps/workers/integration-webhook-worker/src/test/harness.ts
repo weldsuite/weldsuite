@@ -56,6 +56,8 @@ export const RUST_ROUTES: ReadonlySet<string> = new Set([
   'POST /webhook/hubspot',
   'POST /webhook/gcal/:connectionId',
   'POST /webhook/:connectionId',
+  'GET /webhooks/meta/ads',
+  'POST /webhooks/meta/ads',
 ]);
 
 function pathOf(input: string): string {
