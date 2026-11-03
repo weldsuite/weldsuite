@@ -465,7 +465,7 @@
       "/api/workflow-webhooks",
       "/api/workflows"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "connect-api"
   },
   {

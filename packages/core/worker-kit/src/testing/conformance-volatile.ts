@@ -54,6 +54,9 @@ interface VolatileRoute {
 }
 
 /** A desk phone tool token (`Bearer <claims>.<signature>`) at `path`. */
+/** A connector connection id (`generateId('conn')`) inside a string. */
+const CONNECTOR_ID = /conn_[0-9a-z]{16}/g;
+
 function toolToken(path: string): VolatileField {
   return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
@@ -152,6 +155,30 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.authorizeUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' },
     ],
   },
+  // WeldConnect's connector authorisation: a fresh state per run (Moneybird's
+  // and Stripe's random state, WooCommerce's signed `user_id`, which carries
+  // its expiry second and the pending connection's id).
+  {
+    method: 'POST',
+    route: '/api/connectors/authorize',
+    fields: [{ path: 'data.authorizeUrl', pattern: /(state|user_id)=[^&]+/g, replacement: '$1=<volatile>' }],
+  },
+  // Connecting registers the store's webhooks with a fresh random secret
+  // (WooCommerce, Picqer); so does finishing a WooCommerce authorisation.
+  // The delivery URL names the new connection.
+  ...['/api/connectors/connect', '/api/integrations/woocommerce-auth', '/webhooks/woocommerce/auth', '/api/connectors/oauth/callback', '/api/connectors/connections/:id/select-account'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.connection.externalAccountId', pattern: CONNECTOR_ID, replacement: 'conn_<id>' }],
+    outbound: [
+      { path: 'body.secret' },
+      ...['body.delivery_url', 'body.address', 'body.url', 'body.webhook.address'].map((path) => ({
+        path,
+        pattern: CONNECTOR_ID,
+        replacement: 'conn_<id>',
+      })),
+    ],
+  })),
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was

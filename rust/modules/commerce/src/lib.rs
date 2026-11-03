@@ -78,6 +78,7 @@ mod simple;
 mod table;
 mod tax_class;
 mod wallet;
+mod woo_auth;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -148,6 +149,12 @@ pub const ENV_NAMES: &[&str] = &[
     "COMMERCE_PORTAL_URL",
     "DATABASE_ENCRYPTION_KEY",
     "DATABASE_ENCRYPTION_KEY_V2",
+    // WooCommerce's app-auth callback: the state's signing secret, the
+    // public origins and where the store's webhooks go.
+    "INTERNAL_API_SECRET",
+    "APP_API_PUBLIC_URL",
+    "PUBLIC_APP_URL",
+    "CONNECTOR_WEBHOOK_BASE_URL",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -205,6 +212,15 @@ where
 /// `?slug=` / `X-Workspace-Slug` unless a `Tenant` is already on the request
 /// (conformance builds put the test's there), and the buyer's session from
 /// its bearer token.
+/// WooCommerce's app-auth callback (`POST /webhooks/woocommerce/auth`), at
+/// its full path and without a session.
+pub fn woocommerce_auth_router<S>(state: CommerceState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    woo_auth::router(state)
+}
+
 pub fn public_router<S>(state: CommerceState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,

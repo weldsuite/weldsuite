@@ -58,6 +58,8 @@ export const RUST_ROUTES: ReadonlySet<string> = new Set([
   'POST /webhook/:connectionId',
   'GET /webhooks/meta/ads',
   'POST /webhooks/meta/ads',
+  'POST /webhooks/connectors/:connectionId',
+  'POST /webhooks/stripe-connect',
   'POST /integration-webhook/slack',
   'POST /integration-webhook/twilio/:connectionId',
   'POST /integration-webhook/github/:connectionId',

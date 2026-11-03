@@ -279,3 +279,346 @@ pub async fn list_connection_records(
         })
         .collect())
 }
+
+// ── writes (`connectors/connections.ts`) ────────────────────────────────────
+
+/// `encryptWebhookSecret(secret, keyring)`: sealed, or as it is without a key.
+pub fn encrypt_webhook_secret(secret: &str, keyring: &Keyring) -> Result<String, String> {
+    if keyring.v1.is_some() || keyring.v2.is_some() {
+        weldsuite_db::encrypt_field(secret, keyring).map_err(|error| error.to_string())
+    } else {
+        Ok(secret.to_owned())
+    }
+}
+
+/// `maybeDecryptWebhookSecret(secret, keyring)`.
+pub fn maybe_decrypt_webhook_secret(secret: Option<&str>, keyring: &Keyring) -> Option<String> {
+    let secret = secret.filter(|s| !s.is_empty())?;
+    Some(crate::crypto::maybe_decrypt_field(secret, keyring))
+}
+
+/// `findConnectionByProviderAccount(db, provider, externalAccountId)`:
+/// deleted rows included.
+pub async fn find_by_provider_account(
+    db: &PgPool,
+    provider: &str,
+    external_account_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    sqlx::query_scalar(
+        "select to_jsonb(c) from connector_connections c
+         where c.provider = $1 and c.external_account_id = $2 limit 1",
+    )
+    .bind(provider)
+    .bind(external_account_id)
+    .fetch_optional(db)
+    .await
+}
+
+/// What `upsertConnection` writes.
+pub struct NewConnection<'a> {
+    pub provider: &'a str,
+    pub display_name: &'a str,
+    pub user_id: &'a str,
+    pub credentials: &'a Map<String, Value>,
+    pub enabled_syncs: &'a [String],
+    pub external_account_id: Option<&'a str>,
+    pub webhook_secret: Option<&'a str>,
+}
+
+/// `upsertConnection(...)`: revives the row of the same provider account,
+/// else inserts one. The row (`to_jsonb`).
+pub async fn upsert_connection(db: &PgPool, new: &NewConnection<'_>) -> Result<Value, sqlx::Error> {
+    let now = crate::js::now_iso();
+    let existing = match new.external_account_id {
+        Some(account) => find_by_provider_account(db, new.provider, account).await?,
+        None => None,
+    };
+    let id = if let Some(existing) = existing {
+        let id = existing["id"].as_str().unwrap_or_default().to_owned();
+        sqlx::query(
+            "update connector_connections set display_name = $1, credentials = $2, enabled_syncs = $3,
+               external_account_id = $4, webhook_secret = coalesce($5, webhook_secret), status = 'active',
+               deleted_at = null, disconnected_at = null, last_error = null, last_error_at = null,
+               connected_at = $6::timestamp, connected_by = $7, updated_at = $6::timestamp
+             where id = $8",
+        )
+        .bind(new.display_name)
+        .bind(Value::Object(new.credentials.clone()))
+        .bind(json!(new.enabled_syncs))
+        .bind(new.external_account_id)
+        .bind(new.webhook_secret)
+        .bind(&now)
+        .bind(new.user_id)
+        .bind(&id)
+        .execute(db)
+        .await?;
+        id
+    } else {
+        let id = weldsuite_kit::generate_id("conn");
+        sqlx::query(
+            "insert into connector_connections (id, provider, display_name, credentials, enabled_syncs,
+               external_account_id, webhook_secret, status, connected_at, connected_by)
+             values ($1, $2, $3, $4, $5, $6, $7, 'active', $8::timestamp, $9)",
+        )
+        .bind(&id)
+        .bind(new.provider)
+        .bind(new.display_name)
+        .bind(Value::Object(new.credentials.clone()))
+        .bind(json!(new.enabled_syncs))
+        .bind(new.external_account_id)
+        .bind(new.webhook_secret)
+        .bind(&now)
+        .bind(new.user_id)
+        .execute(db)
+        .await?;
+        id
+    };
+    Ok(get_connection(db, &id).await?.unwrap_or(Value::Null))
+}
+
+/// `ensurePendingConnection(...)`: the row a merchant's authorisation
+/// lands on, revived or created as `pending`.
+pub async fn ensure_pending_connection(
+    db: &PgPool,
+    provider: &str,
+    display_name: &str,
+    user_id: &str,
+    enabled_syncs: &[String],
+    external_account_id: &str,
+) -> Result<Value, sqlx::Error> {
+    let now = crate::js::now_iso();
+    let id = if let Some(existing) =
+        find_by_provider_account(db, provider, external_account_id).await?
+    {
+        let id = existing["id"].as_str().unwrap_or_default().to_owned();
+        let revive = !existing["deleted_at"].is_null() || existing["status"] == "pending";
+        sqlx::query(
+            "update connector_connections set display_name = $1, enabled_syncs = $2, external_account_id = $3,
+               deleted_at = null, disconnected_at = null,
+               status = case when $4 then 'pending' else status end,
+               connected_by = case when $4 then $5 else connected_by end,
+               updated_at = $6::timestamp
+             where id = $7",
+        )
+        .bind(display_name)
+        .bind(json!(enabled_syncs))
+        .bind(external_account_id)
+        .bind(revive)
+        .bind(user_id)
+        .bind(&now)
+        .bind(&id)
+        .execute(db)
+        .await?;
+        id
+    } else {
+        let id = weldsuite_kit::generate_id("conn");
+        sqlx::query(
+            "insert into connector_connections (id, provider, display_name, enabled_syncs, external_account_id,
+               status, connected_by)
+             values ($1, $2, $3, $4, $5, 'pending', $6)",
+        )
+        .bind(&id)
+        .bind(provider)
+        .bind(display_name)
+        .bind(json!(enabled_syncs))
+        .bind(external_account_id)
+        .bind(user_id)
+        .execute(db)
+        .await?;
+        id
+    };
+    Ok(get_connection(db, &id).await?.unwrap_or(Value::Null))
+}
+
+/// `updateConnectionSettings(...)`: `None` leaves a column as it is; the
+/// error is cleared and the status set to `active`.
+#[derive(Default)]
+pub struct SettingsUpdate {
+    pub enabled_syncs: Option<Vec<String>>,
+    pub direction: Option<String>,
+    /// `Some(Value::Null)` clears it.
+    pub object_sync_directions: Option<Value>,
+    pub credentials: Option<Map<String, Value>>,
+    pub display_name: Option<String>,
+    /// `Some(None)` clears it.
+    pub external_account_id: Option<Option<String>>,
+    pub webhook_secret: Option<Option<String>>,
+    pub webhook_registrations: Option<Value>,
+    /// The whole settings object (`Some(Value::Null)` clears it).
+    pub settings: Option<Value>,
+}
+
+pub async fn update_connection_settings(
+    db: &PgPool,
+    connection_id: &str,
+    update: &SettingsUpdate,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update connector_connections set
+           settings = case when $1 then $2 else settings end,
+           enabled_syncs = case when $3 then $4 else enabled_syncs end,
+           direction = case when $5 then $6 else direction end,
+           object_sync_directions = case when $7 then $8 else object_sync_directions end,
+           credentials = case when $9 then $10 else credentials end,
+           display_name = case when $11 then $12 else display_name end,
+           external_account_id = case when $13 then $14 else external_account_id end,
+           webhook_secret = case when $15 then $16 else webhook_secret end,
+           webhook_registrations = case when $17 then $18 else webhook_registrations end,
+           last_error = null, last_error_at = null, status = 'active', updated_at = $19::timestamp
+         where id = $20",
+    )
+    .bind(update.settings.is_some())
+    .bind(update.settings.clone().filter(|v| !v.is_null()))
+    .bind(update.enabled_syncs.is_some())
+    .bind(update.enabled_syncs.as_ref().map(|s| json!(s)))
+    .bind(update.direction.is_some())
+    .bind(&update.direction)
+    .bind(update.object_sync_directions.is_some())
+    .bind(
+        update
+            .object_sync_directions
+            .clone()
+            .filter(|v| !v.is_null()),
+    )
+    .bind(update.credentials.is_some())
+    .bind(update.credentials.clone().map(Value::Object))
+    .bind(update.display_name.is_some())
+    .bind(&update.display_name)
+    .bind(update.external_account_id.is_some())
+    .bind(update.external_account_id.clone().flatten())
+    .bind(update.webhook_secret.is_some())
+    .bind(update.webhook_secret.clone().flatten())
+    .bind(update.webhook_registrations.is_some())
+    .bind(
+        update
+            .webhook_registrations
+            .clone()
+            .filter(|v| !v.is_null()),
+    )
+    .bind(crate::js::now_iso())
+    .bind(connection_id)
+    .execute(db)
+    .await
+    .map(|_| ())
+}
+
+/// `seedDefaultConnectorFieldMappings(db, connectionId, provider)`: the
+/// default mappings of every entity type the connector syncs that has none.
+pub async fn seed_default_field_mappings(
+    db: &PgPool,
+    connection_id: &str,
+    provider: &str,
+) -> Result<(), sqlx::Error> {
+    let Some(connector) = get_connector(provider) else {
+        return Ok(());
+    };
+    let mut entity_types: Vec<String> = Vec::new();
+    for sync in syncs(connector) {
+        if let Some(entity) = sync["internalEntity"].as_str()
+            && !entity_types.iter().any(|e| e == entity)
+        {
+            entity_types.push(entity.to_owned());
+        }
+    }
+    for entity_type in entity_types {
+        let existing: Option<String> = sqlx::query_scalar(
+            "select id from integration_field_mappings where connection_id = $1 and entity_type = $2 limit 1",
+        )
+        .bind(connection_id)
+        .bind(&entity_type)
+        .fetch_optional(db)
+        .await?;
+        if existing.is_some() {
+            continue;
+        }
+        let defaults = crate::catalog::default_field_mappings(&entity_type, Some(provider));
+        if defaults.is_empty() {
+            continue;
+        }
+        let mut ids = Vec::new();
+        let mut external = Vec::new();
+        let mut internal = Vec::new();
+        let mut directions = Vec::new();
+        let mut transforms = Vec::new();
+        let mut configs = Vec::new();
+        let mut required = Vec::new();
+        let mut positions = Vec::new();
+        for (i, m) in defaults.iter().enumerate() {
+            ids.push(weldsuite_kit::generate_id("ifm"));
+            external.push(
+                m["externalFieldPath"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
+            internal.push(
+                m["internalFieldPath"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
+            directions.push(
+                m["direction"]
+                    .as_str()
+                    .unwrap_or("bidirectional")
+                    .to_owned(),
+            );
+            transforms.push(m["transformType"].as_str().unwrap_or("direct").to_owned());
+            configs.push(match m.get("transformConfig") {
+                None | Some(Value::Null) => Value::Null,
+                Some(v) => v.clone(),
+            });
+            required.push(m["isRequired"].as_bool().unwrap_or(false));
+            positions.push(i32::try_from(i).unwrap_or(i32::MAX));
+        }
+        sqlx::query(
+            "insert into integration_field_mappings (id, connection_id, entity_type, external_field_path,
+               internal_field_path, direction, transform_type, transform_config, is_required, is_default, position)
+             select t.id, $1, $2, t.external, t.internal, t.direction, t.transform,
+               case when jsonb_typeof(t.config) = 'null' then null else t.config end, t.required, true, t.position
+             from unnest($3::varchar[], $4::text[], $5::text[], $6::text[], $7::text[], $8::jsonb[], $9::bool[], $10::int[])
+               as t(id, external, internal, direction, transform, config, required, position)",
+        )
+        .bind(connection_id)
+        .bind(&entity_type)
+        .bind(&ids)
+        .bind(&external)
+        .bind(&internal)
+        .bind(&directions)
+        .bind(&transforms)
+        .bind(&configs)
+        .bind(&required)
+        .bind(&positions)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// `markConnectionDisconnected(db, id)`: soft-deleted, credentials and
+/// webhooks dropped, its sales channels disconnected.
+pub async fn mark_connection_disconnected(
+    db: &PgPool,
+    connection_id: &str,
+) -> Result<(), sqlx::Error> {
+    let now = crate::js::now_iso();
+    sqlx::query(
+        "update connector_connections set deleted_at = $1::timestamp, disconnected_at = $1::timestamp,
+           status = 'paused', credentials = null, webhook_secret = null, webhook_registrations = null,
+           updated_at = $1::timestamp
+         where id = $2",
+    )
+    .bind(&now)
+    .bind(connection_id)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "update product_sales_channels set status = 'disconnected', updated_at = $1::timestamp
+         where connection_id = $2",
+    )
+    .bind(&now)
+    .bind(connection_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}

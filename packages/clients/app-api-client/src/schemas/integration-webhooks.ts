@@ -43,6 +43,20 @@ export const metaAdsWebhookAckSchema = z.object({
   }),
 });
 
+/**
+ * `POST /webhooks/connectors/:connectionId`: a store's or accounting
+ * connector's webhook, relayed from connect-api's `connector-event` route.
+ */
+export const connectorWebhookRelaySchema = z.object({
+  data: z.object({ message: z.string() }),
+});
+
+/** `POST /webhooks/stripe-connect`: the event delivered to each connection of its account, or ignored. */
+export const stripeConnectWebhookAckSchema = z.union([
+  z.object({ received: z.literal(true), delivered: z.number().int().positive() }),
+  z.object({ received: z.literal(true), ignored: z.enum(['platform event', 'unknown account']) }),
+]);
+
 /** `POST /integration-webhook/slack`: Slack's URL verification handshake (events are answered with an empty 200). */
 export const slackWebhookAckSchema = z.object({ challenge: z.string() });
 

@@ -9,15 +9,24 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-books-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-ports = { workspace = true }
 base64 = { workspace = true }
+getrandom = { workspace = true }
+hmac = { workspace = true }
+http = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+regex = { workspace = true, features = ["unicode"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing"] }
-tokio = { workspace = true, features = ["time"] }
+unicode-normalization = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+tokio = { workspace = true, features = ["macros", "time"] }
 tracing = { workspace = true }
 url = { workspace = true }
 
