@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { ArrowUp, Sparkles } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useUiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 
 export interface ReplyInputProps {
   value: string;
@@ -34,6 +35,7 @@ export function ReplyInput({
   showAiButton = false,
   aiIcon,
 }: Readonly<ReplyInputProps>) {
+  const labels = useUiLabels();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const aiInputRef = useRef<HTMLInputElement>(null);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
@@ -88,7 +90,7 @@ export function ReplyInput({
   return (
     <div
       className={cn(
-        'rounded-2xl border border-gray-200 dark:border-border bg-white dark:bg-background transition-colors focus-within:border-gray-400 dark:focus-within:border-gray-500',
+        'rounded-2xl border border-gray-200 dark:border-border bg-white dark:bg-background transition-[color,box-shadow] focus-within:border-gray-400 dark:focus-within:border-gray-500 focus-within:ring-[3px] focus-within:ring-ring/50',
         className,
       )}
     >
@@ -98,6 +100,7 @@ export function ReplyInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        aria-label={placeholder}
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
@@ -117,6 +120,7 @@ export function ReplyInput({
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={handleAiKeyDown}
+              aria-label="Describe what to write..."
               placeholder="Describe what to write..."
               className="flex-1 bg-transparent text-sm text-gray-900 dark:text-foreground placeholder:text-gray-400 outline-none"
             />
@@ -124,6 +128,7 @@ export function ReplyInput({
               type="button"
               onClick={handleAiSubmit}
               disabled={!aiPrompt.trim()}
+              aria-label={labels.send}
               className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-30 transition-opacity"
             >
               <ArrowUp className="h-3.5 w-3.5" />

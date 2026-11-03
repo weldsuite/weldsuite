@@ -3,6 +3,7 @@ import { Plus, Search } from 'lucide-react';
 
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useUiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 import {
   FilterPills,
   type ActiveFilter,
@@ -67,6 +68,7 @@ export function ListToolbar({
   createButton,
   className,
 }: Readonly<ListToolbarProps>) {
+  const labels = useUiLabels();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -105,10 +107,11 @@ export function ListToolbar({
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
+              aria-label={labels.search}
               placeholder={searchPlaceholder}
               value={search}
               onChange={(e) => onSearchChange!(e.target.value)}
-              className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none"
+              className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
         </div>
@@ -132,6 +135,7 @@ export function ListToolbar({
                   searchOpen && 'opacity-0 pointer-events-none absolute',
                 )}
                 onClick={() => setSearchOpen(true)}
+                aria-label={labels.search}
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -145,11 +149,12 @@ export function ListToolbar({
                 <input
                   ref={searchInputRef}
                   type="text"
+                  aria-label={labels.search}
                   placeholder={searchPlaceholder}
                   value={search}
                   onChange={(e) => onSearchChange!(e.target.value)}
                   onBlur={() => !search && setSearchOpen(false)}
-                  className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none"
+                  className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </div>
             </div>

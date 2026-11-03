@@ -1,5 +1,10 @@
 export const common = {
     ui: { pagination: { previous: 'Previous', next: 'Next', first: 'First', last: 'Last', page: 'Page', of: 'of', rows: 'rows', rowsPerPage: 'Rows per page', showing: 'Showing', to: 'to', results: 'results' }, table: { sortAscending: 'Sort ascending', sortDescending: 'Sort descending', unsorted: 'Unsorted', toggleColumns: 'Toggle columns', selectAll: 'Select all', selectRow: 'Select row', noResults: 'No results found', loading: 'Loading...' }, form: { required: 'Required', optional: 'Optional', select: 'Select...', selectOption: 'Select an option', clear: 'Clear', reset: 'Reset' } },
+    a11y: {
+      skipToContent: 'Skip to main content',
+      send: 'Send',
+      presence: { online: 'Available', busy: 'Busy', dnd: 'Do Not Disturb', away: 'Away', offline: 'Offline' },
+    },
     actions: {
       copyTaskNumber: 'Copy task number',
       save: 'Save',

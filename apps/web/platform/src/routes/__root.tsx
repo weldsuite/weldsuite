@@ -14,6 +14,7 @@ import { PresenceProvider } from '@/contexts/presence-context';
 import { TeamMemberPanelProvider } from '@/contexts/team-member-panel-context';
 import { AppShellClient } from '@/components/app-shell-client';
 import { PreferencesSync } from '@/components/preferences-sync';
+import { AccessibilityBridge } from '@/components/layout/accessibility-bridge';
 import { PrivateFilesAccess } from '@/components/private-files-access';
 import { Toaster } from '@weldsuite/ui/components/sonner';
 import { useCallback } from 'react';
@@ -86,41 +87,43 @@ function RootComponent() {
         <ThemeProvider>
           <I18nProvider>
             <PreferencesSync />
-            <SettingsProvider>
-              {/* Realtime must wrap the notification providers: the bell's
-                  live `notification.<userId>` subscription (useTopic) reads
-                  the workspace client from this context and silently gets
-                  null when mounted above it. */}
-              <RealtimeProviderWrapper>
-                <NotificationProvider>
-                  <UnifiedNotificationProvider>
-                    <WorkspaceProvider>
-                      <PlatformPermissionProvider>
-                        <PresenceProvider>
-                          <TeamMemberPanelProvider>
-                            {/* Live entity sync: useRealtimeSync only.
-                                PlatformEventsProvider / useRealtimeQuerySync
-                                / dataEvents.initializeRealtimeBridge were
-                                stubs — removed in Phase 9. */}
-                            <RealtimeSyncBridge />
-                            <DesktopAuthBridge />
-                            <PrivateFilesAccess />
-                            {/* Must stay mounted for the whole session: the
-                                shell denies screen-share requests whenever no
-                                picker is registered. */}
-                            <DesktopSourcePicker />
-                            <AppShellClient>
-                              <Outlet />
-                            </AppShellClient>
-                            <Toaster />
-                          </TeamMemberPanelProvider>
-                        </PresenceProvider>
-                      </PlatformPermissionProvider>
-                    </WorkspaceProvider>
-                  </UnifiedNotificationProvider>
-                </NotificationProvider>
-              </RealtimeProviderWrapper>
-            </SettingsProvider>
+            <AccessibilityBridge>
+              <SettingsProvider>
+                {/* Realtime must wrap the notification providers: the bell's
+                    live `notification.<userId>` subscription (useTopic) reads
+                    the workspace client from this context and silently gets
+                    null when mounted above it. */}
+                <RealtimeProviderWrapper>
+                  <NotificationProvider>
+                    <UnifiedNotificationProvider>
+                      <WorkspaceProvider>
+                        <PlatformPermissionProvider>
+                          <PresenceProvider>
+                            <TeamMemberPanelProvider>
+                              {/* Live entity sync: useRealtimeSync only.
+                                  PlatformEventsProvider / useRealtimeQuerySync
+                                  / dataEvents.initializeRealtimeBridge were
+                                  stubs — removed in Phase 9. */}
+                              <RealtimeSyncBridge />
+                              <DesktopAuthBridge />
+                              <PrivateFilesAccess />
+                              {/* Must stay mounted for the whole session: the
+                                  shell denies screen-share requests whenever no
+                                  picker is registered. */}
+                              <DesktopSourcePicker />
+                              <AppShellClient>
+                                <Outlet />
+                              </AppShellClient>
+                              <Toaster />
+                            </TeamMemberPanelProvider>
+                          </PresenceProvider>
+                        </PlatformPermissionProvider>
+                      </WorkspaceProvider>
+                    </UnifiedNotificationProvider>
+                  </NotificationProvider>
+                </RealtimeProviderWrapper>
+              </SettingsProvider>
+            </AccessibilityBridge>
           </I18nProvider>
         </ThemeProvider>
       </QueryProvider>

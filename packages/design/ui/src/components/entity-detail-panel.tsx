@@ -501,8 +501,9 @@ export function EntityDetailPanel({
       {/* Comments Section - Fixed at bottom */}
       {(comments.length > 0 || onSendComment || activities.length > 0) && (
         <div className="bg-white dark:bg-background" style={{ flexShrink: 0 }}>
-          {/* Draggable resize handle */}
+          {/* Draggable resize handle (mouse only, hidden from assistive tech) */}
           <div
+            aria-hidden="true"
             className="h-3 cursor-ns-resize flex items-center justify-center group"
             onMouseDown={handleResizeStart}
           >

@@ -1046,6 +1046,9 @@ function FullscreenBody({
             className="relative flex-shrink-0 bg-background border-l border-border flex flex-col"
             style={{ width: effectiveSidebarWidth }}
           >
+            {/* A focusable separator is the ARIA window-splitter pattern (arrow
+                keys resize), which jsx-a11y counts as non-interactive. */}
+            {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
             <div
               className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
               onMouseDown={handleResizeMouseDown}
@@ -1058,6 +1061,7 @@ function FullscreenBody({
               aria-valuemax={sidebarMaxSize}
               title="Drag to resize"
             >
+              {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
               <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
                 <div className="h-6 w-1 rounded-full bg-transparent group-hover:bg-border transition-colors" />
               </div>
