@@ -37,13 +37,14 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, getTableColumns, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
-import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { canManageProject, canWriteProject } from '../../lib/project-access';
+import { applyTimeEntryReview, reviewDenial, type TimeEntryReviewStatus } from '../../services/time-entry-review';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1026,26 +1027,11 @@ app.patch(
 // PATCH /:id/approve  and  PATCH /:id/reject — timesheet status workflow
 // ============================================================================
 
-/**
- * Who may approve or reject an entry: whoever manages its project (project
- * manager, owner/admin member, `projects:scope:all`), or a `projects:scope:all`
- * holder for an entry that is not tied to a project. Never the entry's own
- * author, so nobody signs off their own hours.
- */
-async function reviewDenial(c: Ctx, entry: typeof t.$inferSelect): Promise<string | null> {
-  if (entry.userId === c.get('userId')) return 'You cannot approve or reject your own time entry';
-  const allowed = entry.projectId
-    ? await canManageProject(c, entry.projectId)
-    : await hasContextPermission(c, 'projects:scope:all');
-  return allowed ? null : 'Only a project manager can approve or reject time entries';
-}
+type ReviewStatus = TimeEntryReviewStatus;
 
-type ReviewStatus = 'approved' | 'rejected';
-
-/** Shared body of approve / reject: guard, write the status, publish both entity events. */
+/** Shared body of approve / reject: guard, then the review the service writes (also used by My reviews). */
 async function reviewTimeEntry(c: Ctx, id: string, status: ReviewStatus) {
   const db = c.get('tenantDb');
-  const userId = c.get('userId');
   try {
     const [existing] = await db
       .select()
@@ -1056,38 +1042,7 @@ async function reviewTimeEntry(c: Ctx, id: string, status: ReviewStatus) {
     const denial = await reviewDenial(c, existing);
     if (denial) return error.forbidden(c, denial);
 
-    const now = new Date();
-    await db
-      .update(t)
-      .set(
-        status === 'approved'
-          ? { status, approvedBy: userId ?? null, approvedAt: now, updatedAt: now }
-          : // Rejecting also withdraws an earlier approval, which unlocks the entry for its owner.
-            { status, approvedBy: null, approvedAt: null, updatedAt: now },
-      )
-      .where(eq(t.id, id));
-
-    const payload = {
-      id,
-      projectId: existing.projectId,
-      taskId: existing.taskId,
-      userId: existing.userId,
-      duration: Number(existing.duration),
-    };
-    publishEntityEvent({
-      c,
-      entityType: 'project_time_entry',
-      entityId: id,
-      action: 'updated',
-      data: payload,
-    });
-    publishEntityEvent({
-      c,
-      entityType: 'project_timesheet',
-      entityId: id,
-      action: status,
-      data: { ...payload, reviewedBy: userId ?? null },
-    });
+    await applyTimeEntryReview(c, existing, status);
     return success(c, { id, status });
   } catch (err) {
     console.error(`[app-api/time-entries] ${status} failed:`, err);

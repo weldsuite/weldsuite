@@ -14,6 +14,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { runDigestSweep } from './cron/digest-sweep';
+import { isApprovalDueCron, runApprovalReminders } from './cron/approval-reminders';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
 import { approvalsRoutes } from './routes/approvals';
 import { capacityRoutes } from './routes/capacity';
@@ -139,6 +140,16 @@ export default {
       ctx.waitUntil(
         runDeletedFilesPurge(env).catch((err) => {
           console.error('[FilePurge] Failed:', err);
+        }),
+      );
+    }
+    // Daily: remind approvers a day before a review is due and tell the requester when
+    // it is overdue. Reads only the D1 due index (kind `approval_due`) and opens just
+    // the workspaces that have a reminder due (FLOW-016, ADR DATA-008).
+    if (isApprovalDueCron(event.cron)) {
+      ctx.waitUntil(
+        runApprovalReminders(env).catch((err) => {
+          console.error('[ApprovalDue] Failed:', err);
         }),
       );
     }

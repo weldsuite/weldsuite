@@ -12,6 +12,7 @@
  *   POST   /:id/assess      reassess a risk: item + assessment + next review, one batch
  *   POST   /:id/convert     assumption -> risk, risk -> issue
  *   POST   /:id/tasks       create a mitigation (risk) or resolution (issue) task
+ *   POST   /:id/request-acceptance  ask the sponsor to accept a risk (strategy accept, score 9 or more)
  *
  * Permissions: projects:read | projects:create | projects:update | projects:delete,
  * plus the project membership boundary (FLOW-001). The checks run in a fixed
@@ -65,6 +66,9 @@ import {
   riskBand,
   riskScore,
 } from '@weldsuite/flow-domain/risk';
+import { requestRiskAcceptanceSchema } from '@weldsuite/app-api-client/schemas/flow-approvals';
+import { acceptanceError } from '@weldsuite/flow-domain/acceptance';
+import { presentReviewApprover } from '@weldsuite/flow-domain/approval-views';
 import { allocateNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import type { Env, Variables } from '../../types';
@@ -72,6 +76,7 @@ import { accessibleProjectIds, canAccessProject, canWriteProject, inAccessiblePr
 import { containsPattern, parseLimit, queryBoolean } from '../../lib/query-params';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { dispatchAssignmentNotifications } from '../../lib/task-notifications';
+import { requestRiskAcceptance } from '../../services/risk-acceptance';
 import {
   convertedItemValues,
   findRaidItem,
@@ -758,6 +763,29 @@ app.post('/:id/tasks', requirePermission('projects:update'), requirePermission('
         .catch((undoErr: unknown) => console.error('[flow-api/project-raid] task rollback failed:', undoErr));
     }
     return error.internal(c, 'Failed to create task');
+  }
+});
+
+// ── Risk acceptance (FLOW-016) ──────────────────────────────────────────────
+
+app.post('/:id/request-acceptance', requirePermission('projects:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const item = await findRaidItem(db, id);
+  if (!item) return error.notFound(c, ITEM_LABEL, id);
+  if (!(await canWriteProject(c, item.projectId))) return error.forbidden(c, PROJECT_WRITE_DENIED);
+  const body = await parseBody(c, requestRiskAcceptanceSchema);
+  if (!body.ok) return body.response;
+  const refusal = acceptanceError(item);
+  if (refusal) return refusal.status === 409 ? error.conflict(c, refusal.message) : error.badRequest(c, refusal.message);
+
+  try {
+    const result = await requestRiskAcceptance(c, db, item, body.data.note ?? null);
+    if (!result.ok) return result.status === 409 ? error.conflict(c, result.message) : error.badRequest(c, result.message);
+    return success(c, { item: await presentOne(c, item), approvers: result.rows.map(presentReviewApprover) }, 201);
+  } catch (err) {
+    console.error('[flow-api/project-raid] request acceptance failed:', err);
+    return error.internal(c, 'Failed to ask for acceptance');
   }
 });
 

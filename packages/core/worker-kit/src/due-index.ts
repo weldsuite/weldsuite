@@ -34,7 +34,9 @@ export type DueIndexKind =
   // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
-  | 'desk_sla';
+  | 'desk_sla'
+  // WeldFlow (flow-api): approval reminders a day before they are due, and overdue notices to the requester (FLOW-016).
+  | 'approval_due';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

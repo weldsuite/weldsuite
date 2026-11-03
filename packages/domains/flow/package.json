@@ -6,7 +6,11 @@
   "private": true,
   "exports": {
     "./analytics-payload": "./src/analytics-payload.ts",
+    "./acceptance": "./src/acceptance.ts",
+    "./approval-views": "./src/approval-views.ts",
     "./approvals": "./src/approvals.ts",
+    "./baselines": "./src/baselines.ts",
+    "./changes": "./src/changes.ts",
     "./project-access": "./src/project-access.ts",
     "./day-boundaries": "./src/day-boundaries.ts",
     "./project-stats": "./src/project-stats.ts",

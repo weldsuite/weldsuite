@@ -401,6 +401,8 @@ export interface ChangeScopeChanges {
     ownerId?: string | null;
     plannedStart?: string | null;
     plannedEnd?: string | null;
+    // slice A: the id of the deliverable row, written when the approved change is applied, so the change's events can name it.
+    deliverableId?: string;
   }>;
   /** Ids of deliverables to remove. */
   remove?: string[];
