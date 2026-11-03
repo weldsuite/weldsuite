@@ -73,7 +73,7 @@ export async function resolveEntityBaseCurrency(db: Database, entityId: string):
   return entity?.baseCurrency || 'EUR';
 }
 
-const DEFAULT_SEQUENCE_PREFIX: Record<'invoice' | 'bill' | 'creditNote' | 'journal', string> = {
+export const DEFAULT_SEQUENCE_PREFIX: Record<'invoice' | 'bill' | 'creditNote' | 'journal', string> = {
   invoice: 'INV-',
   bill: 'BILL-',
   creditNote: 'CN-',

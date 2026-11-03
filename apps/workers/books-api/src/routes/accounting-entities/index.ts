@@ -22,6 +22,10 @@
  * (`accounts.tax_line`) and 1099 box. `POST /:id/apply-tax-lines` re-maps the
  * lines after the classification changes.
  *
+ * Document numbering (`GET|PATCH /:id/number-sequences`): prefix, next number
+ * and padding of the invoice, credit note, bill and journal series; the next
+ * number only moves forward.
+ *
  * Lock dates (`PATCH /:id/lock-dates`) and their logged, time-limited
  * per-user exceptions (`/:id/lock-exceptions`) are set here; the posting
  * service enforces them.
@@ -67,6 +71,12 @@ import {
   taxYearOf,
 } from '../../services/accounting-entity-setup';
 import { getEntityLockState } from '../../services/accounting-entity-lock';
+import {
+  NumberSequenceError,
+  SEQUENCE_TYPES,
+  listNumberSequences,
+  updateNumberSequences,
+} from '../../services/accounting-number-sequences';
 import { normalizeBrAddress, normalizeBrSettings, syncBrTaxProfiles } from '../../services/br-entity-setup';
 import type { StoredPostalAddress } from '@weldsuite/db/schema';
 
@@ -1227,6 +1237,89 @@ app.patch(
     } catch (err) {
       console.error('[books-api/accounting-entities] lock dates failed:', err);
       return error.internal(c, 'Failed to update lock dates');
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Document numbering: prefix, next number and padding per sequence. The next
+// number only moves forward (services/accounting-number-sequences.ts).
+// ---------------------------------------------------------------------------
+
+const numberSequencesSchema = z.object({
+  sequences: z
+    .array(
+      z.object({
+        sequenceType: z.enum(SEQUENCE_TYPES),
+        prefix: z
+          .string()
+          .max(20)
+          .regex(/^[A-Za-z0-9 ._/-]*$/, 'Use letters, digits, spaces and . _ / -')
+          .optional(),
+        nextValue: z.number().int().min(1).max(999_999_999).optional(),
+        padding: z.number().int().min(0).max(10).optional(),
+      }),
+    )
+    .min(1)
+    .max(SEQUENCE_TYPES.length)
+    .refine((list) => new Set(list.map((s) => s.sequenceType)).size === list.length, 'Each sequence at most once'),
+});
+
+// GET /:id/number-sequences
+app.get('/:id/number-sequences', requirePermission('entities:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const entity = await findActiveEntity(db, id);
+    if (!entity) return error.notFound(c, 'Entity', id);
+    return success(c, await listNumberSequences(db, id));
+  } catch (err) {
+    console.error('[books-api/accounting-entities] list number sequences failed:', err);
+    return error.internal(c, 'Failed to load the numbering');
+  }
+});
+
+// PATCH /:id/number-sequences
+app.patch(
+  '/:id/number-sequences',
+  requirePermission('entities:update'),
+  zValidator('json', numberSequencesSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+
+    try {
+      const entity = await findActiveEntity(db, id);
+      if (!entity) return error.notFound(c, 'Entity', id);
+
+      const { sequences, changes } = await updateNumberSequences(db, id, body.sequences);
+      if (Object.keys(changes).length === 0) return success(c, sequences);
+
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: id,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'numbering_updated',
+        changes,
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'updated',
+        data: {
+          id,
+          name: entity.name,
+          numberSequences: sequences.map(({ sequenceType, prefix, nextValue, padding }) => ({ sequenceType, prefix, nextValue, padding })),
+        },
+      });
+
+      return success(c, sequences);
+    } catch (err) {
+      if (err instanceof NumberSequenceError) return error.badRequest(c, err.message);
+      console.error('[books-api/accounting-entities] update number sequences failed:', err);
+      return error.internal(c, 'Failed to update the numbering');
     }
   },
 );
