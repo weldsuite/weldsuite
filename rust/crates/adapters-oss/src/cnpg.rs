@@ -495,7 +495,23 @@ impl CnpgProvisioner {
             }
             None => self.options.shards.iter().map(CnpgShard::key).collect(),
         };
-        let claimed: Option<(String, String)> = sqlx::query_as(
+        // `skip locked` keeps concurrent claims off each other's shard. When
+        // it finds nothing, the only rows with room may just be locked by a
+        // claim in flight: wait for them once instead of reporting no capacity.
+        if let Some(claimed) = self.claim_shard_row(&keys, "skip locked").await? {
+            return Ok(claimed);
+        }
+        self.claim_shard_row(&keys, "")
+            .await?
+            .ok_or(ProvisionError::NoCapacity)
+    }
+
+    async fn claim_shard_row(
+        &self,
+        keys: &[String],
+        lock_option: &'static str,
+    ) -> Result<Option<(String, String)>, ProvisionError> {
+        sqlx::query_as(AssertSqlSafe(format!(
             "update neon_shared_projects
              set database_count = database_count + 1,
                  status = case when database_count + 1 >= max_databases then 'full' else status end,
@@ -508,16 +524,15 @@ impl CnpgProvisioner {
                    and neon_project_id = any($2)
                  order by database_count asc
                  limit 1
-                 for update skip locked
+                 for update {lock_option}
              )
              returning id, neon_project_id",
-        )
+        )))
         .bind(&self.options.region)
-        .bind(&keys)
+        .bind(keys)
         .fetch_optional(&self.master)
         .await
-        .map_err(master_error)?;
-        claimed.ok_or(ProvisionError::NoCapacity)
+        .map_err(master_error)
     }
 
     /// Give a slot back (`decrementShardCount`): never below zero, and a
