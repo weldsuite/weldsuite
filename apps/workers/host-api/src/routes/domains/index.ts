@@ -459,6 +459,8 @@ app.get('/:id', requirePermission('domains:read'), async (c) => {
       ...domainsService.toPublicDomain(got.domain),
       dnsZone: got.zone ?? null,
       usedByWeldReach: await isDomainUsedByWeldReach(db, id),
+      // Lets a pending external domain pick up its TXT verification again.
+      verificationRecord: domainsService.pendingVerificationRecord(got.domain, got.zone),
     });
   } catch (err) {
     console.error('[app-api/domains] get failed:', err);
