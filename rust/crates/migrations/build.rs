@@ -1,5 +1,5 @@
 //! Embeds the journaled Drizzle migrations
-//! (`packages/core/db/drizzle/{master,tenant}-migrations`) in the crate: one
+//! (`packages/core/db/drizzle/{master,tenant,personal}-migrations`) in the crate: one
 //! table per folder, in the order of its `meta/_journal.json`, each entry's
 //! SQL pulled in with `include_str!`. The image builds from the repository
 //! root: the Dockerfile copies the folder's SQL and journals and points
@@ -10,9 +10,10 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-const FOLDERS: [(&str, &str); 2] = [
+const FOLDERS: [(&str, &str); 3] = [
     ("MASTER", "master-migrations"),
     ("TENANT", "tenant-migrations"),
+    ("PERSONAL", "personal-migrations"),
 ];
 
 fn main() {

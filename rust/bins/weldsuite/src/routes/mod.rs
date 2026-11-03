@@ -11,6 +11,7 @@ mod feature_flags;
 mod host;
 pub(crate) mod integrations;
 mod me;
+pub(crate) mod personal;
 
 use std::sync::{Arc, OnceLock};
 

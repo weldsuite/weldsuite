@@ -6624,6 +6624,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.12
         version: 4.1.12(vitest@4.1.12)
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../../../packages/core/worker-kit
       typescript:
         specifier: ^5.7
         version: 5.9.2

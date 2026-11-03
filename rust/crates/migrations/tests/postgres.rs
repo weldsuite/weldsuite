@@ -164,6 +164,29 @@ async fn the_master_keeps_its_rows_in_the_drizzle_schema() {
     db.drop().await;
 }
 
+/// personal-api's shared personal database: drizzle-kit's bookkeeping, as
+/// the master's (`pnpm db:migrate:personal`).
+#[tokio::test]
+async fn the_personal_database_keeps_its_rows_in_the_drizzle_schema() {
+    let Some(db) = Scratch::new("personal").await else {
+        return;
+    };
+    let journal = Journal::embedded(Folder::Personal);
+    assert!(journal.migrations().len() >= 4);
+    let outcome = migrate_database(&db.url, journal, DatabaseOptions::default())
+        .await
+        .expect("migrate");
+    assert_eq!(outcome.applied.len(), journal.migrations().len());
+    let mut conn = db.connect().await;
+    assert!(table_exists(&mut conn, "drizzle", "__drizzle_migrations").await);
+    assert!(table_exists(&mut conn, "public", "personal_mail_accounts").await);
+    assert!(table_exists(&mut conn, "public", "personal_calendar_bookings").await);
+    assert!(!table_exists(&mut conn, "public", "workspaces").await);
+    assert_eq!(pending(&mut conn, journal).await.expect("pending"), NONE);
+    conn.close().await.expect("close");
+    db.drop().await;
+}
+
 #[tokio::test]
 async fn an_older_releases_database_gets_the_rest() {
     let Some(db) = Scratch::new("partial").await else {

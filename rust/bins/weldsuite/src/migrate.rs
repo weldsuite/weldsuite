@@ -15,9 +15,15 @@
 //!   provisioner migrates it itself) and is skipped: there is no Neon API to
 //!   ask for its URL.
 //!
+//! The shared personal database of personal-api (`DATABASE_URL_PERSONAL`,
+//! ADR DATA-011) is `pnpm db:migrate:personal`'s twin: `--personal`, and part
+//! of a run without flags. An install without `DATABASE_URL_PERSONAL` (no
+//! personal-api) skips it with a note.
+//!
 //! Configuration: `DATABASE_URL_MASTER` (or the TypeScript runner's
-//! `MASTER_DATABASE_URL`), `DATABASE_ENCRYPTION_KEY` and
-//! `DATABASE_ENCRYPTION_KEY_V2` to open tenant URLs, `LOG_FORMAT`, `RUST_LOG`.
+//! `MASTER_DATABASE_URL`), `DATABASE_URL_PERSONAL` (or `PERSONAL_DATABASE_URL`),
+//! `DATABASE_ENCRYPTION_KEY` and `DATABASE_ENCRYPTION_KEY_V2` to open tenant
+//! URLs, `LOG_FORMAT`, `RUST_LOG`.
 
 use std::process::ExitCode;
 
@@ -40,7 +46,10 @@ pnpm db:migrate:master and apps/tools/migrate-databases do.
 
 options:
   --master             the master database
-  --tenants            every tenant database (neither flag: both)
+  --tenants            every tenant database
+  --personal           the shared personal database of personal-api
+                       (DATABASE_URL_PERSONAL; skipped when it is not set)
+                       (no target flag: all three)
   --dry-run            list what would run; change nothing
   --only <id>          only this workspace (workspaces.id); also --workspace
   --check-journal      only report, per database, journal migrations it has
@@ -68,6 +77,7 @@ Exit status: 0 when every database is at the journal level or only has gaps
 struct Options {
     master: bool,
     tenants: bool,
+    personal: bool,
     dry_run: bool,
     only: Option<String>,
     check_journal: bool,
@@ -89,6 +99,7 @@ fn parse(args: &[String], redact_by_default: bool) -> Result<Parsed, String> {
     let mut options = Options {
         master: false,
         tenants: false,
+        personal: false,
         dry_run: false,
         only: None,
         check_journal: false,
@@ -103,6 +114,7 @@ fn parse(args: &[String], redact_by_default: bool) -> Result<Parsed, String> {
         match arg.as_str() {
             "--master" => options.master = true,
             "--tenants" => options.tenants = true,
+            "--personal" => options.personal = true,
             "--dry-run" => options.dry_run = true,
             "--only" | "--workspace" => {
                 let id = args
@@ -127,9 +139,10 @@ fn parse(args: &[String], redact_by_default: bool) -> Result<Parsed, String> {
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if !options.master && !options.tenants {
+    if !options.master && !options.tenants && !options.personal {
         options.master = true;
         options.tenants = true;
+        options.personal = true;
     }
     // "Show workspace details (overrides --redact)".
     if show_workspaces {
@@ -159,6 +172,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         eprintln!("DATABASE_URL_MASTER is required");
         return ExitCode::from(78); // EX_CONFIG
     };
+    let personal_url = env("DATABASE_URL_PERSONAL").or_else(|| env("PERSONAL_DATABASE_URL"));
     let keyring = Keyring {
         v1: env("DATABASE_ENCRYPTION_KEY"),
         v2: env("DATABASE_ENCRYPTION_KEY_V2"),
@@ -187,7 +201,12 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let succeeded = runtime.block_on(migrate(&options, &master_url, &keyring));
+    let succeeded = runtime.block_on(migrate(
+        &options,
+        &master_url,
+        personal_url.as_deref(),
+        &keyring,
+    ));
     telemetry.shutdown();
     if succeeded {
         ExitCode::SUCCESS
@@ -222,12 +241,20 @@ impl Report {
 
 const RULE: &str = "===========================================";
 
-async fn migrate(options: &Options, master_url: &str, keyring: &Keyring) -> bool {
+async fn migrate(
+    options: &Options,
+    master_url: &str,
+    personal_url: Option<&str>,
+    keyring: &Keyring,
+) -> bool {
     let report = Report {
         redact: options.redact,
     };
     println!("\n{RULE}\n  WeldSuite database migrations\n{RULE}\n");
-    for folder in [Folder::Master, Folder::Tenant] {
+    for folder in [Folder::Master, Folder::Tenant, Folder::Personal] {
+        if folder == Folder::Personal && !(options.personal && personal_url.is_some()) {
+            continue;
+        }
         let journal = Journal::embedded(folder);
         println!(
             "{} journal: {} migrations, latest {}",
@@ -253,8 +280,20 @@ async fn migrate(options: &Options, master_url: &str, keyring: &Keyring) -> bool
         println!("Output: REDACTED (workspace details hidden, use --show-workspaces to reveal)\n");
     }
 
-    if options.master && !migrate_master(options, master_url, &report).await {
+    if options.master && !migrate_single(options, master_url, Folder::Master, &report).await {
         return false;
+    }
+    if options.personal {
+        match personal_url {
+            Some(url) => {
+                if !migrate_single(options, url, Folder::Personal, &report).await {
+                    return false;
+                }
+            }
+            None => println!(
+                "Personal database\n  Skipped: DATABASE_URL_PERSONAL is not set (no personal-api)\n"
+            ),
+        }
     }
     if options.tenants {
         return migrate_all_tenants(options, master_url, keyring, &report).await;
@@ -273,11 +312,19 @@ async fn connect(url: &str) -> Result<PgConnection, String> {
     }
 }
 
-async fn migrate_master(options: &Options, master_url: &str, report: &Report) -> bool {
-    let journal = Journal::embedded(Folder::Master);
-    println!("Master database");
+/// One database of its own: the master, or the shared personal database.
+async fn migrate_single(options: &Options, url: &str, folder: Folder, report: &Report) -> bool {
+    let journal = Journal::embedded(folder);
+    println!(
+        "{} database",
+        if folder == Folder::Personal {
+            "Personal"
+        } else {
+            "Master"
+        }
+    );
     if options.dry_run {
-        let pending = match connect(master_url).await {
+        let pending = match connect(url).await {
             Ok(mut conn) => {
                 let pending = pending(&mut conn, journal).await.map_err(|e| e.to_string());
                 let _ = conn.close().await;
@@ -308,7 +355,7 @@ async fn migrate_master(options: &Options, master_url: &str, report: &Report) ->
         apply_skipped: false,
         check_only: options.check_journal,
     };
-    match migrate_database(master_url, journal, database_options).await {
+    match migrate_database(url, journal, database_options).await {
         Ok(outcome) => {
             println!("  Status: SUCCESS ({} applied)", outcome.applied.len());
             if let Some(gap) = &outcome.journal_gap {
@@ -575,6 +622,11 @@ mod tests {
         assert!(master.master && !master.tenants);
         let tenants = options(&["--tenants", "--dry-run"], false);
         assert!(!tenants.master && tenants.tenants && tenants.dry_run);
+        // The personal database: with no target flag, or --personal.
+        assert!(both.personal);
+        assert!(!master.personal);
+        let personal = options(&["--personal"], false);
+        assert!(!personal.master && !personal.tenants && personal.personal);
     }
 
     #[test]

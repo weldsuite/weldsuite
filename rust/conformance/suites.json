@@ -2904,6 +2904,135 @@
       ]
     },
     {
+      "name": "personal: account",
+      "module": "personal",
+      "workspace": "apps/workers/personal-api",
+      "tests": [
+        "src/routes/account.test.ts"
+      ],
+      "coverage": [
+        "/health",
+        "/robots.txt",
+        "/api/onboard",
+        "/api/me",
+        "/api/push-tokens"
+      ],
+      "paths": [
+        "apps/workers/personal-api/src/index.ts",
+        "apps/workers/personal-api/src/middleware/",
+        "apps/workers/personal-api/src/lib/",
+        "apps/workers/personal-api/src/test/",
+        "packages/core/db/src/schema/personal/",
+        "packages/core/db/drizzle/personal-migrations/",
+        "packages/clients/app-api-client/src/schemas/personal-responses.ts",
+        "rust/modules/personal/",
+        "rust/bins/weldsuite/src/routes/personal.rs",
+        "apps/workers/personal-api/src/routes/onboard.ts",
+        "apps/workers/personal-api/src/routes/me.ts",
+        "apps/workers/personal-api/src/routes/push-tokens.ts",
+        "apps/workers/personal-api/src/services/push-tokens.ts",
+        "rust/crates/auth/src/"
+      ]
+    },
+    {
+      "name": "personal: calendar",
+      "module": "personal",
+      "workspace": "apps/workers/personal-api",
+      "tests": [
+        "src/routes/calendars.test.ts"
+      ],
+      "coverage": [
+        "/api/calendars",
+        "/api/calendar-events"
+      ],
+      "paths": [
+        "apps/workers/personal-api/src/index.ts",
+        "apps/workers/personal-api/src/middleware/",
+        "apps/workers/personal-api/src/lib/",
+        "apps/workers/personal-api/src/test/",
+        "packages/core/db/src/schema/personal/",
+        "packages/core/db/drizzle/personal-migrations/",
+        "packages/clients/app-api-client/src/schemas/personal-responses.ts",
+        "rust/modules/personal/",
+        "rust/bins/weldsuite/src/routes/personal.rs",
+        "apps/workers/personal-api/src/routes/calendars.ts",
+        "apps/workers/personal-api/src/routes/calendar-events.ts",
+        "apps/workers/personal-api/src/services/calendar-access.ts",
+        "rust/crates/calendar-domain/src/js_dates.rs"
+      ]
+    },
+    {
+      "name": "personal: booking",
+      "module": "personal",
+      "workspace": "apps/workers/personal-api",
+      "tests": [
+        "src/routes/booking-pages.test.ts"
+      ],
+      "coverage": [
+        "/api/booking-pages",
+        "/api/bookings"
+      ],
+      "paths": [
+        "apps/workers/personal-api/src/index.ts",
+        "apps/workers/personal-api/src/middleware/",
+        "apps/workers/personal-api/src/lib/",
+        "apps/workers/personal-api/src/test/",
+        "packages/core/db/src/schema/personal/",
+        "packages/core/db/drizzle/personal-migrations/",
+        "packages/clients/app-api-client/src/schemas/personal-responses.ts",
+        "rust/modules/personal/",
+        "rust/bins/weldsuite/src/routes/personal.rs",
+        "apps/workers/personal-api/src/routes/booking-pages.ts",
+        "apps/workers/personal-api/src/routes/bookings.ts",
+        "apps/workers/personal-api/src/services/calendar-slots.ts",
+        "rust/crates/calendar-domain/src/js_dates.rs"
+      ]
+    },
+    {
+      "name": "personal: mail",
+      "module": "personal",
+      "workspace": "apps/workers/personal-api",
+      "tests": [
+        "src/routes/mail.test.ts",
+        "src/routes/mail-sending.test.ts"
+      ],
+      "coverage": [
+        "/api/mail"
+      ],
+      "paths": [
+        "apps/workers/personal-api/src/index.ts",
+        "apps/workers/personal-api/src/middleware/",
+        "apps/workers/personal-api/src/lib/",
+        "apps/workers/personal-api/src/test/",
+        "packages/core/db/src/schema/personal/",
+        "packages/core/db/drizzle/personal-migrations/",
+        "packages/clients/app-api-client/src/schemas/personal-responses.ts",
+        "rust/modules/personal/",
+        "rust/bins/weldsuite/src/routes/personal.rs",
+        "apps/workers/personal-api/src/routes/mail-",
+        "apps/workers/personal-api/src/services/mail-",
+        "packages/core/email/src/list-unsubscribe.ts",
+        "packages/domains/mail/src/read-push.ts",
+        "packages/domains/mail/src/outbound/",
+        "rust/crates/mail-domain/src/outbound/",
+        "rust/crates/mail-inbound/src/unsubscribe.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/mail/weldmail/domain",
+          "reason": "Free @weldmail.com addresses belong to Global (ADR MAIL-010): that domain's MX and reputation are Global's, so the Kubernetes editions do not serve them, and /config.json lists mail-free-addresses as unavailable (as for mail-api's /api/mail-weldmail)."
+        },
+        {
+          "route": "POST /api/mail/weldmail/check",
+          "reason": "Free @weldmail.com addresses belong to Global (ADR MAIL-010): that domain's MX and reputation are Global's, so the Kubernetes editions do not serve them, and /config.json lists mail-free-addresses as unavailable (as for mail-api's /api/mail-weldmail)."
+        },
+        {
+          "route": "POST /api/mail/weldmail/reserve",
+          "reason": "Free @weldmail.com addresses belong to Global (ADR MAIL-010): that domain's MX and reputation are Global's, so the Kubernetes editions do not serve them, and /config.json lists mail-free-addresses as unavailable (as for mail-api's /api/mail-weldmail)."
+        }
+      ]
+    },
+    {
       "name": "panel",
       "module": "panel",
       "workspace": "apps/workers/panel-api",
