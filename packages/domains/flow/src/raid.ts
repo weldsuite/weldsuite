@@ -166,13 +166,21 @@ export interface LinkEnd extends LinkRef {
   kind?: RaidKind;
 }
 
+/** What a register item can affect or threaten. */
+const AFFECTED_TYPES: readonly ControlLinkType[] = ['task', 'milestone', 'deliverable', 'benefit'];
+
+/** What a task or deliverable can implement. */
+const IMPLEMENTED_TYPES: readonly ControlLinkType[] = ['decision', 'change_request', 'benefit'];
+
 /**
  * The shape rules of a link, before either end is looked up: two different
  * objects, and the relation going the right way between the right types.
  *
  *   mitigates, resolves   task → raid_item
  *   raised_from           raid_item → raid_item
- *   affects, threatens    raid_item → task or milestone
+ *   affects, threatens    raid_item → task, milestone, deliverable or benefit
+ *   implements            task or deliverable → decision, change_request or benefit
+ *   decided_by            anything but a decision → decision
  *
  * Returns the 400 message, or null.
  */
@@ -191,9 +199,17 @@ export function linkShapeError(input: { from: LinkRef; to: LinkRef; relation: Co
         : "The 'raised_from' relation goes from a register item to the register item it was raised from";
     case 'affects':
     case 'threatens':
-      return from.type === 'raid_item' && (to.type === 'task' || to.type === 'milestone')
+      return from.type === 'raid_item' && AFFECTED_TYPES.includes(to.type)
         ? null
-        : `The '${relation}' relation goes from a register item to a task or milestone`;
+        : `The '${relation}' relation goes from a register item to a task, milestone, deliverable or benefit`;
+    case 'implements':
+      return (from.type === 'task' || from.type === 'deliverable') && IMPLEMENTED_TYPES.includes(to.type)
+        ? null
+        : "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit";
+    case 'decided_by':
+      return from.type !== 'decision' && to.type === 'decision'
+        ? null
+        : "The 'decided_by' relation goes from an object to the decision that settled it";
   }
 }
 

@@ -13,6 +13,7 @@
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { isBenefitMeasureCron, runBenefitMeasure } from './cron/benefit-measure';
 import { runDigestSweep } from './cron/digest-sweep';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
 import { approvalsRoutes } from './routes/approvals';
@@ -139,6 +140,15 @@ export default {
       ctx.waitUntil(
         runDeletedFilesPurge(env).catch((err) => {
           console.error('[FilePurge] Failed:', err);
+        }),
+      );
+    }
+    // Daily: measure the benefits of the workspaces the `benefit_measure` due index
+    // lists (the month that just ended; FLOW-014).
+    if (isBenefitMeasureCron(event.cron)) {
+      ctx.waitUntil(
+        runBenefitMeasure(env).catch((err) => {
+          console.error('[BenefitMeasure] Failed:', err);
         }),
       );
     }

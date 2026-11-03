@@ -26,6 +26,9 @@ import {
   type LinkEnd,
 } from '@weldsuite/flow-domain/raid';
 import { nextReviewAt, riskBand, riskScore } from '@weldsuite/flow-domain/risk';
+import { benefitCode } from '@weldsuite/flow-domain/benefits';
+import { decisionCode } from '@weldsuite/flow-domain/decisions';
+import { deliverableCode } from '@weldsuite/flow-domain/deliverables';
 
 const items = schema.projectRaidItems;
 const links = schema.projectControlLinks;
@@ -159,6 +162,74 @@ async function resolveEnds(db: Database, type: ControlLinkType, ids: string[]): 
         dueDate: row.dueDate,
       });
     }
+  } else if (type === 'decision') {
+    const rows = await db
+      .select()
+      .from(schema.projectDecisions)
+      .where(and(inArray(schema.projectDecisions.id, ids), isNull(schema.projectDecisions.deletedAt)));
+    for (const row of rows) {
+      out.set(row.id, {
+        type,
+        id: row.id,
+        projectId: row.projectId,
+        title: row.title,
+        status: row.status,
+        code: decisionCode(row.number),
+        ownerId: row.deciderId ?? row.decidedBy,
+        dueDate: row.decisionDueAt,
+      });
+    }
+  } else if (type === 'change_request') {
+    const rows = await db
+      .select()
+      .from(schema.projectChangeRequests)
+      .where(and(inArray(schema.projectChangeRequests.id, ids), isNull(schema.projectChangeRequests.deletedAt)));
+    for (const row of rows) {
+      out.set(row.id, {
+        type,
+        id: row.id,
+        projectId: row.projectId,
+        title: row.title,
+        status: row.status,
+        code: `CR-${row.number}`,
+        ownerId: row.requestedBy,
+        dueDate: null,
+      });
+    }
+  } else if (type === 'deliverable') {
+    const rows = await db
+      .select()
+      .from(schema.projectDeliverables)
+      .where(and(inArray(schema.projectDeliverables.id, ids), isNull(schema.projectDeliverables.deletedAt)));
+    for (const row of rows) {
+      out.set(row.id, {
+        type,
+        id: row.id,
+        projectId: row.projectId,
+        title: row.title,
+        status: row.status,
+        code: deliverableCode(row.number),
+        ownerId: row.ownerId,
+        dueDate: row.plannedEnd,
+      });
+    }
+  } else if (type === 'benefit') {
+    const rows = await db
+      .select()
+      .from(schema.projectBenefits)
+      .where(and(inArray(schema.projectBenefits.id, ids), isNull(schema.projectBenefits.deletedAt)));
+    for (const row of rows) {
+      out.set(row.id, {
+        type,
+        id: row.id,
+        projectId: row.projectId,
+        title: row.title,
+        status: row.status,
+        code: benefitCode(row.number),
+        ownerId: row.ownerId,
+        dueDate: row.realiseBy,
+      });
+    }
   } else {
     const rows = await db
       .select({
@@ -267,18 +338,18 @@ function byCreation(a: ControlLinkRow, b: ControlLinkRow): number {
   return a.id < b.id ? -1 : 1;
 }
 
-/** Every link that has the register item at either end, oldest first. */
-export async function linksOfRaidItem(db: Database, itemId: string): Promise<ControlLinkRow[]> {
+/** Every link that has the object at either end, oldest first. */
+export async function linksOfObject(db: Database, type: ControlLinkType, id: string): Promise<ControlLinkRow[]> {
   return db
     .select()
     .from(links)
-    .where(
-      or(
-        and(eq(links.fromType, 'raid_item'), eq(links.fromId, itemId)),
-        and(eq(links.toType, 'raid_item'), eq(links.toId, itemId)),
-      ),
-    )
+    .where(or(and(eq(links.fromType, type), eq(links.fromId, id)), and(eq(links.toType, type), eq(links.toId, id))))
     .orderBy(asc(links.createdAt), asc(links.id));
+}
+
+/** Every link that has the register item at either end, oldest first. */
+export async function linksOfRaidItem(db: Database, itemId: string): Promise<ControlLinkRow[]> {
+  return linksOfObject(db, 'raid_item', itemId);
 }
 
 /**

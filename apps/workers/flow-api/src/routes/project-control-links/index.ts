@@ -50,6 +50,10 @@ const OBJECT_LABELS: Record<ControlLinkType, string> = {
   raid_item: 'RAID item',
   task: 'Task',
   milestone: 'Milestone',
+  decision: 'Decision',
+  change_request: 'Change request',
+  deliverable: 'Deliverable',
+  benefit: 'Benefit',
 };
 
 const listQuerySchema = z

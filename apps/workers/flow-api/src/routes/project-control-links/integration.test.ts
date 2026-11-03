@@ -203,8 +203,8 @@ describe('POST /', () => {
     await refuse(link('raid_item', ids.risk, 'task', ids.task1, 'mitigates'), "The 'mitigates' relation goes from a task to a register item");
     await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'resolves'), "The 'resolves' relation goes from a task to a register item");
     await refuse(link('task', ids.task1, 'raid_item', ids.risk, 'raised_from'), "The 'raised_from' relation goes from a register item to the register item it was raised from");
-    await refuse(link('raid_item', ids.risk, 'raid_item', ids.issue, 'affects'), "The 'affects' relation goes from a register item to a task or milestone");
-    await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'threatens'), "The 'threatens' relation goes from a register item to a task or milestone");
+    await refuse(link('raid_item', ids.risk, 'raid_item', ids.issue, 'affects'), "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit");
+    await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'threatens'), "The 'threatens' relation goes from a register item to a task, milestone, deliverable or benefit");
     // A task mitigates a risk and resolves an issue, nothing else.
     await refuse(link('task', ids.task3, 'raid_item', ids.issue, 'mitigates'), 'A task can only mitigate a risk');
     await refuse(link('task', ids.task3, 'raid_item', ids.risk2, 'resolves'), 'A task can only resolve an issue');

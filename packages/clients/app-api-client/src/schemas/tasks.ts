@@ -45,6 +45,8 @@ export const createTaskSchema = z.object({
   projectId: z.string().nullish(),
   sprintId: z.string().nullish(),
   milestoneId: z.string().nullish(),
+  // The deliverable the task counts toward (WeldFlow project control); at most one.
+  deliverableId: z.string().nullish(),
   parentTaskId: z.string().nullish(),
   stageId: z.string().nullish(),
   assigneeId: z.string().nullish(),
@@ -92,6 +94,7 @@ export const updateTaskSchema = z.object({
   stageId: createTaskSchema.shape.stageId,
   sprintId: createTaskSchema.shape.sprintId,
   milestoneId: createTaskSchema.shape.milestoneId,
+  deliverableId: createTaskSchema.shape.deliverableId,
   parentTaskId: createTaskSchema.shape.parentTaskId,
   assigneeId: createTaskSchema.shape.assigneeId,
   // Clients send null to clear every assignee.
