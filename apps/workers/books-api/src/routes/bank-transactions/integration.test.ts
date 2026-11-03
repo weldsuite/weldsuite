@@ -573,4 +573,39 @@ describe('/api/bank-transactions reconciliation rules · pglite integration', ()
     expect(rule?.matchCount).toBe(1);
     expect(rule?.lastMatchedAt).toBeInstanceOf(Date);
   });
+
+  it('POST /:id/reconcile with a ruleId posts to the rule\'s account and counts the match', async () => {
+    await seedRuleEntity('ent_rule_pick', 'ba_rule_pick');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_pick_rent_line/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual', ruleId: 'ent_rule_pick_rule' }),
+    });
+    expect(res.status).toBe(200);
+
+    const [rent] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_pick_rent_line')).limit(1);
+    expect(rent?.status).toBe('reconciled');
+    expect(rent?.categoryAccountId).toBe('ent_rule_pick_rent');
+    const [rule] = await db.select().from(schema.reconciliationRules).where(eq(schema.reconciliationRules.id, 'ent_rule_pick_rule')).limit(1);
+    expect(rule?.matchCount).toBe(1);
+  });
+
+  it('POST /:id/reconcile refuses a rule of another entity', async () => {
+    await seedRuleEntity('ent_rule_own', 'ba_rule_own');
+    await seedRuleEntity('ent_rule_foreign', 'ba_rule_foreign');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_own_rent_line/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual', ruleId: 'ent_rule_foreign_rule' }),
+    });
+    expect(res.status).toBe(404);
+    const [line] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_own_rent_line')).limit(1);
+    expect(line?.status).toBe('unreconciled');
+  });
 });

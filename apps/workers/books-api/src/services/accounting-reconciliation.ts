@@ -280,72 +280,95 @@ export async function autoReconcileBatch(
 
   for (const txn of transactions) {
     const suggestions = await findMatches(db, schema, txn as MatchableTransaction, pool);
-    const bestMatch = suggestions[0];
-
     const result: ReconciliationResult = {
       transactionId: txn.id,
       suggestions,
       autoReconciled: false,
     };
 
-    const auto = bestMatch && bestMatch.confidence >= 0.8 ? bestMatch : undefined;
-    if (auto && (auto.type === 'invoice' || auto.type === 'bill' || auto.type === 'payment')) {
-      try {
-        if (auto.type === 'payment') {
-          await reconcileBankTransactionToPayment(db, {
-            txn: txn as BankTransactionRow,
-            paymentId: auto.entityId,
-            reconciliationType: 'auto',
-            userId,
-          });
-        } else {
-          await reconcileBankTransactionToDocument(db, {
-            txn: txn as BankTransactionRow,
-            type: auto.type,
-            documentId: auto.entityId,
-            reconciliationType: 'auto',
-            userId,
-          });
-        }
-        result.autoReconciled = true;
-        result.reconciledEntityType = auto.type;
-        result.reconciledEntityId = auto.entityId;
-        reconciledCount++;
-        // What was just used can't match the next line.
-        pool.invoices = pool.invoices.filter((i) => i.id !== auto.entityId);
-        pool.bills = pool.bills.filter((b) => b.id !== auto.entityId);
-        pool.payments = pool.payments.filter((p) => p.id !== auto.entityId);
-      } catch (err) {
-        console.warn(`[auto-reconcile] left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
-      }
-    }
-
-    const ruleMatch = result.autoReconciled ? undefined : suggestions.find((s) => s.type === 'rule');
-    const rule = ruleMatch && pool.rules.find((r) => r.id === ruleMatch.entityId);
-    if (ruleMatch?.categoryAccountId && rule) {
-      try {
-        await categorizeBankTransaction(db, {
-          txn: txn as BankTransactionRow,
-          categoryAccountId: ruleMatch.categoryAccountId,
-          contactId: rule.actions?.contactId ?? null,
-          taxRateId: rule.actions?.taxRateId ?? null,
-          reconciliationType: 'auto',
-          userId,
-        });
-        await recordRuleMatch(db, rule.id);
-        result.autoReconciled = true;
-        result.reconciledEntityType = 'rule';
-        result.reconciledEntityId = rule.id;
-        reconciledCount++;
-      } catch (err) {
-        console.warn(`[auto-reconcile] rule left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
-      }
+    const applied =
+      (await autoMatchDocument(db, txn as BankTransactionRow, suggestions[0], pool, userId)) ??
+      (await autoApplyRule(db, txn as BankTransactionRow, suggestions, pool, userId));
+    if (applied) {
+      result.autoReconciled = true;
+      result.reconciledEntityType = applied.type;
+      result.reconciledEntityId = applied.entityId;
+      reconciledCount++;
     }
 
     results.push(result);
   }
 
   return { reconciledCount, results };
+}
+
+/**
+ * Settle the line against its best invoice / bill / payment match when that
+ * match is confident enough (>= 0.8). Returns the match it used, or undefined
+ * when there was none or it couldn't be posted.
+ */
+async function autoMatchDocument(
+  db: Database,
+  txn: BankTransactionRow,
+  best: ReconciliationSuggestion | undefined,
+  pool: MatchCandidates,
+  userId: string | null,
+): Promise<ReconciliationSuggestion | undefined> {
+  if (!best || best.confidence < 0.8) return undefined;
+  if (best.type !== 'invoice' && best.type !== 'bill' && best.type !== 'payment') return undefined;
+  try {
+    if (best.type === 'payment') {
+      await reconcileBankTransactionToPayment(db, { txn, paymentId: best.entityId, reconciliationType: 'auto', userId });
+    } else {
+      await reconcileBankTransactionToDocument(db, {
+        txn,
+        type: best.type,
+        documentId: best.entityId,
+        reconciliationType: 'auto',
+        userId,
+      });
+    }
+  } catch (err) {
+    console.warn(`[auto-reconcile] left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
+  // What was just used can't match the next line.
+  pool.invoices = pool.invoices.filter((i) => i.id !== best.entityId);
+  pool.bills = pool.bills.filter((b) => b.id !== best.entityId);
+  pool.payments = pool.payments.filter((p) => p.id !== best.entityId);
+  return best;
+}
+
+/**
+ * Categorize the line with the reconciliation rule that matched it, applying
+ * the rule's tax rate and contact, and count the match. Returns the rule
+ * suggestion it used, or undefined.
+ */
+async function autoApplyRule(
+  db: Database,
+  txn: BankTransactionRow,
+  suggestions: readonly ReconciliationSuggestion[],
+  pool: MatchCandidates,
+  userId: string | null,
+): Promise<ReconciliationSuggestion | undefined> {
+  const ruleMatch = suggestions.find((s) => s.type === 'rule');
+  const rule = ruleMatch && pool.rules.find((r) => r.id === ruleMatch.entityId);
+  if (!ruleMatch?.categoryAccountId || !rule) return undefined;
+  try {
+    await categorizeBankTransaction(db, {
+      txn,
+      categoryAccountId: ruleMatch.categoryAccountId,
+      contactId: rule.actions?.contactId ?? null,
+      taxRateId: rule.actions?.taxRateId ?? null,
+      reconciliationType: 'auto',
+      userId,
+    });
+    await recordRuleMatch(db, rule.id);
+  } catch (err) {
+    console.warn(`[auto-reconcile] rule left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
+  return ruleMatch;
 }
 
 // ============================================================================

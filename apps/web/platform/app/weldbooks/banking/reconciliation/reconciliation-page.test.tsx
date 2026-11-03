@@ -122,7 +122,7 @@ describe('Bank reconciliation page', () => {
     expect(within(suggestion).getByText('Rent rule')).toBeInTheDocument();
     expect(within(suggestion).getByText('Matches a reconciliation rule')).toBeInTheDocument();
     await user.click(screen.getByTestId('match-rule'));
-    expect(reconcileMutate.mock.calls[0][0]).toEqual({ txnId: 'bt_3', data: { type: 'manual', categoryAccountId: 'acc_rent' } });
+    expect(reconcileMutate.mock.calls[0][0]).toEqual({ txnId: 'bt_3', data: { type: 'manual', ruleId: 'rr_rent' } });
   });
 
   it('shows the check number and the source of each bank line', async () => {

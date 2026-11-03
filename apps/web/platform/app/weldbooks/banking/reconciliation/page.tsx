@@ -23,7 +23,7 @@ import {
 } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, type Account } from '@/lib/api/domains/weldbooks';
-import type { MatchSuggestion } from '@/lib/api/domains/weldbooks-banking';
+import type { BankLine, MatchSuggestion } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -31,6 +31,70 @@ import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { CategorizeBankTransactionPanel } from '@/components/accounting/categorize-bank-transaction-panel';
 import { SuggestionList } from '../components/suggestion-list';
 import { maskedAccountNumber } from '../components/routing-number';
+
+/** "2 of 5 reconciled", or just the count when the server didn't send the lines it tried. */
+function autoReconcileSummary(
+  tbp: { autoReconciledOfTotal: string; autoReconciledCount: string },
+  result: { reconciledCount?: number; results?: unknown[] } | undefined,
+): string {
+  const count = String(result?.reconciledCount ?? 0);
+  return result?.results
+    ? tbp.autoReconciledOfTotal.replace('{count}', count).replace('{total}', String(result.results.length))
+    : tbp.autoReconciledCount.replace('{count}', count);
+}
+
+/** One unreconciled line in the list; the selected one is marked. */
+function ReconcileLineButton({
+  txn,
+  selected,
+  unknownLabel,
+  amountLabel,
+  dateLabel,
+  checkNumberLabel,
+  sourceLabel,
+  onSelect,
+}: {
+  txn: BankLine;
+  selected: boolean;
+  unknownLabel: string;
+  amountLabel: string;
+  dateLabel: string;
+  checkNumberLabel: string | null;
+  sourceLabel: string | null;
+  onSelect: () => void;
+}) {
+  // Without a counterparty the description is what tells lines apart.
+  const title = txn.counterpartyName || txn.description || unknownLabel;
+  const subtitle = txn.counterpartyName ? txn.description : null;
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      data-testid={`reconcile-line-${txn.id}`}
+      className={`block w-full text-left p-3 border-b border-l-4 cursor-pointer ${
+        selected ? 'border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-muted/50'
+      }`}
+      onClick={onSelect}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+        <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          {amountLabel}
+        </span>
+      </span>
+      <span className="flex items-center justify-between mt-1 gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{subtitle}</span>
+        <span className="shrink-0 text-xs tabular-nums">{dateLabel}</span>
+      </span>
+      {checkNumberLabel || sourceLabel ? (
+        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+          {checkNumberLabel ? <Badge variant="outline">{checkNumberLabel}</Badge> : null}
+          {sourceLabel ? <Badge variant="secondary">{sourceLabel}</Badge> : null}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 export default function BankReconciliationPage() {
   const navigate = useNavigate();
@@ -108,9 +172,8 @@ export default function BankReconciliationPage() {
     } else if (s.type === 'deposit') {
       matchDeposit.mutate({ lineId: selectedTxnId, depositId: s.id }, { onSuccess: () => setSelectedTxnId(null) });
     } else if (s.type === 'rule') {
-      if (s.categoryAccountId) {
-        reconcileMutation.mutate({ txnId: selectedTxnId, data: { type: 'manual', categoryAccountId: s.categoryAccountId } });
-      }
+      // The server applies the rule's account, tax rate and contact, as auto-reconcile does, and counts the match.
+      reconcileMutation.mutate({ txnId: selectedTxnId, data: { type: 'manual', ruleId: s.id } });
     } else {
       reconcileMutation.mutate({ txnId: selectedTxnId, data: { type: s.type, entityId: s.id } });
     }
@@ -127,45 +190,19 @@ export default function BankReconciliationPage() {
   } else {
     transactionList = (
       <div className="max-h-[60vh] overflow-y-auto">
-        {transactions.map((txn) => {
-          const selected = selectedTxnId === txn.id;
-          // Without a counterparty the description is what tells lines apart.
-          const title = txn.counterpartyName || txn.description || tsl.counterpartyUnknown;
-          const subtitle = txn.counterpartyName ? txn.description : null;
-          return (
-            <button
-              key={txn.id}
-              type="button"
-              aria-pressed={selected}
-              data-testid={`reconcile-line-${txn.id}`}
-              className={`block w-full text-left p-3 border-b border-l-4 cursor-pointer ${
-                selected ? 'border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-muted/50'
-              }`}
-              onClick={() => setSelectedTxnId(txn.id)}
-            >
-              <span className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-sm font-medium">{title}</span>
-                <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {fmt(txn.amount, displayCurrency)}
-                </span>
-              </span>
-              <span className="flex items-center justify-between mt-1 gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {subtitle}
-                </span>
-                <span className="shrink-0 text-xs tabular-nums">{formatDate(txn.date)}</span>
-              </span>
-              {txn.checkNumber || txn.source ? (
-                <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                  {txn.checkNumber ? (
-                    <Badge variant="outline">{tl.checkNumberBadge.replace('{number}', txn.checkNumber)}</Badge>
-                  ) : null}
-                  {txn.source ? <Badge variant="secondary">{tl.sources[txn.source]}</Badge> : null}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+        {transactions.map((txn) => (
+          <ReconcileLineButton
+            key={txn.id}
+            txn={txn}
+            selected={selectedTxnId === txn.id}
+            unknownLabel={tsl.counterpartyUnknown}
+            amountLabel={fmt(txn.amount, displayCurrency)}
+            dateLabel={formatDate(txn.date)}
+            checkNumberLabel={txn.checkNumber ? tl.checkNumberBadge.replace('{number}', txn.checkNumber) : null}
+            sourceLabel={txn.source ? tl.sources[txn.source] : null}
+            onSelect={() => setSelectedTxnId(txn.id)}
+          />
+        ))}
       </div>
     );
   }
@@ -219,11 +256,7 @@ export default function BankReconciliationPage() {
       {autoReconcileMutation.isSuccess && (
         <div className="text-sm text-green-600 flex items-center gap-1">
           <CheckCircle2 className="h-4 w-4" />
-          {autoReconcileMutation.data?.data?.results
-            ? tbp.autoReconciledOfTotal
-                .replace('{count}', String(autoReconcileMutation.data.data.reconciledCount))
-                .replace('{total}', String(autoReconcileMutation.data.data.results.length))
-            : tbp.autoReconciledCount.replace('{count}', String(autoReconcileMutation.data?.data?.reconciledCount ?? 0))}
+          {autoReconcileSummary(tbp, autoReconcileMutation.data?.data)}
         </div>
       )}
 

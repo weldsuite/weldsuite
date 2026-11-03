@@ -105,6 +105,21 @@ export function findMatchingRule(
   return rules.find((rule) => ruleMatches(txn, rule));
 }
 
+/** One active rule of the entity, or undefined (a rule suggestion picked by hand names it by id). */
+export async function loadActiveRule(
+  db: Database,
+  ruleId: string,
+  entityId: string,
+): Promise<ReconciliationRuleRow | undefined> {
+  const t = tables.reconciliationRules;
+  const [row] = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.id, ruleId), eq(t.entityId, entityId), eq(t.isActive, true), isNull(t.deletedAt)))
+    .limit(1);
+  return row;
+}
+
 /** Count a rule's use: `matchCount` and `lastMatchedAt` show on the Rules page. */
 export async function recordRuleMatch(db: Database, ruleId: string): Promise<void> {
   const t = tables.reconciliationRules;
