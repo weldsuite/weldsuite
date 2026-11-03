@@ -107,6 +107,16 @@ async fn read_received(master: &PgPool, now: i64) -> sqlx::Result<HashMap<String
         .collect())
 }
 
+/// A rate as JavaScript writes it: integral values as integers (jsonb keeps
+/// the scale of `0.0`).
+fn rate_json(rate: Option<f64>) -> Value {
+    match rate {
+        Some(r) if r.fract() == 0.0 => json!(r as i64),
+        Some(r) => json!(r),
+        None => Value::Null,
+    }
+}
+
 /// `buildStats(sent, received, now)`.
 pub fn build_stats(
     sent: Option<&SentCounts>,
@@ -124,8 +134,8 @@ pub fn build_stats(
         "inbox7d": s.inbox7d,
         "spam7d": s.spam7d,
         "missing7d": s.missing7d,
-        "inboxRate3d": inbox_rate(s.inbox3d, s.spam3d, s.missing3d),
-        "inboxRate7d": inbox_rate(s.inbox7d, s.spam7d, s.missing7d),
+        "inboxRate3d": rate_json(inbox_rate(s.inbox3d, s.spam3d, s.missing3d)),
+        "inboxRate7d": rate_json(inbox_rate(s.inbox7d, s.spam7d, s.missing7d)),
         "spamRescues7d": r.spam_rescues7d,
         "rolledUpAt": ts(now),
     })
