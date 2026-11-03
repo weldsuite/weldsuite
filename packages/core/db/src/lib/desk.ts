@@ -1059,9 +1059,20 @@ export function normalizeRfcMessageId(id: string | null | undefined): string | n
   return trimmed || null;
 }
 
+/** Reply and forward prefixes mail clients put before a subject (en, nl, de, nordic). */
+const SUBJECT_PREFIX = /^(?:re|fwd|fw|aw|antw|wg|sv|vs|doorst)\s?:/i;
+
+/** The subject without its reply/forward prefixes ("Re: Fwd: AW: x" → "x"). */
 export function normalizeEmailSubject(subject: string | null | undefined): string {
   if (!subject) return '';
-  return subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+  // A loop rather than one repeated-group regex, which backtracks.
+  let rest = subject.trim();
+  let match = SUBJECT_PREFIX.exec(rest);
+  while (match) {
+    rest = rest.slice(match[0].length).trim();
+    match = SUBJECT_PREFIX.exec(rest);
+  }
+  return rest;
 }
 
 export async function findDeskVisitorByEmail(
@@ -1205,25 +1216,6 @@ export async function findDeskConversationByRfcMessageIds(
   return null;
 }
 
-export async function findOpenEmailConversationByEmail(
-  db: AnyDb,
-  email: string,
-): Promise<DeskConversation | null> {
-  const [row] = await db
-    .select()
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.channel, 'email'),
-        eq(conversations.state, 'open'),
-        eq(conversations.email, email.toLowerCase()),
-      ),
-    )
-    .orderBy(desc(conversations.lastMessageAt))
-    .limit(1);
-  return row ?? null;
-}
-
 export async function findRecentEmailConversation(
   db: AnyDb,
   email: string,
@@ -1244,6 +1236,28 @@ export async function findRecentEmailConversation(
     .orderBy(desc(conversations.lastMessageAt))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The conversation an inbound email belongs to: the one its In-Reply-To /
+ * References point at, else a recent one from the same sender with the same
+ * subject (a client that dropped the headers). Never by sender alone: a new
+ * subject from the same customer is a new conversation.
+ */
+export async function findDeskEmailConversation(
+  db: AnyDb,
+  email: {
+    fromEmail: string;
+    subject: string | null | undefined;
+    inReplyTo?: string | null;
+    references?: string[];
+  },
+): Promise<DeskConversation | null> {
+  const title = normalizeEmailSubject(email.subject);
+  return (
+    (await findDeskConversationByRfcMessageIds(db, [email.inReplyTo, ...(email.references ?? [])])) ??
+    (await findRecentEmailConversation(db, email.fromEmail, title))
+  );
 }
 
 export interface DeskEmailReplyContext {
@@ -1325,10 +1339,12 @@ export async function ingestDeskEmail(
   const rfcMessageId = normalizeRfcMessageId(input.rfcMessageId) ?? input.rfcMessageId;
   const title = normalizeEmailSubject(input.subject) || input.subject || previewOf(input.body) || fromEmail;
 
-  let conversation =
-    (await findDeskConversationByRfcMessageIds(db, [input.inReplyTo, ...(input.references ?? [])])) ??
-    (await findOpenEmailConversationByEmail(db, fromEmail)) ??
-    (await findRecentEmailConversation(db, fromEmail, title));
+  const conversation = await findDeskEmailConversation(db, {
+    fromEmail,
+    subject: input.subject,
+    inReplyTo: input.inReplyTo,
+    references: input.references,
+  });
 
   let visitor = await findDeskVisitorByEmail(db, fromEmail);
   visitor = await upsertDeskVisitor(db, {

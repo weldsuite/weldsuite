@@ -114,7 +114,7 @@ export {
   findOpenConversationForVisitor,
   findDeskVisitorByEmail,
   findDeskConversationByRfcMessageIds,
-  findOpenEmailConversationByEmail,
+  findDeskEmailConversation,
   findRecentEmailConversation,
   getDeskConversation,
   getDeskEmailReplyContext,

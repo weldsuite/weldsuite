@@ -36,7 +36,7 @@ env vars and domains stay on the Vercel projects: production builds pull the
 Production env, test builds pull the Preview env for branch `develop`, and the
 project's domains bound to `develop` (e.g. `partner-test.weldsuite.org`) are
 aliased to each test deploy. Each app's `vercel.json` turns Vercel's own Git
-builds off for `develop` and `main`; other branches still get Vercel previews.
+builds off for every branch, so Vercel makes no automatic preview deployments.
 Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
 cannot read those, so the runner would build without them.
 

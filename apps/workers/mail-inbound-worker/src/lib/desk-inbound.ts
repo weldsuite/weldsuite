@@ -13,19 +13,35 @@
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { createAndDeliverNotification, helpdeskPreview } from '@weldsuite/notifications';
-import {
-  findDeskConversationByRfcMessageIds,
-  findOpenEmailConversationByEmail,
-  findRecentEmailConversation,
-  normalizeEmailSubject,
-  type DeskConversation,
-} from '@weldsuite/db/lib/desk';
+import { findDeskEmailConversation, type DeskConversation } from '@weldsuite/db/lib/desk';
 import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
 import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
 import { publishDeskAssigned } from './realtime';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+
+// ---------------------------------------------------------------------------
+// Automated mail
+// ---------------------------------------------------------------------------
+
+/**
+ * The address every WeldSuite system email comes from (`SYSTEM_FROM_ADDRESS`
+ * in `@weldsuite/emails`, which this worker doesn't bundle).
+ */
+export const SYSTEM_FROM_ADDRESS = 'notifications@mail.weldsuite.org';
+
+/**
+ * Mail no person wrote, which must not open or reopen a conversation: anything
+ * marked `Auto-Submitted` (RFC 3834: auto-replies, auto-generated notices) and
+ * the platform's own system emails (calendar invites, notifications). It is
+ * still stored in WeldMail; only the helpdesk skips it.
+ */
+export function isAutomatedDeskEmail(email: Pick<ParsedEmail, 'from' | 'headers'>): boolean {
+  if (email.from.email.trim().toLowerCase() === SYSTEM_FROM_ADDRESS) return true;
+  const autoSubmitted = email.headers?.['auto-submitted']?.trim().toLowerCase();
+  return Boolean(autoSubmitted) && autoSubmitted !== 'no';
+}
 
 // ---------------------------------------------------------------------------
 // Attachments
@@ -235,12 +251,12 @@ export async function findPriorDeskState(
   email: Pick<ParsedEmail, 'from' | 'subject' | 'inReplyTo' | 'references'>,
 ): Promise<PriorDeskState | null> {
   try {
-    const fromEmail = email.from.email.toLowerCase();
-    const title = normalizeEmailSubject(email.subject) || email.subject || '';
-    const found =
-      (await findDeskConversationByRfcMessageIds(db, [email.inReplyTo, ...(email.references ?? [])])) ??
-      (await findOpenEmailConversationByEmail(db, fromEmail)) ??
-      (await findRecentEmailConversation(db, fromEmail, title));
+    const found = await findDeskEmailConversation(db, {
+      fromEmail: email.from.email.toLowerCase(),
+      subject: email.subject,
+      inReplyTo: email.inReplyTo,
+      references: email.references,
+    });
     return found ? { state: found.state, waitingSince: found.waitingSince } : null;
   } catch (err) {
     console.error('[HelpdeskInbox] Prior conversation lookup failed:', err);

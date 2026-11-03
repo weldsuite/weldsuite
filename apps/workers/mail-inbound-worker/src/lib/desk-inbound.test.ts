@@ -7,10 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 // The notification and DB layers are not under test here.
 vi.mock('../db', () => ({ tenantSchema: {} }));
 vi.mock('@weldsuite/db/lib/desk', () => ({
-  findDeskConversationByRfcMessageIds: vi.fn(),
-  findOpenEmailConversationByEmail: vi.fn(),
-  findRecentEmailConversation: vi.fn(),
-  normalizeEmailSubject: (s: string) => s,
+  findDeskEmailConversation: vi.fn(),
 }));
 
 vi.mock('@weldsuite/notifications', () => ({
@@ -21,7 +18,9 @@ vi.mock('@weldsuite/notifications', () => ({
 import {
   MAX_DESK_ATTACHMENTS,
   MAX_DESK_ATTACHMENT_BYTES,
+  SYSTEM_FROM_ADDRESS,
   deskNotificationContent,
+  isAutomatedDeskEmail,
   planDeskNotification,
   selectDeskAttachments,
   storeDeskAttachments,
@@ -33,6 +32,25 @@ const att = (fileName: string, size = 10, extra: Partial<ParsedAttachment> = {})
   contentType: 'application/pdf',
   content: new Uint8Array(size),
   ...extra,
+});
+
+describe('isAutomatedDeskEmail', () => {
+  const mail = (from: string, headers: Record<string, string> = {}) => ({ from: { email: from }, headers });
+
+  it("lets a person's email through", () => {
+    expect(isAutomatedDeskEmail(mail('ada@customer.test'))).toBe(false);
+    expect(isAutomatedDeskEmail(mail('ada@customer.test', { 'auto-submitted': 'no' }))).toBe(false);
+  });
+
+  it('skips Auto-Submitted mail (auto-replies, generated notices)', () => {
+    expect(isAutomatedDeskEmail(mail('ada@customer.test', { 'auto-submitted': 'auto-replied' }))).toBe(true);
+    expect(isAutomatedDeskEmail(mail('bot@vendor.test', { 'auto-submitted': ' Auto-Generated ' }))).toBe(true);
+  });
+
+  it("skips the platform's own system emails", () => {
+    expect(isAutomatedDeskEmail(mail(SYSTEM_FROM_ADDRESS))).toBe(true);
+    expect(isAutomatedDeskEmail(mail('Notifications@Mail.WeldSuite.org'))).toBe(true);
+  });
 });
 
 describe('selectDeskAttachments', () => {
