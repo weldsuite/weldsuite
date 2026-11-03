@@ -20,7 +20,9 @@ use weldsuite_kit::{ApiError, Data};
 use crate::{Caller, ConnectState, Overrides, validate};
 
 /// The env a sync reads: the keyring, the Stripe platform key, `STORAGE`,
-/// third-party HTTP and the event publisher.
+/// third-party HTTP, the event publisher, and the app's own master database
+/// for the connector catch-up's due index (the sync's workspace looked up;
+/// conformance builds have none, as Global's tests bind no D1 index).
 pub(crate) fn sync_env(overrides: &Overrides, state: &ConnectState) -> SyncEnv {
     SyncEnv {
         keyring: weldsuite_connect_domain::connections::keyring(
@@ -31,20 +33,27 @@ pub(crate) fn sync_env(overrides: &Overrides, state: &ConnectState) -> SyncEnv {
         storage: overrides.storage(state),
         http: overrides.http(state),
         events: state.events.clone(),
-        due: None,
+        due: state
+            .master
+            .clone()
+            .map(|master| weldsuite_connect_domain::sync::DueIndex {
+                master,
+                workspace_id: String::new(),
+            }),
     }
 }
 
-/// [`sync_env`] with the workspace's due index, for work that may leave a
-/// backlog (the Moneybird push).
+/// [`sync_env`] with the workspace's due index row, for work that may leave
+/// a backlog (the Moneybird push).
 pub(crate) fn sync_env_for(
     overrides: &Overrides,
     state: &ConnectState,
     workspace_id: &str,
 ) -> SyncEnv {
     let mut env = sync_env(overrides, state);
-    env.due = overrides
-        .master(state)
+    env.due = state
+        .master
+        .clone()
         .filter(|_| !workspace_id.is_empty())
         .map(|master| weldsuite_connect_domain::sync::DueIndex {
             master,

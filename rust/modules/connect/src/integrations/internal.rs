@@ -409,11 +409,9 @@ async fn moneybird_push(
         Ok(internal) => internal,
         Err(response) => return response,
     };
-    let workspace = match &internal.tenant_workspace {
-        Some(workspace) => workspace.clone(),
-        None => internal.workspace_id(&state).await.unwrap_or_default(),
-    };
-    let env = crate::connector_sync::sync_env_for(&internal.overrides, &state, &workspace);
+    // The cron's sweep stores the workspace's next pass from the answer, so
+    // the pass itself schedules nothing (no workspace on the due index).
+    let env = crate::connector_sync::sync_env(&internal.overrides, &state);
     match weldsuite_connect_domain::moneybird_push::push_all(&internal.db, &env, "schedule", None)
         .await
     {

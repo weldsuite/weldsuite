@@ -389,15 +389,14 @@ pub(crate) async fn connect(
         return ApiError::bad_request(message).into_response();
     }
     let db = caller.db.clone();
-    match entity.as_deref() {
-        Some(id) => match entity_exists(&db, id).await {
+    if let Some(id) = entity.as_deref() {
+        match entity_exists(&db, id).await {
             Ok(true) => {}
             Ok(false) => {
                 return ApiError::bad_request("Accounting entity not found").into_response();
             }
             Err(error) => return failed(&error),
-        },
-        None => {}
+        }
     }
     // `credentialsToStore`: Stripe keeps only its allow-listed keys.
     let mut credentials: Map<String, Value> = if provider == "stripe" {

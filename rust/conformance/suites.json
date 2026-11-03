@@ -2865,6 +2865,21 @@
         "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
         "rust/modules/integrations/"
       ]
+    },
+    {
+      "name": "integrations: connectors",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/connectors.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
+        "rust/modules/integrations/",
+        "rust/crates/connect-domain/src/webhooks.rs"
+      ]
     }
   ]
 }

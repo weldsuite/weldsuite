@@ -611,8 +611,18 @@ async fn run_single_sync(pull: &Pull<'_>, sync: &Value) -> Result<(), SyncError>
     }
 }
 
-/// `syncConnection(args)`: the sync names it ran.
+/// `syncConnection(args)`: the sync names it ran. A sync the catch-up did
+/// not start schedules the connection's next catch-up ([`crate::catchup::schedule`]).
 pub async fn sync_connection(args: &SyncArgs<'_>) -> Result<Vec<String>, SyncError> {
+    let result = run_syncs(args).await;
+    if args.trigger != Trigger::Schedule {
+        crate::catchup::schedule(args.env, args.workspace_id, args.connection, result.is_ok())
+            .await;
+    }
+    result
+}
+
+async fn run_syncs(args: &SyncArgs<'_>) -> Result<Vec<String>, SyncError> {
     let provider = text(args.connection, "provider").unwrap_or_default();
     let Some(connector) = get_connector(provider) else {
         return Err(SyncError::Connector(ConnectorError::new(

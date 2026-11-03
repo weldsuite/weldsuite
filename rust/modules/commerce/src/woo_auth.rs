@@ -47,7 +47,15 @@ async fn callback(
             storage: None,
             http: overrides.http(&state),
             events: state.events.clone(),
-            due: None,
+            // The initial sync schedules the connector catch-up (the app's
+            // own master database; none in conformance builds).
+            due: state
+                .master
+                .clone()
+                .map(|master| weldsuite_connect_domain::sync::DueIndex {
+                    master,
+                    workspace_id: String::new(),
+                }),
         },
         cache: overrides.kv(&state),
         internal_api_secret: env("INTERNAL_API_SECRET"),

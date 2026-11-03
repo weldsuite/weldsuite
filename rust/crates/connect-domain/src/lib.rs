@@ -10,15 +10,19 @@
 //!   client's view of a connection, sync runs and imported records;
 //! - [`clients`]: the WooCommerce, Shopify and Picqer clients (product
 //!   writes, the credential test) with their retries and error kinds;
-//! - [`crypto`]: field encryption as connectors read it.
+//! - [`crypto`]: field encryption as connectors read it;
+//! - [`stripe`], [`moneybird`], [`lists`], [`provider`]: the provider
+//!   clients' reads, behind one [`provider::ProviderClient`];
+//! - [`sync`], [`ingest`], [`mappers`], [`stripe_mappers`], [`tables`]:
+//!   the sync engine (`connectors/sync.ts`, `ingest.ts`, the mappers);
+//! - [`auth`]: WooCommerce's app authorisation and the Moneybird and Stripe
+//!   OAuth flows;
+//! - [`webhooks`]: provider webhook registration and ingest;
+//! - [`moneybird_push`]: the WeldBooks to Moneybird push;
+//! - [`catchup`]: the connector catch-up's due times and probe.
 //!
 //! The Picqer push (`publish-picqer.ts`) is connect-api's own and lives in
 //! `weldsuite-connect` on [`clients::Picqer::send`].
-//!
-//! Not yet here (they stay on Global until ported): the sync engine
-//! (`connectors/sync.ts`, `ingest.ts`, the mappers), the Stripe and
-//! Moneybird clients and OAuth flows, WooCommerce's app authorisation,
-//! provider webhook registration and ingest, and the Moneybird push.
 
 // The sync engine and mappers mirror long TypeScript functions one for one,
 // and read JSON numbers as JavaScript does.
@@ -33,6 +37,7 @@
 
 pub mod auth;
 pub mod catalog;
+pub mod catchup;
 pub mod clients;
 pub mod connections;
 pub mod crypto;

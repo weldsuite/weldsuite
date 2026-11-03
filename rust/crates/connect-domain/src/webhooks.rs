@@ -29,7 +29,7 @@ use crate::sync::{
 
 pub const STRIPE_DEAUTHORIZED_EVENT: &str = "account.application.deauthorized";
 pub const STRIPE_CONNECT_VERIFIED_HEADER: &str = "x-weldsuite-stripe-connect";
-const MAPPING_TTL: Duration = Duration::from_secs(86_400 * 365);
+const MAPPING_TTL: Duration = Duration::from_hours(24 * 365);
 
 /// `ConnectorWebhookTopic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -341,6 +341,10 @@ pub fn webhook_base_url(explicit: Option<&str>, environment: Option<&str>) -> St
 }
 
 /// `generateWebhookSecret()`: 32 random bytes, base64.
+///
+/// # Panics
+///
+/// When the operating system has no random source.
 pub fn generate_webhook_secret() -> String {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).expect("the operating system has a random source");

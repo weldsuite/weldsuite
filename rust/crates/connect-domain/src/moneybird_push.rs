@@ -443,6 +443,8 @@ struct Pass<'a> {
     failed: u64,
     errors: Vec<(String, String)>,
     tax_rates: Option<Vec<crate::moneybird::TaxRate>>,
+    /// The financial account's currency, once read (the read may find none).
+    #[allow(clippy::option_option)]
     account_currency: Option<Option<String>>,
 }
 
@@ -947,6 +949,8 @@ fn resolve_tax_rate(
 }
 
 /// `lineAmountAndPrice(line)`.
+// `Number.isInteger` and `===` on cents, exactly as JavaScript compares.
+#[allow(clippy::float_cmp)]
 fn amount_and_price(
     quantity: Option<&str>,
     unit_price: &str,

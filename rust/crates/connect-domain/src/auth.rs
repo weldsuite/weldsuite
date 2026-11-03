@@ -729,13 +729,15 @@ where
         .as_str()
         .map(weldsuite_kit::validation::js_trim)
         .filter(|l| !l.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            single.as_ref().map_or_else(
-                || "Moneybird".to_owned(),
-                |a| format!("Moneybird ({})", a.name),
-            )
-        });
+        .map_or_else(
+            || {
+                single.as_ref().map_or_else(
+                    || "Moneybird".to_owned(),
+                    |a| format!("Moneybird ({})", a.name),
+                )
+            },
+            str::to_owned,
+        );
     let entity_value = entity.map(str::to_owned);
     if let Some(single) = &single {
         let row = upsert_connection(
