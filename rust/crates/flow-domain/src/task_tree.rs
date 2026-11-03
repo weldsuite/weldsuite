@@ -1,6 +1,7 @@
 //! Subtask trees (`@weldsuite/flow-domain/task-tree`): a task deleted with
 //! its whole subtask tree, its calendar slots, its comments and
-//! attachments, and the links other tasks hold to it. flow-api's
+//! attachments, its project-control links, and the links other tasks hold
+//! to it. flow-api's
 //! `DELETE /api/tasks/:id`, external-api and the mcp-server share it.
 
 use serde_json::{Value, json};
@@ -50,8 +51,10 @@ pub async fn live_children(
 /// `softDeleteTaskTree(db, id)`: the removed tasks, the requested one
 /// first, or `None` when it does not exist or is already deleted. One
 /// transaction: the tasks, their calendar slots, comments and attachment
-/// rows, and the removed ids pruned from every other live task's
-/// `dependsOn` / `blocks`. Publishing the events is the caller's job.
+/// rows, their project-control links (deleted for real, FLOW-011), and the
+/// removed ids pruned from every other live task's `dependsOn` / `blocks`.
+/// Publishing the events is the caller's job (no link events, as in
+/// TypeScript).
 pub async fn soft_delete_task_tree(
     db: &PgPool,
     id: &str,
@@ -146,6 +149,15 @@ async fn write_removal(
     )
     .bind(removed_ids)
     .bind(&now)
+    .execute(&mut *tx)
+    .await?;
+    // FLOW-011: a task's project-control links go with it, deleted for real.
+    sqlx::query(
+        "delete from project_control_links
+         where (from_type = 'task' and from_id = any($1))
+            or (to_type = 'task' and to_id = any($1))",
+    )
+    .bind(removed_ids)
     .execute(&mut *tx)
     .await?;
     for (dependent, depends_on, blocks) in dependents {
