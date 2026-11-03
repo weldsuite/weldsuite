@@ -40,12 +40,12 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/df3-noise-suppression": "workspace:*",
+    "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
-    "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
@@ -90,6 +90,7 @@
     "zustand": "^5.0.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@clerk/testing": "^2.0.34",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/vite": "^4.1.18",

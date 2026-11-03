@@ -23,11 +23,16 @@ function Avatar({
 
 function AvatarImage({
   className,
+  // An avatar sits next to the person's name almost everywhere, so it is
+  // decorative unless the caller names it. Without an alt a screen reader
+  // reads out the image URL.
+  alt = "",
   ...props
 }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
+      alt={alt}
       className={cn("aspect-square size-full", className)}
       {...props}
     />

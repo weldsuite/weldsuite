@@ -5,6 +5,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
 import { cn } from "../lib/utils"
+import { useUiLabels } from "../providers/ui-labels-provider"
 
 function Dialog({
   ...props
@@ -54,6 +55,7 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  const labels = useUiLabels()
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -69,10 +71,10 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-3 right-3 rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary focus:outline-none disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0"
+            className="data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-3 right-3 rounded-md p-2 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0"
           >
             <X className="h-4 w-4" strokeWidth={2} />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{labels.close}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
