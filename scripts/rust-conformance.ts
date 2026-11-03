@@ -50,6 +50,9 @@ interface Suite {
   coverage?: string[];
 }
 
+/** TypeScript's answer against the route's registered response schema. */
+type SchemaCheck = 'ok' | 'fail' | 'none';
+
 interface RequestLine {
   kind: 'request';
   file?: string;
@@ -62,7 +65,7 @@ interface RequestLine {
   rustStatus: number | null;
   match: boolean;
   difference: string | null;
-  schema: 'ok' | 'fail' | 'none';
+  schema: SchemaCheck;
   schemaError: string | null;
 }
 
@@ -201,7 +204,7 @@ interface RouteReport {
   statuses: number[];
   requests: number;
   mismatches: string[];
-  schema: 'ok' | 'fail' | 'none';
+  schema: SchemaCheck;
 }
 
 interface SuiteReport {
@@ -337,7 +340,7 @@ interface RouteHits {
   tests: Set<string>;
   statuses: Set<number>;
   /** TypeScript's answers against the route's registered schema: 'none' until one is checked. */
-  schema: 'ok' | 'fail' | 'none';
+  schema: SchemaCheck;
   schemaErrors: string[];
 }
 
