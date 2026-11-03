@@ -425,3 +425,9 @@ export const connectorSelectAccountSchema = z.object({ connection: connectorConn
 
 /** `DELETE /api/connectors/connections/:id`. */
 export const connectorDisconnectedSchema = z.object({ id: z.string(), disconnected: z.literal(true) }).strict();
+
+/** `POST /api/connectors/connections/:id/moneybird/push`: the pass runs in the background. */
+export const moneybirdPushStartedSchema = z.object({ started: z.literal(true) }).strict();
+
+/** `POST /api/integrations/moneybird-push`: whether a connection still has work. */
+export const moneybirdPushPassSchema = z.object({ remaining: z.boolean() }).strict();

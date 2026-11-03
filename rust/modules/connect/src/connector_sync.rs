@@ -31,7 +31,26 @@ pub(crate) fn sync_env(overrides: &Overrides, state: &ConnectState) -> SyncEnv {
         storage: overrides.storage(state),
         http: overrides.http(state),
         events: state.events.clone(),
+        due: None,
     }
+}
+
+/// [`sync_env`] with the workspace's due index, for work that may leave a
+/// backlog (the Moneybird push).
+pub(crate) fn sync_env_for(
+    overrides: &Overrides,
+    state: &ConnectState,
+    workspace_id: &str,
+) -> SyncEnv {
+    let mut env = sync_env(overrides, state);
+    env.due = overrides
+        .master(state)
+        .filter(|_| !workspace_id.is_empty())
+        .map(|master| weldsuite_connect_domain::sync::DueIndex {
+            master,
+            workspace_id: workspace_id.to_owned(),
+        });
+    env
 }
 
 /// What a background sync needs, owned.

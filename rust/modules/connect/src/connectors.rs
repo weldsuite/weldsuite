@@ -124,6 +124,10 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             "/connections/{id}/moneybird/push-status",
             get(moneybird_push_status).route_layer(read()),
         )
+        .route(
+            "/connections/{id}/moneybird/push",
+            post(crate::connector_push::push_now).route_layer(update()),
+        )
 }
 
 /// `keyringFromEnv(c.env)`.

@@ -2274,7 +2274,8 @@
         "src/routes/connectors/picqer-push.test.ts",
         "src/routes/connectors/moneybird.test.ts",
         "src/routes/connectors/sync.test.ts",
-        "src/routes/connectors/connect.test.ts"
+        "src/routes/connectors/connect.test.ts",
+        "src/routes/connectors/moneybird-push.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2298,16 +2299,6 @@
         "rust/crates/connect-domain/",
         "rust/modules/connect/",
         "packages/domains/connect/src/connectors/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/integrations/moneybird-push",
-          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts), still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/moneybird/push",
-          "reason": "Not ported yet: the Moneybird push of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
-        }
       ]
     },
     {

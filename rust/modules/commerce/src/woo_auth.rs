@@ -47,6 +47,7 @@ async fn callback(
             storage: None,
             http: overrides.http(&state),
             events: state.events.clone(),
+            due: None,
         },
         cache: overrides.kv(&state),
         internal_api_secret: env("INTERNAL_API_SECRET"),

@@ -1011,7 +1011,7 @@ fn after_settings_change(
         crate::connector_push::spawn_push(
             state,
             db.clone(),
-            env.sync.clone(),
+            crate::connector_sync::sync_env_for(&caller.overrides, state, &caller.workspace_id),
             after.clone(),
             false,
         );

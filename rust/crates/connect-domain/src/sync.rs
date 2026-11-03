@@ -28,6 +28,14 @@ use crate::provider::ProviderClient;
 const MAX_PAGES: u32 = 10;
 const PER_PAGE: u32 = 100;
 
+/// Where the workspace's background work is scheduled: the master due
+/// index (`workspace_due_index`) and the workspace's `workspaces.id`.
+#[derive(Clone)]
+pub struct DueIndex {
+    pub master: PgPool,
+    pub workspace_id: String,
+}
+
 /// What a sync reads besides the connection: `ConnectorSyncEnv`.
 #[derive(Clone)]
 pub struct SyncEnv {
@@ -38,6 +46,9 @@ pub struct SyncEnv {
     pub storage: Option<Arc<dyn DynFileStore>>,
     pub http: Option<OutboundHttp>,
     pub events: EntityEventPublisher,
+    /// The due index (the Moneybird push backlog, the connector catch-up);
+    /// without it nothing is scheduled.
+    pub due: Option<DueIndex>,
 }
 
 /// `SyncConnectionArgs.trigger`.

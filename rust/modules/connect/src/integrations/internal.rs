@@ -58,6 +58,7 @@ where
             post(connector_event),
         )
         .route("/api/integrations/woocommerce-auth", post(woocommerce_auth))
+        .route("/api/integrations/moneybird-push", post(moneybird_push))
         .with_state(state)
 }
 
@@ -79,7 +80,10 @@ fn serves(path: &str) -> bool {
         segments.as_slice(),
         ["connections", id, "sync" | "renew-watch" | "catch-up" | "connector-event"] if !id.is_empty()
     ) || matches!(segments.as_slice(), ["ad-connections", id, "sync"] if !id.is_empty())
-        || matches!(segments.as_slice(), ["ad-events" | "woocommerce-auth"])
+        || matches!(
+            segments.as_slice(),
+            ["ad-events" | "woocommerce-auth" | "moneybird-push"]
+        )
 }
 
 /// A request the internal router answers: a POST to one of its paths with
@@ -391,6 +395,30 @@ async fn woocommerce_auth(
                 .with_message("Failed to complete WooCommerce connection")
                 .into_response()
         }
+    }
+}
+
+/// `POST /moneybird-push`: the cron's `moneybird_push` work row, another
+/// push pass for every Moneybird connection of the workspace.
+async fn moneybird_push(
+    State(state): State<ConnectState>,
+    headers: HeaderMap,
+    extensions: http::Extensions,
+) -> Response {
+    let internal = match resolve(&state, &headers, &extensions).await {
+        Ok(internal) => internal,
+        Err(response) => return response,
+    };
+    let workspace = match &internal.tenant_workspace {
+        Some(workspace) => workspace.clone(),
+        None => internal.workspace_id(&state).await.unwrap_or_default(),
+    };
+    let env = crate::connector_sync::sync_env_for(&internal.overrides, &state, &workspace);
+    match weldsuite_connect_domain::moneybird_push::push_all(&internal.db, &env, "schedule", None)
+        .await
+    {
+        Ok(remaining) => Data(json!({ "remaining": remaining })).into_response(),
+        Err(error) => internal_error(&error, "Failed to push to Moneybird"),
     }
 }
 
