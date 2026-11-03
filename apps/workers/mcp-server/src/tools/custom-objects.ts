@@ -187,6 +187,19 @@ export interface CustomObjectTool {
   operation: 'list' | 'get' | 'create' | 'update' | 'delete';
 }
 
+const OPERATION_METHODS: Record<CustomObjectTool['operation'], 'GET' | 'POST' | 'PATCH' | 'DELETE'> = {
+  list: 'GET',
+  get: 'GET',
+  create: 'POST',
+  update: 'PATCH',
+  delete: 'DELETE',
+};
+
+/** The HTTP method a tool calls, for its MCP annotations. */
+export function customObjectToolMethod(tool: CustomObjectTool): string {
+  return OPERATION_METHODS[tool.operation];
+}
+
 /** The five tools one object contributes. */
 export function buildCustomObjectTools(
   object: CustomObjectToolDescriptor,

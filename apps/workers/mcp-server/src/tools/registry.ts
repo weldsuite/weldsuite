@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { present } from '../lib/present';
 
 /**
@@ -37,6 +37,13 @@ export interface ToolDefinition {
    * so a wrong or loosely-spelled id is refused instead of landing on a near match.
    */
   exactId?: boolean;
+  /**
+   * Overrides for the MCP annotations derived from `method`
+   * (`lib/tool-annotations.ts`): `openWorldHint` when the call reaches outside
+   * the workspace, `destructiveHint` when a call that isn't a DELETE removes or
+   * replaces data.
+   */
+  annotations?: Partial<ToolAnnotations>;
 }
 
 /**
