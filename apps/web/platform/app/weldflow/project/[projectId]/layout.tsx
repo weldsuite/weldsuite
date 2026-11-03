@@ -8,6 +8,7 @@ import {
   Table2,
   SquareDashedMousePointer,
   Target,
+  ShieldAlert,
   SquareKanban,
   Users,
   Timer,
@@ -86,6 +87,7 @@ const TABS_WITHOUT_TOP_PADDING = new Set([
   'whiteboard',
   'documents',
   'goals',
+  'raid',
   'table',
   'gantt',
   'workload',
@@ -378,6 +380,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     { id: 'pipeline', name: t.projects.projectLayout.tabs.pipeline, href: '/pipeline', icon: SquareKanban },
     { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
     { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
+    { id: 'raid', name: t.projects.projectLayout.tabs.raid, href: '/raid', icon: ShieldAlert },
     { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
     { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
   ];
