@@ -35,7 +35,7 @@ const ERROR_DETAILS_MAX_CHARS: usize = 600;
 const MAX_ANSWER_BYTES: usize = 64 * 1024 * 1024;
 
 /// A `CallToolResult` with text.
-pub(crate) fn tool_result(text: String) -> Value {
+pub(crate) fn tool_result(text: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": text }] })
 }
 
@@ -114,7 +114,11 @@ fn dot_path(path: &[Value]) -> String {
     let mut out = String::new();
     for (index, segment) in path.iter().enumerate() {
         match segment {
-            Value::Number(number) if index > 0 => out.push_str(&format!("[{number}]")),
+            Value::Number(number) if index > 0 => {
+                out.push('[');
+                out.push_str(&number.to_string());
+                out.push(']');
+            }
             other if index == 0 => out.push_str(&string_of(other)),
             other => {
                 out.push('.');
@@ -451,7 +455,7 @@ fn error_details(details: Option<&Value>) -> String {
 /// `shapeResponse`: an internal answer as a tool result.
 pub(crate) fn shape_response(answer: &Answer) -> Value {
     if answer.status == StatusCode::NO_CONTENT {
-        return tool_result(present(&json!({ "data": { "success": true } })));
+        return tool_result(&present(&json!({ "data": { "success": true } })));
     }
     let text = String::from_utf8_lossy(&answer.body);
     let json: Value = if text.is_empty() {
@@ -485,7 +489,7 @@ pub(crate) fn shape_response(answer: &Answer) -> Value {
             None => message,
         });
     }
-    tool_result(present(&json))
+    tool_result(&present(&json))
 }
 
 #[cfg(test)]

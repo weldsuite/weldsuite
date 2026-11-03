@@ -26,25 +26,67 @@ fn catalog_object(scope: &str) -> &str {
 /// Routes whose permission is not the one their method implies
 /// (`ROUTE_PERMISSIONS`), by method and Hono pattern.
 pub fn route_permission(method: &Method, route: Option<&str>) -> Option<&'static str> {
-    let key = (method.as_str(), route?);
-    Some(match key {
-        ("POST", "/v1/reach/campaigns") => "reach_campaigns:create",
-        ("POST", "/v1/reach/campaigns/:id/prospects")
-        | ("DELETE", "/v1/reach/campaigns/:id/enrollments/:enrollmentId")
-        | ("POST", "/v1/reach/campaigns/:id/launch")
-        | ("POST", "/v1/reach/campaigns/:id/pause")
-        | ("POST", "/v1/reach/campaigns/:id/resume") => "reach_campaigns:update",
-        ("POST", "/v1/reach/prospects")
-        | ("POST", "/v1/reach/prospects/import")
-        | ("POST", "/v1/reach/lists") => "reach_prospects:create",
-        ("POST", "/v1/reach/lists/:id/members")
-        | ("POST", "/v1/reach/lists/:id/members/remove") => "reach_prospects:update",
-        ("POST", "/v1/reach/suppressions") | ("DELETE", "/v1/reach/suppressions/:id") => {
-            "reach_settings:update"
-        }
-        _ => return None,
-    })
+    let route = route?;
+    ROUTE_PERMISSIONS
+        .iter()
+        .find(|(want_method, want_route, _)| {
+            *want_method == method.as_str() && *want_route == route
+        })
+        .map(|(_, _, permission)| *permission)
 }
+
+/// `ROUTE_PERMISSIONS`: method, route, the permission it pins.
+const ROUTE_PERMISSIONS: [(&str, &str, &str); 13] = [
+    ("POST", "/v1/reach/campaigns", "reach_campaigns:create"),
+    (
+        "POST",
+        "/v1/reach/campaigns/:id/prospects",
+        "reach_campaigns:update",
+    ),
+    (
+        "DELETE",
+        "/v1/reach/campaigns/:id/enrollments/:enrollmentId",
+        "reach_campaigns:update",
+    ),
+    (
+        "POST",
+        "/v1/reach/campaigns/:id/launch",
+        "reach_campaigns:update",
+    ),
+    (
+        "POST",
+        "/v1/reach/campaigns/:id/pause",
+        "reach_campaigns:update",
+    ),
+    (
+        "POST",
+        "/v1/reach/campaigns/:id/resume",
+        "reach_campaigns:update",
+    ),
+    ("POST", "/v1/reach/prospects", "reach_prospects:create"),
+    (
+        "POST",
+        "/v1/reach/prospects/import",
+        "reach_prospects:create",
+    ),
+    ("POST", "/v1/reach/lists", "reach_prospects:create"),
+    (
+        "POST",
+        "/v1/reach/lists/:id/members",
+        "reach_prospects:update",
+    ),
+    (
+        "POST",
+        "/v1/reach/lists/:id/members/remove",
+        "reach_prospects:update",
+    ),
+    ("POST", "/v1/reach/suppressions", "reach_settings:update"),
+    (
+        "DELETE",
+        "/v1/reach/suppressions/:id",
+        "reach_settings:update",
+    ),
+];
 
 /// A scope verb outside `read`/`write` names a catalog action directly.
 fn literal_verb(verb: Option<&str>) -> Option<&str> {

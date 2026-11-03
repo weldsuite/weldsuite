@@ -3,7 +3,7 @@
 //! validates its arguments with (`z.object(shape)`); what it computes in
 //! JavaScript is a hook in [`crate::hooks`].
 
-#![allow(clippy::doc_markdown, clippy::too_many_lines, clippy::large_stack_arrays, dead_code)]
+#![allow(clippy::doc_markdown, clippy::too_many_lines, clippy::large_stack_arrays, clippy::match_same_arms, dead_code)]
 
 use crate::hooks;
 use weldsuite_external_api::zod::{Keys, Lit, N, S, Z};

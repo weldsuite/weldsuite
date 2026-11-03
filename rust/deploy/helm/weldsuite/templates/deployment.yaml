@@ -79,6 +79,12 @@ spec:
             # Service, unless config.publicApi.gatewayUrl names another.
             - name: EXTERNAL_API_URL
               value: {{ .Values.config.publicApi.gatewayUrl | default (printf "http://%s:%v" (include "weldsuite.fullname" .) .Values.service.port) | quote }}
+            # The MCP server (/mcp): the public origin AI clients reach it on,
+            # which its OAuth discovery documents name. Empty: the first
+            # ingress host over https.
+            {{- $mcpUrl := .Values.config.mcp.serverUrl | default (printf "https://%s" (index .Values.ingress.hosts 0).host) }}
+            - name: MCP_SERVER_URL
+              value: {{ $mcpUrl | quote }}
             # The platform SPA in the image, for every path the API doesn't
             # answer; empty serves the API alone.
             - name: SPA_DIR

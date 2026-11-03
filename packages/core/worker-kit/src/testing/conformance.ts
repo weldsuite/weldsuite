@@ -1414,7 +1414,8 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
   const seen = new Request('http://localhost/', {
     method,
     headers,
-    body: method === 'GET' || method === 'HEAD' ? undefined : body,
+    // A replayed byte body is a valid BodyInit; TS's DOM lib types narrow it.
+    body: method === 'GET' || method === 'HEAD' ? undefined : (body as BodyInit | undefined),
   }).headers;
   const context = { ...baseContext, requestHeaders: [...seen.keys()] };
   const rustHeaders = new Headers(headers);

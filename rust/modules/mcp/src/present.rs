@@ -211,7 +211,10 @@ pub fn label_for(record: &Map<String, Value>) -> Option<String> {
 }
 
 /// `splitRecord`: content and identifiers, in the record's order.
-fn split_record(record: &Map<String, Value>) -> (Vec<(&String, &Value)>, Vec<(&String, &Value)>) {
+/// A record's fields, in its order.
+type Fields<'a> = Vec<(&'a String, &'a Value)>;
+
+fn split_record(record: &Map<String, Value>) -> (Fields<'_>, Fields<'_>) {
     let (keys, _) = ordered(record, Order::Row);
     let mut content = Vec::new();
     let mut identifiers = Vec::new();
@@ -334,7 +337,9 @@ pub fn present_list(rows: &[&Map<String, Value>], pagination: Option<&Value>) ->
         .and_then(|p| p.get("totalCount"))
         .filter(|t| t.is_number());
     let header = match total {
-        Some(total) if total.as_f64() != Some(rows.len() as f64) => {
+        Some(total)
+            if total.as_f64() != Some(f64::from(u32::try_from(rows.len()).unwrap_or(u32::MAX))) =>
+        {
             format!("Showing {} of {}:", rows.len(), string_of(total))
         }
         _ => format!(

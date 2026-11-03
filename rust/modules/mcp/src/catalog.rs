@@ -166,6 +166,6 @@ mod tests {
         assert!(catalog.api_route(&Method::GET, "/v1/people/per_1"));
         assert!(!catalog.api_route(&Method::PUT, "/v1/people/per_1"));
         assert!(!catalog.api_route(&Method::GET, "/v1/accounting-contacts"));
-        assert!(!catalog.tables.is_empty());
+        assert!(catalog.tables.len() > 300);
     }
 }

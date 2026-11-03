@@ -89,6 +89,7 @@ fn metadata_url(server_url: &str) -> String {
 }
 
 /// `authMiddleware` then `rateLimitMiddleware`.
+#[allow(clippy::too_many_lines)] // the worker's refusals, in its order
 pub async fn authenticate(
     State(state): State<McpState>,
     mut request: Request,

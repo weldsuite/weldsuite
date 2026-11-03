@@ -33,8 +33,10 @@ pub(crate) struct AppTool {
     granted_scopes: Vec<String>,
 }
 
-static CACHE: LazyLock<Mutex<HashMap<String, (Instant, Vec<Value>)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Each member's entries and when they expire.
+type Cache = HashMap<String, (Instant, Vec<Value>)>;
+
+static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn non_empty(entry: &Map<String, Value>, key: &str) -> Option<String> {
     entry
@@ -80,20 +82,15 @@ fn parse_entry(entry: &Value) -> Option<AppTool> {
             .collect::<Option<_>>()?,
         Some(_) => return None,
     };
+    let name = non_empty(entry, "name")?;
     Some(AppTool {
-        registered: String::new(),
+        registered: name,
         app_code: non_empty(entry, "appCode")?,
         app_name: non_empty(entry, "appName")?,
         description: entry.get("description")?.as_str()?.to_owned(),
         parameters,
         action: action.clone(),
         granted_scopes,
-        // `name` is checked below.
-    })
-    .filter(|_| non_empty(entry, "name").is_some())
-    .map(|mut tool| {
-        tool.registered = non_empty(entry, "name").unwrap_or_default();
-        tool
     })
 }
 
@@ -351,10 +348,11 @@ fn records_path(collection: &str, id: Option<&str>) -> String {
 }
 
 /// `shapeRequest`: method, path, query and body, or the refusal.
-fn shape(
-    tool: &AppTool,
-    args: &Map<String, Value>,
-) -> Result<(Method, String, Map<String, Value>, Option<Value>), String> {
+/// Method, path, query and body.
+type Shaped = (Method, String, Map<String, Value>, Option<Value>);
+
+#[allow(clippy::too_many_lines)] // one arm per action, as user-apps.ts shapes them
+fn shape(tool: &AppTool, args: &Map<String, Value>) -> Result<Shaped, String> {
     let kind = tool
         .action
         .get("type")
@@ -516,7 +514,7 @@ async fn execute(
     )
     .await;
     if answer.status == http::StatusCode::NO_CONTENT {
-        return tool_result(present(&json!({ "data": { "success": true } })));
+        return tool_result(&present(&json!({ "data": { "success": true } })));
     }
     let text = String::from_utf8_lossy(&answer.body);
     let json: Value = if text.is_empty() {
@@ -549,5 +547,5 @@ async fn execute(
             None => message,
         });
     }
-    tool_result(present(&json))
+    tool_result(&present(&json))
 }
