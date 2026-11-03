@@ -80,6 +80,14 @@ fn validate_item(headers: &HeaderMap, body: &Bytes) -> PassResult<crate::schemas
     document.ok_or_else(|| PassError::Internal("validated item without a document".to_owned()))
 }
 
+/// `addVaultMemberSchema` as an item of `createVaultSchema.members`.
+fn initial_member(issues: &mut Issues, item: &Value) -> Option<(String, String)> {
+    let fields = issues.object(item)?;
+    let user = issues.text(fields, "userId", Presence::Required, Some(1), Some(255));
+    let role = issues.choice(fields, "role", Presence::Required, &VAULT_ROLES);
+    Some((user.into_option()?, role.into_option()?))
+}
+
 // ── Vaults ─────────────────────────────────────────────────────────────────
 
 pub(crate) async fn list_vaults(caller: Caller, State(state): State<PassState>) -> Response {
@@ -110,7 +118,7 @@ pub(crate) async fn create_vault(
 ) -> Response {
     answer(
         async {
-            let (name, description) = validate(&headers, &body, |issues, fields| {
+            let (name, description, members) = validate(&headers, &body, |issues, fields| {
                 (
                     issues.text_with(
                         fields,
@@ -124,8 +132,32 @@ pub(crate) async fn create_vault(
                         Presence::Nullish,
                         Text::trimmed(None, Some(2000)),
                     ),
+                    issues.list(
+                        fields,
+                        "members",
+                        Presence::Optional,
+                        None,
+                        Some(100),
+                        initial_member,
+                    ),
                 )
             })?;
+            // The creator is the first manager already. A teammate listed
+            // twice gets the later role, keeping their first place.
+            let mut initial: Vec<(String, String)> = Vec::new();
+            for (user, role) in members.into_option().unwrap_or_default() {
+                if user == caller.user_id {
+                    continue;
+                }
+                match initial.iter_mut().find(|(id, _)| *id == user) {
+                    Some(entry) => entry.1 = role,
+                    None => initial.push((user, role)),
+                }
+            }
+            let user_ids: Vec<String> = initial.iter().map(|(id, _)| id.clone()).collect();
+            if let Some(stranger) = vaults::first_non_teammate(&caller.db, &user_ids).await? {
+                return Err(PassError::not_found("vault member", &stranger));
+            }
             let vault = vaults::create_shared_vault(
                 &caller.db,
                 caller.org(),
@@ -141,9 +173,20 @@ pub(crate) async fn create_vault(
                 VaultEvent::new(&vault.id, &caller.user_id, "vault.created").label(&vault.name),
             )
             .await;
+            for (user, role) in &initial {
+                vaults::add_vault_member(&caller.db, &vault.id, user, role, &caller.user_id).await?;
+                record_vault_event(
+                    &caller.db,
+                    &caller.audit,
+                    VaultEvent::new(&vault.id, &caller.user_id, "member.added")
+                        .label(user)
+                        .metadata(json!({ "role": role })),
+                )
+                .await;
+            }
             Ok(created(merge(
                 vault.json,
-                json!({ "role": "manager", "itemCount": 0, "memberCount": 1 }),
+                json!({ "role": "manager", "itemCount": 0, "memberCount": 1 + initial.len() }),
             )))
         }
         .await,

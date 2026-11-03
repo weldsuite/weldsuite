@@ -172,6 +172,7 @@ function VaultsList() {
 
       {creating && (
         <CreateVaultDialog
+          currentUserId={user?.id}
           onClose={() => setCreating(false)}
           onCreated={(vault) => {
             setCreating(false);

@@ -43,7 +43,7 @@ export function memberLabel(member: {
   return member.name || member.email || member.userId;
 }
 
-function RoleSelect({
+export function RoleSelect({
   value,
   onChange,
   disabled,

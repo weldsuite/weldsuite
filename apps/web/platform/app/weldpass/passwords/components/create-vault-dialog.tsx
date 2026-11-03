@@ -1,4 +1,7 @@
-/** Create a shared vault. The creator becomes its first manager. */
+/**
+ * Create a shared vault. The creator becomes its first manager; the teammates
+ * picked under "Who has access" join it in the same request.
+ */
 
 import { useState } from 'react';
 import {
@@ -11,19 +14,26 @@ import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-p
 import { useCreateWeldPassVault } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
+import { VaultAccessPicker, type InitialVaultMember } from './vault-access-picker';
 import { VaultDetailsForm } from './vault-details-form';
 
 export function CreateVaultDialog({
+  currentUserId,
   onClose,
   onCreated,
-}: Readonly<{ onClose: () => void; onCreated: (vault: WeldPassVault) => void }>) {
+}: Readonly<{
+  currentUserId: string | undefined;
+  onClose: () => void;
+  onCreated: (vault: WeldPassVault) => void;
+}>) {
   const tp = usePasswordsT();
   const createVault = useCreateWeldPassVault();
   const [failure, setFailure] = useState<string | null>(null);
+  const [members, setMembers] = useState<InitialVaultMember[]>([]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && !createVault.isPending && onClose()}>
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
+      <DialogContent className="max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{tp('vaultForm.createTitle')}</DialogTitle>
         </DialogHeader>
@@ -41,13 +51,21 @@ export function CreateVaultDialog({
               const res = await createVault.mutateAsync({
                 name: values.name.trim(),
                 description: values.description.trim() || null,
+                members,
               });
               onCreated(res.data);
             } catch (err) {
               setFailure(errorMessage(err, tp('vaultForm.createFailed')));
             }
           }}
-        />
+        >
+          <VaultAccessPicker
+            value={members}
+            onChange={setMembers}
+            currentUserId={currentUserId}
+            disabled={createVault.isPending}
+          />
+        </VaultDetailsForm>
       </DialogContent>
     </Dialog>
   );
