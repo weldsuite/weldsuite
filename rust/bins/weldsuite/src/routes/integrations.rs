@@ -290,3 +290,25 @@ pub(crate) fn cron_connect_internal(
         secret: env_value("INTERNAL_API_SECRET"),
     }))
 }
+
+// ── WeldFlow ────────────────────────────────────────────────────────────────
+
+/// WeldFlow's `GITHUB_PROJECT_OUTBOUND` over this deployment's jobs.
+struct FlowOutboundRuns(Arc<JobRuns>);
+
+impl weldsuite_flow::github_outbound::GithubOutboundRuns for FlowOutboundRuns {
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        WorkflowRuns::create(self.0.as_ref(), id, params)
+    }
+}
+
+/// `GITHUB_PROJECT_OUTBOUND` for WeldFlow's task routes: the
+/// `integrations.github-project-outbound` job.
+pub(crate) fn flow_github_outbound(
+    state: &AppState,
+) -> weldsuite_flow::github_outbound::SharedGithubOutboundRuns {
+    Arc::new(FlowOutboundRuns(job_runs(
+        state,
+        weldsuite_integrations::github::GITHUB_PROJECT_OUTBOUND_JOB,
+    )))
+}

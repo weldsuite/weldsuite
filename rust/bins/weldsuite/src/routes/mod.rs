@@ -1219,6 +1219,10 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
             })
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+        // Conformance builds dispatch nothing, as flow-api's tests bind no
+        // `GITHUB_PROJECT_OUTBOUND`.
+        github_outbound: (!cfg!(feature = "conformance"))
+            .then(|| integrations::flow_github_outbound(state)),
     }
 }
 

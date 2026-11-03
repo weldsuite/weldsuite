@@ -187,8 +187,8 @@ ingress host, at the server), with conformance suites named `integrations: …`:
 - **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
   per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
   (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
-  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`; registered, but
-  WeldFlow's Rust task routes do not dispatch it yet)
+  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`, which WeldFlow's task
+  routes start for a task created, edited, moved or deleted on a linked project)
 - **CRM sync**: the `CRM_SYNC` Workflow as the `integrations.crm-sync` job (Attio,
   HubSpot and Google Calendar into companies, people, opportunities and calendar
   events, through the field mappings; WeldConnect's CRM routes and its internal sync
