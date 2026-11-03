@@ -1,5 +1,6 @@
 /**
- * Task detail — status change + field summary from `GET /api/tasks/:id`.
+ * Task detail — status change + field summary from `GET /api/tasks/:id`, and
+ * the Time card (timer + log time).
  */
 
 import { useEffect, useState, type ReactNode } from 'react';
@@ -29,6 +30,7 @@ import { RecordRow } from '@/components/record-row';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { TaskStatusBadge } from '@/components/status-badge';
 import { PriorityIndicator } from '@/components/PriorityIndicator';
+import { TaskTimeCard } from '@/components/time-tracking';
 import { useProjectMembers, useSubtasks, useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
 import { formatTaskAssigneeDisplay } from '@/lib/assignee-display';
 import { statusLabel, useI18n } from '@/lib/i18n';
@@ -209,6 +211,8 @@ export default function TaskDetailScreen() {
             />
           ) : null}
         </SectionCard>
+
+        <TaskTimeCard projectId={projectId} taskId={taskId} />
 
         {subtaskTotal > 0 ? (
           <SectionCard title={t.task.subtasks} padded={false}>
