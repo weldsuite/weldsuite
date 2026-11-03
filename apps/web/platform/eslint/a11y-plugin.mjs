@@ -100,14 +100,22 @@ function classTokens(valueNode) {
 }
 
 const FOCUS_PREFIX = /^(?:[\w-]+:)*(?:focus|focus-visible|focus-within|group-focus-visible|peer-focus-visible):/;
-const VISIBLE_FOCUS = /^(?:ring(?:-(?!0$|offset)[\w[\]/.#-]+)?|border(?:-.+)?|bg-.+|underline|outline(?:-(?!none$).+)?|shadow.*)$/;
+/** Whether a utility (without its focus prefix) draws a visible focus indicator. */
+function isVisibleFocus(utility) {
+  if (['ring', 'border', 'outline', 'underline'].includes(utility)) return true;
+  if (utility.startsWith('shadow') || /^(?:border|bg)-./.test(utility)) return true;
+  if (/^outline-./.test(utility)) return utility !== 'outline-none';
+  if (!utility.startsWith('ring-')) return false;
+  const rest = utility.slice('ring-'.length);
+  return rest !== '0' && !rest.startsWith('offset') && /^[\w[\]/.#-]+$/.test(rest);
+}
 
 function removesOutline(tokens) {
   return tokens.some((t) => /(^|:)outline-none$/.test(t));
 }
 
 function replacesOutline(tokens) {
-  return tokens.some((t) => FOCUS_PREFIX.test(t) && VISIBLE_FOCUS.test(t.replace(FOCUS_PREFIX, '')));
+  return tokens.some((t) => FOCUS_PREFIX.test(t) && isVisibleFocus(t.replace(FOCUS_PREFIX, '')));
 }
 
 /** The shared ui components that draw their own focus-visible ring. */
