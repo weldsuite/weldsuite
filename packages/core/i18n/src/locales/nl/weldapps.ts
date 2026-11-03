@@ -1,7 +1,7 @@
 export const weldapps = {
   breadcrumb: {
     title: 'WeldApps',
-    myApps: 'Mijn apps',
+    myApps: 'Ontwikkelaarsconsole',
   },
   host: {
     notInstalledTitle: 'App niet geïnstalleerd',
@@ -21,7 +21,7 @@ export const weldapps = {
   store: {
     sectionTitle: 'Aangepaste apps',
     sectionOfficial: 'WeldSuite-apps',
-    myAppsLink: 'Mijn apps',
+    myAppsLink: 'Ontwikkelaarsconsole',
     badgeCommunity: 'Community',
     badgePrivate: 'Privé',
     badgeOfficial: 'Officieel',
@@ -93,7 +93,7 @@ export const weldapps = {
     'reach_mailboxes:read': 'WeldReach-mailboxen en -domeinen zien',
   },
   manage: {
-    title: 'Mijn apps',
+    title: 'Ontwikkelaarsconsole',
     createApp: 'App aanmaken',
     empty: 'Nog geen apps',
     emptyDescription: 'Maak uw eerste app aan om te beginnen met bouwen op het WeldSuite-platform.',
@@ -115,6 +115,7 @@ export const weldapps = {
     statusRejected: 'Afgekeurd',
     reviewNotesLabel: 'Beoordelingsopmerkingen',
     installInWorkspace: 'Installeren in deze werkruimte',
+    installNeedsVersion: 'Upload eerst een versie om deze app te kunnen installeren.',
     deleteApp: 'App verwijderen',
     deleteTitle: '{name} verwijderen?',
     deleteDescription: 'Dit verwijdert de app, alle versies en de installaties overal permanent. Dit kan niet ongedaan worden gemaakt.',
@@ -151,6 +152,10 @@ export const weldapps = {
     columnDate: 'Datum',
     columnSize: 'Grootte',
     uploadVersion: 'Versie uploaden',
+    statusCurrent: 'Huidig',
+    statusPrevious: 'Vorige',
+    statusAwaitingReview: 'Wacht op beoordeling',
+    statusRejected: 'Afgekeurd',
   },
   uploadDialog: {
     title: 'Versie uploaden',
@@ -166,6 +171,7 @@ export const weldapps = {
     uploadError: 'Uploaden van de versie mislukt',
     noFilesError: 'Selecteer minstens één bestand om te uploaden',
     invalidManifestError: 'Het manifest moet geldige JSON zijn',
+    invalidManifestDetails: 'Ongeldig manifest: {details}',
   },
   submit: {
     button: 'Indienen ter beoordeling',
