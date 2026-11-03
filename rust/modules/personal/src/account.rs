@@ -242,7 +242,9 @@ async fn register(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                      $12::timestamp, $12::timestamp)
              on conflict (personal_account_id, device_id, app_code) do update set
                token = $6, token_type = $7, platform = $5, clerk_user_id = $3,
-               device_model = $9, os_version = $10, app_version = $11, is_active = null,
+               device_model = coalesce($9, personal_device_tokens.device_model),
+               os_version = coalesce($10, personal_device_tokens.os_version),
+               app_version = coalesce($11, personal_device_tokens.app_version), is_active = null,
                last_used_at = $12::timestamp, updated_at = $12::timestamp",
         )
         .bind(weldsuite_kit::generate_id("pdt"))

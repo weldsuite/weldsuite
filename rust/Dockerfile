@@ -158,7 +158,7 @@ COPY rust/catalogs catalogs
 COPY rust/crates crates
 COPY rust/modules modules
 COPY rust/bins bins
-# The journaled migrations (packages/core/db/drizzle/{master,tenant}-migrations:
+# The journaled migrations (packages/core/db/drizzle/{master,tenant,personal}-migrations:
 # the SQL and each meta/_journal.json, not the snapshots), embedded in the
 # binary, so the image needs no files and no Node to migrate
 # (crates/migrations/build.rs).

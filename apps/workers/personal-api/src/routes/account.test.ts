@@ -307,7 +307,8 @@ describe('/api/push-tokens', () => {
       tokenType: 'apns',
       appCode: 'weldmail',
       appVersion: '2.0.0',
-      osVersion: null,
+      // Left out of the update: kept.
+      osVersion: '18.1',
       isActive: null,
     });
   });

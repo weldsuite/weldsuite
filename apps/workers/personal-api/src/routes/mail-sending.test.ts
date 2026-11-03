@@ -310,6 +310,17 @@ describe('POST /api/mail/messages/send', () => {
       post({ accountId: MINE, to: [], cc: 'not-an-email', subject: 1, references: ['x'.repeat(501)] }),
     );
     expect(bad.status).toBe(400);
+
+    // Neither a string nor a list: Zod's invalid_union, after the other fields' issues.
+    for (const body of [
+      { accountId: MINE, subject: 'x' },
+      { accountId: '', to: 5, cc: null, bcc: ['nope'], subject: 'x' },
+      { accountId: MINE, to: ['bad'], cc: [], bcc: 'nope', subject: 'x' },
+    ]) {
+      const res = await target.request('/api/mail/messages/send', post(body));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ success: false, error: { name: 'ZodError' } });
+    }
   });
 
   it('answers 503 without the send binding', async () => {
@@ -377,10 +388,20 @@ describe('POST /api/mail/messages/send', () => {
       id: 'pma_stolen',
       personalAccountId: ACCOUNT,
       name: 'stolen',
-      email: 'olly@weldmail.com',
+      email: 'taken@weldmail.com',
       createdAt: AT,
       updatedAt: AT,
-    }).onConflictDoNothing();
+    });
+    await masterDb.insert(masterSchema.mailAccountRegistry).values({
+      id: 'reg_taken',
+      email: 'taken@weldmail.com',
+      tenantKind: 'personal',
+      personalAccountId: OTHER_ACCOUNT,
+      accountId: THEIRS,
+      isActive: true,
+      createdAt: AT,
+      updatedAt: AT,
+    });
     const res = await app({ ledger: ledgerStub() }).request(
       '/api/mail/messages/send',
       post({ accountId: 'pma_stolen', to: 'sam@example.com', subject: 'Hi', textBody: 'x' }),

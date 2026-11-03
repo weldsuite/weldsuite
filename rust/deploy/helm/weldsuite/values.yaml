@@ -222,6 +222,10 @@ config:
 #                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 #   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   DATABASE_URL_PERSONAL        personal-api's shared personal database (consumer WeldMail and
+#                                WeldCalendar on personal accounts, ADR DATA-011), a database of its
+#                                own: set, the server serves personal-api at /personal-api and the
+#                                migrations Job migrates it (optional; unset: no personal-api)
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
 #                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
 #                                unset: no new workspaces)
@@ -240,10 +244,11 @@ secret:
 # database URLs. Turn it off only when the migrations run some other way.
 migrations:
   enabled: true
-  # weldsuite migrate's flags (weldsuite migrate --help): the master database
-  # and every active workspace's database. Add "--apply-skipped" to also apply
-  # migrations Drizzle skipped.
-  args: ["--master", "--tenants"]
+  # weldsuite migrate's flags (weldsuite migrate --help): the master database,
+  # every active workspace's database, and personal-api's shared personal
+  # database when DATABASE_URL_PERSONAL is in the Secret (skipped otherwise).
+  # Add "--apply-skipped" to also apply migrations Drizzle skipped.
+  args: ["--master", "--tenants", "--personal"]
   # Tenant databases migrated at once (the TypeScript runner does one).
   concurrency: 1
   # Retries of a failed run; every run starts where the last one stopped.

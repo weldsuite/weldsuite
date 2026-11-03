@@ -123,6 +123,15 @@ export function createPersonalTestApp(options: CreatePersonalTestAppOptions) {
     if (endpoint && endpoint.method !== 'ALL') c.res.headers.set(ROUTE_HEADER, endpoint.path);
   });
   app.route('/', worker);
+  // A mounted app's own `notFound` and `onError` don't carry over: the
+  // worker's (src/index.ts), as the wrapper must answer them.
+  app.notFound((c) =>
+    c.json({ error: { code: 'NOT_FOUND', message: 'Not Found', details: { path: c.req.path } } }, 404),
+  );
+  app.onError((err, c) => {
+    console.error('Personal API Error:', err);
+    return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } }, 500);
+  });
   const routes = app.routes
     .filter((route) => route.method !== 'ALL')
     .map((route) => ({ method: route.method, path: route.path }));

@@ -25,6 +25,7 @@
     "./schemas/stash-responses": "./src/schemas/stash-responses.ts",
     "./schemas/host-responses": "./src/schemas/host-responses.ts",
     "./schemas/integration-webhooks": "./src/schemas/integration-webhooks.ts",
+    "./schemas/personal-responses": "./src/schemas/personal-responses.ts",
     "./schemas/tickets": "./src/schemas/tickets.ts",
     "./schemas/companies": "./src/schemas/companies.ts",
     "./schemas/company-logos": "./src/schemas/company-logos.ts",

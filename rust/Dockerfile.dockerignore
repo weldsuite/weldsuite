@@ -46,6 +46,8 @@ packages/core/db/drizzle
 !packages/core/db/drizzle/master-migrations/meta/_journal.json
 !packages/core/db/drizzle/tenant-migrations/*.sql
 !packages/core/db/drizzle/tenant-migrations/meta/_journal.json
+!packages/core/db/drizzle/personal-migrations/*.sql
+!packages/core/db/drizzle/personal-migrations/meta/_journal.json
 apps/web/platform/docs
 apps/web/platform/e2e
 apps/web/platform/playwright-report

@@ -31,6 +31,10 @@ pub enum Folder {
     Master,
     /// `packages/core/db/drizzle/tenant-migrations`.
     Tenant,
+    /// `packages/core/db/drizzle/personal-migrations`: the shared personal
+    /// database of personal-api (ADR DATA-011), migrated by
+    /// `pnpm db:migrate:personal` (drizzle-kit, as the master).
+    Personal,
 }
 
 impl Folder {
@@ -41,7 +45,7 @@ impl Folder {
     /// the tenants, as the workspace worker's applier does.
     pub fn schema(self) -> &'static str {
         match self {
-            Self::Master => "drizzle",
+            Self::Master | Self::Personal => "drizzle",
             Self::Tenant => "public",
         }
     }
@@ -50,6 +54,7 @@ impl Folder {
         match self {
             Self::Master => "master",
             Self::Tenant => "tenant",
+            Self::Personal => "personal",
         }
     }
 }
@@ -124,7 +129,7 @@ pub struct Journal {
     migrations: Vec<Migration>,
 }
 
-static EMBEDDED: LazyLock<[Journal; 2]> = LazyLock::new(|| {
+static EMBEDDED: LazyLock<[Journal; 3]> = LazyLock::new(|| {
     let load = |folder, entries: &'static [RawEntry]| Journal {
         folder,
         migrations: entries
@@ -135,6 +140,7 @@ static EMBEDDED: LazyLock<[Journal; 2]> = LazyLock::new(|| {
     [
         load(Folder::Master, generated::MASTER),
         load(Folder::Tenant, generated::TENANT),
+        load(Folder::Personal, generated::PERSONAL),
     ]
 });
 
@@ -148,6 +154,7 @@ impl Journal {
         match folder {
             Folder::Master => &EMBEDDED[0],
             Folder::Tenant => &EMBEDDED[1],
+            Folder::Personal => &EMBEDDED[2],
         }
     }
 

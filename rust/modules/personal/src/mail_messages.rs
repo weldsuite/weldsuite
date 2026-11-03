@@ -242,9 +242,52 @@ async fn unread_count(caller: Caller) -> Response {
     answer(result, "Failed to count unread messages")
 }
 
+/// The issues of the body's unions, each with the microtask turn it
+/// settles on.
+#[derive(Default)]
+struct Unions(Vec<(u8, Vec<Value>)>);
+
+impl Unions {
+    /// Adds them after the body's synchronous issues, in the order the
+    /// unions settle (field order on the same turn).
+    fn finish(mut self, issues: &mut Issues) {
+        self.0.sort_by_key(|(turn, _)| *turn);
+        for (_, list) in self.0 {
+            for issue in list {
+                issues.push_raw(issue);
+            }
+        }
+    }
+}
+
 /// `z.union([z.string().email(), z.array(z.string().email()).min(1)])`
-/// with `presence`, as a list.
+/// with `presence`, as a list. A union settles asynchronously under
+/// `zValidator` (`safeParseAsync`), after the body's synchronous checks, so
+/// its issues go to `unions` for the caller to add last. Zod's async union
+/// pushes them three turns after its slowest option settles: a string (or a
+/// value neither option takes) settles at once, an array one turn later
+/// (`Promise.all` of its items, then a `.then`), two when it has items.
 fn email_or_list(
+    unions: &mut Unions,
+    body: &Map<String, Value>,
+    key: &str,
+    required: bool,
+) -> Option<Vec<String>> {
+    let mut issues = Issues::default();
+    let value = read_email_or_list(&mut issues, body, key, required);
+    if let Err(invalid) = issues.finish() {
+        let turn = match body.get(key) {
+            Some(Value::Array(items)) if items.is_empty() => 4,
+            Some(Value::Array(_)) => 5,
+            _ => 3,
+        };
+        unions.0.push((turn, invalid.issues().to_vec()));
+        return None;
+    }
+    value
+}
+
+fn read_email_or_list(
     issues: &mut Issues,
     body: &Map<String, Value>,
     key: &str,
@@ -295,13 +338,14 @@ fn email_or_list(
 /// `POST /api/mail/messages/send`.
 async fn send(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     let input = match validate(&headers, &body, |issues, b| {
+        let mut unions = Unions::default();
         let account_id = issues
             .text(b, "accountId", Presence::Required, Some(1), None)
             .into_option()
             .unwrap_or_default();
-        let to = email_or_list(issues, b, "to", true).unwrap_or_default();
-        let cc = email_or_list(issues, b, "cc", false).unwrap_or_default();
-        let bcc = email_or_list(issues, b, "bcc", false).unwrap_or_default();
+        let to = email_or_list(&mut unions, b, "to", true).unwrap_or_default();
+        let cc = email_or_list(&mut unions, b, "cc", false).unwrap_or_default();
+        let bcc = email_or_list(&mut unions, b, "bcc", false).unwrap_or_default();
         let subject = issues
             .text(b, "subject", Presence::Required, None, Some(998))
             .into_option()
@@ -331,6 +375,7 @@ async fn send(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         let idempotency_key = issues
             .text(b, "idempotencyKey", Presence::Optional, Some(1), Some(64))
             .into_option();
+        unions.finish(issues);
         Compose {
             account_id,
             to,
@@ -439,18 +484,23 @@ async fn forward(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let input = match validate(&headers, &body, |issues, b| ForwardBody {
-        to: email_or_list(issues, b, "to", true).unwrap_or_default(),
-        cc: email_or_list(issues, b, "cc", false).unwrap_or_default(),
-        text_body: issues
-            .text(b, "textBody", Presence::Optional, None, None)
-            .into_option(),
-        html_body: issues
-            .text(b, "htmlBody", Presence::Optional, None, None)
-            .into_option(),
-        idempotency_key: issues
-            .text(b, "idempotencyKey", Presence::Optional, Some(1), Some(64))
-            .into_option(),
+    let input = match validate(&headers, &body, |issues, b| {
+        let mut unions = Unions::default();
+        let input = ForwardBody {
+            to: email_or_list(&mut unions, b, "to", true).unwrap_or_default(),
+            cc: email_or_list(&mut unions, b, "cc", false).unwrap_or_default(),
+            text_body: issues
+                .text(b, "textBody", Presence::Optional, None, None)
+                .into_option(),
+            html_body: issues
+                .text(b, "htmlBody", Presence::Optional, None, None)
+                .into_option(),
+            idempotency_key: issues
+                .text(b, "idempotencyKey", Presence::Optional, Some(1), Some(64))
+                .into_option(),
+        };
+        unions.finish(issues);
+        input
     }) {
         Ok(input) => input,
         Err(response) => return response,
