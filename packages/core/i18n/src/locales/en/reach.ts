@@ -305,6 +305,8 @@ export const reach = {
       title: 'Create your mailboxes',
       description:
         'Each mailbox sends from its own address and its own name. Create a few: the more mailboxes, the more you can send safely. Spread them over several domains: warmup starts once mailboxes span at least {domains} domains. Every mailbox costs {price} per month.',
+      descriptionUnbilled:
+        'Each mailbox sends from its own address and its own name. Create a few: the more mailboxes, the more you can send safely. Spread them over several domains: warmup starts once mailboxes span at least {domains} domains.',
       noDomains: 'Connect a domain in the previous step first.',
       created: 'Mailbox created. It starts warming up now.',
       createdList: 'Your mailboxes',

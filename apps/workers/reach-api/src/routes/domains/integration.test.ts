@@ -12,11 +12,11 @@ import { masterSchema, schema, type Database, type MasterDatabase } from '@welds
 import { MailpoolError } from '../../lib/mailpool/errors';
 import { createFakeMailpool, type FakeMailpool } from '../../lib/mailpool/testing';
 import { resetReachMaster, resetReachTenant, seedHostDomain, seedMailbox, seedReachDomain } from '../../lib/mailpool/testing-db';
-import { approvedAccess, dohResponse, withAppAccess } from '../../lib/mailpool/testing-routes';
+import { approvedAccess, dohResponse } from '../../lib/mailpool/testing-routes';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 import { publishEntityEvent } from '@weldsuite/entity-events';
 const published = publishEntityEvent as unknown as ReturnType<typeof vi.fn>;
@@ -44,8 +44,8 @@ let zone: Record<string, string[]> = {};
 const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete'];
 
 function api(keys: string[] = ALL, access = approvedAccess()) {
-  return createTestApp('/api/reach/domains', withAppAccess(domainRoutes, access), {
-    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
+  return createTestApp('/api/reach/domains', domainRoutes, {
+    context: { appAccess: access, permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
   }).request;
 }
 const json = (method: string, body?: unknown): RequestInit => ({

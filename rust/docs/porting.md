@@ -103,7 +103,13 @@ templates).
    those interfaces.
 3. Add the suite to `rust/conformance/suites.json` (the worker's test files
    and the paths that change it). Once the module is in
-   `RUST_PORTED_MODULES`, an unreached route fails the suite.
+   `RUST_PORTED_MODULES`, an unreached route fails the suite. A suite's
+   routes are those of every router its files mount; when files mount
+   another route group's router only to set up their data (WeldBooks'
+   tests create their entity through `/api/accounting-entities`), list the
+   suite's own route prefixes in `coverage` and only those count
+   (`worker-kit/src/testing/conformance-coverage.ts`; a cross-area suite
+   lists none, each group's own suite reaches its routes).
 4. Run it: build the conformance server and run the tests with
    `CONFORMANCE_TARGET=rust CONFORMANCE_STRICT=0 CONFORMANCE_REPORT_DIR=<dir>`
    (`pnpm rust:conformance` does the whole thing; `--no-build` reuses the
@@ -126,6 +132,12 @@ templates).
    both backends made are compared as a side effect (method, URL, body). A
    stub answers both runs, so it must answer by URL and method
    (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
+   A multipart body is recorded as `<body>` on both sides (its boundary is
+   drawn per run). Values in an outbound body that differ by construction go
+   in the route's `outbound` entry of `conformance-volatile.ts`: masked (a
+   token signed with the current second), or `decode: 'base64-json'` (a
+   base64 JSON value carrying new ids, compared decoded; WeldCall's Telnyx
+   `client_state`).
 6. Routes that write the master database: put `masterDb` (from
    `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
    return `conformanceMasterDb(masterDb)` (from
@@ -218,7 +230,10 @@ templates).
 - A cron test calls the job's function, not a route: wrap the call in
   `conformanceSweep` (`worker-kit/src/testing/conformance-cron.ts`) and serve
   the job at `/__conformance/cron/<name>` (`bins/weldsuite/src/conformance.rs`).
-  It compares the result, events, mail and due index.
+  It compares the result, events, mail and due index. A job that keeps no
+  due index (WeldBooks' tax reminders, `books-tax-reminders`) leaves
+  `dueIndex`, `kv` and `masterDb` out and sends what the test runs it with
+  as `input`; its result carries what the test checks.
 - Output that can't be byte for byte the same (the signed PDF: pdf-lib vs
   `lopdf`): test what it contains against fixtures the TypeScript code wrote
   (`modules/sign/tools/pdf-fixtures.mts`), and normalise only the values

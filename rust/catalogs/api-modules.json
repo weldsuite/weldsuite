@@ -259,7 +259,7 @@
       "/api/received-fiscal-documents",
       "/public/fiscal-webhooks"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "books-api"
   },
   {
@@ -294,7 +294,7 @@
       "/public/commerce-portal",
       "/webhooks/woocommerce"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "commerce-api"
   },
   {
@@ -321,7 +321,7 @@
       "/api/wms-activity",
       "/api/wms-suppliers"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "stash-api"
   },
   {
@@ -339,7 +339,7 @@
       "/api/email-forwards",
       "/public/webhooks/realtime-register"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "host-api"
   },
   {
@@ -378,7 +378,7 @@
       "/api/webhooks/cloudflare-realtime",
       "/public/meeting-recordings"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "meet-api"
   },
   {
@@ -428,7 +428,7 @@
       "/api/telephony",
       "/public/webhooks/telnyx"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "call-api"
   },
   {
@@ -465,7 +465,7 @@
       "/api/workflow-webhooks",
       "/api/workflows"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "connect-api"
   },
   {
@@ -494,7 +494,7 @@
       "/api/enrichments",
       "/api/welddata"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "data-api"
   },
   {
@@ -520,7 +520,7 @@
     "prefixes": [
       "/api/weldhr"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "hr-api"
   },
   {
@@ -541,7 +541,7 @@
       "/api/social-team-members",
       "/public/social/postpeer"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "social-api"
   },
   {
@@ -556,7 +556,7 @@
       "/api/ad-campaigns",
       "/api/ad-connections"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "ads-api"
   },
   {
@@ -583,7 +583,7 @@
       "/api/reach",
       "/public/reach"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "reach-api"
   },
   {
@@ -596,7 +596,7 @@
     "prefixes": [
       "/api/sheets"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "sheets-api"
   },
   {
@@ -622,7 +622,7 @@
     "prefixes": [
       "/api/docs"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "docs-api"
   },
   {
@@ -635,7 +635,7 @@
     "prefixes": [
       "/api/panel"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "panel-api"
   }
 ]

@@ -1,0 +1,330 @@
+{
+ "rules": {
+  "2026": {
+   "taxYear": 2026,
+   "ruleSet": "us-2026.1",
+   "provisional": false,
+   "provisionalItems": [],
+   "withholding": {
+    "standard": {
+     "married_jointly": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 1930000,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 4410000,
+       "baseCents": 248000,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 12010000,
+       "baseCents": 1160000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 23070000,
+       "baseCents": 3593200,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 42285000,
+       "baseCents": 8204800,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 53175000,
+       "baseCents": 11689600,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 78800000,
+       "baseCents": 20658350,
+       "ratePercent": 37
+      }
+     ],
+     "single": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 750000,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 1990000,
+       "baseCents": 124000,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 5790000,
+       "baseCents": 580000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 11320000,
+       "baseCents": 1796600,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 20927500,
+       "baseCents": 4102400,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 26372500,
+       "baseCents": 5844800,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 64810000,
+       "baseCents": 19297925,
+       "ratePercent": 37
+      }
+     ],
+     "head_of_household": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 1555000,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 3325000,
+       "baseCents": 177000,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 8300000,
+       "baseCents": 774000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 12125000,
+       "baseCents": 1615500,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 21730000,
+       "baseCents": 3920700,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 27175000,
+       "baseCents": 5663100,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 65615000,
+       "baseCents": 19117100,
+       "ratePercent": 37
+      }
+     ]
+    },
+    "step2Checked": {
+     "married_jointly": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 1610000,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 2850000,
+       "baseCents": 124000,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 6650000,
+       "baseCents": 580000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 12180000,
+       "baseCents": 1796600,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 21787500,
+       "baseCents": 4102400,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 27232500,
+       "baseCents": 5844800,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 40045000,
+       "baseCents": 10329175,
+       "ratePercent": 37
+      }
+     ],
+     "single": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 805000,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 1425000,
+       "baseCents": 62000,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 3325000,
+       "baseCents": 290000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 6090000,
+       "baseCents": 898300,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 10893800,
+       "baseCents": 2051200,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 13616300,
+       "baseCents": 2922400,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 32835000,
+       "baseCents": 9648963,
+       "ratePercent": 37
+      }
+     ],
+     "head_of_household": [
+      {
+       "atLeastCents": 0,
+       "baseCents": 0,
+       "ratePercent": 0
+      },
+      {
+       "atLeastCents": 1207500,
+       "baseCents": 0,
+       "ratePercent": 10
+      },
+      {
+       "atLeastCents": 2092500,
+       "baseCents": 88500,
+       "ratePercent": 12
+      },
+      {
+       "atLeastCents": 4580000,
+       "baseCents": 387000,
+       "ratePercent": 22
+      },
+      {
+       "atLeastCents": 6492500,
+       "baseCents": 807750,
+       "ratePercent": 24
+      },
+      {
+       "atLeastCents": 11295000,
+       "baseCents": 1960350,
+       "ratePercent": 32
+      },
+      {
+       "atLeastCents": 14017500,
+       "baseCents": 2831550,
+       "ratePercent": 35
+      },
+      {
+       "atLeastCents": 33237500,
+       "baseCents": 9558550,
+       "ratePercent": 37
+      }
+     ]
+    },
+    "line1gMarriedJointlyCents": 1290000,
+    "line1gOtherCents": 860000,
+    "allowanceCents": 430000,
+    "nraAdditionPre2020": {
+     "1": 1180000,
+     "2": 590000,
+     "4": 295000,
+     "12": 98330,
+     "24": 49170,
+     "26": 45380,
+     "52": 22690
+    },
+    "nraAddition2020": {
+     "1": 1610000,
+     "2": 805000,
+     "4": 402500,
+     "12": 134170,
+     "24": 67080,
+     "26": 61920,
+     "52": 30960
+    }
+   },
+   "supplemental": {
+    "flatRatePercent": 22,
+    "mandatoryRatePercent": 37,
+    "mandatoryThresholdCents": 100000000
+   },
+   "socialSecurity": {
+    "ratePercent": 6.2,
+    "wageBaseCents": 18450000
+   },
+   "medicare": {
+    "ratePercent": 1.45,
+    "additionalRatePercent": 0.9,
+    "additionalThresholdCents": 20000000
+   },
+   "futa": {
+    "grossRatePercent": 6,
+    "maxCreditPercent": 5.4,
+    "wageBaseCents": 700000,
+    "creditReductionPending": [
+     "CA",
+     "VI"
+    ]
+   },
+   "retirement": {
+    "electiveDeferralCents": 2450000,
+    "catchUp50Cents": 800000,
+    "catchUp60To63Cents": 1125000
+   },
+   "hsa": {
+    "selfOnlyCents": 440000,
+    "familyCents": 875000,
+    "catchUp55Cents": 100000
+   },
+   "dependentCareExclusionCents": 750000
+  }
+ },
+ "futaCreditReduction": {
+  "2025": {
+   "CA": 1.2,
+   "VI": 4.5
+  },
+  "2026": {}
+ }
+}

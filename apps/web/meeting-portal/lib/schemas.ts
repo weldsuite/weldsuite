@@ -111,6 +111,13 @@ export const guestJoinResultSchema = z.object({
    * which identify the guest by it instead of by email.
    */
   guestToken: z.string().optional(),
+  /**
+   * Set with status === 'joined' when the portal runs on LiveKit (the
+   * Kubernetes editions, `VIDEO_PROVIDER`/`LIVEKIT_URL`): `authToken` is then a
+   * LiveKit join token for the server at `videoUrl`. Absent = RealtimeKit.
+   */
+  videoProvider: z.enum(['realtimekit', 'livekit']).optional(),
+  videoUrl: z.string().optional(),
 });
 
 export type GuestJoinResult = z.infer<typeof guestJoinResultSchema>;

@@ -44,16 +44,23 @@ export interface GateResult {
   status: number;
 }
 
-/** Status of each standard CRUD call made WITHOUT the gating permission. */
+/**
+ * Status of each standard CRUD call made WITHOUT the gating permission.
+ * Pass a pglite tenant database (`createPgliteDb()`) to run the calls in
+ * conformance mode too, where the Rust server needs one to reach; without
+ * it they run against the harness's mock database.
+ */
 export async function authGateStatuses<E extends KitEnv, V extends KitVariables>(
   c: AuthGateCase<E, V>,
+  db?: Database,
 ): Promise<GateResult[]> {
   const results: GateResult[] = [];
   const json = { 'Content-Type': 'application/json' };
-  const readOnly = { context: { permissions: permissions(`${c.prefix}:read`) } };
+  const tenant = db ? { tenantDb: db } : {};
+  const readOnly = { context: { permissions: permissions(`${c.prefix}:read`), ...tenant } };
 
   if (!c.skipGet) {
-    const { request } = createTestApp(c.mount, c.router, { context: { permissions: permissions() } });
+    const { request } = createTestApp(c.mount, c.router, { context: { permissions: permissions(), ...tenant } });
     results.push({ label: `GET ${c.mount} without ${c.prefix}:read`, status: (await request(c.mount)).status });
   }
   if (!c.skipPost) {

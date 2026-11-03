@@ -32,6 +32,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { isFeatureAvailable } from '@/lib/edition';
 import type { TranslationsType } from '@weldsuite/i18n/types';
 import {
   lastFinishedPeriod,
@@ -298,9 +299,11 @@ export default function VatReturnsPage() {
       render: (d) =>
         d.status === 'calculated' || d.status === 'reviewed' ? (
           <>
-            <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
-              {tv.icpFile}
-            </Button>
+            {isFeatureAvailable('vat-digipoort') ? (
+              <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
+                {tv.icpFile}
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="ghost"

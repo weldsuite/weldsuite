@@ -206,6 +206,14 @@ function rawText(raw: unknown): string {
   return String(raw);
 }
 
+/**
+ * Masks what differs per run by construction, as system mail does
+ * (./conformance-mail.ts): a sign-in link's token, a six-digit code.
+ */
+function maskRandom(text: string): string {
+  return text.replace(/[A-Za-z0-9_-]{20,}/g, '<token>').replace(/\b\d{6}\b/g, '<code>');
+}
+
 /** One envelope as compared: what a recipient's client would show. */
 export function sendRecord(from: string, to: string, raw: unknown): SendRecord {
   const { head, body } = splitHead(rawText(raw));
@@ -221,11 +229,11 @@ export function sendRecord(from: string, to: string, raw: unknown): SendRecord {
     to: parseAddresses(get('to')).map((a) => a.email),
     cc: parseAddresses(get('cc')).map((a) => a.email),
     replyTo: parseAddresses(get('reply-to'))[0]?.email ?? null,
-    subject: decodeWords(get('subject') ?? ''),
+    subject: maskRandom(decodeWords(get('subject') ?? '')),
     messageId,
     inReplyTo: get('in-reply-to') ?? null,
     references: get('references')?.replace(/\s+/g, ' ') ?? null,
     headers: extra,
-    parts: leafParts(head, body),
+    parts: leafParts(head, body).map((part) => ({ ...part, text: part.text === null ? null : maskRandom(part.text) })),
   };
 }

@@ -1,0 +1,1276 @@
+{
+ "2026": {
+  "year": 2026,
+  "id": "nl-2026.1",
+  "provisional": false,
+  "unverified": [],
+  "aowAge": {
+   "years": 67,
+   "months": 0
+  },
+  "wageTax": {
+   "lv": 54,
+   "lmax": 133110,
+   "belowAow": {
+    "a2": 38883,
+    "a3": 78426,
+    "b1": 35.75,
+    "b2": 37.56,
+    "b3": 49.5,
+    "c2": 13900,
+    "c3": 28752
+   },
+   "aow1945": {
+    "a2": 41123,
+    "a3": 78426,
+    "b1": 17.85,
+    "b2": 37.56,
+    "b3": 49.5,
+    "c2": 7340,
+    "c3": 21351
+   },
+   "aow1946": {
+    "a2": 38883,
+    "a3": 78426,
+    "b1": 17.85,
+    "b2": 37.56,
+    "b3": 49.5,
+    "c2": 6940,
+    "c3": 21792
+   },
+   "ahk": {
+    "g1": 29736,
+    "g2": 78426,
+    "belowAow": {
+     "m1": 3115,
+     "a1": 0.06398
+    },
+    "aow": {
+     "m1": 1556,
+     "a1": 0.03195
+    }
+   },
+   "ouk": {
+    "m1": 2067,
+    "g1": 46002,
+    "g2": 59782,
+    "a1": 0.15
+   },
+   "ark": {
+    "g1": 11965,
+    "g2": 25845,
+    "g3": 45592,
+    "g4": 132920,
+    "belowAow": {
+     "o1": 0.08324,
+     "o2": 0.31009,
+     "o3": 0.0195,
+     "a1": 0.0651,
+     "m1": 996,
+     "m2": 5300,
+     "m3": 5685
+    },
+    "aow": {
+     "o1": 0.04156,
+     "o2": 0.15483,
+     "o3": 0.00974,
+     "a1": 0.0325,
+     "m1": 498,
+     "m2": 2647,
+     "m3": 2840
+    }
+   },
+   "anonymousRatePercent": 52
+  },
+  "specialRewardTable": [
+   {
+    "from": 0,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 11358,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": -8.32
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 12923,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": -31.01
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 23931,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": -1.95
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 29737,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 4.45
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 34719,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 4.45
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 2.22
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 2.22
+    }
+   },
+   {
+    "from": 37409,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 4.45
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 2.22
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 2.22
+    }
+   },
+   {
+    "from": 38884,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 4.45
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 2.22
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 2.22
+    }
+   },
+   {
+    "from": 41124,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 4.45
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 2.22
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 2.22
+    }
+   },
+   {
+    "from": 45593,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 12.91
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.45
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.45
+    }
+   },
+   {
+    "from": 46003,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 12.91
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 21.45
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 21.45
+    }
+   },
+   {
+    "from": 59783,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 12.91
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.45
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.45
+    }
+   },
+   {
+    "from": 78427,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 6.51
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 3.25
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 3.25
+    }
+   },
+   {
+    "from": 143555,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    }
+   }
+  ],
+  "specialRewardTableGreen": [
+   {
+    "from": 0,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 8714,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 20297,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 0
+    }
+   },
+   {
+    "from": 23323,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 0
+    }
+   },
+   {
+    "from": 29737,
+    "belowAow": {
+     "without": 35.75,
+     "standard": 35.75,
+     "offset": 6.4
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 3.2
+    },
+    "aow1946": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 3.2
+    }
+   },
+   {
+    "from": 38884,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.4
+    },
+    "aow1945": {
+     "without": 17.85,
+     "standard": 17.85,
+     "offset": 3.2
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 3.2
+    }
+   },
+   {
+    "from": 41124,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.4
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 3.2
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 3.2
+    }
+   },
+   {
+    "from": 46003,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.4
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 18.2
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 18.2
+    }
+   },
+   {
+    "from": 59783,
+    "belowAow": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 6.4
+    },
+    "aow1945": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 3.2
+    },
+    "aow1946": {
+     "without": 37.56,
+     "standard": 37.56,
+     "offset": 3.2
+    }
+   },
+   {
+    "from": 78427,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    }
+   }
+  ],
+  "premiums": {
+   "awfLowPercent": 2.74,
+   "awfHighPercent": 7.74,
+   "aofLowPercent": 6.27,
+   "aofHighPercent": 7.63,
+   "wkoPercent": 0.5,
+   "whkSectorPercent": {
+    "1": 1.17,
+    "2": 1.47,
+    "3": 1.31,
+    "4": 1.57,
+    "5": 1.66,
+    "6": 1.06,
+    "7": 1.5,
+    "8": 1.16,
+    "9": 1.75,
+    "10": 1.44,
+    "11": 0.97,
+    "12": 1.38,
+    "13": 2.2,
+    "14": 2.19,
+    "15": 2.12,
+    "16": 2.46,
+    "17": 1.93,
+    "18": 4.2,
+    "19": 1.75,
+    "20": 1.42,
+    "21": 2.9,
+    "22": 1.36,
+    "23": 1.5,
+    "24": 0.88,
+    "25": 1.52,
+    "26": 1.52,
+    "27": 3.45,
+    "28": 4.76,
+    "29": 1.88,
+    "30": 2.1,
+    "31": 1.12,
+    "32": 1.76,
+    "33": 1.77,
+    "34": 3.55,
+    "35": 1.81,
+    "38": 1.41,
+    "39": 0.76,
+    "40": 1.47,
+    "41": 1.25,
+    "42": 1.45,
+    "43": 1.16,
+    "44": 0.94,
+    "45": 1.25,
+    "46": 2.03,
+    "47": 1.61,
+    "48": 2.31,
+    "49": 2.1,
+    "50": 1.92,
+    "51": 1.96,
+    "52": 6.63,
+    "53": 2.97,
+    "54": 1.5,
+    "55": 1.93,
+    "56": 1.88,
+    "57": 1.87,
+    "58": 2.34,
+    "59": 2.13,
+    "60": 1.87,
+    "61": 1.4,
+    "62": 1.67,
+    "63": 1.31,
+    "64": 1.49,
+    "65": 1.29,
+    "66": 1.35,
+    "67": 4.91,
+    "68": 1.92,
+    "69": 1.52
+   },
+   "maxPremieloon": {
+    "year": 7940900,
+    "month": 661741,
+    "day": 30541
+   },
+   "zvwEmployerLevyPercent": 6.1,
+   "zvwWithheldPercent": 4.85
+  },
+  "minimumWage": [
+   {
+    "from": "2026-01-01",
+    "perHour": {
+     "15": 441,
+     "16": 507,
+     "17": 581,
+     "18": 736,
+     "19": 883,
+     "20": 1177,
+     "21": 1471
+    }
+   },
+   {
+    "from": "2026-07-01",
+    "perHour": {
+     "15": 450,
+     "16": 517,
+     "17": 592,
+     "18": 750,
+     "19": 899,
+     "20": 1199,
+     "21": 1499
+    }
+   }
+  ],
+  "wkr": {
+   "perKmCents": 25,
+   "homeWorkingPerDayCents": 245
+  },
+  "expat": {
+   "salaryNormCents": 4801300,
+   "wntCapCents": 26200000
+  },
+  "dgaUsualSalaryCents": 5800000
+ },
+ "2027": {
+  "year": 2027,
+  "id": "nl-2027.0-prinsjesdag",
+  "provisional": true,
+  "unverified": [
+   "premiums.maxPremieloon",
+   "premiums.zvwEmployerLevyPercent",
+   "premiums.zvwWithheldPercent",
+   "minimumWage",
+   "wkr.perKmCents",
+   "wkr.homeWorkingPerDayCents",
+   "expat.salaryNormCents",
+   "expat.wntCapCents",
+   "dgaUsualSalaryCents"
+  ],
+  "aowAge": {
+   "years": 67,
+   "months": 0
+  },
+  "wageTax": {
+   "lv": 54,
+   "lmax": 139050,
+   "belowAow": {
+    "a2": 39247,
+    "a3": 78426,
+    "b1": 36.23,
+    "b2": 38.16,
+    "b3": 49.5,
+    "c2": 14219,
+    "c3": 29169
+   },
+   "aow1945": {
+    "a2": 41637,
+    "a3": 78426,
+    "b1": 18.33,
+    "b2": 38.16,
+    "b3": 49.5,
+    "c2": 7632,
+    "c3": 21670
+   },
+   "aow1946": {
+    "a2": 39247,
+    "a3": 78426,
+    "b1": 18.33,
+    "b2": 38.16,
+    "b3": 49.5,
+    "c2": 7193,
+    "c3": 22143
+   },
+   "ahk": {
+    "g1": 30910,
+    "g2": 78426,
+    "belowAow": {
+     "m1": 3154,
+     "a1": 0.06638
+    },
+    "aow": {
+     "m1": 1596,
+     "a1": 0.03358
+    }
+   },
+   "ouk": {
+    "m1": 1993,
+    "g1": 46577,
+    "g2": 59864,
+    "a1": 0.15
+   },
+   "ark": {
+    "g1": 12438,
+    "g2": 26865,
+    "g3": 47834,
+    "g4": 138910,
+    "belowAow": {
+     "o1": 0.09503,
+     "o2": 0.30207,
+     "o3": 0.01855,
+     "a1": 0.0651,
+     "m1": 1182,
+     "m2": 5540,
+     "m3": 5929
+    },
+    "aow": {
+     "o1": 0.04808,
+     "o2": 0.15283,
+     "o3": 0.00938,
+     "a1": 0.03294,
+     "m1": 599,
+     "m2": 2803,
+     "m3": 3001
+    }
+   },
+   "anonymousRatePercent": 52
+  },
+  "specialRewardTable": [
+   {
+    "from": 0,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 11801,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": -9.5
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 13434,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": -30.21
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 24876,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": -1.86
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 30911,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 34593,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 2.42
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 2.42
+    }
+   },
+   {
+    "from": 37229,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 2.42
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 2.42
+    }
+   },
+   {
+    "from": 39248,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 2.42
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 2.42
+    }
+   },
+   {
+    "from": 41638,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 2.42
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 2.42
+    }
+   },
+   {
+    "from": 46578,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 4.78
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 17.42
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 17.42
+    }
+   },
+   {
+    "from": 47835,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 13.15
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 21.65
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 21.65
+    }
+   },
+   {
+    "from": 59865,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 13.15
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.65
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.65
+    }
+   },
+   {
+    "from": 78427,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 6.51
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 3.29
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 3.29
+    }
+   },
+   {
+    "from": 150024,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    }
+   }
+  ],
+  "specialRewardTableGreen": [
+   {
+    "from": 0,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 8706,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 0,
+     "offset": 0
+    }
+   },
+   {
+    "from": 19580,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 0
+    }
+   },
+   {
+    "from": 22565,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 0
+    }
+   },
+   {
+    "from": 30911,
+    "belowAow": {
+     "without": 36.23,
+     "standard": 36.23,
+     "offset": 6.64
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 3.36
+    },
+    "aow1946": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 3.36
+    }
+   },
+   {
+    "from": 39248,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.64
+    },
+    "aow1945": {
+     "without": 18.33,
+     "standard": 18.33,
+     "offset": 3.36
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 3.36
+    }
+   },
+   {
+    "from": 41638,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.64
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 3.36
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 3.36
+    }
+   },
+   {
+    "from": 46578,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.64
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 18.36
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 18.36
+    }
+   },
+   {
+    "from": 59865,
+    "belowAow": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 6.64
+    },
+    "aow1945": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 3.36
+    },
+    "aow1946": {
+     "without": 38.16,
+     "standard": 38.16,
+     "offset": 3.36
+    }
+   },
+   {
+    "from": 78427,
+    "belowAow": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1945": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    },
+    "aow1946": {
+     "without": 49.5,
+     "standard": 49.5,
+     "offset": 0
+    }
+   }
+  ],
+  "premiums": {
+   "awfLowPercent": 2.74,
+   "awfHighPercent": 7.74,
+   "aofLowPercent": 6.67,
+   "aofHighPercent": 8.03,
+   "wkoPercent": 0.5,
+   "whkSectorPercent": {
+    "1": 1.27,
+    "2": 1.7,
+    "3": 1.33,
+    "4": 1.68,
+    "5": 1.73,
+    "6": 1.14,
+    "7": 1.67,
+    "8": 1.32,
+    "9": 1.92,
+    "10": 1.62,
+    "11": 1.08,
+    "12": 1.52,
+    "13": 2.2,
+    "14": 2.38,
+    "15": 2.32,
+    "16": 2.65,
+    "17": 2.12,
+    "18": 4.43,
+    "19": 1.91,
+    "20": 1.6,
+    "21": 3.3,
+    "22": 1.43,
+    "23": 1.61,
+    "24": 0.97,
+    "25": 1.7,
+    "26": 1.7,
+    "27": 3.55,
+    "28": 4.93,
+    "29": 1.64,
+    "30": 2.22,
+    "31": 1.33,
+    "32": 1.88,
+    "33": 1.9,
+    "34": 3.74,
+    "35": 2.09,
+    "38": 1.48,
+    "39": 0.77,
+    "40": 1.6,
+    "41": 1.34,
+    "42": 1.55,
+    "43": 1.29,
+    "44": 1.01,
+    "45": 1.39,
+    "46": 2.21,
+    "47": 1.81,
+    "48": 2.49,
+    "49": 2.21,
+    "50": 2.06,
+    "51": 2.04,
+    "52": 6.72,
+    "53": 3.06,
+    "54": 1.64,
+    "55": 2.01,
+    "56": 1.93,
+    "57": 1.92,
+    "58": 2.4,
+    "59": 2.33,
+    "60": 1.92,
+    "61": 1.51,
+    "62": 1.36,
+    "63": 1.7,
+    "64": 1.52,
+    "65": 1.7,
+    "66": 1.39,
+    "67": 4.82,
+    "68": 2.13,
+    "69": 1.55
+   },
+   "maxPremieloon": {
+    "year": 7940900,
+    "month": 661741,
+    "day": 30541
+   },
+   "zvwEmployerLevyPercent": 6.1,
+   "zvwWithheldPercent": 4.85
+  },
+  "minimumWage": [
+   {
+    "from": "2027-01-01",
+    "perHour": {
+     "15": 450,
+     "16": 517,
+     "17": 592,
+     "18": 750,
+     "19": 899,
+     "20": 1199,
+     "21": 1499
+    }
+   }
+  ],
+  "wkr": {
+   "perKmCents": 25,
+   "homeWorkingPerDayCents": 245
+  },
+  "expat": {
+   "salaryNormCents": 4801300,
+   "wntCapCents": 26200000
+  },
+  "dgaUsualSalaryCents": 5800000
+ }
+}

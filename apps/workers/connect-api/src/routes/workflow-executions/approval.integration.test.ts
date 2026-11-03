@@ -13,7 +13,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -50,10 +50,17 @@ async function seedWaitingRun(approverIds: string[], status = 'waiting_for_input
   });
 }
 
+/** An `EXECUTE_WORKFLOW` whose instances resume with `sendEvent`. */
+function runtimeWith(sendEvent: (event: { type: string; payload: unknown }) => Promise<void>) {
+  const get = vi.fn(async (_id: string) => ({ sendEvent }));
+  // `create` makes it a whole Workflow binding (the conformance bridge serves only those).
+  const create = vi.fn(async () => ({ id: 'cf_inst_unused' }));
+  return { binding: { get, create } as unknown as Workflow, get, sendEvent };
+}
+
 function runtime() {
   const sendEvent = vi.fn(async (_event: { type: string; payload: unknown }) => {});
-  const get = vi.fn(async (_id: string) => ({ sendEvent }));
-  return { binding: { get } as unknown as Workflow, get, sendEvent };
+  return runtimeWith(sendEvent);
 }
 
 function appFor(userId: string, keys: string[], binding?: Workflow) {
@@ -72,7 +79,10 @@ const decide = (body: Record<string, unknown>): RequestInit => ({
 const stepRow = async () =>
   (await db.select().from(schema.workflowExecutionSteps).where(eq(schema.workflowExecutionSteps.executionId, executionId)))[0];
 
-beforeEach(() => mockedPublish.mockClear());
+// A block, not an arrow returning the mock: Vitest calls a function a hook returns as its teardown.
+beforeEach(() => {
+  mockedPublish.mockClear();
+});
 
 describe('GET /api/workflow-executions/:id/approval', () => {
   it('describes the pending approval and tells a listed approver they may decide', async () => {
@@ -170,14 +180,18 @@ describe('POST /api/workflow-executions/:id/decision', () => {
 
   it('releases the claim when the run cannot be resumed, so the decision can be made again', async () => {
     await seedWaitingRun(['approver_a']);
-    const sendEvent = vi.fn().mockRejectedValueOnce(new Error('instance gone')).mockResolvedValue(undefined);
-    const binding = { get: vi.fn(async () => ({ sendEvent })) } as unknown as Workflow;
-    const request = appFor('approver_a', ['workflow-executions:read'], binding);
+    // Each binding answers the same way every time (conformance runs each
+    // request on both backends): one whose instance is gone, then a working one.
+    const failing = runtimeWith(async () => {
+      throw new Error('instance gone');
+    });
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    expect((await request(`/api/workflow-executions/${executionId}/decision`, decide({ decision: 'approved' }))).status).toBe(500);
+    const failed = appFor('approver_a', ['workflow-executions:read'], failing.binding);
+    expect((await failed(`/api/workflow-executions/${executionId}/decision`, decide({ decision: 'approved' }))).status).toBe(500);
     expect((await stepRow()).output).not.toHaveProperty('decision');
-    expect((await request(`/api/workflow-executions/${executionId}/decision`, decide({ decision: 'approved' }))).status).toBe(200);
+    const retried = appFor('approver_a', ['workflow-executions:read'], runtime().binding);
+    expect((await retried(`/api/workflow-executions/${executionId}/decision`, decide({ decision: 'approved' }))).status).toBe(200);
     error.mockRestore();
   });
 });

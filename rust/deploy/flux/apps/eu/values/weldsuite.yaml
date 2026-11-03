@@ -67,7 +67,8 @@ config:
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
-# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS:
+# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
+# COLLAB_ROOMS_SECRET:
 # secrets/examples/secrets.example.yaml.
 secret:
   existingSecret: weldsuite-env
@@ -147,6 +148,17 @@ signPortal:
       - secretName: weldsuite-sign-tls
         hosts:
           - sign.${DOMAIN}
+
+# WeldDocs' and WeldSheets' live editing: the workers' rooms on Node beside
+# the server (rust/docs/collab-rooms.md), released with the server's image.
+# Without it /config.json lists `collab-rooms` as unavailable and the
+# platform hides both apps. COLLAB_ROOMS_SECRET is in the Secret.
+collabRooms:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-collab-rooms
+    tag: ${WELDSUITE_IMAGE_TAG}
+  replicaCount: 2
 
 autoscaling:
   enabled: true

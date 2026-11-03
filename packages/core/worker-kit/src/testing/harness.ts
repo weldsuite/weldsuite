@@ -13,6 +13,7 @@
 
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
+import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { initPermissionMiddleware } from '@weldsuite/permissions/server';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
@@ -84,6 +85,12 @@ export interface TestContext {
    * is exactly the binding-less local-dev fallback.
    */
   flags?: KitVariables['flags'];
+  /**
+   * What `appAccessGate(appCode)` sets as `c.get('appAccess')` (status,
+   * staff-set limits, billing state), for the routes of an on-request app
+   * tested without the gate. Conformance mode hands it to Rust too.
+   */
+  appAccess?: unknown;
 }
 
 export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
@@ -100,6 +107,13 @@ export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
    * app keep the worker's paths.
    */
   rustBasePath?: string;
+  /**
+   * Answer an error a route throws as the module workers do
+   * (`createModuleApi`'s onError: 500 `INTERNAL_ERROR`, "An unexpected error
+   * occurred") instead of with Hono's plain-text default, so the test (and
+   * conformance mode) sees what a client of the worker would.
+   */
+  moduleApiErrors?: boolean;
 }
 
 /**
@@ -165,6 +179,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
     (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
   }
+  // So is a test's own ENTITY_EVENTS queue: what the app sends is compared
+  // with Rust's events, and still reaches the test's binding.
+  const ownEvents = (options.env as Record<string, unknown> | undefined)?.ENTITY_EVENTS as
+    | Parameters<NonNullable<typeof sideEffects>['wrapEvents']>[0]
+    | undefined;
+  if (sideEffects && ownEvents && (typeof ownEvents.send === 'function' || typeof ownEvents.sendBatch === 'function')) {
+    (env as unknown as Record<string, unknown>).ENTITY_EVENTS = sideEffects.wrapEvents(ownEvents);
+  }
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
@@ -182,6 +204,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
       if (ctx.permissions) set('userPermissions', ctx.permissions);
       // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
       if (ctx.flags) set('flags', ctx.flags);
+      if (ctx.appAccess) set('appAccess', ctx.appAccess);
       await next();
       // Conformance mode reports which route answered: the handler Hono ran
       // last (`routeIndex`), not the last route that matched, since
@@ -197,6 +220,16 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     const built = new Hono<{ Bindings: E; Variables: V }>();
     built.use('*', stubAuth);
     built.route(basePath, router);
+    // With `moduleApiErrors`, an error a route throws answers as the module
+    // workers answer it (`createModuleApi`'s onError). An HTTPException keeps
+    // its own response.
+    if (options.moduleApiErrors) {
+      built.onError((err, c) => {
+        if (err instanceof HTTPException) return err.getResponse();
+        console.error('[test app] route error:', err);
+        return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
+      });
+    }
     return built;
   };
   const app = buildApp(ctx.tenantDb);
@@ -211,9 +244,11 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   // getter throws "This context has no ExecutionContext", which would 500 every
   // mutation. Supply a mock: run each task fire-and-forget and swallow
   // rejections so a missing binding never surfaces as an unhandled rejection.
+  const pending: Promise<unknown>[] = [];
   const executionCtx = {
     waitUntil: (promise: Promise<unknown>) => {
       if (typeof promise?.catch === 'function') promise.catch(() => {});
+      if (promise) pending.push(promise);
       if (sideEffects && promise) sideEffects.track(promise);
     },
     passThroughOnException: () => {},
@@ -225,6 +260,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     ctx,
     env,
     executionCtx,
+    /**
+     * Waits for the `waitUntil` work requests have started so far, as the
+     * runtime lets it finish after the response (a route that answers before
+     * its writes, like a collector's 204). Rejections are swallowed.
+     */
+    settled: async (): Promise<void> => {
+      await Promise.allSettled(pending.splice(0));
+    },
     /** Convenience wrapper around `app.request()` that injects env + executionCtx. */
     request: async (input: string, init?: RequestInit): Promise<Response> => {
       if (target) {

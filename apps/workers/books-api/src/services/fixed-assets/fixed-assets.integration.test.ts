@@ -453,6 +453,28 @@ describe('posting depreciation', () => {
     const federal = await assets(entity.id, '/register?asOf=2026-12-31&book=federal');
     expect(federal.status).toBe(200);
     expect(federal.data.lines).toEqual([]);
+
+    // The list: newest first, with each asset's books and what is posted; search and paging.
+    const listed = await assets(entity.id, '');
+    expect(listed.status).toBe(200);
+    expect(listed.data.map((a: { assetNumber: string }) => a.assetNumber)).toEqual(['D-1', 'M-1']);
+    expect(listed.data[1]).toMatchObject({ accumulatedPosted: '400.00', netBookValuePosted: '11600.00' });
+    expect(listed.data[1].books[0]).toMatchObject({ book: 'book', postsToLedger: true });
+    const searched = await assets(entity.id, '?search=mach&status=active');
+    expect(searched.data.map((a: { name: string }) => a.name)).toEqual(['Machine']);
+    expect((await assets(entity.id, '?limit=1')).data).toHaveLength(1);
+    expect((await assets(entity.id, '?cursor=not-a-cursor')).status).toBe(400);
+
+    // The schedule of one asset: the ledger book with its monthly rows, posted ones carry their entry.
+    const machine = listed.data[1].id as string;
+    const schedule = await assets(entity.id, `/${machine}/schedule?book=book`);
+    expect(schedule.status).toBe(200);
+    expect(schedule.data.schedules).toHaveLength(1);
+    expect(schedule.data.schedules[0]).toMatchObject({ book: 'book', method: 'straight_line', postsToLedger: true });
+    expect(schedule.data.schedules[0].monthly[0]).toMatchObject({ periodStart: '2026-01-01', amount: '200.00' });
+    expect(schedule.data.schedules[0].monthly[0].journalEntryId).toBeTruthy();
+    expect((await assets(entity.id, `/${machine}/schedule?book=other`)).status).toBe(400);
+    expect((await assets(entity.id, '/fa_missing/schedule')).status).toBe(404);
   });
 
   it('runMonthlyDepreciation posts every entity that has something due', async () => {

@@ -1,0 +1,682 @@
+{
+  "email": {
+    "emailId": "e",
+    "messageId": "<r@x>",
+    "from": {
+      "email": "Boss@Corp.test",
+      "name": "Boss"
+    },
+    "to": [
+      {
+        "email": "me@acme.test"
+      },
+      {
+        "email": "team@acme.test"
+      }
+    ],
+    "cc": [],
+    "subject": "Invoice #42",
+    "textBody": "please pay",
+    "htmlBody": "<p>please pay</p>",
+    "headers": {},
+    "receivedAt": "2026-01-01T00:00:00.000Z",
+    "hasAttachments": true,
+    "attachmentCount": 1
+  },
+  "cases": [
+    {
+      "name": "star",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "star"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "INBOX",
+            "STARRED"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": false,
+          "deleted": false
+        },
+        "markedSpam": false
+      }
+    },
+    {
+      "name": "already starred",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "star"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX",
+          "STARRED"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "INBOX",
+            "STARRED"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": false,
+          "deleted": false
+        },
+        "markedSpam": false
+      }
+    },
+    {
+      "name": "spam",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "mark_as_spam"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "SPAM"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": true,
+          "deleted": false
+        },
+        "markedSpam": true
+      }
+    },
+    {
+      "name": "stop processing",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "flag"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": true,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "r2",
+          "name": "r2",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "star"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "INBOX"
+          ],
+          "isRead": false,
+          "isFlagged": true,
+          "isSpam": false,
+          "deleted": false
+        },
+        "markedSpam": false
+      }
+    },
+    {
+      "name": "fixed snapshot",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "mark_as_spam"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "r2",
+          "name": "r2",
+          "conditions": [
+            {
+              "field": "is_spam",
+              "operator": "equals",
+              "value": "true"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "flag"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "SPAM"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": true,
+          "deleted": false
+        },
+        "markedSpam": true
+      }
+    },
+    {
+      "name": "no match",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": "nope"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "flag"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "INBOX"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": false,
+          "deleted": false
+        },
+        "markedSpam": false
+      }
+    },
+    {
+      "name": "operators",
+      "rules": [
+        {
+          "id": "from",
+          "name": "from",
+          "conditions": [
+            {
+              "field": "from",
+              "operator": "ends_with",
+              "value": "@corp.TEST"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "add_label",
+              "labelId": "Corp"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "to",
+          "name": "to",
+          "conditions": [
+            {
+              "field": "to",
+              "operator": "equals",
+              "value": "me@acme.test, team@acme.test"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "mark_as_read"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "size",
+          "name": "size",
+          "conditions": [
+            {
+              "field": "size",
+              "operator": "less_than",
+              "value": " 1 "
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "move_to_folder",
+              "labelId": "Bills"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "attach",
+          "name": "attach",
+          "conditions": [
+            {
+              "field": "has_attachment",
+              "operator": "is_true",
+              "value": ""
+            },
+            {
+              "field": "cc",
+              "operator": "contains",
+              "value": "x"
+            }
+          ],
+          "matchType": "any",
+          "actions": [
+            {
+              "type": "archive"
+            },
+            {
+              "type": "add_label"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "priority",
+          "name": "priority",
+          "conditions": [
+            {
+              "field": "priority",
+              "operator": "equals",
+              "value": [
+                "NORMAL"
+              ]
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "remove_label",
+              "labelId": "Corp"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "outgoing",
+          "name": "outgoing",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "delete"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "outgoing",
+          "folders": null
+        },
+        {
+          "id": "folders",
+          "name": "folders",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "delete"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": [
+            "SENT"
+          ]
+        },
+        {
+          "id": "empty",
+          "name": "empty",
+          "conditions": [],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "delete"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "unknown",
+          "name": "unknown",
+          "conditions": [
+            {
+              "field": "nope",
+              "operator": "equals",
+              "value": "x"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "delete"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "bad op",
+          "name": "bad op",
+          "conditions": [
+            {
+              "field": "body",
+              "operator": "regex",
+              "value": "x"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "delete"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "greater",
+          "name": "greater",
+          "conditions": [
+            {
+              "field": "is_spam",
+              "operator": "greater_than",
+              "value": "-1"
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "unknown_action"
+            },
+            {
+              "type": "mark_as_unread"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": {
+        "state": {
+          "labels": [
+            "Bills",
+            "ARCHIVE"
+          ],
+          "isRead": false,
+          "isFlagged": false,
+          "isSpam": false,
+          "deleted": false
+        },
+        "markedSpam": false
+      }
+    },
+    {
+      "name": "throws",
+      "rules": [
+        {
+          "id": "r1",
+          "name": "r1",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": ""
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "flag"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        },
+        {
+          "id": "r2",
+          "name": "r2",
+          "conditions": [
+            {
+              "field": "subject",
+              "operator": "contains",
+              "value": 7
+            }
+          ],
+          "matchType": "all",
+          "actions": [
+            {
+              "type": "star"
+            }
+          ],
+          "isActive": true,
+          "stopProcessing": false,
+          "scope": "incoming",
+          "folders": null
+        }
+      ],
+      "state": {
+        "labels": [
+          "INBOX"
+        ],
+        "isRead": false,
+        "isFlagged": false,
+        "isSpam": false,
+        "deleted": false
+      },
+      "result": "throws"
+    }
+  ]
+}

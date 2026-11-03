@@ -4,58 +4,87 @@
  * transcribe / summarize dispatch, and the server-owned-columns rule on PATCH.
  */
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import * as masterSchema from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { RecordingPart } from '@weldsuite/db/schema/meeting-sessions';
-import { fakeBucket, fakeKv, fakeWorkflow, seedMeetingWithSession } from '../../test/fakes';
+import { RTK_ENV, fakeBucket, fakeKv, fakeRtkApi, fakeWorkflow, seedMeetingWithSession } from '../../test/fakes';
 
-vi.mock('@weldsuite/entity-events', async () => {
-  const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn(), publishEntityEventRaw: vi.fn() };
+// The wallet and the AI price list live in the master database, shared with
+// the Rust server in conformance mode.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
 });
 
-const billing = vi.hoisted(() => ({
-  getMeetingAiPricing: vi.fn(),
-  resolveMeetingMetering: vi.fn(),
-  assertMeetingAiCredits: vi.fn(),
-  getMeetingBalance: vi.fn(),
-}));
-vi.mock('@weldsuite/meet-domain/billing', async () => {
-  const actual = await vi.importActual<typeof import('@weldsuite/meet-domain/billing')>('@weldsuite/meet-domain/billing');
-  return { ...actual, ...billing };
-});
-
-import { publishEntityEvent } from '@weldsuite/entity-events';
-import { InsufficientMeetingCreditsError, MeetingBillingUnavailableError } from '@weldsuite/meet-domain/billing';
 import { meetingSessionsRoutes } from './index';
 import { meetingsRoutes } from '../meetings';
 import { publicMeetingRecordingsRoutes } from '../public-meeting-recordings';
 import type { Env, Variables } from '../../types';
 
-const mockedPublish = publishEntityEvent as unknown as ReturnType<typeof vi.fn>;
 const ORG = 'org_test_default';
+const WORKSPACE_ID = 'ws_test_default';
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+/** RealtimeKit's REST API (../../test/fakes.ts). */
+const rtk = fakeRtkApi();
+/** The entity events the routes published. */
+let events: Array<{ entityType: string; action: string; entityId: string; data: Record<string, unknown> }> = [];
+const eventsBinding = {
+  send: async (message: (typeof events)[number]) => {
+    events.push(message);
+  },
+  sendBatch: async (messages: Array<{ body: (typeof events)[number] }>) => {
+    for (const message of messages) events.push(message.body);
+  },
+};
+
+/** Set the workspace wallet's balance. */
+async function setBalance(value: number) {
+  await master
+    .update(masterSchema.workspaceCredits)
+    .set({ currentBalance: value })
+    .where(eq(masterSchema.workspaceCredits.workspaceId, WORKSPACE_ID));
+}
 
 beforeAll(async () => {
+  vi.stubGlobal('fetch', rtk.fetch);
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master
+    .insert(masterSchema.workspaces)
+    .values({ id: WORKSPACE_ID, clerkOrgId: ORG, name: 'Meet', slug: 'meet' } as typeof masterSchema.workspaces.$inferInsert);
+  const now = new Date();
+  await master.insert(masterSchema.workspaceCredits).values({
+    id: 'wcr_meet',
+    workspaceId: WORKSPACE_ID,
+    currentBalance: 250,
+    periodStart: now,
+    periodEnd: now,
+  });
 }, 60_000);
 
-beforeEach(() => {
-  mockedPublish.mockClear();
-  billing.getMeetingAiPricing.mockReset().mockResolvedValue({ transcriptionCreditsPerMinute: 2, summaryCreditsPerMinute: 1 });
-  billing.resolveMeetingMetering.mockReset().mockResolvedValue({ masterDb: {}, internalWsId: 'ws_int', userId: 'user_test_default' });
-  billing.assertMeetingAiCredits.mockReset().mockResolvedValue(undefined);
-  billing.getMeetingBalance.mockReset().mockResolvedValue(250);
+afterAll(() => {
+  vi.unstubAllGlobals();
 });
 
-function app(perms: string[], env: Partial<Env> = {}, context: { userId?: string } = {}) {
+beforeEach(async () => {
+  events = [];
+  rtk.reset();
+  await setBalance(250);
+});
+
+function app(perms: string[], env: Partial<Env> = {}, context: { userId?: string; orgId?: string } = {}) {
   return createTestApp<Env, Variables>('/api/meeting-sessions', meetingSessionsRoutes, {
-    context: { permissions: permissions(...perms), tenantDb: db, ...context },
-    env: { WORKSPACE_CACHE: fakeKv(), ...env } as Partial<Env>,
+    context: { permissions: permissions(...perms), tenantDb: db, masterDb: master, ...context },
+    env: { WORKSPACE_CACHE: fakeKv(), ENTITY_EVENTS: eventsBinding, ...env } as Partial<Env>,
   });
 }
 
@@ -140,8 +169,8 @@ describe('DELETE /:id/recording', () => {
     expect(await db.select().from(schema.crmTranscriptions).where(eq(schema.crmTranscriptions.activityId, 'msess_d1'))).toHaveLength(0);
     expect(await db.select().from(schema.crmTranscriptSegments).where(eq(schema.crmTranscriptSegments.transcriptionId, 'trans_d1'))).toHaveLength(0);
 
-    expect(mockedPublish).toHaveBeenCalledTimes(1);
-    expect(mockedPublish.mock.calls[0]![0]).toMatchObject({
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
       entityType: 'meeting_session',
       action: 'updated',
       entityId: 'msess_d1',
@@ -202,6 +231,8 @@ describe('POST /:id/recording/access + GET /public/meeting-recordings/:token', (
 
   function stream(bucket: ReturnType<typeof fakeBucket>, kv: ReturnType<typeof fakeKv>) {
     return createTestApp<Env, Variables>('/public/meeting-recordings', publicMeetingRecordingsRoutes, {
+      // No session: the route is public. The database is there for conformance mode.
+      context: { tenantDb: db },
       env: { MEETING_RECORDINGS: bucket, WORKSPACE_CACHE: kv } as Partial<Env>,
     });
   }
@@ -271,6 +302,7 @@ describe('POST /:id/recording/access + GET /public/meeting-recordings/:token', (
     expect((await request('/public/meeting-recordings/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).status).toBe(404);
 
     const noBucket = createTestApp<Env, Variables>('/public/meeting-recordings', publicMeetingRecordingsRoutes, {
+      context: { tenantDb: db },
       env: { WORKSPACE_CACHE: kv } as Partial<Env>,
     });
     expect((await noBucket.request('/public/meeting-recordings/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).status).toBe(503);
@@ -316,23 +348,13 @@ describe('GET /:id/recording', () => {
 });
 
 describe('POST /:id/recording/ai-options (wallet gate + live RealtimeKit update)', () => {
-  function rtk() {
-    const requests: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
-    const env = {
-      CF_ACCOUNT_ID: 'acct',
-      CF_REALTIME_APP_ID: 'app',
-      CF_REALTIME_APP_SECRET: 'secret',
-      RTK_FETCH: async (input: unknown, init?: RequestInit) => {
-        requests.push({ method: init?.method ?? 'GET', url: String(input), body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> });
-        return new Response(JSON.stringify({ success: true, data: { id: 'rtk_meeting_1' } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      },
-    } as unknown as Partial<Env>;
-    return { requests, env };
-  }
+  /** The fake API's meeting updates, as the old helper's request list. */
+  const updates = () => rtk.calls('update').map((call) => ({ method: call.method, url: call.path, body: call.body as Record<string, unknown> }));
+  const rtkEnv = RTK_ENV as unknown as Partial<Env>;
 
   it('updates the live RTK meeting, remembers the choice and publishes', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o1', sessionId: 'msess_o1', session: { status: 'active', duration: null } });
-    const { requests, env } = rtk();
+    const env = rtkEnv;
     const { request } = app(['sessions:update'], env);
 
     const res = await request('/api/meeting-sessions/msess_o1/recording/ai-options', {
@@ -341,62 +363,61 @@ describe('POST /:id/recording/ai-options (wallet gate + live RealtimeKit update)
     expect(res.status).toBe(200);
     expect(((await res.json()) as { data: unknown }).data).toEqual({ ok: true, ai: { transcribe: true, summarize: true, language: 'nl' } });
 
-    expect(billing.assertMeetingAiCredits).toHaveBeenCalledWith(expect.anything(), expect.anything(), { transcription: true, summary: true });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]!.method).toBe('PATCH');
-    expect(requests[0]!.url).toContain('/meetings/rtk_meeting_1');
-    expect(requests[0]!.body).toMatchObject({
+    expect(updates()).toHaveLength(1);
+    expect(updates()[0]!.method).toBe('PATCH');
+    expect(updates()[0]!.url).toContain('/meetings/rtk_meeting_1');
+    expect(updates()[0]!.body).toMatchObject({
       transcribe_on_end: true,
       summarize_on_end: true,
       ai_config: { transcription: { language: 'nl' }, summarization: { text_format: 'markdown' } },
     });
 
     expect(await session('msess_o1')).toMatchObject({ aiTranscribeRequested: true, aiSummarizeRequested: true, aiLanguage: 'nl' });
-    expect(mockedPublish).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'meeting_session', action: 'updated', entityId: 'msess_o1' }));
+    expect(events).toContainEqual(expect.objectContaining({ entityType: 'meeting_session', action: 'updated', entityId: 'msess_o1' }));
   });
 
   it('answers 402 INSUFFICIENT_CREDITS when the wallet cannot cover a minute, without touching RealtimeKit', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o2', sessionId: 'msess_o2', session: { status: 'active' } });
-    billing.assertMeetingAiCredits.mockRejectedValue(new InsufficientMeetingCreditsError(1, 3, 2));
-    const { requests, env } = rtk();
+    await setBalance(1);
+    const env = rtkEnv;
     const { request } = app(['sessions:update'], env);
 
     const res = await request('/api/meeting-sessions/msess_o2/recording/ai-options', {
       method: 'POST', headers: json, body: JSON.stringify({ transcribe: true, summarize: false }),
     });
     expect(res.status).toBe(402);
-    expect(await res.json()).toMatchObject({ error: { code: 'INSUFFICIENT_CREDITS', details: { currentBalance: 1, required: 3, shortfall: 2 } } });
-    expect(requests).toHaveLength(0);
+    expect(await res.json()).toMatchObject({ error: { code: 'INSUFFICIENT_CREDITS', details: { currentBalance: 1, required: 2, shortfall: 1 } } });
+    expect(updates()).toHaveLength(0);
     expect((await session('msess_o2')).aiTranscribeRequested).toBeFalsy();
   });
 
   it('does not gate switching everything off', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o3', sessionId: 'msess_o3', session: { status: 'active', aiTranscribeRequested: true } });
-    billing.assertMeetingAiCredits.mockRejectedValue(new InsufficientMeetingCreditsError(0, 1, 1));
-    const { requests, env } = rtk();
+    await setBalance(0);
+    const env = rtkEnv;
     const { request } = app(['sessions:update'], env);
     const res = await request('/api/meeting-sessions/msess_o3/recording/ai-options', {
       method: 'POST', headers: json, body: JSON.stringify({ transcribe: false, summarize: false }),
     });
     expect(res.status).toBe(200);
-    expect(requests[0]!.body).toMatchObject({ transcribe_on_end: false, summarize_on_end: false });
+    expect(updates()[0]!.body).toMatchObject({ transcribe_on_end: false, summarize_on_end: false });
   });
 
   it('maps an unsupported locale to auto-detect instead of sending it to RealtimeKit', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o4', sessionId: 'msess_o4', session: { status: 'active' } });
-    const { requests, env } = rtk();
+    const env = rtkEnv;
     const { request } = app(['sessions:update'], env);
     await request('/api/meeting-sessions/msess_o4/recording/ai-options', {
       method: 'POST', headers: json, body: JSON.stringify({ transcribe: true, summarize: false, language: 'es' }),
     });
-    expect(JSON.stringify(requests[0]!.body)).not.toContain('"language"');
+    expect(JSON.stringify(updates()[0]!.body)).not.toContain('"language"');
     expect((await session('msess_o4')).aiLanguage).toBeNull();
   });
 
   it('rejects a summary without a transcript, an ended meeting, and a non-organizer', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o5', sessionId: 'msess_o5', session: { status: 'active' } });
     await seedMeetingWithSession(db, { meetingId: 'meet_o6', sessionId: 'msess_o6', session: { status: 'ended' } });
-    const { env } = rtk();
+    const env = rtkEnv;
     const { request } = app(['sessions:update'], env);
     const post = (id: string, body: unknown) =>
       request(`/api/meeting-sessions/${id}/recording/ai-options`, { method: 'POST', headers: json, body: JSON.stringify(body) });
@@ -409,9 +430,9 @@ describe('POST /:id/recording/ai-options (wallet gate + live RealtimeKit update)
 
   it('answers 503 when the wallet cannot be resolved', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_o7', sessionId: 'msess_o7', session: { status: 'active' } });
-    billing.resolveMeetingMetering.mockRejectedValue(new MeetingBillingUnavailableError());
-    const { env } = rtk();
-    const { request } = app(['sessions:update'], env);
+    const env = rtkEnv;
+    // A workspace the master database doesn't know has no wallet.
+    const { request } = app(['sessions:update'], env, { orgId: 'org_without_wallet' });
     const res = await request('/api/meeting-sessions/msess_o7/recording/ai-options', {
       method: 'POST', headers: json, body: JSON.stringify({ transcribe: true, summarize: false }),
     });
@@ -422,21 +443,14 @@ describe('POST /:id/recording/ai-options (wallet gate + live RealtimeKit update)
 describe('POST /:id/recording/start + stop', () => {
   it('marks the session recording and applies AI options in the same round trip', async () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_s1', sessionId: 'msess_s1', session: { status: 'active' } });
-    const rtkRequests: string[] = [];
-    const { request } = app(['sessions:update'], {
-      CF_ACCOUNT_ID: 'a', CF_REALTIME_APP_ID: 'b', CF_REALTIME_APP_SECRET: 'c',
-      RTK_FETCH: async (input: unknown) => {
-        rtkRequests.push(String(input));
-        return new Response(JSON.stringify({ success: true, data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      },
-    } as unknown as Partial<Env>);
+    const { request } = app(['sessions:update'], RTK_ENV as unknown as Partial<Env>);
 
     const res = await request('/api/meeting-sessions/msess_s1/recording/start', {
       method: 'POST', headers: json, body: JSON.stringify({ transcribe: true, summarize: false }),
     });
     expect(res.status).toBe(200);
     expect(await session('msess_s1')).toMatchObject({ recordingEnabled: true, recordingStatus: 'recording', aiTranscribeRequested: true });
-    expect(rtkRequests).toHaveLength(1);
+    expect(rtk.calls('update')).toHaveLength(1);
 
     const stop = await request('/api/meeting-sessions/msess_s1/recording/stop', { method: 'POST' });
     expect(stop.status).toBe(200);
@@ -484,12 +498,12 @@ describe('POST /:id/recording/transcribe (Whisper afterwards)', () => {
     ]);
     const [row] = await db.select().from(schema.crmTranscriptions).where(eq(schema.crmTranscriptions.id, data.id));
     expect(row).toMatchObject({ activityId: 'msess_x1', status: 'pending', language: 'nl' });
-    expect(mockedPublish).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'meeting_session', entityId: 'msess_x1' }));
+    expect(events).toContainEqual(expect.objectContaining({ entityType: 'meeting_session', entityId: 'msess_x1' }));
   });
 
   it('is gated on the wallet before anything is created', async () => {
     await seedReady('meet_x2', 'msess_x2');
-    billing.assertMeetingAiCredits.mockRejectedValue(new InsufficientMeetingCreditsError(0, 2, 2));
+    await setBalance(0);
     const ai = fakeWorkflow();
     const { request } = app(['sessions:update', 'recordings:read'], { MEETING_AI: ai });
     const res = await request('/api/meeting-sessions/msess_x2/recording/transcribe', { method: 'POST' });
@@ -528,14 +542,14 @@ describe('POST /:id/recording/transcribe (Whisper afterwards)', () => {
     await seedReady('meet_x7', 'msess_x7');
     const ai = fakeWorkflow();
     const alias = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('sessions:update', 'recordings:read', 'meetings:read'), tenantDb: db },
+      context: { permissions: permissions('sessions:update', 'recordings:read', 'meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv(), MEETING_AI: ai } as Partial<Env>,
     });
     expect((await alias.request('/api/meetings/meet_x7/recording/transcribe', { method: 'POST' })).status).toBe(201);
     expect(ai.created[0]!.params).toMatchObject({ sessionId: 'msess_x7' });
 
     const readOnly = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('meetings:read'), tenantDb: db },
+      context: { permissions: permissions('meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv(), MEETING_AI: ai } as Partial<Env>,
     });
     expect((await readOnly.request('/api/meetings/meet_x7/recording/transcribe', { method: 'POST' })).status).toBe(403);
@@ -566,7 +580,7 @@ describe('POST /:id/recording/summarize', () => {
   it('is gated on the wallet', async () => {
     await seedReady('meet_m2', 'msess_m2');
     await db.insert(schema.crmTranscriptions).values({ id: 'trans_m2', activityId: 'msess_m2', status: 'completed' });
-    billing.assertMeetingAiCredits.mockRejectedValue(new InsufficientMeetingCreditsError(0, 1, 1));
+    await setBalance(0);
     const ai = fakeWorkflow();
     const { request } = app(['sessions:update'], { MEETING_AI: ai });
     expect((await request('/api/meeting-sessions/msess_m2/recording/summarize', { method: 'POST' })).status).toBe(402);
@@ -598,7 +612,7 @@ describe('transcription reads', () => {
     await seedMeetingWithSession(db, { meetingId: 'meet_r2', sessionId: 'msess_r2' });
     await db.insert(schema.crmTranscriptions).values({ id: 'trans_r2', activityId: 'meet_r2', status: 'completed', fullText: 'legacy', provider: 'assemblyai' });
     const alias = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('meetings:read'), tenantDb: db },
+      context: { permissions: permissions('meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv() } as Partial<Env>,
     });
     const res = await alias.request('/api/meetings/meet_r2/recording/transcription');
@@ -647,7 +661,7 @@ describe('PATCH /:id ignores server-owned columns', () => {
 describe('GET /api/meetings/ai-pricing and /recordings', () => {
   it('returns the per-minute rates and the wallet balance', async () => {
     const { request } = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('meetings:read'), tenantDb: db },
+      context: { permissions: permissions('meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv() } as Partial<Env>,
     });
     const res = await request('/api/meetings/ai-pricing');
@@ -665,7 +679,7 @@ describe('GET /api/meetings/ai-pricing and /recordings', () => {
     await db.insert(schema.crmTranscriptions).values({ id: 'trans_l1', activityId: 'msess_l1', status: 'completed' });
 
     const { request } = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('meetings:read'), tenantDb: db },
+      context: { permissions: permissions('meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv() } as Partial<Env>,
     });
     const { data } = (await (await request('/api/meetings/recordings')).json()) as { data: Array<Record<string, unknown>> };
@@ -680,7 +694,7 @@ describe('GET /api/meetings/ai-pricing and /recordings', () => {
     const part = await seedReady('meet_l3', 'msess_l3');
     const bucket = fakeBucket({ [part.videoKey!]: 'v' });
     const { request } = createTestApp<Env, Variables>('/api/meetings', meetingsRoutes, {
-      context: { permissions: permissions('meetings:read'), tenantDb: db },
+      context: { permissions: permissions('meetings:read'), tenantDb: db, masterDb: master },
       env: { WORKSPACE_CACHE: fakeKv(), MEETING_RECORDINGS: bucket } as Partial<Env>,
     });
     const { data } = (await (await request('/api/meetings/meet_l3/recording')).json()) as { data: Record<string, unknown> };

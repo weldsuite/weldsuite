@@ -54,6 +54,12 @@ pub(crate) struct AppState {
     pub(crate) sign_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
     pub(crate) sign_portal_secret: Option<Arc<str>>,
+    /// WeldDocs and WeldSheets' rooms (`COLLAB_ROOMS_URLS`).
+    pub(crate) collab: Option<Arc<weldsuite_adapters_oss::collab::HttpCollabRooms>>,
+    /// `COLLAB_ROOMS_SECRET`, which the collab-rooms pods send to `/internal/collab`.
+    pub(crate) collab_secret: Option<Arc<str>>,
+    /// `MAIL_INBOUND_SECRET`, Haraka's key for the `RCPT TO` check.
+    pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
@@ -137,11 +143,33 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/calendar-replan",
             axum::routing::post(crate::conformance::calendar_replan_sweep),
+        )
+        .route(
+            "/__conformance/cron/desk-sla-sweep",
+            axum::routing::post(crate::conformance::desk_sla_sweep),
+        )
+        .route(
+            "/__conformance/cron/books-tax-reminders",
+            axum::routing::post(crate::conformance::books_tax_reminders),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.
     let widget =
         crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // The public API (`/v1`) has its own authentication and answers CORS for
+    // any origin, as external-api does.
+    let public_api =
+        crate::routes::external_api(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    let connect_internal =
+        crate::routes::connect_internal(&state).map(|internal| internal.with_state(state.clone()));
+    // So does personal-api (any origin, no credentials), at `/personal-api`.
+    let personal =
+        crate::routes::personal::router(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // So does WeldPanel's collector: tracked sites send from anywhere.
+    let collector =
+        crate::routes::panel_collector(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // So does the MCP server (`/mcp`, OAuth bearer tokens).
+    let mcp = crate::routes::mcp(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -151,10 +179,18 @@ pub(crate) fn router(state: AppState) -> Router {
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            connect_internal,
+            connect_internal_calls,
+        ))
         .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         .merge(widget)
+        .merge(public_api)
+        .merge(collector)
+        .merge(personal)
+        .merge(mcp)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
         .layer(
@@ -162,6 +198,37 @@ pub(crate) fn router(state: AppState) -> Router {
                 .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
         )
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// connect-api's internal integration calls (`X-Internal-Secret`) go to
+/// their own router ahead of the session, as the worker mounts it ahead of
+/// `clerkMiddleware`; every other request goes on.
+async fn connect_internal_calls(
+    State(internal): State<Option<Router>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    match internal {
+        Some(internal)
+            if weldsuite_connect::is_internal_integrations_call(
+                request.method(),
+                request.uri().path(),
+                request.headers(),
+            ) =>
+        {
+            use tower::ServiceExt;
+            // Routed once already, to the member route on the same path.
+            let mut request = request;
+            request
+                .extensions_mut()
+                .remove::<axum::extract::MatchedPath>();
+            match internal.oneshot(request).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            }
+        }
+        _ => next.run(request).await,
+    }
 }
 
 /// With a dedicated WeldApps bundle origin (`USER_APP_BUNDLE_ORIGIN`), that
@@ -441,6 +508,9 @@ mod tests {
             sign_session_secret: None,
             sign_portal_url: None,
             sign_portal_secret: None,
+            collab: None,
+            collab_secret: None,
+            mail_inbound_secret: None,
             files_public_url: None,
             widget_token_secret: None,
             trusted_proxies: 1,
@@ -565,11 +635,18 @@ mod tests {
             public_env: [("VITE_MAPBOX_ACCESS_TOKEN".to_owned(), "pk.eu".to_owned())]
                 .into_iter()
                 .collect(),
+            video: weldsuite_video_rooms::ClientSettings {
+                provider: weldsuite_video_rooms::ClientProvider::LiveKit,
+                url: Some("wss://lk.example.eu".to_owned()),
+            },
+            live_editing: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
+        assert_eq!(body["videoProvider"], "livekit");
+        assert_eq!(body["videoUrl"], "wss://lk.example.eu");
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

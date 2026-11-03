@@ -1,0 +1,774 @@
+{
+  "scope": {
+    "stepResults": {
+      "ask": {
+        "selectedValue": "billing",
+        "count": 3,
+        "nested": {
+          "deep": "yes"
+        },
+        "list": [
+          "a",
+          "b"
+        ]
+      },
+      "gate": {
+        "branch": "true",
+        "flag": false,
+        "zero": 0,
+        "none": null
+      }
+    },
+    "triggerData": {
+      "customerName": "Jane",
+      "content": "Order 12 is late",
+      "amount": 120.5,
+      "entityType": "helpdesk_conversation",
+      "entityId": "hc_9",
+      "data": {
+        "id": "x1",
+        "tags": [
+          "vip",
+          "new"
+        ]
+      }
+    },
+    "variables": {
+      "tier": "gold",
+      "limit": 10
+    }
+  },
+  "resolve": [
+    {
+      "inputs": {
+        "message": "Hello {{trigger.customerName}}, about \"{{trigger.content}}\""
+      },
+      "out": {
+        "message": "Hello Jane, about \"Order 12 is late\""
+      }
+    },
+    {
+      "inputs": {
+        "exact": "{{steps.ask.count}}",
+        "exactObject": "{{steps.ask.nested}}",
+        "exactMissing": "{{steps.nope.x}}"
+      },
+      "out": {
+        "exact": 3,
+        "exactMissing": "",
+        "exactObject": {
+          "deep": "yes"
+        }
+      }
+    },
+    {
+      "inputs": {
+        "mixed": "n={{steps.ask.count}} list={{steps.ask.list}} obj={{steps.ask.nested}} miss=[{{trigger.nope}}]"
+      },
+      "out": {
+        "mixed": "n=3 list=a,b obj={\"deep\":\"yes\"} miss=[]"
+      }
+    },
+    {
+      "inputs": {
+        "spaced": "{{ variables.tier }}",
+        "unknownRef": "{{other.thing}}",
+        "partial": "{{trigger.customerName",
+        "plain": "no templates"
+      },
+      "out": {
+        "partial": "{{trigger.customerName",
+        "plain": "no templates",
+        "spaced": "gold",
+        "unknownRef": ""
+      }
+    },
+    {
+      "inputs": {
+        "nested": {
+          "inner": "{{variables.limit}}",
+          "deeper": {
+            "x": "tier {{variables.tier}}"
+          }
+        },
+        "list": [
+          {
+            "a": "{{trigger.amount}}"
+          },
+          "raw {{trigger.amount}}",
+          3,
+          null
+        ]
+      },
+      "out": {
+        "list": [
+          {
+            "a": 120.5
+          },
+          "raw {{trigger.amount}}",
+          3,
+          null
+        ],
+        "nested": {
+          "deeper": {
+            "x": "tier gold"
+          },
+          "inner": 10
+        }
+      }
+    },
+    {
+      "inputs": {
+        "numbers": 5,
+        "flag": true,
+        "nothing": null,
+        "falsy": "{{steps.gate.flag}}",
+        "zero": "{{steps.gate.zero}}",
+        "none": "{{steps.gate.none}}"
+      },
+      "out": {
+        "falsy": false,
+        "flag": true,
+        "none": null,
+        "nothing": null,
+        "numbers": 5,
+        "zero": 0
+      }
+    },
+    {
+      "inputs": {
+        "deepPath": "{{trigger.data.tags}}",
+        "viaArray": "{{steps.ask.list.0}}",
+        "contact": "{{contact.email}}"
+      },
+      "out": {
+        "contact": "",
+        "deepPath": [
+          "vip",
+          "new"
+        ],
+        "viaArray": "a"
+      }
+    }
+  ],
+  "conditions": [
+    {
+      "condition": {
+        "field": "steps.gate.branch",
+        "operator": "eq",
+        "value": "true"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.gate.branch",
+        "operator": "equals",
+        "value": true
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "steps.ask.count",
+        "operator": "neq",
+        "value": 3
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "steps.ask.count",
+        "operator": "not_equals",
+        "value": "3"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "gt",
+        "value": "100"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "greater_than",
+        "value": 120.5
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "gte",
+        "value": 120.5
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "lt",
+        "value": "abc"
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "variables.limit",
+        "operator": "lte",
+        "value": 10
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "variables.limit",
+        "operator": "less_than_or_equals",
+        "value": "9"
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "trigger.content",
+        "operator": "contains",
+        "value": "late"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.content",
+        "operator": "starts_with",
+        "value": "Order"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.content",
+        "operator": "ends_with",
+        "value": "early"
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "trigger.nope",
+        "operator": "contains",
+        "value": "undefined"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.gate.none",
+        "operator": "exists"
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "steps.gate.zero",
+        "operator": "exists"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.gate.none",
+        "operator": "not_exists"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.missing",
+        "operator": "not_exists"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "variables.tier",
+        "operator": "in",
+        "value": [
+          "gold",
+          "silver"
+        ]
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "variables.tier",
+        "operator": "in",
+        "value": "gold"
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "variables.tier",
+        "operator": "not_in",
+        "value": [
+          "bronze"
+        ]
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "variables.tier",
+        "operator": "not_in",
+        "value": "gold"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.content",
+        "operator": "matches",
+        "value": "^Order \\d+"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.content",
+        "operator": "matches",
+        "value": "late$"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "literal text",
+        "operator": "eq",
+        "value": "literal text"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.ask.list",
+        "operator": "contains",
+        "value": "a,b"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.ask.nested",
+        "operator": "contains",
+        "value": "object"
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "between",
+        "value": 1
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "",
+        "operator": "eq",
+        "value": ""
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": ""
+      },
+      "met": false
+    },
+    {
+      "condition": {
+        "field": "trigger.amount",
+        "operator": "eq",
+        "value": 120.5
+      },
+      "met": true
+    },
+    {
+      "condition": {
+        "field": "steps.gate.flag",
+        "operator": "eq",
+        "value": false
+      },
+      "met": true
+    }
+  ],
+  "conversationIds": [
+    {
+      "inputs": {
+        "conversationId": "hc_in"
+      },
+      "triggerData": {},
+      "out": "hc_in"
+    },
+    {
+      "inputs": {
+        "conversationId": 42
+      },
+      "triggerData": {},
+      "out": "42"
+    },
+    {
+      "inputs": {},
+      "triggerData": {
+        "entityType": "helpdesk_conversation",
+        "entityId": "hc_ev"
+      },
+      "out": "hc_ev"
+    },
+    {
+      "inputs": {},
+      "triggerData": {
+        "entityType": "helpdesk_conversation",
+        "entityId": 7
+      },
+      "out": "7"
+    },
+    {
+      "inputs": {},
+      "triggerData": {
+        "data": {
+          "conversationId": "hc_data"
+        }
+      },
+      "out": "hc_data"
+    },
+    {
+      "inputs": {},
+      "triggerData": {
+        "data": {
+          "id": "hc_id"
+        }
+      },
+      "out": "hc_id"
+    },
+    {
+      "inputs": {},
+      "triggerData": {
+        "data": {
+          "other": 1
+        }
+      },
+      "out": null
+    },
+    {
+      "inputs": {
+        "conversationId": ""
+      },
+      "triggerData": null,
+      "out": null
+    }
+  ],
+  "triggers": [
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "created"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "chat"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "chat"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "status_changed"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "chat"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "created",
+            "channels": [
+              "chat"
+            ]
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "created",
+            "channels": []
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "message_received"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "message_received",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "first_message"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "message_received",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation_message"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "message_received",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation_message",
+            "eventType": "updated"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "message_received",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation",
+            "eventType": "created"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "message_received",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "anything"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "sla_breach",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": false,
+          "config": {
+            "entityType": "helpdesk_conversation"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "schedule",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": null,
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": false
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "x"
+          }
+        },
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web"
+      },
+      "matches": true
+    },
+    {
+      "triggers": [],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web",
+        "workflowIds": [
+          "hwfl_a"
+        ]
+      },
+      "matches": true
+    },
+    {
+      "triggers": [
+        {
+          "type": "entity_event",
+          "isEnabled": true,
+          "config": {
+            "entityType": "helpdesk_conversation"
+          }
+        }
+      ],
+      "params": {
+        "eventType": "conversation_created",
+        "channel": "web",
+        "workflowIds": [
+          "hwfl_b"
+        ]
+      },
+      "matches": false
+    }
+  ]
+}

@@ -39,4 +39,4 @@ pub use second_factor::{
     DEFAULT_SECOND_FACTOR_MAX_AGE_MINUTES, MFA_REQUIRED, REVERIFICATION_REQUIRED,
     SecondFactorCheck, check_second_factor, require_second_factor,
 };
-pub use verifier::{AuthContext, ClerkVerifier, KeyError, TokenError};
+pub use verifier::{AuthContext, ClerkVerifier, KeyError, PartyCheck, TokenError, VerifiedSession};

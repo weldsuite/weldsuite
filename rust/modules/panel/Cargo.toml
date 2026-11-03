@@ -1,0 +1,40 @@
+[package]
+name = "weldsuite-panel"
+description = "WeldPanel (product analytics): panel-api's /api/panel/projects and the public collector panel-ingest serves (/s.js, /c/:token, /e)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

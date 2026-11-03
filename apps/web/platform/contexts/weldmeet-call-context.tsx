@@ -42,6 +42,7 @@ import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-sup
 import { meetingCallLabel } from '@/lib/call-switch-labels';
 import { enableMicrophone, isMicrophonePermissionDenied, useLeaveCallGuard, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
 import { publicEnv } from '@/lib/runtime-config';
+import { isLiveKit, videoJoin } from '@/lib/video-provider';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
 // set VITE_NOISE_SUPPRESSION=false to disable. (Legacy alias:
@@ -523,6 +524,9 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
     // tracks are raw and can't be fed through the suppressor (no RTK replace
     // path). Small UX cost: a brief "acquiring mic" at meeting start.
     if (NOISE_SUPPRESSION_ENABLED) return;
+    // The pre-warmed media is RealtimeKit's SelfMedia, handed to its init; the
+    // LiveKit client acquires its own devices on join.
+    if (isLiveKit()) return;
 
     const promise = import('@cloudflare/realtimekit').then(({ default: RTK }) => RTK.initMedia({ video: true, audio: true }))
       .then((media) => {
@@ -1035,20 +1039,35 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
 
     exitIntentRef.current = null;
 
-    const { default: RTK } = await import('@cloudflare/realtimekit');
     let m: RealtimeKitClient;
     try {
-      m = await RTK.init({
-        authToken,
-        defaults: {
-          audio: audioOn,
-          video: videoOn ?? (type === 'video'),
-          ...(handler && !useNoiseSuppression ? { mediaHandler: handler } : {}),
-          mediaConfiguration: {
-            audio: { noiseSupression: useNoiseSuppression ? false : noiseSupressionOn },
+      // The Kubernetes editions run meetings on LiveKit (`lib/video-provider`):
+      // the token is a LiveKit one, and the LiveKit client answers to the same
+      // client surface. Global (no runtime config) takes the RealtimeKit path.
+      const join = videoJoin();
+      if (join.provider === 'livekit') {
+        // Loaded only here, so Global never fetches livekit-client.
+        const { initLiveKitMeeting } = await import('@weldsuite/weldmeet-ui/providers/livekit');
+        m = initLiveKitMeeting<RealtimeKitClient>({
+          url: join.url,
+          token: authToken,
+          defaults: { audio: audioOn, video: videoOn ?? (type === 'video') },
+          noiseSuppression: useNoiseSuppression ? false : noiseSupressionOn,
+        });
+      } else {
+        const { default: RTK } = await import('@cloudflare/realtimekit');
+        m = await RTK.init({
+          authToken,
+          defaults: {
+            audio: audioOn,
+            video: videoOn ?? (type === 'video'),
+            ...(handler && !useNoiseSuppression ? { mediaHandler: handler } : {}),
+            mediaConfiguration: {
+              audio: { noiseSupression: useNoiseSuppression ? false : noiseSupressionOn },
+            },
           },
-        },
-      });
+        });
+      }
     } catch (err) {
       try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
       suppressorRestoreRef.current = null;

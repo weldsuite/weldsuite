@@ -1,0 +1,516 @@
+{
+  "campaigns": [
+    {
+      "dailyLimit": 50,
+      "id": "rcmp_a",
+      "mailboxIds": [
+        "rmbx_a",
+        "rmbx_b",
+        "rmbx_e"
+      ],
+      "minGapMinutes": 8,
+      "schedule": {
+        "sendDays": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "timezone": "Europe/Amsterdam",
+        "windowEnd": "17:00",
+        "windowStart": "09:00"
+      },
+      "sentToday": 3
+    },
+    {
+      "dailyLimit": 1,
+      "id": "rcmp_b",
+      "mailboxIds": [
+        "rmbx_c"
+      ],
+      "minGapMinutes": 20,
+      "schedule": {
+        "sendDays": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "timezone": "UTC",
+        "windowEnd": "17:00",
+        "windowStart": "09:00"
+      },
+      "sentToday": 1
+    },
+    {
+      "dailyLimit": 10,
+      "id": "rcmp_c",
+      "mailboxIds": [
+        "rmbx_d",
+        "rmbx_c"
+      ],
+      "minGapMinutes": 4,
+      "schedule": {
+        "sendDays": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "timezone": "Europe/Amsterdam",
+        "windowEnd": "17:00",
+        "windowStart": "09:00"
+      },
+      "sentToday": 0
+    }
+  ],
+  "claimed": [
+    {
+      "campaignId": "rcmp_a",
+      "id": "renr_1",
+      "mailboxId": null
+    },
+    {
+      "campaignId": "rcmp_a",
+      "id": "renr_2",
+      "mailboxId": null
+    },
+    {
+      "campaignId": "rcmp_a",
+      "id": "renr_3",
+      "mailboxId": "rmbx_b"
+    },
+    {
+      "campaignId": "rcmp_b",
+      "id": "renr_4",
+      "mailboxId": "rmbx_c"
+    },
+    {
+      "campaignId": "rcmp_c",
+      "id": "renr_5",
+      "mailboxId": null
+    },
+    {
+      "campaignId": "rcmp_gone",
+      "id": "renr_6",
+      "mailboxId": null
+    },
+    {
+      "campaignId": "rcmp_a",
+      "id": "renr_7",
+      "mailboxId": "rmbx_d"
+    },
+    {
+      "campaignId": "rcmp_a",
+      "id": "renr_8",
+      "mailboxId": null
+    }
+  ],
+  "gaps": [
+    {
+      "capacity": 6,
+      "gapEndsAt": "2026-10-12T09:41:55.200Z",
+      "id": "rmbx_a"
+    },
+    {
+      "capacity": 30,
+      "gapEndsAt": "2026-10-12T10:05:09.600Z",
+      "id": "rmbx_b"
+    },
+    {
+      "capacity": 0,
+      "gapEndsAt": null,
+      "id": "rmbx_c"
+    },
+    {
+      "capacity": 30,
+      "gapEndsAt": null,
+      "id": "rmbx_d"
+    },
+    {
+      "capacity": 30,
+      "gapEndsAt": null,
+      "id": "rmbx_e"
+    }
+  ],
+  "gates": [
+    {
+      "campaign": "rcmp_a",
+      "gate": {
+        "open": true
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_b",
+      "gate": {
+        "open": false,
+        "reason": "daily_limit",
+        "reopensAt": "2026-10-13T09:00:00.000Z"
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_c",
+      "gate": {
+        "open": true
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_a",
+      "gate": {
+        "open": false,
+        "reason": "workspace_limit",
+        "reopensAt": "2026-10-13T07:00:00.000Z"
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 300
+    },
+    {
+      "campaign": "rcmp_b",
+      "gate": {
+        "open": false,
+        "reason": "workspace_limit",
+        "reopensAt": "2026-10-13T09:00:00.000Z"
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 300
+    },
+    {
+      "campaign": "rcmp_c",
+      "gate": {
+        "open": false,
+        "reason": "workspace_limit",
+        "reopensAt": "2026-10-13T07:00:00.000Z"
+      },
+      "now": "2026-10-12T10:00:00.000Z",
+      "workspaceSentToday": 300
+    },
+    {
+      "campaign": "rcmp_a",
+      "gate": {
+        "open": false,
+        "reason": "window",
+        "reopensAt": "2026-10-13T07:00:00.000Z"
+      },
+      "now": "2026-10-12T19:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_b",
+      "gate": {
+        "open": false,
+        "reason": "window",
+        "reopensAt": "2026-10-13T09:00:00.000Z"
+      },
+      "now": "2026-10-12T19:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_c",
+      "gate": {
+        "open": false,
+        "reason": "window",
+        "reopensAt": "2026-10-13T07:00:00.000Z"
+      },
+      "now": "2026-10-12T19:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_a",
+      "gate": {
+        "open": true
+      },
+      "now": "2026-10-12T07:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_b",
+      "gate": {
+        "open": false,
+        "reason": "window",
+        "reopensAt": "2026-10-12T09:00:00.000Z"
+      },
+      "now": "2026-10-12T07:00:00.000Z",
+      "workspaceSentToday": 10
+    },
+    {
+      "campaign": "rcmp_c",
+      "gate": {
+        "open": true
+      },
+      "now": "2026-10-12T07:00:00.000Z",
+      "workspaceSentToday": 10
+    }
+  ],
+  "jitter": [
+    {
+      "seed": "rmbx_a:1760263200000",
+      "value": 0.1
+    },
+    {
+      "seed": "x",
+      "value": 0.21
+    },
+    {
+      "seed": "",
+      "value": 0.01
+    },
+    {
+      "seed": "rmbx_ü:1",
+      "value": 0.48
+    },
+    {
+      "seed": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "value": 0.19
+    }
+  ],
+  "mailboxes": [
+    {
+      "dailyCap": 30,
+      "id": "rmbx_a",
+      "lastSentAt": "2026-10-12T09:30:00.000Z",
+      "rampCurrent": 10,
+      "sentToday": 4,
+      "status": "active"
+    },
+    {
+      "dailyCap": 30,
+      "id": "rmbx_b",
+      "lastSentAt": "2026-10-12T09:55:00.000Z",
+      "rampCurrent": 30,
+      "sentToday": 0,
+      "status": "active"
+    },
+    {
+      "dailyCap": 2,
+      "id": "rmbx_c",
+      "lastSentAt": null,
+      "rampCurrent": 30,
+      "sentToday": 2,
+      "status": "active"
+    },
+    {
+      "dailyCap": 30,
+      "id": "rmbx_d",
+      "lastSentAt": null,
+      "rampCurrent": 30,
+      "sentToday": 0,
+      "status": "paused"
+    },
+    {
+      "dailyCap": 30,
+      "id": "rmbx_e",
+      "lastSentAt": null,
+      "rampCurrent": 30,
+      "sentToday": 0,
+      "status": "active"
+    }
+  ],
+  "nextSteps": [
+    {
+      "delayDays": 3,
+      "delayHours": 0,
+      "dueAt": "2026-10-15T10:00:00.000Z",
+      "sentAt": "2026-10-12T10:00:00.000Z"
+    },
+    {
+      "delayDays": 0,
+      "delayHours": 4,
+      "dueAt": "2026-10-13T07:00:00.000Z",
+      "sentAt": "2026-10-12T15:00:00.000Z"
+    },
+    {
+      "delayDays": 1,
+      "delayHours": 2,
+      "dueAt": "2026-10-19T07:00:00.000Z",
+      "sentAt": "2026-10-16T10:00:00.000Z"
+    }
+  ],
+  "plans": [
+    {
+      "maxDailySends": 300,
+      "plan": {
+        "deferrals": [
+          {
+            "enrollmentId": "renr_3",
+            "reason": "mailbox_gap",
+            "until": null
+          },
+          {
+            "enrollmentId": "renr_4",
+            "reason": "campaign_limit",
+            "until": "2026-10-13T09:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_5",
+            "reason": "mailbox_capacity",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_6",
+            "reason": "campaign_inactive",
+            "until": null
+          },
+          {
+            "enrollmentId": "renr_7",
+            "reason": "mailbox_unavailable",
+            "until": "2026-10-12T11:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_8",
+            "reason": "mailbox_gap",
+            "until": null
+          }
+        ],
+        "retryAt": "2026-10-12T10:05:09.600Z",
+        "sends": [
+          {
+            "campaignId": "rcmp_a",
+            "enrollmentId": "renr_1",
+            "mailboxId": "rmbx_e"
+          },
+          {
+            "campaignId": "rcmp_a",
+            "enrollmentId": "renr_2",
+            "mailboxId": "rmbx_a"
+          }
+        ]
+      },
+      "workspaceSentToday": 10
+    },
+    {
+      "maxDailySends": 300,
+      "plan": {
+        "deferrals": [
+          {
+            "enrollmentId": "renr_2",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_3",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_4",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T09:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_5",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_6",
+            "reason": "campaign_inactive",
+            "until": null
+          },
+          {
+            "enrollmentId": "renr_7",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_8",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          }
+        ],
+        "retryAt": null,
+        "sends": [
+          {
+            "campaignId": "rcmp_a",
+            "enrollmentId": "renr_1",
+            "mailboxId": "rmbx_e"
+          }
+        ]
+      },
+      "workspaceSentToday": 299
+    },
+    {
+      "maxDailySends": 0,
+      "plan": {
+        "deferrals": [
+          {
+            "enrollmentId": "renr_1",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_2",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_3",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_4",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T09:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_5",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_6",
+            "reason": "campaign_inactive",
+            "until": null
+          },
+          {
+            "enrollmentId": "renr_7",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          },
+          {
+            "enrollmentId": "renr_8",
+            "reason": "workspace_limit",
+            "until": "2026-10-13T07:00:00.000Z"
+          }
+        ],
+        "retryAt": null,
+        "sends": []
+      },
+      "workspaceSentToday": 10
+    }
+  ],
+  "readiness": {
+    "capped": [
+      "rmbx_c"
+    ],
+    "gapBlockedUntil": "2026-10-12T10:05:09.600Z",
+    "ready": [
+      "rmbx_a",
+      "rmbx_e"
+    ],
+    "unusable": [
+      "rmbx_d"
+    ]
+  },
+  "schedule": {
+    "sendDays": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "timezone": "Europe/Amsterdam",
+    "windowEnd": "17:00",
+    "windowStart": "09:00"
+  }
+}

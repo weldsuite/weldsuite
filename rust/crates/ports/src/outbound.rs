@@ -50,13 +50,34 @@ impl HttpRequest {
 }
 
 /// One answer. A connection failure is an `Err` from [`DynOutboundHttp::send`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HttpResponse {
     pub status: u16,
     pub body: Vec<u8>,
+    /// The answer's headers, names lowercased, in the order received. Empty
+    /// where an adapter or a double does not report them.
+    pub headers: Vec<(String, String)>,
 }
 
 impl HttpResponse {
+    /// An answer without headers.
+    pub fn new(status: u16, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            body,
+            headers: Vec::new(),
+        }
+    }
+
+    /// The first value of a header (`response.headers.get(name)`), by
+    /// case-insensitive name.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
     pub fn ok(&self) -> bool {
         (200..300).contains(&self.status)
     }

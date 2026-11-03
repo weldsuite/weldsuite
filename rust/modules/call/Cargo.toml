@@ -1,0 +1,38 @@
+[package]
+name = "weldsuite-call"
+description = "WeldCall (telephony): call-api's /api/calls, /api/call-intelligence, /api/desk/phone, /api/porting, /api/telephony, /api/internal/telephony and the Telnyx webhook at /public/webhooks/telnyx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-desk-domain = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["json", "multipart", "query"] }
+base64 = { workspace = true }
+form_urlencoded = { workspace = true }
+hmac = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

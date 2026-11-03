@@ -12,9 +12,18 @@
  *   POST /setup    { successUrl, cancelUrl } -> { data: { url } }
  *   POST /inboxes  { delta: 1 | -1, mailboxId } -> { data: { quantity } }
  *                  402 { error: { code: 'PAYMENT_METHOD_REQUIRED' } } without a payment method
+ *
+ * Billing is off where the caller's token cannot be forwarded to billing-worker
+ * (`canForwardAuthorization(billingWorkerUrl(env))`: local wrangler, plain
+ * HTTP), the signal WeldBooks' bank connections use, and on the Kubernetes
+ * editions, which have no billing-worker at all (the `billing` feature). Then
+ * mailboxes are provisioned unbilled: `status()` is null, `adjustInboxes` is
+ * a no-op answering null, and `setup` refuses (409 `BILLING_OFF`), as there is
+ * no payment method to add.
  */
 
-import { callBillingWorker } from '@weldsuite/worker-kit/billing-worker';
+import { billingWorkerUrl, callBillingWorker, canForwardAuthorization } from '@weldsuite/worker-kit/billing-worker';
+import { ReachDomainError } from '@weldsuite/reach-domain/errors';
 import type { ReachBillingSetupInput, ReachBillingSummary } from '@weldsuite/app-api-client/schemas/reach';
 
 export const BILLING_REACH_BASE = '/api/billing/reach';
@@ -44,10 +53,26 @@ export class ReachBillingError extends Error {
 }
 
 export interface ReachBilling {
-  status(): Promise<ReachBillingSummary>;
+  /** Null when billing is off in this environment. */
+  status(): Promise<ReachBillingSummary | null>;
+  /** Refuses with 409 `BILLING_OFF` when billing is off. */
   setup(input: ReachBillingSetupInput): Promise<{ url: string }>;
-  /** Stripe quantity +1 / -1 for one inbox. Returns the new quantity. */
-  adjustInboxes(delta: 1 | -1, mailboxId: string): Promise<{ quantity: number }>;
+  /** Stripe quantity +1 / -1 for one inbox. Returns the new quantity; null (nothing billed) when billing is off. */
+  adjustInboxes(delta: 1 | -1, mailboxId: string): Promise<{ quantity: number } | null>;
+}
+
+/** Whether billing is on for this worker env (the caller's token can reach billing-worker). */
+export function reachBillingEnabled(env: BillingContext['env']): boolean {
+  return canForwardAuthorization(billingWorkerUrl(env));
+}
+
+/** `POST /billing/setup` where billing is off. */
+export function billingOffError(): ReachDomainError {
+  return new ReachDomainError(
+    'BILLING_OFF',
+    409,
+    'Billing is off in this environment: mailboxes are not charged, so there is no payment method to add.',
+  );
 }
 
 type Call = typeof callBillingWorker;
@@ -61,6 +86,16 @@ async function parse(res: Response): Promise<{ data?: unknown; error?: { code?: 
 }
 
 export function createReachBilling(c: BillingContext, call: Call = callBillingWorker): ReachBilling {
+  if (!reachBillingEnabled(c.env)) {
+    return {
+      status: async () => null,
+      setup: async () => {
+        throw billingOffError();
+      },
+      adjustInboxes: async () => null,
+    };
+  }
+
   async function send<T>(path: string, init: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
     let res: Response;
     try {

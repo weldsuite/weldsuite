@@ -126,3 +126,13 @@ export {
   type EnableMicrophoneResult,
   type MicrophoneSelf,
 } from './lib/microphone';
+
+// Video provider (RealtimeKit on Global, LiveKit on the Kubernetes editions).
+// The LiveKit client itself is `@weldsuite/weldmeet-ui/providers/livekit`,
+// imported lazily so Global never loads it.
+export {
+  parseVideoProvider,
+  videoJoinTarget,
+  type VideoJoinTarget,
+  type VideoProvider,
+} from './providers/video-provider';

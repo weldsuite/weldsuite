@@ -20,6 +20,13 @@ import { fileURLToPath } from 'node:url';
 
 import { API_MODULES, RECORD_CHAT_OWNER, RECORD_CHAT_PREFIX } from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
+import { listWebhookEvents } from '../packages/core/entity-events/src/webhook-events';
+import {
+  CONNECTOR_EXTERNAL_FIELDS,
+  CONNECTOR_INTERNAL_FIELDS,
+  getDefaultConnectorFieldMappings,
+  listConnectors,
+} from '../packages/core/connectors/src/index';
 import { FLAGS } from '../packages/core/feature-flags/src/flags';
 import {
   EMPLOYEE_MEMBER_PERMISSIONS,
@@ -28,6 +35,28 @@ import {
 } from '../packages/core/permissions/src/catalog';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '../packages/core/permissions/src/apps';
 import { FIRST_PARTY_ORIGINS } from '../packages/core/worker-kit/src/cors';
+import {
+  BUILT_IN_WORKFLOW_TEMPLATES,
+  resolveBuiltInTemplate,
+  type BuiltInTemplateCatalog,
+} from '../packages/clients/app-api-client/src/schemas/weldconnect-templates';
+import { weldconnectTemplates as enTemplateStrings } from '../packages/core/i18n/src/locales/en/weldconnect-templates';
+import { weldconnectTemplates as nlTemplateStrings } from '../packages/core/i18n/src/locales/nl/weldconnect-templates';
+import {
+  ACTION_TYPES as WELDCONNECT_ACTION_TYPES,
+  ENTITY_EVENTS as WELDCONNECT_ENTITY_EVENTS,
+  TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
+} from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
+import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
+import {
+  MAX_SHEET_DATA_COLUMNS,
+  MAX_SHEET_DATA_FILTERS,
+  MAX_SHEET_DATA_ROWS,
+  SHEET_DATA_FILTER_OPS,
+  SHEET_DATA_FILTER_OPS_BY_TYPE,
+  SHEET_DATA_OBJECT_KEYS,
+  SHEET_DATA_OBJECTS,
+} from '../packages/clients/app-api-client/src/schemas/sheet-data';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,14 +78,90 @@ function stableJson(value: unknown): string {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
+/**
+ * WeldConnect's code catalogs: the built-in workflow templates resolved in
+ * each locale (connect-api `services/workflow-templates.ts`) and the editor's
+ * pickers (`/api/workflow-dashboard/{action-types,trigger-types,entity-events}`).
+ */
+function weldconnectCatalog(): unknown {
+  const strings: Record<string, BuiltInTemplateCatalog> = { en: enTemplateStrings, nl: nlTemplateStrings };
+  const templates = Object.fromEntries(
+    Object.entries(strings).map(([locale, catalog]) => [
+      locale,
+      BUILT_IN_WORKFLOW_TEMPLATES.map((definition) => resolveBuiltInTemplate(definition, catalog, strings.en)),
+    ]),
+  );
+  return {
+    templates,
+    actionTypes: WELDCONNECT_ACTION_TYPES,
+    triggerTypes: WELDCONNECT_TRIGGER_TYPES,
+    entityEvents: WELDCONNECT_ENTITY_EVENTS,
+    // `@weldsuite/workflow-integrations`: the third-party providers WeldConnect connects to.
+    integrations: listWorkflowIntegrations(),
+    // The outbound webhook event picker (`GET /api/external-webhooks/events`), in catalog order.
+    webhookEvents: listWebhookEvents(),
+  };
+}
+
+/**
+ * The store and accounting connectors (`@weldsuite/connectors`): their catalog
+ * entries, in order, and the default field mappings per entity type (Picqer's
+ * product and Stripe's none are the exceptions `getDefaultConnectorFieldMappings`
+ * makes).
+ */
+function connectorsCatalog(): unknown {
+  const entities = new Set<string>([
+    ...Object.keys(CONNECTOR_INTERNAL_FIELDS),
+    ...Object.keys(CONNECTOR_EXTERNAL_FIELDS),
+    ...listConnectors().flatMap((c) => c.syncs.map((s) => s.internalEntity)),
+  ]);
+  const defaultFieldMappings = Object.fromEntries(
+    [...entities].map((entity) => [entity, getDefaultConnectorFieldMappings(entity)]).filter(([, m]) => m.length),
+  );
+  return {
+    connectors: listConnectors(),
+    defaultFieldMappings,
+    picqerProductFieldMappings: getDefaultConnectorFieldMappings('product', 'picqer'),
+  };
+}
+
+/**
+ * WeldSheets' connected tables (`@weldsuite/app-api-client/schemas/sheet-data`):
+ * the objects a sheet can list, in order, with the permission each needs and
+ * its fields' types, and the filter operators per type, for the definition
+ * checks of `/api/sheets/:id/data-sources`.
+ */
+function sheetDataCatalog(): unknown {
+  return {
+    objectKeys: SHEET_DATA_OBJECT_KEYS,
+    objects: Object.fromEntries(
+      SHEET_DATA_OBJECT_KEYS.map((key) => [
+        key,
+        { permission: SHEET_DATA_OBJECTS[key].permission, fields: SHEET_DATA_OBJECTS[key].fields.map(({ key: k, type }) => ({ key: k, type })) },
+      ]),
+    ),
+    filterOps: SHEET_DATA_FILTER_OPS,
+    filterOpsByType: SHEET_DATA_FILTER_OPS_BY_TYPE,
+    maxRows: MAX_SHEET_DATA_ROWS,
+    maxColumns: MAX_SHEET_DATA_COLUMNS,
+    maxFilters: MAX_SHEET_DATA_FILTERS,
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
     'catalogs/api-modules.json': API_MODULES,
     'catalogs/record-chat.json': { prefix: RECORD_CHAT_PREFIX, owners: RECORD_CHAT_OWNER },
     'catalogs/entity-events.json': ENTITY_EVENTS,
+    // The entity types in ENTITY_EVENTS' own order (the JSON above is sorted):
+    // `listAllEvents()` and the public API's /v1/webhooks/events list in it.
+    'catalogs/entity-event-order.json': Object.keys(ENTITY_EVENTS),
     'catalogs/feature-flags.json': FLAGS,
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
+    'catalogs/weldconnect.json': weldconnectCatalog(),
+    'catalogs/connectors.json': connectorsCatalog(),
+    'catalogs/sheet-data.json': sheetDataCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

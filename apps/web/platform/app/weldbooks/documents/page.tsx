@@ -31,6 +31,7 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   ContactCell,
   RowAmount,
@@ -271,10 +272,12 @@ export default function DocumentInboxPage() {
           continue;
         }
 
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
         void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
-
-        await processDoc.mutateAsync(docId);
+        // Editions without OCR keep the upload as a pending document to book by hand.
+        if (isFeatureAvailable('books-ocr')) {
+          setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
+          await processDoc.mutateAsync(docId);
+        }
 
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done' } : it));
       } catch (err) {
@@ -365,7 +368,7 @@ export default function DocumentInboxPage() {
       width: 'w-[80px] justify-end gap-1',
       render: (doc) => (
         <>
-          {doc.status === 'pending' && (
+          {doc.status === 'pending' && isFeatureAvailable('books-ocr') && (
             <Button
               size="sm"
               variant="ghost"

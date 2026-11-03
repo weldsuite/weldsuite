@@ -75,6 +75,11 @@ pub struct WidgetState {
     pub master: Option<PgPool>,
     /// Opens a workspace's tenant database by its Clerk org id.
     pub workspaces: Option<Arc<Workspaces>>,
+    /// The workspace's `AssignmentRouter` (`helpdesk-workflow-worker`'s,
+    /// `WORKFLOW_WORKER` on Global): round robin with rotation memory,
+    /// picks serialised across pods. Without it auto-assignment picks
+    /// locally, as the worker does without the binding.
+    pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
     pub settings: Arc<Settings>,
 }
 
@@ -87,6 +92,7 @@ impl std::fmt::Debug for WidgetState {
             .field("cache", &self.cache.is_some())
             .field("mail", &self.mail.is_some())
             .field("master", &self.master.is_some())
+            .field("assignment", &self.assignment.is_some())
             .finish_non_exhaustive()
     }
 }
