@@ -1010,6 +1010,8 @@ function MessageInput({
 
       <div
         className="relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] p-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text"
+        // Clicking the padding focuses the editor; the editor itself takes keyboard focus.
+        role="presentation"
         onClick={(e) => {
           const target = e.target as HTMLElement;
           if (

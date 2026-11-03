@@ -1,7 +1,7 @@
 export const weldapps = {
   breadcrumb: {
     title: 'WeldApps',
-    myApps: 'My apps',
+    myApps: 'Developer console',
   },
   host: {
     notInstalledTitle: 'App not installed',
@@ -21,7 +21,7 @@ export const weldapps = {
   store: {
     sectionTitle: 'Custom apps',
     sectionOfficial: 'WeldSuite apps',
-    myAppsLink: 'My apps',
+    myAppsLink: 'Developer console',
     badgeCommunity: 'Community',
     badgePrivate: 'Private',
     badgeOfficial: 'Official',
@@ -93,7 +93,7 @@ export const weldapps = {
     'reach_mailboxes:read': 'See your WeldReach mailboxes and domains',
   },
   manage: {
-    title: 'My apps',
+    title: 'Developer console',
     createApp: 'Create app',
     empty: 'No apps yet',
     emptyDescription: 'Create your first app to start building on the WeldSuite platform.',
@@ -115,6 +115,7 @@ export const weldapps = {
     statusRejected: 'Rejected',
     reviewNotesLabel: 'Review notes',
     installInWorkspace: 'Install in this workspace',
+    installNeedsVersion: 'Upload a version before you can install this app.',
     deleteApp: 'Delete app',
     deleteTitle: 'Delete {name}?',
     deleteDescription: 'This permanently deletes the app, its versions, and uninstalls it everywhere. This cannot be undone.',
@@ -151,6 +152,10 @@ export const weldapps = {
     columnDate: 'Date',
     columnSize: 'Size',
     uploadVersion: 'Upload version',
+    statusCurrent: 'Current',
+    statusPrevious: 'Previous',
+    statusAwaitingReview: 'Awaiting review',
+    statusRejected: 'Rejected',
   },
   uploadDialog: {
     title: 'Upload version',
@@ -166,6 +171,7 @@ export const weldapps = {
     uploadError: 'Failed to upload version',
     noFilesError: 'Select at least one file to upload',
     invalidManifestError: 'Manifest must be valid JSON',
+    invalidManifestDetails: 'Invalid manifest: {details}',
   },
   submit: {
     button: 'Submit for review',

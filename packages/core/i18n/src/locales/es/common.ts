@@ -1,5 +1,10 @@
 export const common = {
     ui: { pagination: { previous: 'Anterior', next: 'Siguiente', first: 'Primera', last: 'Última', page: 'Página', of: 'de', rows: 'filas', rowsPerPage: 'Filas por página', showing: 'Mostrando', to: 'a', results: 'resultados' }, table: { sortAscending: 'Ordenar ascendente', sortDescending: 'Ordenar descendente', unsorted: 'Sin ordenar', toggleColumns: 'Alternar columnas', selectAll: 'Seleccionar todo', selectRow: 'Seleccionar fila', noResults: 'No se encontraron resultados', loading: 'Cargando...' }, form: { required: 'Obligatorio', optional: 'Opcional', select: 'Seleccionar...', selectOption: 'Selecciona una opción', clear: 'Borrar', reset: 'Restablecer' } },
+    a11y: {
+      skipToContent: 'Saltar al contenido principal',
+      send: 'Enviar',
+      presence: { online: 'Disponible', busy: 'Ocupado', dnd: 'No molestar', away: 'Ausente', offline: 'Desconectado' },
+    },
     actions: {
       copyTaskNumber: 'Copiar número de tarea',
       save: 'Guardar',

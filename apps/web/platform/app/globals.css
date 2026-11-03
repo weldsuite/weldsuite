@@ -608,6 +608,19 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Every animation and transition finishes at once (end states and
+     animationend/transitionend still happen). Loading spinners keep turning:
+     they are small and say that something is still working. */
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
   .task-completing-inner {
     animation-duration: 1ms !important;
   }

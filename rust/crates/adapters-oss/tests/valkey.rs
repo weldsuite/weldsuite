@@ -4,6 +4,7 @@
 //! Redis), e.g. `redis://127.0.0.1:6379`; otherwise each test returns early.
 //! Keys and channels get a per-run prefix, so a shared server is fine.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
@@ -20,11 +21,15 @@ fn url() -> Option<String> {
     url
 }
 
+/// The clock alone can hand two parallel tests one prefix (a runner's
+/// clock may tick coarser than a nanosecond); the counter keeps them apart.
 fn prefix() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("weldsuite-test:{nanos}:")
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("weldsuite-test:{nanos}:{n}:")
 }
 
 #[tokio::test]

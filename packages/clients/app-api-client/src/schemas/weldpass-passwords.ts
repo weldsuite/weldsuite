@@ -13,19 +13,24 @@ import { z } from 'zod';
 export const weldpassVaultRoleSchema = z.enum(['viewer', 'editor', 'manager']);
 export type WeldPassVaultRole = z.infer<typeof weldpassVaultRoleSchema>;
 
+export const addVaultMemberSchema = z.object({
+  userId: z.string().min(1).max(255),
+  role: weldpassVaultRoleSchema,
+});
+
 export const createVaultSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(2000).nullish(),
+  /**
+   * Teammates who get access straight away. The creator is always the first
+   * manager, so an entry for the creator is ignored.
+   */
+  members: z.array(addVaultMemberSchema).max(100).optional(),
 });
 
 export const updateVaultSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   description: z.string().trim().max(2000).nullish(),
-});
-
-export const addVaultMemberSchema = z.object({
-  userId: z.string().min(1).max(255),
-  role: weldpassVaultRoleSchema,
 });
 
 export const updateVaultMemberSchema = z.object({ role: weldpassVaultRoleSchema });

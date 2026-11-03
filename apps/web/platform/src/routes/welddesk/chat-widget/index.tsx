@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/welddesk/chat-widget/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// Moved to Settings → Apps → WeldDesk; old links and bookmarks land there.
 export const Route = createFileRoute('/welddesk/chat-widget/')({
-  component: PageComponent,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/settings/apps/welddesk/chat-widget', search });
+  },
 });

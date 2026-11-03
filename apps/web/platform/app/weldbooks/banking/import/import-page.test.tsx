@@ -76,6 +76,7 @@ const state = {
   },
 };
 const importMutate = vi.fn();
+const undoImport = vi.fn();
 let importState: { isPending: boolean; isError: boolean; error: Error | null };
 const permissions = new Set(['banking:create']);
 
@@ -103,7 +104,9 @@ vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
     return { data, isPending: input !== null && !data, isFetching: false, isError: false, error: null, isPlaceholderData: false };
   },
   useImportBankStatement: () => ({ mutate: importMutate, reset: vi.fn(), ...importState }),
+  useUndoBankImport: () => ({ mutateAsync: undoImport, isPending: false }),
 }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import BankImportPage from './page';
 import { polyfillRadixSelect, renderWithProviders } from '../components/test-utils';
@@ -129,6 +132,7 @@ describe('Bank statement import page', () => {
       return input.csvFormat ? PARSED : { format: 'csv', needsCsvFormat: true, proposal: PROPOSAL };
     };
     importMutate.mockReset();
+    undoImport.mockReset();
     importState = { isPending: false, isError: false, error: null };
     permissions.clear();
     permissions.add('banking:create');
@@ -257,6 +261,26 @@ describe('Bank statement import page', () => {
     expect(screen.getByTestId('result-auto-reconciled')).toHaveTextContent('1');
     expect(screen.getByText('Line 7: Unreadable date "n/a"')).toBeInTheDocument();
     expect(screen.getByText(/CSV layout is saved/)).toBeInTheDocument();
+    // Undo needs banking:delete.
+    expect(screen.queryByRole('button', { name: 'Undo import' })).not.toBeInTheDocument();
+  });
+
+  it('undoes the import after confirming and says what stayed', async () => {
+    permissions.add('banking:delete');
+    undoImport.mockResolvedValue({ batchId: RESULT.batchId, deleted: 1, kept: 1 });
+    renderWithProviders(<BankImportPage />);
+    const user = await pickAccountAndFile();
+    await screen.findByTestId('import-preview');
+    await user.click(screen.getByTestId('import-statement'));
+    const options = importMutate.mock.calls[0][1] as { onSuccess: (result: ImportStatementResult) => void };
+    options.onSuccess(RESULT);
+
+    await user.click(await screen.findByRole('button', { name: 'Undo import' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Undo import' }));
+
+    expect(undoImport).toHaveBeenCalledWith(RESULT.batchId);
+    expect(await screen.findByTestId('import-undone')).toHaveTextContent('1 transactions removed, 1 reconciled ones kept.');
+    expect(screen.queryByRole('button', { name: 'Undo import' })).not.toBeInTheDocument();
   });
 
   it('does not offer an import without permission or without lines in the file', async () => {

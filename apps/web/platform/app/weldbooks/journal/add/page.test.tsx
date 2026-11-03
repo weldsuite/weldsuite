@@ -76,3 +76,24 @@ describe('AddJournalEntryPage: dimensions', { timeout: 30_000 }, () => {
     ]);
   });
 });
+
+describe('AddJournalEntryPage: account search', { timeout: 30_000 }, () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    env.create.mockReset().mockResolvedValue({});
+    env.dimensions = [];
+  });
+
+  it('narrows the chart of accounts by code or name', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AddJournalEntryPage />);
+
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.type(await screen.findByPlaceholderText('Search by code or name'), '4000');
+    expect(screen.getByRole('option', { name: /Sales/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Cash/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('option', { name: /Sales/ }));
+    expect(screen.getAllByRole('combobox')[0]).toHaveTextContent('4000 — Sales');
+  });
+});

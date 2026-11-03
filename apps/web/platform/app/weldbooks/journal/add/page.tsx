@@ -4,13 +4,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import {
   Table,
@@ -28,6 +21,7 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { DimensionSelects, useHasDimensions } from '@/app/weldbooks/invoices/components/dimension-selects';
+import { AccountCombobox } from '../components/account-combobox';
 
 interface JournalLine {
   /** Client-only stable React key; never sent to the API. */
@@ -168,21 +162,14 @@ export default function AddJournalEntryPage() {
                   <Fragment key={line.key}>
                   <TableRow>
                     <TableCell>
-                      <Select
+                      <AccountCombobox
+                        accounts={accounts}
                         value={line.accountId}
-                        onValueChange={(v) => updateLine(idx, 'accountId', v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={tj.selectAccount} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {accounts.map((acc) => (
-                            <SelectItem key={acc.id} value={acc.id}>
-                              {acc.code} — {acc.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        onChange={(v) => updateLine(idx, 'accountId', v)}
+                        placeholder={tj.selectAccount}
+                        searchPlaceholder={tj.searchAccount}
+                        emptyText={tj.noAccountFound}
+                      />
                     </TableCell>
                     <TableCell>
                       <Input

@@ -68,8 +68,10 @@ function CallTooltip({ label, children }: Readonly<{ label: string; children: Re
   }, [clearTimer, hasOpenDropdown]);
 
   return (
+    // Hover wrapper for the tooltip only; the control inside is the interactive element.
     <div
       ref={triggerRef}
+      role="presentation"
       onMouseEnter={() => { hovering.current = true; startTimer(); }}
       onMouseLeave={() => { hovering.current = false; clearTimer(); setShow(false); }}
       onMouseDown={() => { clearTimer(); setShow(false); }}

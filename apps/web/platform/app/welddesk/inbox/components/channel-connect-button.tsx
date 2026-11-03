@@ -204,7 +204,7 @@ export function ChannelConnectButton({
               {/* Settings link for providers with settings pages */}
               {provider === 'discord' && (
                 <DropdownMenuItem asChild>
-                  <Link href={`/welddesk/settings/integrations/${provider}`}>
+                  <Link href={`/settings/integrations/${provider}`}>
                     <Settings className="h-4 w-4 mr-0.5" />
                     {ti.configureChannels}
                   </Link>

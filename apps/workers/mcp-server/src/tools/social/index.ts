@@ -80,6 +80,8 @@ export const socialTools: ToolDefinition[] = [
     method: 'POST',
     path: '/v1/social-posts/:id/publish',
     pathParams: { id: 'id' },
+    // Posts to the connected social accounts.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'schedule_social_post',
@@ -102,6 +104,8 @@ export const socialTools: ToolDefinition[] = [
     method: 'POST',
     path: '/v1/social-posts/:id/schedule',
     pathParams: { id: 'id' },
+    // Posts to the connected social accounts when the time comes.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'cancel_social_post',

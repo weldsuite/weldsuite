@@ -30,6 +30,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
           entryNumber: 'JE-0001',
           reference: 'Opening balance',
           description: 'Year start',
+          status: 'draft',
           totalDebit: '250.00',
           totalCredit: '250.00',
         },
@@ -54,5 +55,12 @@ describe('JournalEntriesPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Opening balance' }));
     expect(openPanel).toHaveBeenCalledWith({ type: 'journal_entry', id: 'je_1' });
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows whether an entry is a draft or posted', async () => {
+    renderWithProviders(<JournalEntriesPage />);
+
+    expect(await screen.findByText('Status')).toBeInTheDocument();
+    expect(screen.getByText('Draft')).toBeInTheDocument();
   });
 });

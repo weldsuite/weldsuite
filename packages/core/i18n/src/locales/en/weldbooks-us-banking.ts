@@ -132,6 +132,12 @@ export const weldbooksUsBanking = {
     importAnother: 'Import another',
     matchLines: 'Match lines',
     viewAccount: 'View account',
+    undoImport: 'Undo import',
+    undoImportTitle: 'Undo this import?',
+    undoImportDescription: 'Removes the transactions this import added and takes them off the balance. Transactions you already reconciled stay.',
+    undoImportDone: '{deleted} transactions removed.',
+    undoImportKept: '{deleted} transactions removed, {kept} reconciled ones kept.',
+    undoImportFailed: 'The import could not be undone.',
   },
 
   importPreview: {
@@ -241,6 +247,7 @@ export const weldbooksUsBanking = {
       bill: 'Bill',
       payment: 'Payment',
       deposit: 'Deposit',
+      rule: 'Rule',
     },
     confidenceLabel: 'Match confidence',
     confidence: '{percent}% match',
@@ -250,6 +257,7 @@ export const weldbooksUsBanking = {
       bill: 'Record payment and reconcile',
       payment: 'Match payment',
       deposit: 'Match deposit',
+      rule: 'Categorize with this rule',
     },
     reasons: {
       exactAmount: 'Exact amount',
@@ -272,6 +280,7 @@ export const weldbooksUsBanking = {
       datesWithin30Days: 'Dates within 30 days',
       depositTotalMatches: 'Deposit total matches',
       depositDatedWithinWeek: 'Deposit dated within a week',
+      ruleMatches: 'Matches a reconciliation rule',
     },
   },
 
@@ -286,6 +295,11 @@ export const weldbooksUsBanking = {
       manual: 'Manual',
     },
     searchPlaceholder: 'Search description, payee, reference or check number',
+    delete: 'Delete',
+    deleteTitle: 'Delete this transaction?',
+    deleteDescription: 'It is removed from the account and its amount comes off the balance. Only transactions that are not reconciled can be deleted.',
+    deleted: 'Transaction deleted',
+    deleteFailed: 'The transaction could not be deleted.',
   },
 
   reconciliationPage: {

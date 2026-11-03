@@ -173,6 +173,7 @@ function AppStack() {
                   <Stack.Screen name="no-workspace" options={{ animation: 'fade' }} />
                   <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
                   <Stack.Screen name="settings" />
+                  <Stack.Screen name="time" />
                   <Stack.Screen name="project/[projectId]" />
                   <Stack.Screen name="task/[projectId]/[taskId]" />
                   <Stack.Screen name="task/new/[projectId]" />

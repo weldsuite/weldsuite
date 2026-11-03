@@ -417,7 +417,7 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: Readonl
                 }
               />
               <div className="flex items-center gap-2">
-                <input
+                <input aria-label={t.mail.a11y.sendTime}
                   type="time"
                   value={newTime}
                   onChange={(e) => setNewTime(e.target.value)}
@@ -1134,10 +1134,10 @@ function ComposeToRow({ to, autoFocus, onToChange, onMinimize, onExpand }: Reado
   return (
     <div className="flex items-center gap-2 px-3 py-2.5">
       <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
-      <input
+      <input aria-label={t.mail.compose.to}
         ref={inputRef}
         type="text"
-        className="flex-1 text-sm outline-none bg-transparent min-w-0 text-foreground"
+        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent min-w-0 text-foreground"
         value={to}
         onChange={(e) => onToChange(e.target.value)}
       />
@@ -1261,7 +1261,7 @@ function InlineAiBar({
   return (
     <div className={cn("flex items-center gap-2 px-3 py-3", isAgentInline && "border-t border-border/50")}>
       <PenLine className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-      <textarea
+      <textarea aria-label={placeholder}
         ref={inputRef}
         value={prompt}
         onChange={(e) => {
@@ -1277,7 +1277,7 @@ function InlineAiBar({
           if (e.key === 'Escape') onEscape();
         }}
         placeholder={placeholder}
-        className="flex-1 text-sm outline-none bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
+        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
         rows={1}
       />
       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -2225,11 +2225,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         <div className="mx-3 border-t border-border/50" />
         {/* Message body */}
         <div className={cn("px-3 py-2.5", isAutoDraft && !isAgentInline && "mx-3 mt-2.5 rounded-lg border border-purple-200/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-50/50 via-blue-50/30 to-violet-50/40 dark:from-purple-950/20 dark:via-blue-950/10 dark:to-violet-950/15 px-3 py-3")}>
-          <div
+          <div aria-label={placeholder}
             ref={editorRef}
             contentEditable
             data-placeholder={placeholder}
-            className={cn("w-full min-h-36 text-sm outline-none bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px", MAIL_EDITOR_PARAGRAPH_CLASSES)}
+            className={cn("w-full min-h-36 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px", MAIL_EDITOR_PARAGRAPH_CLASSES)}
             suppressContentEditableWarning
           />
         </div>

@@ -24,6 +24,7 @@ import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconn
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
 import { useWeldhrSidebarItems } from '@/app/weldhr/hooks/use-weldhr-sidebar-items';
+import { useWelddeskSidebarItems } from '@/app/welddesk/hooks/use-welddesk-sidebar-items';
 import { useSettingsSidebarItems } from '@/app/settings/hooks/use-settings-sidebar-items';
 import { isRouteOffered } from '@/lib/edition-routes';
 import { resolveAppCode } from '@/lib/apps/app-registry';
@@ -123,6 +124,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
   const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
   const weldbooksItems = useWeldbooksSidebarItems(moduleKey === 'weldbooks');
   const weldhrItems = useWeldhrSidebarItems(moduleKey === 'weldhr');
+  const welddeskItems = useWelddeskSidebarItems(moduleKey === 'welddesk');
   const settingsItems = useSettingsSidebarItems(moduleKey === 'settings');
 
   const config =
@@ -148,7 +150,8 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       menuItems = projectsItems.menuGroups;
       break;
     case 'welddesk':
-      menuItems = staticItems;
+      // The inbox views differ only by `?assignee=`.
+      menuItems = welddeskItems.adjust(staticItems);
       break;
     case 'weldchat':
       menuItems = weldchatItems.menuGroups;

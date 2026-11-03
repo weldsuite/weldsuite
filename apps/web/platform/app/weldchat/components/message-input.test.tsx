@@ -65,7 +65,8 @@ vi.mock('../lib/chat-upload', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/chat-upload')>()),
   uploadChatFile: mocks.upload,
 }));
-vi.mock('./chat-context', () => ({
+vi.mock('./chat-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./chat-context')>()),
   useChatContext: () => ({
     replyTo: mocks.ctx.replyTo,
     setReplyTo: mocks.setReplyTo,
@@ -119,6 +120,7 @@ vi.mock('@/lib/i18n/provider', () => ({
 }));
 
 import { MessageInput } from './message-input';
+import { FOCUS_INPUT_EVENT } from './chat-context';
 
 const CHIP =
   '<span class="mention-badge" contenteditable="false" data-userid="user_2">@Zed</span>';
@@ -538,5 +540,39 @@ describe('MessageInput: images pasted into the text', () => {
     await act(async () => {});
     expect(editor.querySelector('.inline-image')).toBeNull();
     expect(screen.getByText('a.pdf')).toBeTruthy();
+  });
+});
+
+describe('MessageInput: focus requests', () => {
+  function renderBoth() {
+    const channel = render(<MessageInput channelId="ch_1" />);
+    const thread = render(<MessageInput channelId="ch_1" parentId="msg_1" />);
+    return { channelEditor: editorOf(channel.container), threadEditor: editorOf(thread.container) };
+  }
+
+  it('a request for a thread focuses only that thread composer', () => {
+    const { channelEditor, threadEditor } = renderBoth();
+    channelEditor.focus();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(FOCUS_INPUT_EVENT, { detail: { parentId: 'msg_1' } }));
+    });
+
+    expect(document.activeElement).toBe(threadEditor);
+  });
+
+  it('the channel composer keeps a request for the channel; another thread ignores it', () => {
+    const { channelEditor, threadEditor } = renderBoth();
+    threadEditor.focus();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(FOCUS_INPUT_EVENT, { detail: { parentId: 'msg_other' } }));
+    });
+    expect(document.activeElement).toBe(threadEditor);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(FOCUS_INPUT_EVENT, { detail: { parentId: null } }));
+    });
+    expect(document.activeElement).toBe(channelEditor);
   });
 });

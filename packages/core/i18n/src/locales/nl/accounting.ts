@@ -1978,11 +1978,12 @@ export const accounting = {
       autoReconcileAll: 'Alles Automatisch Afstemmen',
       running: 'Bezig...',
       autoReconciledCount: '{count} transacties automatisch afgestemd',
+      autoReconciledOfTotal: '{count} van {total} transacties automatisch afgestemd',
       unreconciledTransactions: 'Niet-afgestemde Transacties ({count})',
       allReconciled: 'Alle transacties afgestemd!',
       matchSuggestions: 'Overeenkomstsuggesties',
       selectTransaction: 'Selecteer een Transactie',
-      clickToSeeSuggestions: 'Klik op een transactie links om overeenkomstsuggesties te zien.',
+      clickToSeeSuggestions: 'Klik op een transactie in de lijst om overeenkomstsuggesties te zien.',
       noMatchesFound: 'Geen automatische overeenkomsten gevonden.',
       categorizeTitle: 'Geen factuur?',
       categorizeHint: 'Voor geld dat geen klantbetaling is — terugbetaalde transactiekosten, settlements, rente — boek naar een grootboekrekening. Maak geen factuur aan PayPal of je bank.',
@@ -2488,6 +2489,7 @@ export const accounting = {
       colTotal: 'Totaal',
       colStatus: 'Status',
       noInvoices: 'Geen facturen gevonden',
+      emptyDescription: 'Maak je eerste factuur om te beginnen',
     },
 
     // Journal entry pages
@@ -2502,6 +2504,8 @@ export const accounting = {
       descriptionPlaceholder: 'Postomschrijving',
       account: 'Rekening',
       selectAccount: 'Selecteer rekening',
+      searchAccount: 'Zoek op nummer of naam',
+      noAccountFound: 'Geen rekening gevonden',
       linePlaceholder: 'Regelomschrijving',
       debit: 'Debet',
       credit: 'Credit',
@@ -2534,12 +2538,14 @@ export const accounting = {
       colDescription: 'Omschrijving',
       colDebit: 'Debet',
       colCredit: 'Credit',
+      colStatus: 'Status',
       noEntries: 'Geen journaalposten gevonden',
     },
 
     // Reports pages
     reports: {
       title: 'Rapporten',
+      rangeReversed: 'De Van-datum ligt na de Tot-datum. Kies een Van-datum op of vóór de Tot-datum.',
       profitLoss: 'Winst & Verlies',
       profitLossDesc: 'Omzet, kosten en nettowinst voor een periode',
       balanceSheet: 'Balans',
@@ -2800,6 +2806,14 @@ export const accounting = {
       icpDeleteFailed: 'Opgaaf ICP verwijderen mislukt',
       icpRecalculated: 'De bestaande opgaaf ICP van deze periode is bijgewerkt: {count} regel(s), totaal {total}',
       invalidPeriod: 'De einddatum van de periode mag niet vóór de begindatum liggen.',
+      periodNotWhole: {
+        monthly: 'Een maandaangifte loopt van de eerste tot de laatste dag van één maand.',
+        quarterly: 'Een kwartaalaangifte loopt van de eerste tot de laatste dag van één kwartaal (jan–mrt, apr–jun, jul–sep of okt–dec).',
+        yearly: 'Een jaaraangifte loopt van 1 januari tot en met 31 december.',
+      },
+      periodYear: 'Jaar',
+      periodMonth: 'Maand',
+      periodQuarter: 'Kwartaal',
       colStatus: 'Status',
       // VAT detail page
       filedSuccess: 'BTW-aangifte succesvol ingediend',
@@ -3369,6 +3383,34 @@ export const accounting = {
     },
 
     // Afsluitdatums + uitzonderingen (entiteit bewerken)
+    numbering: {
+      title: 'Nummering',
+      description:
+        'Hoe facturen, creditnota’s, inkoopfacturen en memoriaalboekingen genummerd worden. Wil je de nummering van je vorige pakket voortzetten, stel dan het volgende nummer in.',
+      types: {
+        invoice: 'Facturen',
+        creditNote: 'Creditnota’s',
+        bill: 'Inkoopfacturen',
+        journal: 'Memoriaalboekingen',
+      },
+      prefix: 'Voorvoegsel',
+      nextNumber: 'Volgend nummer',
+      digits: 'Cijfers',
+      preview: 'Volgend nummer: {number}',
+      gapNote:
+        'Het volgende nummer kan alleen omhoog, zodat geen nummer twee keer gebruikt wordt. Verhoog je het nadat er al documenten genummerd zijn, dan ontstaat er een gat in de reeks.',
+      errors: {
+        prefix: 'Gebruik maximaal 20 letters, cijfers, spaties of . _ / -',
+        nextValue: 'Vul een heel getal van 1 of hoger in.',
+        backwards: 'Het volgende nummer kan alleen omhoog: {number} of hoger.',
+        padding: 'Vul 0 tot 10 cijfers in.',
+      },
+      save: 'Nummering opslaan',
+      saving: 'Opslaan…',
+      saved: 'Nummering bijgewerkt',
+      saveFailed: 'De nummering kon niet worden bijgewerkt',
+      noPermission: 'Je hebt het recht om entiteiten bij te werken nodig om de nummering te wijzigen.',
+    },
     lockDates: {
       title: 'Afsluitdatums',
       description:

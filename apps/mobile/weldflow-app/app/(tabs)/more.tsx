@@ -17,6 +17,7 @@ import {
   LogOut,
   ChevronRight,
   Building2,
+  Clock,
 } from 'lucide-react-native';
 
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -93,6 +94,28 @@ export default function MoreScreen() {
               </Text>
             </View>
           </View>
+        </Card>
+
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+          {t.more.workspace}
+        </Text>
+        <Card style={[styles.card, { borderRadius: 20 }]}>
+          <Pressable
+            onPress={() => open('/time')}
+            accessibilityRole="button"
+            accessibilityLabel={t.time.myTime}
+            style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
+            testID="more-my-time"
+          >
+            <IconTile icon={Clock} color={ACCENTS.tasks} />
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>{t.time.myTime}</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
+                {t.time.myTimeSub}
+              </Text>
+            </View>
+            <ChevronRight size={18} color={colors.mutedForeground} />
+          </Pressable>
         </Card>
 
         <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>

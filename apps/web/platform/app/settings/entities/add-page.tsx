@@ -16,6 +16,7 @@ import { AddressFields } from '@/components/address/address-fields';
 import { cleanPostalAddress, type PostalAddress } from '@/components/address/postal-address';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -103,6 +104,8 @@ export default function AddEntityPage() {
       const created = 'data' in res ? res.data : res;
       if (created?.id) setEntityId(created.id);
       queryClient.invalidateQueries({ queryKey: ['accounting', 'entities'] });
+      // The new entity is seeded with its chart of accounts: tick "Set up chart of accounts" now.
+      invalidateOnboardingChecklist(queryClient);
       navigate({ to: '/settings/entities' });
     },
   });

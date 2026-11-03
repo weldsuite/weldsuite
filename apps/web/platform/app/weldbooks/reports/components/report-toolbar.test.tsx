@@ -58,6 +58,24 @@ describe('ReportToolbar', () => {
     expect(onChange).toHaveBeenCalledWith({ from: '2026-04-01' });
   });
 
+  it('sends the other date along when a change puts From after To, and says what is wrong', () => {
+    const { onChange, rerender } = setup();
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2027-01-15' } });
+    expect(onChange).toHaveBeenCalledWith({ from: '2027-01-15', to: '2026-12-31' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    rerender(
+      <ReportToolbar
+        dates="period"
+        params={{ ...EMPTY_REPORT_PARAMS, from: '2027-01-15', to: '2026-12-31' }}
+        onChange={onChange}
+        defaults={{ from: '2026-01-01', to: '2026-12-31' }}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('The From date is after the To date');
+    expect(screen.getByLabelText('From')).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('shows a single date for a point-in-time report and none when the report has no dates', () => {
     const { rerender } = setup({ dates: 'asOf', defaults: { asOf: '2026-12-31' } });
     expect(screen.getByLabelText('As of')).toHaveValue('2026-12-31');

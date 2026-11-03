@@ -108,12 +108,47 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
   ];
 }
 
+// Whether path segment `i` is an id that adds nothing to the trail.
+function isIdSegment(pathParts: string[], i: number): boolean {
+  // An entity's: Settings > Entities > Edit entity.
+  if (pathParts[1] === 'entities') return i === 2 && pathParts[3] === 'edit';
+  // A chat widget's: Settings > Apps > WeldDesk > Chat widget.
+  return pathParts[2] === 'welddesk' && pathParts[3] === 'chat-widget' && i === 4;
+}
+
+// Label for path segment `i`: the app's own page title, else (under Entities)
+// New/Edit entity, else a translated menu title, else a known module slug with
+// its own internal capitalization, else the raw segment capitalized and
+// spaced out.
+function segmentLabel(
+  pathParts: string[],
+  i: number,
+  menu: BreadcrumbMenuLabels,
+  pageLabels: Record<string, string>,
+): string {
+  const part = pathParts[i];
+  const key = part.toLowerCase();
+  const underEntities = pathParts[1] === 'entities';
+  const entityLabels: Record<string, string> = underEntities ? { add: menu.newEntity, edit: menu.editEntity } : {};
+  return (
+    pageLabels['/' + pathParts.slice(0, i + 1).join('/')] ??
+    entityLabels[key] ??
+    getSegmentLabels(menu)[key] ??
+    BREADCRUMB_LABEL_OVERRIDES[key] ??
+    part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ')
+  );
+}
+
 // Build breadcrumb segments from the current path. The last segment is a leaf
 // (no href); the /settings index page is the profile editor, shown as a leaf.
+// `pageLabels` names an app's own settings pages by path
+// ('/settings/apps/welddesk/email'), where the bare slug would read like a
+// workspace page ("Email").
 export function buildBreadcrumbSegments(
   pathname: string,
   settingsTitle: string,
   menu: BreadcrumbMenuLabels,
+  pageLabels: Record<string, string> = {},
 ): BreadcrumbSegment[] {
   const segments: BreadcrumbSegment[] = [{ label: settingsTitle, href: '/settings' }];
   const pathParts = pathname.split('/').filter(Boolean);
@@ -123,26 +158,12 @@ export function buildBreadcrumbSegments(
     return segments;
   }
 
-  const segmentLabels = getSegmentLabels(menu);
-
   const templateTrail = invoiceTemplateSegments(pathParts, menu);
   if (templateTrail) return [...segments, ...templateTrail];
 
-  const underEntities = pathParts[1] === 'entities';
-
   for (let i = 1; i < pathParts.length; i++) {
-    // An entity's id adds nothing to the trail: Settings > Entities > Edit entity.
-    if (underEntities && i === 2 && pathParts[3] === 'edit') continue;
-    const part = pathParts[i];
-    const key = part.toLowerCase();
-    // Translated menu title, else a known module slug with its own internal
-    // capitalization, else capitalize and space out the raw segment.
-    const label =
-      (underEntities && key === 'add' ? menu.newEntity : undefined) ??
-      (underEntities && key === 'edit' ? menu.editEntity : undefined) ??
-      segmentLabels[key] ??
-      BREADCRUMB_LABEL_OVERRIDES[key] ??
-      part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+    if (isIdSegment(pathParts, i)) continue;
+    const label = segmentLabel(pathParts, i, menu, pageLabels);
     if (i === pathParts.length - 1) {
       segments.push({ label });
     } else {

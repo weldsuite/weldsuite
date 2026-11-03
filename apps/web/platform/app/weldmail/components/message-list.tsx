@@ -1135,23 +1135,23 @@ export function MessageList({
         <div className="space-y-3">
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterFromLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterFromLabel} onKeyDown={applyOnEnter} value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterToLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterToLabel} onKeyDown={applyOnEnter} value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterSubjectLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterSubjectLabel} onKeyDown={applyOnEnter} value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterHasWords}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterHasWords} onKeyDown={applyOnEnter} value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterDoesntHave}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterDoesntHave} onKeyDown={applyOnEnter} value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
           </div>
 
           {/* Size */}
@@ -1165,7 +1165,7 @@ export function MessageList({
                   <SelectItem value="lt">{t.mail.messageList.filterSizeLess}</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
+              <Input aria-label={t.mail.messageList.filterSize}
                 onKeyDown={applyOnEnter}
                 type="number"
                 min={0}

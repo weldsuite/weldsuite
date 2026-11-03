@@ -1,6 +1,7 @@
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { useUiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 
 export type PresenceStatus = 'online' | 'busy' | 'away' | 'dnd' | 'offline';
 
@@ -32,16 +33,27 @@ export interface StatusDotProps {
   status?: string;
   size?: 'sm' | 'md' | 'lg';
   showTooltip?: boolean;
+  /** Hide the dot from screen readers when the status is already written out next to it. */
+  decorative?: boolean;
   className?: string;
 }
 
-export function StatusDot({ status, size = 'md', showTooltip = false, className }: Readonly<StatusDotProps>) {
+export function StatusDot({
+  status,
+  size = 'md',
+  showTooltip = false,
+  decorative = false,
+  className,
+}: Readonly<StatusDotProps>) {
+  const { presence } = useUiLabels();
   const resolved = (status as PresenceStatus) || 'offline';
   const color = STATUS_COLORS[resolved] || STATUS_COLORS.offline;
-  const label = STATUS_LABELS[resolved] || STATUS_LABELS.offline;
+  const label = presence[resolved] || presence.offline;
 
+  // The colour alone carries the status, so it gets a name of its own.
   const dot = (
     <span
+      {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label })}
       className={cn('block rounded-full border-background', color, SIZE_CLASSES[size], className)}
     />
   );

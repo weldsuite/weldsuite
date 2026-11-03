@@ -327,7 +327,7 @@ export function Composer({
               ) : (
                 <CommandEmpty>
                   <span className="block">{t.composer.savedRepliesEmpty}</span>
-                  <Link href="/welddesk/settings/saved-replies" className="mt-1 inline-block text-xs text-primary underline-offset-2 hover:underline">
+                  <Link href="/welddesk/saved-replies" className="mt-1 inline-block text-xs text-primary underline-offset-2 hover:underline">
                     {t.composer.savedRepliesManage}
                   </Link>
                 </CommandEmpty>

@@ -73,6 +73,7 @@ import { appApi, appApiClient } from '@/services/app-api';
 import {
   detectMentionQuery,
   insertMention,
+  fileTokenIds,
   isAgentId,
   mentionsToPlainText,
 } from '@/lib/chat/mentions';
@@ -657,9 +658,10 @@ function replyQuoteText(
   membersMap: Map<string, string>,
   labels: { attachment: string; originalMessage: string },
 ): string {
-  if (replyRef.content) {
-    return mentionsToPlainText(replyRef.content, membersMap).replaceAll(/\s+/g, ' ');
-  }
+  const text = replyRef.content
+    ? mentionsToPlainText(replyRef.content, membersMap).replaceAll(/\s+/g, ' ').trim()
+    : '';
+  if (text) return text;
   return replyRef.hasAttachments ? labels.attachment : labels.originalMessage;
 }
 
@@ -797,13 +799,24 @@ function MessageExtras({
 }>) {
   const { t } = useI18n();
   const { reactions, attachments } = item;
+  // Attachments placed in the text (`<@file:…>`, pasted on the web) show
+  // there, not again in the gallery below.
+  const inlineIds = new Set(item.content ? fileTokenIds(item.content) : []);
+  const gallery = (attachments ?? []).filter((att) => !inlineIds.has(att.id));
   return (
     <>
-      {item.content ? renderMessageText(item.content, membersMap, colors) : null}
+      {item.content
+        ? renderMessageText(item.content, membersMap, colors, {
+            attachments: attachments ?? [],
+            render: (att) => (
+              <AttachmentItem att={att} colors={colors} styles={styles} onOpenImage={onOpenImage} />
+            ),
+          })
+        : null}
       {item.editedAt ? <Text style={styles.editedLabel}>{t.channel.edited}</Text> : null}
-      {attachments && attachments.length > 0 && (
+      {gallery.length > 0 && (
         <MessageAttachments
-          attachments={attachments}
+          attachments={gallery}
           colors={colors}
           styles={styles}
           onOpenImage={onOpenImage}

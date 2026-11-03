@@ -416,6 +416,10 @@ export const weldpass = {
       nameRequired: 'Vul een naam in.',
       description: 'Beschrijving',
       descriptionPlaceholder: 'Optioneel',
+      accessTitle: 'Wie heeft toegang',
+      accessOnlyYou:
+        'Alleen jij, als beheerder. Voeg teamgenoten nu toe of later in de kluisinstellingen.',
+      accessYou: 'Jij',
     },
 
     settings: {

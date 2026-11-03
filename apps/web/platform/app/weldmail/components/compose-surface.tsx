@@ -708,7 +708,7 @@ export function ComposeSurface({
                 type="text"
                 aria-label={t.mail.compose.subject}
                 placeholder={t.mail.floatingCompose.subjectPlaceholder}
-                className="flex-1 min-w-0 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground placeholder:text-muted-foreground"
                 value={subject}
                 onChange={(e) => onSubjectChange(e.target.value)}
               />
@@ -743,7 +743,7 @@ export function ComposeSurface({
               data-testid={`${testIdPrefix}-body`}
               data-placeholder={t.mail.floatingCompose.writePlaceholder}
               className={cn(
-                "w-full min-h-[150px] px-4 text-sm outline-none bg-transparent text-foreground [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1",
+                "w-full min-h-[150px] px-4 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1",
                 MAIL_EDITOR_PARAGRAPH_CLASSES,
                 isAiGenerating && "opacity-0"
               )}
@@ -789,7 +789,7 @@ export function ComposeSurface({
                             <div className="text-muted-foreground text-xs font-medium">{fileExtension}</div>
                           )}
                         </div>
-                        <Button
+                        <Button aria-label={t.mail.a11y.removeAttachment}
                           variant="ghost"
                           size="icon"
                           onClick={() => onAttachedFilesChange((prev) => prev.filter((_, i) => i !== index))}
@@ -833,7 +833,7 @@ export function ComposeSurface({
         {aiAvailable && showAiInput && (
           <div className="px-3 pt-2">
             <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 pl-3 pr-1 py-1">
-              <input
+              <input aria-label={t.mail.floatingCompose.aiPlaceholder}
                 ref={aiInputRef}
                 type="text"
                 value={aiPrompt}
@@ -848,9 +848,9 @@ export function ComposeSurface({
                   }
                 }}
                 placeholder={t.mail.floatingCompose.aiPlaceholder}
-                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-foreground placeholder:text-gray-400 dark:placeholder:text-muted-foreground outline-none"
+                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-foreground placeholder:text-gray-400 dark:placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50"
               />
-              <Button
+              <Button aria-label={t.mail.a11y.generateDraft}
                 variant="ghost"
                 size="icon"
                 type="button"
@@ -885,7 +885,7 @@ export function ComposeSurface({
               <div className="w-px h-4 bg-border" />
               {/* Font Size */}
               <Select value={fontSize} onValueChange={(value) => { setFontSize(value); focusEditor(); }}>
-                <SelectTrigger className="h-7 data-[size=default]:h-7 w-[56px] text-[13.5px] text-muted-foreground bg-transparent dark:bg-transparent border-0 shadow-none hover:bg-muted px-2 rounded-md focus:ring-0 focus:ring-offset-0 focus:outline-none">
+                <SelectTrigger aria-label={t.mail.a11y.fontSize} className="h-7 data-[size=default]:h-7 w-[56px] text-[13.5px] text-muted-foreground bg-transparent dark:bg-transparent border-0 shadow-none hover:bg-muted px-2 rounded-md focus:outline-none">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

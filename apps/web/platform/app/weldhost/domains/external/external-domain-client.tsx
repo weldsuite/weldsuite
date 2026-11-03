@@ -32,6 +32,7 @@ import {
   useImportDnsRecords,
   type ScannedDnsRecord,
 } from '@/hooks/queries/use-host-queries';
+import { externalDomainProblem } from '@weldsuite/core-api-client/schemas/domains';
 
 type Step = 'enter' | 'verify' | 'import' | 'nameservers';
 
@@ -39,6 +40,17 @@ interface VerificationRecord {
   name: string;
   type: 'TXT';
   value: string;
+}
+
+const countText = (count: number, singular: string, plural: string) =>
+  count === 1 ? singular : plural.replace('{count}', String(count));
+
+// A copy of `set` with `key` added, or removed if it was there.
+function toggleInSet(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
 }
 
 interface CopyRowProps {
@@ -64,12 +76,155 @@ function CopyRow({ label, value }: CopyRowProps) {
     <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/30 gap-3">
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">{label}</span>
-        <code className="font-mono text-sm font-medium truncate">{value}</code>
+        <code className="font-mono text-sm font-medium break-all">{value}</code>
       </div>
       <Button type="button" variant="ghost" size="sm" onClick={handleCopy}>
         {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
       </Button>
     </div>
+  );
+}
+
+interface EnterDomainStepProps {
+  domainName: string;
+  onDomainNameChange: (value: string) => void;
+  registrar: string;
+  onRegistrarChange: (value: string) => void;
+  onReserve: () => void;
+  isPending: boolean;
+}
+
+// Step 1: the domain and registrar form. The domain is checked here, so a bad
+// value never reaches the API.
+function EnterDomainStep({
+  domainName,
+  onDomainNameChange,
+  registrar,
+  onRegistrarChange,
+  onReserve,
+  isPending,
+}: EnterDomainStepProps) {
+  const { t } = useI18n();
+  const tx = t.host.externalDomain;
+  // Shown under the domain field once the user tried to continue with a bad value.
+  const [showDomainError, setShowDomainError] = useState(false);
+
+  const domainProblem = domainName.trim() ? externalDomainProblem(domainName) : null;
+  let domainError: string | null = null;
+  if (domainProblem === 'invalid') domainError = tx.errorInvalidDomain;
+  else if (domainProblem === 'reserved') domainError = tx.errorReservedTld;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!domainName.trim()) {
+      toast.error(tx.errorEnterDomain);
+      return;
+    }
+    if (domainError) {
+      setShowDomainError(true);
+      document.getElementById('domain')?.focus();
+      return;
+    }
+    onReserve();
+  };
+
+  const sections: HostFormSection[] = [
+    {
+      title: tx.sectionDomainInfo,
+      icon: Globe,
+      content: (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="domain" className="flex items-center gap-1.5">
+              {tx.domainNameLabel}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{tx.domainNameTooltip}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </Label>
+            <div className="relative mt-2">
+              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+              <Input
+                id="domain"
+                name="domain"
+                placeholder={tx.domainPlaceholder}
+                className="pl-10"
+                value={domainName}
+                onChange={(e) => onDomainNameChange(e.target.value)}
+                onBlur={() => setShowDomainError(Boolean(domainError))}
+                aria-invalid={showDomainError && Boolean(domainError)}
+                aria-describedby={showDomainError && domainError ? 'domain-error' : undefined}
+                required
+              />
+            </div>
+            {showDomainError && domainError && (
+              <p id="domain-error" role="alert" className="mt-1.5 text-sm text-destructive">
+                {domainError}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="registrar" className="flex items-center gap-1.5">
+              {tx.registrarLabel}
+            </Label>
+            <div className="mt-2">
+              <Input
+                id="registrar"
+                name="registrar"
+                placeholder={tx.registrarPlaceholder}
+                value={registrar}
+                onChange={(e) => onRegistrarChange(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <Alert>
+            <Shield className="h-4 w-4" />
+            <AlertTitle>{tx.ownershipAlertTitle}</AlertTitle>
+            <AlertDescription>{tx.ownershipAlertDescription}</AlertDescription>
+          </Alert>
+        </div>
+      ),
+    },
+  ];
+
+  let domainSummary: React.ReactNode = domainName.trim().toLowerCase();
+  if (!domainName.trim()) {
+    domainSummary = <span className="text-muted-foreground">{tx.notEntered}</span>;
+  } else if (domainProblem) {
+    domainSummary = <span className="text-muted-foreground">{tx.invalidDomain}</span>;
+  }
+
+  const summaryFields: HostSummaryField[] = [
+    { label: tx.stepLabel, value: tx.step1 },
+    { label: tx.domainLabel, value: domainSummary },
+    {
+      label: tx.registrarSummaryLabel,
+      value: registrar || <span className="text-muted-foreground">{tx.notSpecified}</span>,
+    },
+  ];
+
+  return (
+    <HostEntityFormLayout
+      title={tx.title}
+      subtitle={tx.subtitle}
+      sections={sections}
+      summaryTitle={tx.summarySetupTitle}
+      summaryIcon={ExternalLink}
+      summaryFields={summaryFields}
+      onSubmit={handleSubmit}
+      isPending={isPending}
+      submitText={tx.continue}
+      submitVariant="default"
+      showBackButton={false}
+    />
   );
 }
 
@@ -99,9 +254,6 @@ export function ExternalDomainClient() {
   const scanDnsRecords = useScanDnsRecords();
   const importDnsRecords = useImportDnsRecords();
 
-  const countText = (count: number, singular: string, plural: string) =>
-    count === 1 ? singular : plural.replace('{count}', String(count));
-
   // Stable key per record so we can track selection.
   const recordKey = (r: ScannedDnsRecord) =>
     `${r.type}|${r.name}|${r.value}|${r.priority ?? ''}`;
@@ -124,12 +276,8 @@ export function ExternalDomainClient() {
     );
   }, [step, domainId, scannedRecords, scanDnsRecords, tx.errorScanFailed]);
 
-  const handleReserve = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!domainName.trim()) {
-      toast.error(tx.errorEnterDomain);
-      return;
-    }
+  // Called by the enter step once the domain is valid.
+  const handleReserve = async () => {
     try {
       const res = await addExternalDomain.mutateAsync({
         domain: domainName.trim().toLowerCase(),
@@ -156,12 +304,7 @@ export function ExternalDomainClient() {
   };
 
   const toggleRecord = (key: string) => {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    setSelectedKeys((prev) => toggleInSet(prev, key));
   };
 
   const toggleAll = () => {
@@ -216,94 +359,17 @@ export function ExternalDomainClient() {
 
   // ---- Step 1: Enter domain ---------------------------------------------
   if (step === 'enter') {
-    const sections: HostFormSection[] = [
-      {
-        title: tx.sectionDomainInfo,
-        icon: Globe,
-        content: (
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="domain" className="flex items-center gap-1.5">
-                {tx.domainNameLabel}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{tx.domainNameTooltip}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </Label>
-              <div className="relative mt-2">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  id="domain"
-                  name="domain"
-                  placeholder={tx.domainPlaceholder}
-                  className="pl-10"
-                  value={domainName}
-                  onChange={(e) => setDomainName(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="registrar" className="flex items-center gap-1.5">
-                {tx.registrarLabel}
-              </Label>
-              <div className="mt-2">
-                <Input
-                  id="registrar"
-                  name="registrar"
-                  placeholder={tx.registrarPlaceholder}
-                  value={registrar}
-                  onChange={(e) => setRegistrar(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <Alert>
-              <Shield className="h-4 w-4" />
-              <AlertTitle>{tx.ownershipAlertTitle}</AlertTitle>
-              <AlertDescription>{tx.ownershipAlertDescription}</AlertDescription>
-            </Alert>
-          </div>
-        ),
-      },
-    ];
-
-    const summaryFields: HostSummaryField[] = [
-      { label: tx.stepLabel, value: tx.step1 },
-      {
-        label: tx.domainLabel,
-        value: domainName || <span className="text-muted-foreground">{tx.notEntered}</span>,
-      },
-      {
-        label: tx.registrarSummaryLabel,
-        value: registrar || <span className="text-muted-foreground">{tx.notSpecified}</span>,
-      },
-    ];
-
     return (
-      <HostEntityFormLayout
-        title={tx.title}
-        subtitle={tx.subtitle}
-        sections={sections}
-        summaryTitle={tx.summarySetupTitle}
-        summaryIcon={ExternalLink}
-        summaryFields={summaryFields}
-        onSubmit={handleReserve}
+      <EnterDomainStep
+        domainName={domainName}
+        onDomainNameChange={setDomainName}
+        registrar={registrar}
+        onRegistrarChange={setRegistrar}
+        onReserve={handleReserve}
         isPending={addExternalDomain.isPending}
-        submitText={tx.continue}
-        submitVariant="default"
-        showBackButton={false}
       />
     );
   }
-
   // ---- Step 2: Verify ownership -----------------------------------------
   if (step === 'verify' && verificationRecord) {
     const sections: HostFormSection[] = [
@@ -475,16 +541,20 @@ export function ExternalDomainClient() {
       },
     ];
 
-    const importingLabel = importDnsRecords.isPending ? (
-      <>
-        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-        {tx.importing}
-      </>
-    ) : noneSelected ? (
-      tx.skipAndContinue
-    ) : (
-      countText(selectedKeys.size, tx.importButtonSingular, tx.importButtonPlural)
+    let importingLabel: React.ReactNode = countText(
+      selectedKeys.size,
+      tx.importButtonSingular,
+      tx.importButtonPlural,
     );
+    if (noneSelected) importingLabel = tx.skipAndContinue;
+    if (importDnsRecords.isPending) {
+      importingLabel = (
+        <>
+          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          {tx.importing}
+        </>
+      );
+    }
 
     const summaryContent = (
       <div className="pt-4 border-t">

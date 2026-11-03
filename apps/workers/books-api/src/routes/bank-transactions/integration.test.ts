@@ -387,3 +387,225 @@ describe('/api/bank-transactions · pglite integration', () => {
     expect(res.status).toBe(403);
   });
 });
+
+const CSV_STATEMENT = [
+  'Datum;Omschrijving;Bedrag',
+  '01-10-2026;Factuur 2026-77;-1.234,56',
+  '02-10-2026;Betaling ord 5;99,95',
+].join('\n');
+
+const CSV_FORMAT = {
+  dateFormat: 'DMY',
+  decimalSeparator: ',',
+  thousandsSeparator: '.',
+  negativeStyle: 'minus',
+  columns: { date: 'Datum', description: 'Omschrijving', amount: 'Bedrag' },
+  hasHeader: true,
+  skipRows: 0,
+  delimiter: ';',
+} as const;
+
+function bankApp(...perms: string[]) {
+  return createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+    context: { permissions: permissions(...perms), tenantDb: db },
+  });
+}
+
+async function importCsv(bankAccountId: string) {
+  const { request } = bankApp('banking:create');
+  const res = await request('/api/bank-transactions/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bankAccountId, content: CSV_STATEMENT, fileName: 'ing.csv', format: 'csv', csvFormat: CSV_FORMAT }),
+  });
+  expect(res.status).toBe(201);
+  return ((await res.json()) as { data: { batchId: string; imported: number; duplicates: number } }).data;
+}
+
+async function balanceOf(bankAccountId: string) {
+  const [account] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankAccountId)).limit(1);
+  return account?.currentBalance;
+}
+
+async function liveLines(bankAccountId: string) {
+  const rows = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.bankAccountId, bankAccountId));
+  return rows.filter((row) => row.deletedAt === null);
+}
+
+describe('/api/bank-transactions import, delete and undo · pglite integration', () => {
+  it('POST /import adds a CSV statement to the balance and skips it the second time', async () => {
+    await seedBankAccount('ba_import_twice', '-949.50');
+
+    const first = await importCsv('ba_import_twice');
+    expect(first).toMatchObject({ imported: 2, duplicates: 0 });
+    expect(await balanceOf('ba_import_twice')).toBe('-2084.11');
+
+    const second = await importCsv('ba_import_twice');
+    expect(second).toMatchObject({ imported: 0, duplicates: 2 });
+    expect(await balanceOf('ba_import_twice')).toBe('-2084.11');
+    expect(await liveLines('ba_import_twice')).toHaveLength(2);
+  });
+
+  it('DELETE /import-batches/:batchId removes the unbooked lines and restores the balance', async () => {
+    await seedBankAccount('ba_undo', '100.00');
+    const { batchId } = await importCsv('ba_undo');
+    const [reconciled] = await liveLines('ba_undo');
+    await db.update(schema.bankTransactions).set({ status: 'reconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+
+    const { request } = bankApp('banking:delete');
+    const res = await request(`/api/bank-transactions/import-batches/${batchId}`, { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: unknown }).data).toEqual({ batchId, deleted: 1, kept: 1 });
+
+    const left = await liveLines('ba_undo');
+    expect(left.map((l) => l.id)).toEqual([reconciled!.id]);
+    // The reconciled line stays in the balance; the removed one comes out.
+    expect(await balanceOf('ba_undo')).toBe((100 + Number(reconciled!.amount)).toFixed(2));
+    const [batch] = await db.select().from(schema.bankImportBatches).where(eq(schema.bankImportBatches.id, batchId)).limit(1);
+    expect(batch?.status).toBe('partly_undone');
+
+    // After an undo the same file imports again.
+    await db.update(schema.bankTransactions).set({ status: 'unreconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+    expect(await importCsv('ba_undo')).toMatchObject({ imported: 1, duplicates: 1 });
+  });
+
+  it('DELETE /:id removes an unreconciled line and takes it out of the balance', async () => {
+    await seedBankAccount('ba_delete_one', '0.00');
+    await importCsv('ba_delete_one');
+    const line = (await liveLines('ba_delete_one')).find((l) => l.amount === '99.95')!;
+
+    const { request } = bankApp('banking:delete');
+    const res = await request(`/api/bank-transactions/${line.id}`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
+    expect((await liveLines('ba_delete_one')).map((l) => l.amount)).toEqual(['-1234.56']);
+    expect(await balanceOf('ba_delete_one')).toBe('-1234.56');
+
+    const again = await request(`/api/bank-transactions/${line.id}`, { method: 'DELETE' });
+    expect(again.status).toBe(404);
+  });
+
+  it('DELETE /:id refuses reconciled and bank feed lines', async () => {
+    await seedBankAccount('ba_delete_blocked', '0.00');
+    await importCsv('ba_delete_blocked');
+    const [reconciled, feed] = await liveLines('ba_delete_blocked');
+    await db.update(schema.bankTransactions).set({ status: 'reconciled' }).where(eq(schema.bankTransactions.id, reconciled!.id));
+    await db.update(schema.bankTransactions).set({ source: 'feed' }).where(eq(schema.bankTransactions.id, feed!.id));
+
+    const { request } = bankApp('banking:delete');
+    expect((await request(`/api/bank-transactions/${reconciled!.id}`, { method: 'DELETE' })).status).toBe(409);
+    expect((await request(`/api/bank-transactions/${feed!.id}`, { method: 'DELETE' })).status).toBe(409);
+    expect(await liveLines('ba_delete_blocked')).toHaveLength(2);
+  });
+
+  it('DELETE /:id returns 403 without banking:delete', async () => {
+    const { request } = bankApp('banking:update');
+    const res = await request('/api/bank-transactions/bt_whatever', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('/api/bank-transactions reconciliation rules · pglite integration', () => {
+  async function seedRuleEntity(entityId: string, bankAccountId: string) {
+    await db.insert(schema.entities).values({ id: entityId, name: entityId, jurisdictionCode: 'NL', baseCurrency: 'EUR', locale: 'nl-NL' });
+    await db.insert(schema.accounts).values([
+      { id: `${entityId}_bank`, entityId, code: '1100', name: 'Bank', type: 'asset', subtype: 'bank', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },
+      { id: `${entityId}_rent`, entityId, code: '4210', name: 'Huur', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', currentBalance: '0', createdAt: new Date(), updatedAt: new Date() },
+    ]);
+    await db.insert(schema.bankAccounts).values({
+      id: bankAccountId, entityId, name: 'E2E Bank', currency: 'EUR', currentBalance: '0.00',
+      ledgerAccountId: `${entityId}_bank`, createdAt: new Date(), updatedAt: new Date(),
+    });
+    await db.insert(schema.reconciliationRules).values({
+      id: `${entityId}_rule`, entityId, name: 'E2E rent rule', isActive: true, matchMode: 'all',
+      conditions: [{ field: 'description', operator: 'contains', value: 'huur' }],
+      actions: { categoryAccountId: `${entityId}_rent` }, matchCount: 0,
+    });
+    await db.insert(schema.bankTransactions).values([
+      { id: `${entityId}_rent_line`, entityId, bankAccountId, date: new Date('2026-10-08'), amount: '-1200.00', description: 'Huur kantoor oktober', status: 'unreconciled', createdAt: new Date(), updatedAt: new Date() },
+      { id: `${entityId}_other_line`, entityId, bankAccountId, date: new Date('2026-10-08'), amount: '-30.00', description: 'Koffie', status: 'unreconciled', createdAt: new Date(), updatedAt: new Date() },
+    ]);
+  }
+
+  it('GET /:id/suggestions offers the matching rule with its category account', async () => {
+    await seedRuleEntity('ent_rule_suggest', 'ba_rule_suggest');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:read'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_suggest_rent_line/suggestions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ type: string; id: string; number: string; categoryAccountId?: string }> };
+    expect(body.data).toContainEqual(
+      expect.objectContaining({ type: 'rule', id: 'ent_rule_suggest_rule', number: 'E2E rent rule', categoryAccountId: 'ent_rule_suggest_rent' }),
+    );
+
+    const other = await request('/api/bank-transactions/ent_rule_suggest_other_line/suggestions');
+    const otherBody = (await other.json()) as { data: Array<{ type: string }> };
+    expect(otherBody.data.some((s) => s.type === 'rule')).toBe(false);
+  });
+
+  it('POST /auto-reconcile categorizes a line a rule matches and counts the match', async () => {
+    await seedRuleEntity('ent_rule_auto', 'ba_rule_auto');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/auto-reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bankAccountId: 'ba_rule_auto' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { reconciledCount: number } };
+    expect(body.data.reconciledCount).toBe(1);
+
+    const [rent] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_auto_rent_line')).limit(1);
+    expect(rent?.status).toBe('reconciled');
+    expect(rent?.reconciliationType).toBe('auto');
+    expect(rent?.categoryAccountId).toBe('ent_rule_auto_rent');
+    const lines = await db.select().from(schema.journalLines).where(eq(schema.journalLines.journalEntryId, rent!.journalEntryId!));
+    const byAccount = Object.fromEntries(lines.map((l) => [l.accountId, l]));
+    expect(byAccount.ent_rule_auto_rent?.debit).toBe('1200.00');
+    expect(byAccount.ent_rule_auto_bank?.credit).toBe('1200.00');
+
+    const [other] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_auto_other_line')).limit(1);
+    expect(other?.status).toBe('unreconciled');
+
+    const [rule] = await db.select().from(schema.reconciliationRules).where(eq(schema.reconciliationRules.id, 'ent_rule_auto_rule')).limit(1);
+    expect(rule?.matchCount).toBe(1);
+    expect(rule?.lastMatchedAt).toBeInstanceOf(Date);
+  });
+
+  it('POST /:id/reconcile with a ruleId posts to the rule\'s account and counts the match', async () => {
+    await seedRuleEntity('ent_rule_pick', 'ba_rule_pick');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_pick_rent_line/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual', ruleId: 'ent_rule_pick_rule' }),
+    });
+    expect(res.status).toBe(200);
+
+    const [rent] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_pick_rent_line')).limit(1);
+    expect(rent?.status).toBe('reconciled');
+    expect(rent?.categoryAccountId).toBe('ent_rule_pick_rent');
+    const [rule] = await db.select().from(schema.reconciliationRules).where(eq(schema.reconciliationRules.id, 'ent_rule_pick_rule')).limit(1);
+    expect(rule?.matchCount).toBe(1);
+  });
+
+  it('POST /:id/reconcile refuses a rule of another entity', async () => {
+    await seedRuleEntity('ent_rule_own', 'ba_rule_own');
+    await seedRuleEntity('ent_rule_foreign', 'ba_rule_foreign');
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:update'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions/ent_rule_own_rent_line/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'manual', ruleId: 'ent_rule_foreign_rule' }),
+    });
+    expect(res.status).toBe(404);
+    const [line] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'ent_rule_own_rent_line')).limit(1);
+    expect(line?.status).toBe('unreconciled');
+  });
+});

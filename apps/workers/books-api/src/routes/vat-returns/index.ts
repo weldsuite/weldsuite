@@ -22,14 +22,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { VatRubrieken } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { getJurisdictionFeatures } from '@weldsuite/books-domain/jurisdictions/registry';
 import { fileTaxPeriodStatements, nlRubriekenForPeriod } from '../../services/accounting-tax-ledger';
@@ -37,11 +37,44 @@ import { resolveEntityId } from '../../lib/entity-context';
 import { isKorActive, writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { generateVatXml } from '@weldsuite/books-domain/accounting-vat-xml';
 import { normalizeVatRubrieken, recomputeRubriekTotals } from '@weldsuite/books-domain/jurisdictions/nl';
-import { isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
+import {
+  formatPeriod,
+  isSamePeriod,
+  isUnfiledReturn,
+  parseReturnPeriod,
+  type ParsedPeriod,
+  type ReturnPeriodType,
+} from '../../services/accounting-return-periods';
 import { submitFiling, checkFilingStatus, createConfig } from '../../services/accounting-digipoort';
 import { GstReturnError, loadGstWorksheet } from '../../services/accounting-gst-return';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * The period of a new return: one whole month, quarter or year, and no overlap with another return of the entity
+ * (a month already covered by a quarterly or yearly return is not declared twice). Recalculating the same period is fine.
+ */
+async function resolveNewPeriod(
+  db: Database,
+  entityId: string,
+  data: { periodStart: string; periodEnd: string; periodType: ReturnPeriodType },
+): Promise<ParsedPeriod> {
+  const period = parseReturnPeriod(data.periodStart, data.periodEnd, data.periodType);
+  if (!period.ok) return period;
+  const overlapping = await db
+    .select({ periodStart: schema.vatReturns.periodStart, periodEnd: schema.vatReturns.periodEnd })
+    .from(schema.vatReturns)
+    .where(and(
+      eq(schema.vatReturns.entityId, entityId),
+      lte(schema.vatReturns.periodStart, period.end),
+      gte(schema.vatReturns.periodEnd, period.start),
+      isNull(schema.vatReturns.correctionOfId),
+      isNull(schema.vatReturns.deletedAt),
+    ));
+  const clash = overlapping.find((r) => !isSamePeriod({ start: r.periodStart, end: r.periodEnd }, period));
+  if (!clash) return period;
+  return { ok: false, error: `This period overlaps the BTW-aangifte of ${formatPeriod(clash.periodStart, clash.periodEnd)}.` };
+}
 
 /** A stored return with its rubrieken in the current layout (returns stored before the official numbering are converted). */
 function withNormalizedRubrieken<T extends { rubrieken: unknown }>(row: T): T {
@@ -145,7 +178,7 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       );
     }
 
-    const period = parseReturnPeriod(data.periodStart, data.periodEnd);
+    const period = await resolveNewPeriod(db, entityId, data);
     if (!period.ok) return error.badRequest(c, period.error);
     const { start: periodStart, end: periodEnd } = period;
 

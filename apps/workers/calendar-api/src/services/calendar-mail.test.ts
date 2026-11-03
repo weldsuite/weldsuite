@@ -100,13 +100,13 @@ describe('sendCalendarEventEmails', () => {
     >;
   }
 
-  it('invite: mails every attendee but the organizer, with the calendar.event template and a REQUEST ics', async () => {
+  it('invite: mails every attendee with the calendar.event template and a REQUEST ics', async () => {
     await sendCalendarEventEmails(env, {
       outbound,
       kind: 'invite',
       organizer,
       event,
-      attendees: [{ email: 'guest@example.com' }, { email: 'gert@acme.com' }],
+      attendees: [{ email: 'guest@example.com' }],
     });
 
     const sent = calls();
@@ -223,6 +223,42 @@ describe('sendCalendarEventEmails', () => {
     expect(ics).not.toContain(MEETING_URL);
   });
 
+  it('an organizer on their own guest list gets a copy with a PUBLISH ics (no RSVP to themselves)', async () => {
+    await sendCalendarEventEmails(env, {
+      outbound,
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [{ email: 'guest@example.com' }, { email: 'Gert@Acme.com' }],
+      memberEmails: new Map([['gert@acme.com', {}]]),
+    });
+
+    const sent = calls();
+    expect(sent.map(([, o]) => o.to)).toEqual(['guest@example.com', 'Gert@Acme.com']);
+    const guestIcs = unfold(sent[0][1].attachments[0].content);
+    expect(guestIcs).toContain('METHOD:REQUEST');
+    expect(guestIcs).toContain('ATTENDEE;');
+    const ownIcs = unfold(sent[1][1].attachments[0].content);
+    expect(ownIcs).toContain('METHOD:PUBLISH');
+    expect(ownIcs).toContain('ORGANIZER;CN="Gert":mailto:gert@acme.com');
+    expect(ownIcs).not.toContain('ATTENDEE');
+    expect(ownIcs).toContain(`UID:${event.id}@weldsuite.org`);
+    expect(sent[1][1].props.eventUrl).toBe(APP_LINK);
+  });
+
+  it("the organizer's own copy of a cancellation stays a CANCEL", async () => {
+    await sendCalendarEventEmails(env, {
+      outbound,
+      kind: 'cancel',
+      organizer,
+      event,
+      attendees: [{ email: 'gert@acme.com' }],
+    });
+    const ics = calls()[0][1].attachments[0].content;
+    expect(ics).toContain('METHOD:CANCEL');
+    expect(ics).toContain('STATUS:CANCELLED');
+  });
+
   it('removed: its own kind, still a CANCEL ics that supersedes earlier revisions', async () => {
     await sendCalendarEventEmails(env, {
       outbound,
@@ -282,13 +318,13 @@ describe('sendCalendarEventEmails', () => {
     expect(sendSystemEmailMock).not.toHaveBeenCalled();
   });
 
-  it('skips the organizer and blank addresses', async () => {
+  it('skips blank addresses', async () => {
     await sendCalendarEventEmails(env, {
       outbound,
       kind: 'invite',
       organizer,
       event,
-      attendees: [{ email: 'gert@acme.com' }, { email: '' }, { email: undefined }],
+      attendees: [{ email: '' }, { email: undefined }],
     });
     expect(sendSystemEmailMock).not.toHaveBeenCalled();
   });
@@ -343,13 +379,13 @@ describe('the outbound guard', () => {
       source: 'calendar',
       kind: 'new_thread',
       systemSender: true,
-      // The organizer's own address and the blank one are not mailed, so not counted.
-      to: ['a@example.com', 'B@Example.com'],
+      // The blank address is not mailed, so not counted; the organizer's own copy is.
+      to: ['a@example.com', 'B@Example.com', 'gert@acme.com'],
       subjectLine: 'Planning',
       text: 'Agenda in the doc',
       recipientNames: ['Anna'],
     });
-    expect(sendSystemEmailMock).toHaveBeenCalledTimes(2);
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(3);
   });
 
   it('counts every kind of calendar mail, a cancellation too', async () => {
@@ -459,7 +495,7 @@ describe('the outbound guard', () => {
       kind: 'invite',
       organizer,
       event,
-      attendees: [guest('gert@acme.com'), guest('')],
+      attendees: [guest('')],
       outbound,
     });
     expect(checkOutboundMock).not.toHaveBeenCalled();
