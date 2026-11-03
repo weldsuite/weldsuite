@@ -174,7 +174,8 @@ pub(crate) async fn create_vault(
             )
             .await;
             for (user, role) in &initial {
-                vaults::add_vault_member(&caller.db, &vault.id, user, role, &caller.user_id).await?;
+                vaults::add_vault_member(&caller.db, &vault.id, user, role, &caller.user_id)
+                    .await?;
                 record_vault_event(
                     &caller.db,
                     &caller.audit,
