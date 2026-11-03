@@ -12,6 +12,9 @@ import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
 import { sheetEngineNamespace } from '../../engine-ops';
 import sheetRoutes from './index';
 
+/** The sheets engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */
+const engineBinding = { SHEET_ENGINE: sheetEngineNamespace() };
+
 const ALL = ['sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete'];
 const ALICE = 'user_alice';
 const BOB = 'user_bob';
@@ -23,7 +26,7 @@ let rooms: ReturnType<typeof fakeRoomNamespace>;
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/sheets', sheetRoutes, {
     context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
-    env: { PRIVATE_STORAGE: bucket.asBinding(), SHEET_ROOM: rooms.binding, SHEET_ENGINE: sheetEngineNamespace() },
+    env: { PRIVATE_STORAGE: bucket.asBinding(), SHEET_ROOM: rooms.binding, ...engineBinding },
   });
 }
 

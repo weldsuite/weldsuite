@@ -842,6 +842,8 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
+  // A collaborative room's ticket: the room's id, then a secret new per call.
+  if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 
@@ -863,8 +865,6 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'secret' && WEBHOOK_SECRET.test(value)) return '<webhook-secret>';
   // A WeldReach mailbox's inbound token: 24 random letters, new per run.
   if (key === 'inboundToken' && REACH_INBOUND_TOKEN.test(value)) return '<inbound-token>';
-  // A collaborative room's ticket: the room's id, then a secret new per call.
-  if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
   return undefined;
 }
 

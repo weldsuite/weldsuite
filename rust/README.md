@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-two
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-three
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -171,6 +171,17 @@ modules, each with conformance suites that reach every route:
   server (`rust/docs/collab-rooms.md`, the chart's `collabRooms`): the
   server calls each room over HTTP on the pod that holds it and proxies the
   room sockets (`/api/docs/connect`); the engine stays TypeScript
+- **sheets** (WeldSheets: spreadsheets as WeldDrive files and WeldFlow
+  project sheets, room sessions, .xlsx/.csv/.tsv imports and exports, the
+  in-place conversion of old project sheets, version history with restore,
+  connected tables). Its rooms are the workers' own `SheetRoom` in the same
+  collab-rooms service, and the work its routes do without a room (a new
+  workbook, reading an import, a version's .xlsx, a connected table's
+  listing with the workspace's database) is the sheets engine there
+  (`SHEET_ENGINE`, `apps/workers/sheets-api/src/engine-ops.ts`); scheduled
+  refreshes run on the rooms' alarms. Not ported: `/internal/agent/*` (the
+  `SheetsInternal` entrypoint the WeldAgent tools call from agent-api,
+  chat-api and app-api), which waits for those workers' ports
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -209,9 +220,12 @@ sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
 returns through Digipoort, buying or porting phone numbers, buying or
 renewing domains, WeldMeet transcripts and summaries and recordings, and
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps).
+One follows the deployment rather than the code: `collab-rooms` (WeldDocs and
+WeldSheets, hidden altogether) when no collab-rooms service is configured
+(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
-connect, agent, sheets and
+connect, agent and
 panel, and the edge workers (`external-api`, `mcp-server`, the rest of the
 integration workers, above).
 
@@ -293,6 +307,8 @@ rust/
                         commerce and hr use it; plan in modules/books/PORTING.md),
                         modules/docs (WeldDocs; its rooms through the CollabRooms port and
                         the collab-rooms service, apps/tools/collab-rooms);
+                        modules/sheets (WeldSheets; its rooms and the sheets engine the same way,
+                        connected tables' definitions checked against catalogs/sheet-data.json);
 
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
@@ -471,7 +487,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
-| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: the session, live snapshot, version save and restore routes answer 503 |
+| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs and WeldSheets |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |

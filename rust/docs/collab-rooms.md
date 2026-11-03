@@ -67,9 +67,14 @@ browser ──/api/docs/*, /api/sheets/*──▶ weldsuite serve (Rust: modules
   credential), and answers `POST /internal/collab/events`.
 
 Without `COLLAB_ROOMS_URLS` (the chart's `collabRooms.enabled: false`)
-every route that needs a room or an engine (create, session, live
-snapshot, version save and restore) answers 503 `Live editing is not
-configured`; the records can still be listed, renamed, moved and trashed.
+every route that needs a room or an engine (create, import, convert,
+session, live snapshot, export, version save, export and restore,
+connected tables) answers 503 `Live editing is not configured`; the records
+can still be listed, renamed, moved and trashed. `/config.json` then lists
+`collab-rooms` in `unavailableFeatures` (`bins/weldsuite/src/edition.rs`),
+and the platform hides WeldDocs and WeldSheets (`MODULE_FEATURES` in
+`apps/web/platform/lib/edition.ts`: their apps, WeldDrive's "open in", the
+WeldFlow project's sheets tab).
 
 Tests: `apps/tools/collab-rooms/test` (two editors on the engines' own
 `CollabClient`, a second service catching up from the op log, the
@@ -80,39 +85,19 @@ kind smoke test opens a room socket through the server.
 ## Status
 
 - WeldDocs: ported (`modules/docs`, suite `docs`).
-- WeldSheets: the service hosts `SheetRoom` and the engine functions its
-  routes need (`apps/workers/sheets-api/src/engine-ops.ts`: a new
-  workbook, imports, legacy conversions, version exports), and the
-  response schemas are registered; `modules/sheets` (the REST routes) is
-  not written yet. Connected tables: their listing code
-  (`services/data-sources`) runs in `SheetRoom` for scheduled refreshes
-  already; the routes' refresh can call the same code as an engine
-  function with the workspace's database rather than porting it to Rust.
-
-### Porting `modules/sheets`: what is left
-
-1. The crate, on `modules/docs`' pattern (Caller, `CollabRooms` port,
-   `VisibleFiles`): list (also by `projectId`, through
-   `weldsuite_flow_domain::access`), create (empty, in a project, or a copy:
-   the source room's `snapshot` JSON goes to `SHEET_ENGINE.newSheet`), get,
-   rename, trash, session, import (multipart or a drive file's bytes from
-   either bucket into `SHEET_ENGINE.importFile`), convert (`convertLegacy`,
-   then `adoptFileAsSheet`'s two statements in one transaction), export (the
-   room's `exportFile`, bytes as `{ "$bytes" }`, with `download.ts`'s
-   headers), versions (as docs, plus `exportWorkbook` for a version's
-   .xlsx), data sources (rows in Rust; the refresh's listing as a
-   `SHEET_ENGINE` function taking the workspace and the source, then the
-   room's `writeDataTable`, `dropDataTable` and `scheduleRefresh`).
-2. Tests: `index.test.ts` uses a stateless room fake (as docs did: read the
-   latest call). `review.test.ts` drives real `SheetRoom`s
-   (`liveRoomNamespace`), which both runs would then change twice. Give
-   that namespace a `fork(env)` (each room rebuilt from a clone of its
-   `FakeStorage` over the TypeScript run's isolated buckets: a room is its
-   checkpoint plus its op log), have `recordTypeScriptLedgerCalls` run the
-   TypeScript side on `ns.fork(env)` when it exists, and mock
-   `getTenantDbForWorkspace` with `conformanceTenantDb(db)`.
-3. The suite `sheets` in `suites.json`, `RUST_PORTED_MODULES`, the README.
-   `/internal/agent/*` (the `SheetsInternal` entrypoint for agent-api,
-   chat-api and app-api) waits for those workers' ports.
+- WeldSheets: ported (`modules/sheets`, suite `sheets`). The REST routes
+  are Rust; the rooms are the worker's `SheetRoom` and the engine work its
+  routes do without a room is `SHEET_ENGINE`
+  (`apps/workers/sheets-api/src/engine-ops.ts`): `newSheet` (an empty
+  workbook, or a copy of another sheet's live JSON without its connected
+  tables), `importFile`, `convertLegacy`, `exportWorkbook` and
+  `listDataTable` (a connected table's listing, the worker's
+  `buildRefresh` with the workspace's database; scheduled refreshes run on
+  the room's alarm). In conformance `review.test.ts` drives real rooms:
+  its namespace forks (`fork(env)`: each room rebuilt from a copy of its
+  storage over the TypeScript run's isolated buckets), and the rooms' and
+  the engine's database is `conformanceTenantDb`. Not ported:
+  `/internal/agent/*` (the `SheetsInternal` entrypoint for agent-api,
+  chat-api and app-api), which waits for those workers' ports.
 
 Global is untouched: the workers keep their Durable Objects.
