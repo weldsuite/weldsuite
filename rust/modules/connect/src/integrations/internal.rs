@@ -445,6 +445,7 @@ async fn renew_watch(
         client_id: env("GOOGLE_CALENDAR_CLIENT_ID"),
         client_secret: env("GOOGLE_CALENDAR_CLIENT_SECRET"),
         environment: internal.overrides.env(&state, "ENVIRONMENT"),
+        public_url: internal.overrides.env(&state, "APP_API_PUBLIC_URL"),
     };
     let result = renew_google_calendar_watch(&internal.db, renewal, &id).await;
     action_response(result, &id, false, "Failed to renew watch channel")

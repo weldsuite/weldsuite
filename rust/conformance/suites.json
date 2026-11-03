@@ -2823,6 +2823,48 @@
         "apps/workers/integration-webhook-worker/src/",
         "rust/modules/integrations/"
       ]
+    },
+    {
+      "name": "integrations: crm",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/crm.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
+        "rust/modules/integrations/"
+      ]
+    },
+    {
+      "name": "integrations: meta ads",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/meta-ads.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/meta-ads/src/webhooks.ts",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/"
+      ]
+    },
+    {
+      "name": "integrations: workflow triggers",
+      "module": "integrations",
+      "workspace": "apps/workers/integration-webhook-worker",
+      "tests": [
+        "src/test/workflow-triggers.conformance.test.ts"
+      ],
+      "paths": [
+        "apps/workers/integration-webhook-worker/src/",
+        "packages/core/entity-events/src/workflow-dispatch.ts",
+        "packages/clients/app-api-client/src/schemas/integration-webhooks.ts",
+        "rust/modules/integrations/"
+      ]
     }
   ]
 }

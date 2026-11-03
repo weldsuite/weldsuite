@@ -187,18 +187,46 @@ ingress host, at the server), with conformance suites named `integrations: …`:
 - **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
   per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
   (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
-  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`; registered, but
-  WeldFlow's Rust task routes do not dispatch it yet)
+  `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`, which WeldFlow's task
+  routes start for a task created, edited, moved or deleted on a linked project)
+- **CRM sync**: the `CRM_SYNC` Workflow as the `integrations.crm-sync` job (Attio,
+  HubSpot and Google Calendar into companies, people, opportunities and calendar
+  events, through the field mappings; WeldConnect's CRM routes and its internal sync
+  route start it), the providers' webhooks (`POST /webhook/:connectionId`, Attio's
+  HMAC; `POST /webhook/hubspot`, the portal found by KV or a scan of the workspaces;
+  `POST /webhook/gcal/:connectionId`, which starts an incremental sync through
+  WeldConnect's internal route, `CONNECT_INTERNAL` answered in process with
+  `INTERNAL_API_SECRET`), and `weldsuite cron crm-due`: where Global keeps one D1
+  `crm_sync_index` row per connection, the master `workspace_due_index` (kind
+  `crm_sync`, marked when a CRM connection is made) says which workspaces to open
+  and the tenant's connections say what is due (last sync plus the interval; a Google
+  watch renews a day before it expires). Parity of the job with the Workflow:
+  `tests/crm_jobs_parity.rs` against `tests/fixtures/crm_jobs.json`. The CRM providers
+  deliver to `APP_API_PUBLIC_URL` (this server) when it is set: WeldConnect registers
+  Attio's webhook and Google's watch channels there instead of Global's
+  integration-webhook hosts
+- **WeldAds**: Meta's `GET`/`POST /webhooks/meta/ads` (the subscription handshake with
+  `FACEBOOK_WEBHOOK_VERIFY_TOKEN`; changes signed with `FACEBOOK_APP_SECRET`, each handed
+  to WeldConnect's internal `/api/integrations/ad-events` for the account's `adsconn:` KV
+  entry) and `weldsuite cron ad-sync` (the master `ad_sync_index` rows that are due,
+  synced through WeldConnect's internal ad-connection sync)
+- **WeldConnect's integration triggers**: `POST /integration-webhook/slack` (Slack's app
+  URL, `SLACK_SIGNING_SECRET`, the team's `slack_team:` KV entry),
+  `/integration-webhook/twilio/:id` and `/github/:id` (the connection's own secret), each
+  matching active workflow's trigger dispatched to `EXECUTE_WORKFLOW` (WeldConnect's
+  `connect.execute-workflow` job); and `weldsuite cron workflow-polls`, the Google Sheets,
+  Gmail, Google Calendar and Airtable poll triggers, where Global keeps the D1
+  `tenant_work_index` (kind `workflow_poll`) and these editions the master
+  `workspace_due_index` of the same kind, marked when a workflow with a poll trigger is
+  saved active (Global's one-time seed of every workspace has no equivalent). Parity of the
+  polls with the worker's cron: `tests/poll_parity.rs` against
+  `tests/fixtures/poll_jobs.json`
 - the entity-webhooks queue consumer and the outgoing-webhook retry sweep are the hub's
   `webhooks` subscriber (`crates/subscribers`), already
 
-Not yet: the CRM sync (`CRM_SYNC`: Attio, HubSpot, Google Calendar; WeldConnect's
-CRM routes answer as without the binding), its webhooks (`/webhook/:connectionId`,
-`/webhook/hubspot`, `/webhook/gcal/:connectionId`) and due sweep, the connector
+Not yet: the connector
 receivers and catch-up (`/webhooks/connectors/:connectionId`, Stripe Connect, the
-Moneybird push sweep), the workflow trigger receivers (`/integration-webhook/slack`,
-`/twilio/:id`, `/github/:id`) and the Google and Airtable polls, Meta's ad webhook and
-the ad metrics sweep, and the WooCommerce app-auth forward.
+Moneybird push sweep), and the WooCommerce app-auth forward.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -279,7 +307,8 @@ rust/
                         Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
                         modules/call (WeldCall: Telnyx, the webhook),
                         modules/integrations (the integration workers: the bank feed and
-                        GitHub App receivers, the GitHub jobs, the bank feed due sweep;
+                        GitHub App and CRM receivers, the GitHub and CRM sync jobs, the bank
+                        feed and CRM due sweeps;
                         tests/fixtures from `pnpm rust:integration-fixtures`),
                         modules/host (WeldHost: Realtime Register, Cloudflare's zones and
                         registrar, DNS over HTTPS, the Realtime Register webhook),
@@ -329,7 +358,7 @@ pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engi
 pnpm rust:desk-workflow-fixtures   # re-export what helpdesk-workflow-worker does, for crates/desk-domain/tests/workflow_parity.rs
 pnpm rust:desk-sla-fixtures     # re-export what the TypeScript SLA engine answers, for crates/desk-domain/tests/sla_parity.rs
 pnpm rust:mail-inbound-fixtures # re-export what mail-inbound-worker does, for crates/mail-inbound/tests/parity.rs
-pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub Workflows do, for modules/integrations/tests
+pnpm rust:integration-fixtures  # re-export what the integration workers' sweeps and GitHub and CRM Workflows do, for modules/integrations/tests
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -441,7 +470,7 @@ books is not served). The server reads environment variables only (`bins/weldsui
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
-| `APP_API_PUBLIC_URL` | WeldDesk and WeldCall: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool); by `ENVIRONMENT` otherwise |
+| `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
 | `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
