@@ -3,14 +3,14 @@ import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-rou
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 
 import { hideAppSplash } from '@/utils/splash';
 
@@ -26,6 +26,7 @@ import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { RealtimeSyncBridge } from '@/providers/realtime-sync-bridge';
 import { BRAND } from '@/lib/brand';
+import { cacheActionFor, INITIAL_CACHE_OWNER, type CacheOwner } from '@/lib/query-cache-scope';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
@@ -86,6 +87,22 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     setActive,
     userMemberships?.data,
   ]);
+
+  // The cache holds projects and tasks, and its keys are not per user or per
+  // workspace. Drop it when the signed-in user changes (sign-out, an expired
+  // session), so the next person on a shared phone starts empty. Sign-out
+  // passes through "no user" (the sign-in screen), so the clear lands before
+  // anyone else's screens mount. A workspace switch resets it instead: open
+  // screens load again from the new workspace.
+  const queryClient = useQueryClient();
+  const cacheOwner = useRef<CacheOwner>(INITIAL_CACHE_OWNER);
+  useEffect(() => {
+    const next: CacheOwner = { userId: user?.id ?? null, orgId: organizationId ?? null };
+    const action = cacheActionFor(cacheOwner.current, next);
+    if (action === 'clear') queryClient.clear();
+    else if (action === 'reset') void queryClient.resetQueries();
+    cacheOwner.current = next;
+  }, [user?.id, organizationId, queryClient]);
 
   useEffect(() => {
     if (user) {
