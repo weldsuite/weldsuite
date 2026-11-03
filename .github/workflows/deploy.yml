@@ -1264,7 +1264,7 @@ jobs:
         run: pnpm exec wrangler deploy
 
   # Next.js apps, the helpdesk widget and the partner portal on Vercel (one Vercel project per app,
-  # team weldsuite). Vercel's Git integration is off for develop/main
+  # team weldsuite). Vercel's Git integration is off for every branch
   # (git.deploymentEnabled in each app's vercel.json), so this job is the only
   # releaser there: it builds on the runner with the Vercel CLI and uploads the
   # prebuilt output. Only the apps a push touched deploy, after the workers they
