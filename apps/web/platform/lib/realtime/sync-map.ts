@@ -52,6 +52,10 @@ const personKeys = {
   detail: (id: string) => [...personKeys.all, 'detail', id] as const,
 };
 
+// WeldFlow RAID log — mirrors raidKeys in hooks/queries/use-project-control-queries.ts.
+// Lists, the matrix and every open detail sit under this root.
+const raidKeys = { all: ['project-raid'] as const };
+
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
 const pipelineKeys = { all: ['crm', 'pipelines'] as const };
@@ -150,15 +154,18 @@ export const platformSyncMap: EntitySyncMap = {
   project_goal: { invalidate: [projectKeys.all] },
   project_message: { invalidate: [projectKeys.all] },
   project_whiteboard: { invalidate: [projectKeys.all] },
-  project_milestone: inv(projectKeys.all), // replaces the stale 'milestone' topic
-  // RAID log (project control): refine to the RAID query keys when the RAID tab lands.
-  project_raid_item: inv(projectKeys.all),
-  project_control_link: inv(projectKeys.all),
+  // A milestone's name and status show on the RAID items linked to it.
+  project_milestone: inv(projectKeys.all, raidKeys.all), // replaces the stale 'milestone' topic
+  // RAID log (project control): items, the matrix and the links between items,
+  // tasks and milestones all live under the RAID query root.
+  project_raid_item: inv(raidKeys.all),
+  project_control_link: inv(raidKeys.all),
   project_sprint: inv(projectKeys.all),
   // Project-scoped tasks publish as `project_task` (not `task`). Invalidate
   // My Tasks (`['task']`) as well as project boards + the object panel so
-  // cross-screen sync covers every task surface.
-  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel']),
+  // cross-screen sync covers every task surface. The RAID root too: an item's
+  // mitigation progress and its linked tasks come from the task's status.
+  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel'], raidKeys.all),
   project_time_entry: inv(projectKeys.all),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),

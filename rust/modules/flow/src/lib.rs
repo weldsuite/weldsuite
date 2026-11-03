@@ -16,6 +16,7 @@ mod rows;
 pub mod github_outbound;
 
 pub mod calendar;
+mod control_links;
 mod custom_values;
 mod digest_settings;
 mod documents;
@@ -34,6 +35,9 @@ mod project_analytics;
 mod project_files;
 mod projects;
 pub mod purge;
+mod raid;
+mod raid_body;
+mod raid_store;
 mod sprints;
 mod stages;
 mod task_changes;
@@ -157,6 +161,10 @@ where
         ("/my-tasks", my_tasks::router(state.clone(), gate)),
         ("/project-files", project_files::router(state.clone(), gate)),
         (
+            "/project-control-links",
+            control_links::router(state.clone(), gate),
+        ),
+        (
             "/project-analytics",
             project_analytics::router(state.clone(), gate),
         ),
@@ -167,6 +175,7 @@ where
         ),
         ("/project-members", members::router(state.clone(), gate)),
         ("/project-messages", messages::router(state.clone(), gate)),
+        ("/project-raid", raid::router(state.clone(), gate)),
         (
             "/project-pipeline-stages",
             stages::router(state.clone(), gate),

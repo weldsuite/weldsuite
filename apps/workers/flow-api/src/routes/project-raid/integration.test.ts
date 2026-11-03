@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -132,6 +133,13 @@ async function getItem(id: string): Promise<Detail> {
   return data<Detail>(res);
 }
 
+/**
+ * The id a create answered, as the create's events carry it. In conformance
+ * mode the spy records the TypeScript run (rolled back) and the answer is
+ * Rust's, so the two mint different ids: only the prefix is the same.
+ */
+const minted = (id: string) => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
+
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
 const DAY = 86_400_000;
 const daysBetween = (from: string, to: string | null) => (new Date(to ?? '').getTime() - new Date(from).getTime()) / DAY;
@@ -235,9 +243,9 @@ describe('POST /', () => {
       {
         entityType: 'project_raid_item',
         action: 'created',
-        entityId: created.id,
+        entityId: minted(created.id),
         data: {
-          id: created.id,
+          id: minted(created.id),
           projectId: 'prj_raid_events',
           kind: 'risk',
           number: 1,
@@ -767,7 +775,7 @@ describe('POST /:id/convert', () => {
     ]);
     expect(events()[1]).toMatchObject({
       entityId: assumption.id,
-      data: { status: 'invalid', to: 'risk', newItemId: result.item.id, newCode: 'RSK-1' },
+      data: { status: 'invalid', to: 'risk', newItemId: minted(result.item.id), newCode: 'RSK-1' },
     });
 
     // Both stay readable, and the new risk starts its trend.

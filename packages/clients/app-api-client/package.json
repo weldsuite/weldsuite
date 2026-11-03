@@ -146,6 +146,7 @@
     "./domains/workspace-settings": "./src/domains/workspace-settings.ts",
     "./domains/tasks": "./src/domains/tasks.ts",
     "./domains/projects": "./src/domains/projects.ts",
+    "./domains/project-control": "./src/domains/project-control.ts",
     "./domains/tickets": "./src/domains/tickets.ts",
     "./domains/companies": "./src/domains/companies.ts",
     "./domains/company-logos": "./src/domains/company-logos.ts",

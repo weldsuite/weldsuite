@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -148,12 +149,15 @@ describe('POST /', () => {
     expect(created.id).toMatch(/^pcl_/);
     expect(created.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
+    // In conformance mode the spy records the TypeScript run (rolled back) and
+    // the answer is Rust's: the two mint different ids.
+    const linkId = conformanceTarget() ? expect.stringMatching(/^pcl_/) : created.id;
     expect(events()).toEqual([
       {
         entityType: 'project_control_link',
         action: 'created',
-        entityId: created.id,
-        data: { id: created.id, projectId: P1, fromType: 'task', fromId: ids.task1, toType: 'raid_item', toId: ids.risk, relation: 'mitigates' },
+        entityId: linkId,
+        data: { id: linkId, projectId: P1, fromType: 'task', fromId: ids.task1, toType: 'raid_item', toId: ids.risk, relation: 'mitigates' },
       },
     ]);
 

@@ -83,6 +83,19 @@ macro_rules! milestone_json {
     };
 }
 
+/// A `project_raid_items` row.
+macro_rules! raid_json {
+    ($a:literal) => {
+        concat!(
+            "(to_jsonb(",
+            $a,
+            ") || jsonb_build_object('cost_impact', ",
+            $a,
+            ".cost_impact::text))"
+        )
+    };
+}
+
 /// A `time_entries` row.
 #[allow(unused_macros)]
 macro_rules! time_entry_json {
