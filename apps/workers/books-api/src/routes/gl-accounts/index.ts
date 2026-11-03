@@ -65,13 +65,65 @@ async function mappingError(
   return null;
 }
 
+/**
+ * Why a parent can't be used for this account; null when it can. The parent
+ * must be a live account of the same entity and type, and not the account
+ * itself or one of its own sub-accounts (that would make a cycle, and every
+ * roll-up that walks the tree would loop). `accountId` is null on create.
+ */
+async function parentError(
+  db: Database,
+  input: { accountId: string | null; entityId: string; type: string; parentAccountId: string },
+): Promise<{ message: string; details: Record<string, unknown> } | null> {
+  const { accountId, entityId, type, parentAccountId } = input;
+  if (parentAccountId === accountId) {
+    return { message: 'An account can not be its own parent.', details: { code: 'PARENT_IS_SELF' } };
+  }
+
+  const accounts = await db
+    .select({ id: t.id, type: t.type, parentAccountId: t.parentAccountId })
+    .from(t)
+    .where(and(eq(t.entityId, entityId), isNull(t.deletedAt)));
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+
+  const parent = byId.get(parentAccountId);
+  if (!parent) {
+    return { message: 'The parent account does not exist in this administration.', details: { code: 'PARENT_NOT_FOUND' } };
+  }
+  if (parent.type !== type) {
+    return {
+      message: `A ${type} account can only sit under another ${type} account.`,
+      details: { code: 'PARENT_TYPE_MISMATCH', parentType: parent.type },
+    };
+  }
+
+  // Walk up from the new parent: reaching the account means the parent is one of its sub-accounts.
+  if (accountId) {
+    const seen = new Set<string>();
+    for (let id: string | null = parentAccountId; id && !seen.has(id); id = byId.get(id)?.parentAccountId ?? null) {
+      if (id === accountId) {
+        return { message: 'An account can not sit under one of its own sub-accounts.', details: { code: 'PARENT_CYCLE' } };
+      }
+      seen.add(id);
+    }
+  }
+  return null;
+}
+
+/** An empty string clears the parent, like null (older clients send ""). */
+const parentAccountIdSchema = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.string().max(30).nullable().optional(),
+);
+
 const createAccountSchema = z.object({
   code: z.string().min(1).max(20),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
   type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense']),
   subtype: z.string().max(50).optional(),
-  parentAccountId: z.string().max(30).optional(),
+  /** The account this one rolls up into (same entity and type); null for a top-level account. */
+  parentAccountId: parentAccountIdSchema,
   currency: z.string().length(3).optional(),
   normalSide: z.enum(['debit', 'credit']),
   defaultTaxRateId: z.string().max(30).optional(),
@@ -297,6 +349,16 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createAcc
     const invalidMapping = await mappingError(db, entityId, data);
     if (invalidMapping) return error.badRequest(c, invalidMapping);
 
+    if (data.parentAccountId) {
+      const invalidParent = await parentError(db, {
+        accountId: null,
+        entityId,
+        type: data.type,
+        parentAccountId: data.parentAccountId,
+      });
+      if (invalidParent) return error.badRequest(c, invalidParent.message, invalidParent.details);
+    }
+
     const newAccount = {
       id: generateId('acc'),
       entityId,
@@ -363,6 +425,26 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidato
 
     const invalidMapping = await mappingError(db, account.entityId, data);
     if (invalidMapping) return error.badRequest(c, invalidMapping);
+
+    // A new parent, or a new type under the current parent, must still fit the tree.
+    const type = data.type ?? account.type;
+    const parentAccountId = data.parentAccountId === undefined ? account.parentAccountId : data.parentAccountId;
+    if (parentAccountId && (data.parentAccountId !== undefined || type !== account.type)) {
+      const invalidParent = await parentError(db, { accountId, entityId: account.entityId, type, parentAccountId });
+      if (invalidParent) return error.badRequest(c, invalidParent.message, invalidParent.details);
+    }
+    if (type !== account.type) {
+      const [child] = await db
+        .select({ id: t.id })
+        .from(t)
+        .where(and(eq(t.parentAccountId, accountId), isNull(t.deletedAt)))
+        .limit(1);
+      if (child) {
+        return error.badRequest(c, 'Move or remove the sub-accounts before changing the type of this account.', {
+          code: 'ACCOUNT_HAS_SUB_ACCOUNTS',
+        });
+      }
+    }
 
     await db
       .update(t)
