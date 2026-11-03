@@ -697,6 +697,10 @@ export const common = {
       wrongAccountDescription: 'U bent aangemeld als {email}, maar deze uitnodiging is verzonden naar een ander e-mailadres.',
       signingOut: 'Afmelden...',
       signOutAndUseOtherAccount: 'Afmelden en ander account gebruiken',
+      alreadyMemberTitle: 'U bent al lid',
+      alreadyMemberDescription:
+        'U bent aangemeld als {email}, en dat account is al lid van deze werkruimte. Is deze uitnodiging naar een ander e-mailadres verzonden? Meld u dan af en open de link opnieuw met dat account.',
+      continueToWorkspace: 'Doorgaan naar werkruimte',
       invitationExpiredTitle: 'Uitnodiging verlopen',
       invitationExpiredDescription: 'Deze uitnodiging is verlopen. Neem contact op met uw werkruimtebeheerder om een nieuwe uitnodiging te vragen.',
       invitationExpiredWithDate: 'Deze uitnodiging is verlopen op {date}. Neem contact op met uw werkruimtebeheerder om een nieuwe uitnodiging te vragen.',

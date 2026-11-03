@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 // Opening a workspace invite while already signed in to another workspace
 // (e.g. from WeldMail) must accept it and switch to that workspace (TASK-1074).
@@ -14,6 +14,7 @@ const clerk = vi.hoisted(() => ({
   invitations: [] as FakeInvitation[],
   setOrgActive: vi.fn(),
   signInCreate: vi.fn(),
+  memberOf: [] as string[],
 }));
 
 vi.mock('@clerk/clerk-react', () => ({
@@ -27,7 +28,10 @@ vi.mock('@clerk/clerk-react', () => ({
   }),
   useClerk: () => ({
     signOut: vi.fn(),
-    user: { primaryEmailAddress: { emailAddress: 'member@example.com' } },
+    user: {
+      primaryEmailAddress: { emailAddress: 'member@example.com' },
+      organizationMemberships: clerk.memberOf.map((id) => ({ organization: { id } })),
+    },
   }),
 }));
 
@@ -46,15 +50,7 @@ function invitationInto(orgId: string): FakeInvitation {
   };
 }
 
-async function renderInvite(props: { orgId?: string; clerkTicket?: string } = {}) {
-  render(
-    <InviteClient
-      orgId={props.orgId}
-      isAuthenticated={clerk.isSignedIn}
-      clerkTicket={props.clerkTicket}
-      clerkStatus="sign_in"
-    />,
-  );
+async function settle() {
   // Let the join effect and its awaited Clerk calls settle.
   await act(async () => {
     await Promise.resolve();
@@ -62,6 +58,20 @@ async function renderInvite(props: { orgId?: string; clerkTicket?: string } = {}
   await act(async () => {
     await Promise.resolve();
   });
+}
+
+async function renderInvite(
+  props: { orgId?: string; clerkTicket?: string; clerkStatus?: 'sign_in' | 'sign_up' } = {},
+) {
+  render(
+    <InviteClient
+      orgId={props.orgId}
+      isAuthenticated={clerk.isSignedIn}
+      clerkTicket={props.clerkTicket}
+      clerkStatus={props.clerkStatus ?? 'sign_in'}
+    />,
+  );
+  await settle();
 }
 
 beforeEach(() => {
@@ -72,6 +82,7 @@ beforeEach(() => {
   clerk.invitations = [];
   clerk.setOrgActive = vi.fn().mockResolvedValue(undefined);
   clerk.signInCreate = vi.fn();
+  clerk.memberOf = [];
 });
 
 afterEach(() => {
@@ -94,11 +105,38 @@ describe('InviteClient, signed in to another workspace', () => {
     expect(screen.getByText('Welcome!')).toBeTruthy();
   });
 
-  it('switches to the workspace when the invitation was already accepted', async () => {
+  it('asks before switching when this account is already a member and has nothing to accept', async () => {
+    clerk.memberOf = ['org_new'];
+
     await renderInvite({ orgId: 'org_new', clerkTicket: 'ticket_123' });
+
+    // The invitation may be for another account (TASK-1065): no silent switch.
+    expect(screen.getByText("You're already a member")).toBeTruthy();
+    expect(screen.getByText('member@example.com')).toBeTruthy();
+    expect(screen.getByText('Sign Out & Use Different Account')).toBeTruthy();
+    expect(clerk.setOrgActive).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(PENDING_ORG_KEY)).toBeNull();
+  });
+
+  it('switches to the workspace when the member chooses to continue', async () => {
+    clerk.memberOf = ['org_new'];
+
+    await renderInvite({ orgId: 'org_new', clerkTicket: 'ticket_123' });
+    fireEvent.click(screen.getByText('Continue to workspace'));
+    await settle();
 
     expect(clerk.setOrgActive).toHaveBeenCalledWith({ organization: 'org_new' });
     expect(sessionStorage.getItem(PENDING_ORG_KEY)).toBe('org_new');
+    expect(screen.getByText('Welcome!')).toBeTruthy();
+  });
+
+  it('shows Wrong Account for a sign-up invitation, even to a member', async () => {
+    clerk.memberOf = ['org_new'];
+
+    await renderInvite({ orgId: 'org_new', clerkTicket: 'ticket_123', clerkStatus: 'sign_up' });
+
+    expect(screen.getByText('Wrong Account')).toBeTruthy();
+    expect(clerk.setOrgActive).not.toHaveBeenCalled();
   });
 
   it('accepts the first pending invitation for links without a workspace id', async () => {
@@ -112,11 +150,10 @@ describe('InviteClient, signed in to another workspace', () => {
   });
 
   it('offers to sign out when the invitation is for another account', async () => {
-    clerk.setOrgActive = vi.fn().mockRejectedValue(new Error('not a member'));
-
     await renderInvite({ orgId: 'org_new', clerkTicket: 'ticket_123' });
 
     expect(screen.getByText('Wrong Account')).toBeTruthy();
+    expect(clerk.setOrgActive).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(PENDING_ORG_KEY)).toBeNull();
   });
 
