@@ -209,18 +209,30 @@ function registryFixture(): Json {
 
 /**
  * `processEntityEvent` with the tenant database resolved to pglite: a
- * workspace that does not resolve throws, a locked one throws 28P01.
+ * workspace that does not resolve throws, a locked one throws 28P01, and
+ * `ws_readonly` resolves to a database a move has made read-only, so the
+ * write itself fails with 25006 (TASK-1256).
  */
-async function processOnPglite(db: never, body: EntityEventMessage): Promise<void> {
+async function processOnPglite(ctx: Ctx, body: EntityEventMessage): Promise<void> {
   if (!body.metadata.workspaceId) return;
   if (body.metadata.workspaceId === 'ws_missing') throw new Error('Workspace not found: ws_missing');
   if (body.metadata.workspaceId === 'ws_locked') {
     throw Object.assign(new Error('password authentication failed for user "x"'), { code: '28P01' });
   }
-  await writeAuditLogFromEvent(db, body);
+  if (body.metadata.workspaceId !== 'ws_readonly') {
+    await writeAuditLogFromEvent(ctx.db, body);
+    return;
+  }
+  await ctx.exec(['set default_transaction_read_only = on']);
+  try {
+    await writeAuditLogFromEvent(ctx.db, body);
+  } finally {
+    await ctx.exec(['reset default_transaction_read_only']);
+  }
 }
 
-async function auditFixture({ db, exec, rows }: Ctx): Promise<Json> {
+async function auditFixture(ctx: Ctx): Promise<Json> {
+  const { exec, rows } = ctx;
   const auditSeed = [
     `delete from audit_logs where metadata->>'eventId' like 'evt_fx%'`,
     `delete from workspace_members where user_id like 'fx_%'`,
@@ -304,6 +316,7 @@ async function auditFixture({ db, exec, rows }: Ctx): Promise<Json> {
     }),
     event({ id: 'evt_fx_a13', metadata: { workspaceId: 'ws_missing', userId: 'fx_user_1', timestamp: 't', source: 'web' } }),
     event({ id: 'evt_fx_a14', metadata: { workspaceId: 'ws_locked', userId: 'fx_user_1', timestamp: 't', source: 'web' } }),
+    event({ id: 'evt_fx_a15', metadata: { workspaceId: 'ws_readonly', userId: 'fx_user_1', timestamp: 't', source: 'web' } }),
   ];
   const { batch, outcomes } = makeBatch('audit-events', auditEvents);
   const requeued: Array<{ index: number; delaySeconds: number | undefined }> = [];
@@ -315,7 +328,7 @@ async function auditFixture({ db, exec, rows }: Ctx): Promise<Json> {
       },
     },
   };
-  await quietly(() => processAuditBatch(batch as never, env as never, (body) => processOnPglite(db, body)));
+  await quietly(() => processAuditBatch(batch as never, env as never, (body) => processOnPglite(ctx, body)));
   for (const { index, delaySeconds } of requeued) outcomes[index] = { defer: delaySeconds ?? 0 };
   return {
     seed: auditSeed,

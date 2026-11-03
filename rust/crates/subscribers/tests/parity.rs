@@ -157,6 +157,18 @@ async fn tenant_pool() -> Option<PgPool> {
     )
 }
 
+/// The tenant test database with every transaction read-only, as a database
+/// move leaves the source (`set default_transaction_read_only`).
+async fn read_only_pool() -> PgPool {
+    let url = std::env::var("WELDSUITE_TEST_TENANT_URL").expect("the tenant test database URL");
+    let options: sqlx::postgres::PgConnectOptions = url.parse().expect("a Postgres URL");
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.options([("default_transaction_read_only", "on")]))
+        .await
+        .expect("the tenant test database answers")
+}
+
 async fn exec(pool: &PgPool, statements: &Value) {
     for statement in statements.as_array().expect("statements") {
         let sql = statement.as_str().expect("sql");
@@ -239,7 +251,13 @@ fn the_registry_matches_typescript() {
 
 /// `org_fx` is the test tenant; `ws_locked` fails as a database locked by a
 /// move; anything else does not resolve.
-struct AuditTenants(PgPool);
+/// `org_fx` is the tenant database, `ws_readonly` the same database read-only
+/// (as a move leaves it: the write fails with 25006), `ws_locked` fails the
+/// lookup with 28P01, anything else is not found.
+struct AuditTenants {
+    db: PgPool,
+    read_only: PgPool,
+}
 
 impl Tenants for AuditTenants {
     fn tenant<'a>(
@@ -250,7 +268,12 @@ impl Tenants for AuditTenants {
             "org_fx" => Ok(ResolvedTenant {
                 workspace_id: "ws_fx".to_owned(),
                 clerk_org_id: Some("org_fx".to_owned()),
-                db: self.0.clone(),
+                db: self.db.clone(),
+            }),
+            "ws_readonly" => Ok(ResolvedTenant {
+                workspace_id: "ws_readonly".to_owned(),
+                clerk_org_id: None,
+                db: self.read_only.clone(),
             }),
             "ws_locked" => Err(TenantError::Other(
                 "password authentication failed for user \"x\"".into(),
@@ -273,7 +296,11 @@ async fn audit_log_matches_typescript() {
     let fixture = fixture("audit");
     exec(&pool, &fixture["seed"]).await;
 
-    let subscriber = AuditSubscriber::new(Arc::new(AuditTenants(pool.clone())));
+    let read_only = read_only_pool().await;
+    let subscriber = AuditSubscriber::new(Arc::new(AuditTenants {
+        db: pool.clone(),
+        read_only,
+    }));
     let batch = deliveries(&fixture["events"]);
     let outcomes: Vec<Value> = subscriber
         .handle(&batch)

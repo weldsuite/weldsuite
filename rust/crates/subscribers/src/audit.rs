@@ -8,11 +8,11 @@
 //!   anything else is retried and then dead-lettered.
 //! - `event-processor.ts`: an event without a workspace is skipped.
 //! - `audit-log-writer.ts`: skips an event id that already has a row
-//!   (EVT-002), and never fails the message: a write error is logged and the
-//!   event acked, as in TypeScript. Because the tenant pool connects lazily,
-//!   as Neon's HTTP driver does, a locked database surfaces in the write and
-//!   is therefore acked too; the lock wait above only covers a lookup that
-//!   fails with the lock's error. Same in both backends.
+//!   (EVT-002). A write error fails the message (TASK-1256): the tenant pool
+//!   connects lazily, as Neon's HTTP driver does, so a locked database
+//!   surfaces in the write, and it gets the same lock wait as a lookup that
+//!   fails with the lock's error. Any other write error is retried and then
+//!   dead-lettered. Same in both backends.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -298,13 +298,15 @@ fn transform_changes(changes: &OrderedObject) -> Option<Map<String, Value>> {
     Some(out)
 }
 
-/// What [`write_audit_log`] did (`'written' | 'duplicate' | 'error'`).
+/// What [`write_audit_log`] did (`'written' | 'duplicate'`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditOutcome {
     Written,
     Duplicate,
-    Error,
 }
+
+/// Why [`write_audit_log`] wrote nothing.
+pub type AuditError = Box<dyn std::error::Error + Send + Sync>;
 
 /// `getUserName`: the member's name, `None` when missing, empty or the
 /// lookup fails.
@@ -319,22 +321,9 @@ async fn user_name(db: &PgPool, user_id: Option<&str>) -> Option<String> {
     name.flatten().filter(|name| !name.is_empty())
 }
 
-/// `writeAuditLogFromEvent(db, event)`. Never fails: errors are logged and
-/// reported as [`AuditOutcome::Error`].
-pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> AuditOutcome {
-    match try_write(db, event).await {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            tracing::error!(event_id = event.id, %error, "audit: failed to write audit log");
-            AuditOutcome::Error
-        }
-    }
-}
-
-async fn try_write(
-    db: &PgPool,
-    event: &HubEvent,
-) -> Result<AuditOutcome, Box<dyn std::error::Error + Send + Sync>> {
+/// `writeAuditLogFromEvent(db, event)`. Fails when the row could not be
+/// written; the caller decides between a lock wait and a retry.
+pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> Result<AuditOutcome, AuditError> {
     let existing: Option<String> =
         sqlx::query_scalar("select id from audit_logs where metadata->>'eventId' = $1 limit 1")
             .bind(&event.id)
@@ -442,19 +431,38 @@ impl AuditSubscriber {
         let tenant = match self.tenants.tenant(&event.metadata.workspace_id).await {
             Ok(tenant) => tenant,
             Err(error) => {
-                if is_tenant_locked(&error) && delivery.deferrals < LOCKED_MAX_RETRIES {
-                    let delay = locked_retry_delay(delivery.deferrals + 1);
-                    return Disposition::Defer {
-                        delay,
-                        reason: "the tenant database is locked (a database move?)".to_owned(),
-                    };
-                }
-                return Disposition::retry(format!("cannot resolve the workspace: {error}"));
+                return failed(
+                    delivery,
+                    &error,
+                    format!("cannot resolve the workspace: {error}"),
+                );
             }
         };
-        write_audit_log(&tenant.db, &event).await;
-        Disposition::Ack
+        match write_audit_log(&tenant.db, &event).await {
+            Ok(_) => Disposition::Ack,
+            Err(error) => failed(
+                delivery,
+                error.as_ref(),
+                format!("failed to write the audit log: {error}"),
+            ),
+        }
     }
+}
+
+/// The batch processor's answer to a failed event: a tenant database locked
+/// by a move waits (within its budget), anything else is retried.
+fn failed(
+    delivery: &Delivery,
+    error: &(dyn std::error::Error + 'static),
+    reason: String,
+) -> Disposition {
+    if is_tenant_locked(error) && delivery.deferrals < LOCKED_MAX_RETRIES {
+        return Disposition::Defer {
+            delay: locked_retry_delay(delivery.deferrals + 1),
+            reason: "the tenant database is locked (a database move?)".to_owned(),
+        };
+    }
+    Disposition::retry(reason)
 }
 
 impl BatchHandler for AuditSubscriber {
