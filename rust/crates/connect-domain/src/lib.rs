@@ -20,8 +20,29 @@
 //! Moneybird clients and OAuth flows, WooCommerce's app authorisation,
 //! provider webhook registration and ingest, and the Moneybird push.
 
+// The sync engine and mappers mirror long TypeScript functions one for one,
+// and read JSON numbers as JavaScript does.
+#![allow(
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::single_match_else,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+
 pub mod catalog;
 pub mod clients;
 pub mod connections;
 pub mod crypto;
+pub mod ingest;
 pub mod js;
+pub mod lists;
+pub mod mappers;
+pub mod moneybird;
+pub mod moneybird_push;
+pub mod provider;
+pub mod stripe;
+pub mod stripe_mappers;
+pub mod sync;
+pub mod tables;

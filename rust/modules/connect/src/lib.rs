@@ -20,6 +20,7 @@
 
 mod builder;
 mod catalog;
+mod connector_sync;
 mod connectors;
 mod cron;
 mod crypto;
@@ -132,6 +133,10 @@ pub struct ConnectState {
     /// `TRUSTED_PROXIES`: where the webhook caller's address sits in
     /// `X-Forwarded-For`, counted from the right.
     pub trusted_proxies: usize,
+    /// The `STORAGE` bucket: Moneybird attachments and Stripe invoice PDFs
+    /// the connector sync copies. A request's `StorageBuckets`
+    /// (conformance) wins.
+    pub storage: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
 }
 
 impl std::fmt::Debug for ConnectState {
@@ -250,6 +255,7 @@ pub(crate) struct Overrides {
     pub(crate) http: Option<OutboundHttp>,
     pub(crate) master: Option<weldsuite_db::MasterDb>,
     pub(crate) runs: Option<RequestWorkflowRuns>,
+    pub(crate) buckets: Option<weldsuite_ports::StorageBuckets>,
 }
 
 impl Overrides {
@@ -260,6 +266,7 @@ impl Overrides {
             http: extensions.get::<OutboundHttp>().cloned(),
             master: extensions.get::<weldsuite_db::MasterDb>().cloned(),
             runs: extensions.get::<RequestWorkflowRuns>().cloned(),
+            buckets: extensions.get::<weldsuite_ports::StorageBuckets>().cloned(),
         }
     }
 
@@ -269,6 +276,19 @@ impl Overrides {
             return env.get(name).map(str::to_owned);
         }
         state.env.get(name).cloned()
+    }
+
+    /// `c.env.STORAGE`: the request's bucket (conformance, which may have
+    /// none), else the state's.
+    pub(crate) fn storage(
+        &self,
+        state: &ConnectState,
+    ) -> Option<Arc<dyn weldsuite_ports::DynFileStore>> {
+        match &self.buckets {
+            Some(buckets) => buckets.public.clone(),
+            None if self.env.is_some() => None,
+            None => state.storage.clone(),
+        }
     }
 
     /// The workspace cache: the request's (conformance), else the state's.

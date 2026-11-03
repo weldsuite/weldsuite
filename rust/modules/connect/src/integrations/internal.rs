@@ -49,6 +49,10 @@ where
             post(ad_connection_sync),
         )
         .route("/api/integrations/ad-events", post(ad_events))
+        .route(
+            "/api/integrations/connections/{id}/catch-up",
+            post(connector_catch_up),
+        )
         .with_state(state)
 }
 
@@ -68,7 +72,7 @@ fn serves(path: &str) -> bool {
     let segments: Vec<&str> = rest.trim_start_matches('/').split('/').collect();
     matches!(
         segments.as_slice(),
-        ["connections", id, "sync" | "renew-watch"] if !id.is_empty()
+        ["connections", id, "sync" | "renew-watch" | "catch-up"] if !id.is_empty()
     ) || matches!(segments.as_slice(), ["ad-connections", id, "sync"] if !id.is_empty())
         || matches!(segments.as_slice(), ["ad-events"])
 }
@@ -240,6 +244,56 @@ async fn sync(
     )
     .await;
     action_response(result, &id, true, "Failed to trigger sync")
+}
+
+/// `POST /connections/:id/catch-up`: the scheduled catch-up sync of a
+/// store or accounting connector, run to the end; the connection's
+/// watermarks after it.
+async fn connector_catch_up(
+    State(state): State<ConnectState>,
+    uri: http::Uri,
+    headers: HeaderMap,
+    extensions: http::Extensions,
+) -> Response {
+    let id = id_of(&uri);
+    let internal = match resolve(&state, &headers, &extensions).await {
+        Ok(internal) => internal,
+        Err(response) => return response,
+    };
+    let row = match weldsuite_connect_domain::connections::get_connection(&internal.db, &id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return ApiError::not_found("Connection", Some(&id)).into_response(),
+        Err(error) => return internal_error(&error, "Failed to catch up connector"),
+    };
+    if row["status"] == "paused" {
+        return ApiError::bad_request("Connection is paused").into_response();
+    }
+    let job = crate::connector_sync::Background {
+        db: internal.db.clone(),
+        env: crate::connector_sync::sync_env(&internal.overrides, &state),
+        connection: row.clone(),
+        owner_id: "system".to_owned(),
+        workspace_id: internal.clerk_org_id.clone(),
+        trigger: weldsuite_connect_domain::sync::Trigger::Schedule,
+        full: false,
+        syncs: None,
+    };
+    if let Err(error) = job.run().await {
+        tracing::error!(%error, "[app-api/integrations-internal] connector catch-up failed");
+        return ApiError::internal()
+            .with_message("Failed to catch up connector")
+            .into_response();
+    }
+    let fresh = match weldsuite_connect_domain::connections::get_connection(&internal.db, &id).await
+    {
+        Ok(fresh) => fresh.unwrap_or(row),
+        Err(error) => return internal_error(&error, "Failed to catch up connector"),
+    };
+    let watermarks = match fresh.get("sync_watermarks") {
+        None | Some(Value::Null) => json!({}),
+        Some(marks) => marks.clone(),
+    };
+    Data(json!({ "watermarks": watermarks })).into_response()
 }
 
 async fn renew_watch(

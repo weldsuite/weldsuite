@@ -2276,7 +2276,9 @@
         "src/routes/integrations/routes.test.ts",
         "src/routes/integrations/internal.routes.test.ts",
         "src/routes/connectors/routes.test.ts",
-        "src/routes/connectors/picqer-push.test.ts"
+        "src/routes/connectors/picqer-push.test.ts",
+        "src/routes/connectors/moneybird.test.ts",
+        "src/routes/connectors/sync.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2298,16 +2300,13 @@
         "rust/crates/subscribers/src/webhooks.rs",
         "rust/crates/ads-domain/",
         "rust/crates/connect-domain/",
-        "rust/modules/connect/"
+        "rust/modules/connect/",
+        "packages/domains/connect/src/connectors/"
       ],
       "excludedRoutes": [
         {
           "route": "POST /api/integrations/connections/:id/connector-event",
           "reason": "Not ported yet: the inbound WooCommerce/Shopify webhook ingest of @weldsuite/connect-domain (connectors/webhooks.ts, ingest.ts), still to come in rust/crates/connect-domain."
-        },
-        {
-          "route": "POST /api/integrations/connections/:id/catch-up",
-          "reason": "Not ported yet: the connector catch-up sync of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts), still to come in rust/crates/connect-domain."
         },
         {
           "route": "POST /api/integrations/moneybird-push",
@@ -2340,18 +2339,6 @@
         {
           "route": "DELETE /api/connectors/connections/:id",
           "reason": "Not ported yet: the provider webhook removal and the Stripe deauthorisation (connectors/webhooks.ts, @weldsuite/connectors stripe/auth.ts)."
-        },
-        {
-          "route": "POST /api/connectors/connections/:id/sync",
-          "reason": "Not ported yet: the sync engine of @weldsuite/connect-domain (connectors/sync.ts, ingest.ts, the mappers), run in the background."
-        },
-        {
-          "route": "GET /api/connectors/connections/:id/moneybird/options",
-          "reason": "Not ported yet: the Moneybird client and push plan of @weldsuite/connect-domain (connectors/moneybird-push-plan.ts)."
-        },
-        {
-          "route": "GET /api/connectors/connections/:id/moneybird/push-status",
-          "reason": "Not ported yet: the Moneybird push status of @weldsuite/connect-domain (connectors/moneybird-push.ts)."
         },
         {
           "route": "POST /api/connectors/connections/:id/moneybird/push",

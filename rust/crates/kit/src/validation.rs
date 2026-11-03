@@ -1331,6 +1331,17 @@ pub fn js_date_iso(text: &str) -> Option<String> {
     js_date_millis(text).and_then(iso_from_millis)
 }
 
+/// `Date.parse(text)` for the ISO strings [`js_date_iso`] reads: milliseconds
+/// since the epoch, `None` where JavaScript answers `NaN`.
+pub fn js_date_parse(text: &str) -> Option<f64> {
+    js_date_millis(text)
+}
+
+/// `new Date(millis).toISOString()`, `None` for an invalid date.
+pub fn js_iso_from_millis(millis: f64) -> Option<String> {
+    iso_from_millis(millis)
+}
+
 /// Days from 1970-01-01 to a civil date (proleptic Gregorian).
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };

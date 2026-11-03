@@ -96,13 +96,13 @@ impl ConnectorError {
         }
     }
 
-    fn retryable(&self) -> bool {
+    pub fn retryable(&self) -> bool {
         matches!(self.kind, Kind::RateLimit | Kind::Transient)
     }
 }
 
 /// `classifyStatus(status)`.
-fn classify(status: u16) -> Kind {
+pub(crate) fn classify(status: u16) -> Kind {
     match status {
         401 | 403 => Kind::Auth,
         429 => Kind::RateLimit,
@@ -112,7 +112,7 @@ fn classify(status: u16) -> Kind {
 }
 
 /// `parseRetryAfter(header)`: seconds, or an HTTP date from now.
-fn parse_retry_after(header: Option<&str>) -> Option<f64> {
+pub(crate) fn parse_retry_after(header: Option<&str>) -> Option<f64> {
     let trimmed = weldsuite_kit::validation::js_trim(header?);
     if trimmed.is_empty() {
         return None;
@@ -128,7 +128,7 @@ fn parse_retry_after(header: Option<&str>) -> Option<f64> {
 }
 
 /// `text.slice(0, 500)` in UTF-16 units.
-fn slice500(text: &str) -> String {
+pub(crate) fn slice500(text: &str) -> String {
     let mut out = String::new();
     let mut units = 0;
     for c in text.chars() {
@@ -175,16 +175,28 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// One attempt's failure: an HTTP/payload error, or the request never got
 /// an answer (the message `fetch` threw with, or a timeout).
-enum Attempt {
+pub(crate) enum Attempt {
     Api(ConnectorError),
     Network { timed_out: bool },
 }
 
-async fn send(http: Option<&OutboundHttp>, request: HttpRequest) -> Result<HttpResponse, Attempt> {
+pub(crate) async fn send(
+    http: Option<&OutboundHttp>,
+    request: HttpRequest,
+) -> Result<HttpResponse, Attempt> {
+    send_within(http, request, TIMEOUT).await
+}
+
+/// [`send`] with another timeout (Moneybird's binary downloads: 45 s).
+pub(crate) async fn send_within(
+    http: Option<&OutboundHttp>,
+    request: HttpRequest,
+    timeout: Duration,
+) -> Result<HttpResponse, Attempt> {
     let Some(http) = http else {
         return Err(Attempt::Network { timed_out: false });
     };
-    match tokio::time::timeout(TIMEOUT, http.send(request)).await {
+    match tokio::time::timeout(timeout, http.send(request)).await {
         Ok(Ok(response)) => Ok(response),
         Ok(Err(_)) => Err(Attempt::Network { timed_out: false }),
         Err(_) => Err(Attempt::Network { timed_out: true }),
@@ -192,7 +204,7 @@ async fn send(http: Option<&OutboundHttp>, request: HttpRequest) -> Result<HttpR
 }
 
 /// `runWithRetries` (Shopify, Picqer).
-async fn with_retries<F, Fut>(
+pub(crate) async fn with_retries<F, Fut>(
     unreachable: &str,
     mut attempt_once: F,
 ) -> Result<HttpResponse, ConnectorError>
@@ -221,7 +233,7 @@ where
 }
 
 /// `asText(value)` for an id.
-fn as_text(value: &Value) -> String {
+pub(crate) fn as_text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), number_text),
@@ -295,9 +307,9 @@ fn number(text: &str) -> Value {
 // ── WooCommerce ─────────────────────────────────────────────────────────────
 
 pub struct Woo {
-    store_url: String,
-    key: String,
-    secret: String,
+    pub(crate) store_url: String,
+    pub(crate) key: String,
+    pub(crate) secret: String,
 }
 
 /// `normalizeStoreUrl(url)`.
@@ -452,8 +464,12 @@ impl Woo {
         send(http, request).await
     }
 
-    async fn attempt(http: Option<&OutboundHttp>, request: HttpRequest) -> Result<Value, Attempt> {
+    async fn attempt(
+        http: Option<&OutboundHttp>,
+        request: HttpRequest,
+    ) -> Result<(Value, Vec<(String, String)>), Attempt> {
         let response = Self::follow(http, request).await?;
+        let headers = response.headers.clone();
         let text = response.text();
         if !response.ok() {
             return Err(Attempt::Api(http_error(
@@ -472,15 +488,17 @@ impl Woo {
             error.body = Some(slice500(&text));
             return Err(Attempt::Api(error));
         }
-        parse_woo_json(&text).ok_or_else(|| {
-            let mut error = ConnectorError::new(
-                "WooCommerce REST API returned a response that was not JSON",
-                502,
-                Kind::Permanent,
-            );
-            error.body = Some(slice500(&text));
-            Attempt::Api(error)
-        })
+        parse_woo_json(&text)
+            .map(|value| (value, headers))
+            .ok_or_else(|| {
+                let mut error = ConnectorError::new(
+                    "WooCommerce REST API returned a response that was not JSON",
+                    502,
+                    Kind::Permanent,
+                );
+                error.body = Some(slice500(&text));
+                Attempt::Api(error)
+            })
     }
 
     /// `requestWithRetries`.
@@ -494,7 +512,7 @@ impl Woo {
         body: Option<&Value>,
         style: Style,
         auth: Auth,
-    ) -> Result<Value, ConnectorError> {
+    ) -> Result<(Value, Vec<(String, String)>), ConnectorError> {
         let request = HttpRequest {
             method: method.to_owned(),
             url: self.url(path, search, style, auth),
@@ -542,7 +560,7 @@ impl Woo {
     }
 
     /// `request(path, { method, search, body })` with its fallbacks.
-    async fn request(
+    pub(crate) async fn request(
         &self,
         http: Option<&OutboundHttp>,
         method: &str,
@@ -550,6 +568,20 @@ impl Woo {
         search: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<Value, ConnectorError> {
+        self.request_full(http, method, path, search, body)
+            .await
+            .map(|(value, _)| value)
+    }
+
+    /// [`Woo::request`] with the answer's headers (`x-wp-total`, …).
+    pub(crate) async fn request_full(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        search: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<(Value, Vec<(String, String)>), ConnectorError> {
         let run = |style, auth| self.with_retries(http, method, path, search, body, style, auth);
         match run(Style::Pretty, Auth::Basic).await {
             Ok(value) => Ok(value),
@@ -668,8 +700,8 @@ fn set_param(url: &mut url::Url, key: &str, value: &str) {
 // ── Shopify ─────────────────────────────────────────────────────────────────
 
 pub struct Shopify {
-    domain: String,
-    token: String,
+    pub(crate) domain: String,
+    pub(crate) token: String,
 }
 
 /// `normalizeShopDomain(domain)`.
@@ -722,13 +754,26 @@ impl Shopify {
         format!("https://{}", self.domain)
     }
 
-    async fn request(
+    pub(crate) async fn request(
         &self,
         http: Option<&OutboundHttp>,
         method: &str,
         path: &str,
         body: Option<&Value>,
     ) -> Result<Value, ConnectorError> {
+        self.request_full(http, method, path, body)
+            .await
+            .map(|(value, _)| value)
+    }
+
+    /// [`Shopify::request`] with the answer's headers (the `Link` page cursor).
+    pub(crate) async fn request_full(
+        &self,
+        http: Option<&OutboundHttp>,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<(Value, Vec<(String, String)>), ConnectorError> {
         let url = format!(
             "{}/admin/api/2024-10/{}",
             self.store_url(),
@@ -767,9 +812,10 @@ impl Shopify {
         .await?;
         let text = response.text();
         if text.is_empty() {
-            return Ok(Value::Null);
+            return Ok((Value::Null, response.headers));
         }
         serde_json::from_str(&text)
+            .map(|value| (value, response.headers.clone()))
             .map_err(|_| ConnectorError::new("Shopify request failed", 503, Kind::Transient))
     }
 
@@ -849,8 +895,8 @@ impl Shopify {
 // ── Picqer ──────────────────────────────────────────────────────────────────
 
 pub struct Picqer {
-    subdomain: String,
-    key: String,
+    pub(crate) subdomain: String,
+    pub(crate) key: String,
 }
 
 /// `normalizePicqerSubdomain(subdomain)` (also what the factory does with
@@ -897,7 +943,7 @@ fn normalize_picqer(subdomain: &str) -> Result<String, ConnectorError> {
 }
 
 impl Picqer {
-    async fn request(
+    pub(crate) async fn request(
         &self,
         http: Option<&OutboundHttp>,
         method: &str,

@@ -27,11 +27,13 @@ use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_connect_domain::catalog::{
     default_field_mappings, get_connector, list_connectors, syncs,
 };
-use weldsuite_connect_domain::clients::product_write_client;
+use weldsuite_connect_domain::clients::Kind;
 use weldsuite_connect_domain::connections::{
     get_connection, list_connection_records, list_connections, list_sync_runs, sanitize_connection,
     sanitize_with_entity,
 };
+use weldsuite_connect_domain::moneybird_push;
+use weldsuite_connect_domain::provider::test_connector_credentials;
 use weldsuite_db::{Keyring, js_row};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::Data;
@@ -76,10 +78,22 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             "/connections/{id}/picqer/push",
             post(crate::picqer_push::push).route_layer(update()),
         )
+        .route(
+            "/connections/{id}/sync",
+            post(crate::connector_sync::sync_now).route_layer(update()),
+        )
         .route("/connections/{id}/pause", post(pause).route_layer(update()))
         .route(
             "/connections/{id}/resume",
             post(resume).route_layer(update()),
+        )
+        .route(
+            "/connections/{id}/moneybird/options",
+            get(moneybird_options).route_layer(read()),
+        )
+        .route(
+            "/connections/{id}/moneybird/push-status",
+            get(moneybird_push_status).route_layer(read()),
         )
 }
 
@@ -300,17 +314,10 @@ async fn test(
     if get_connector(&provider).is_none() {
         return ApiError::bad_request(format!("Unknown connector '{provider}'")).into_response();
     }
-    if matches!(provider.as_str(), "stripe" | "moneybird") {
-        // Their clients are not ported yet (connect-domain).
-        return ApiError::internal()
-            .with_message("Connector request failed")
-            .into_response();
-    }
-    // `testConnectorCredentials`: a client that can't be built is a failed test.
-    let tested = match product_write_client(&provider, &creds, None) {
-        Ok(client) => client.test(caller.overrides.http(&state).as_ref()).await,
-        Err(error) => Err(error.message),
-    };
+    let http = caller.overrides.http(&state);
+    let tested = test_connector_credentials(&provider, &creds, http.as_ref())
+        .await
+        .map(|tested| tested.store_url);
     match tested {
         Ok(store_url) => Data(json!({ "ok": true, "storeUrl": store_url })).into_response(),
         Err(message) => ApiError::bad_request(message).into_response(),
@@ -364,4 +371,55 @@ async fn resume(
     Path(id): Path<String>,
 ) -> Response {
     set_status(&state, &caller, &id, "active", CONNECTOR_CONNECTION_RESUMED).await
+}
+
+/// `moneybirdConnection(c, id)`: the row when it is a Moneybird connection,
+/// else the 404 the Moneybird routes answer.
+#[allow(clippy::result_large_err)]
+async fn moneybird_connection(caller: &Caller, id: &str) -> Result<Value, Response> {
+    match get_connection(&caller.db, id).await {
+        Ok(Some(row)) if row["provider"] == "moneybird" => Ok(row),
+        Ok(_) => Err(ApiError::not_found("Moneybird connection", Some(id)).into_response()),
+        Err(error) => Err(unhandled(&error)),
+    }
+}
+
+/// `GET /connections/:id/moneybird/options`.
+async fn moneybird_options(
+    State(state): State<ConnectState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    let row = match moneybird_connection(&caller, &id).await {
+        Ok(row) => row,
+        Err(response) => return response,
+    };
+    let http = caller.overrides.http(&state);
+    match moneybird_push::options(&caller.db, http.as_ref(), &row, &keyring(&caller, &state)).await
+    {
+        Ok(options) => Data(options).into_response(),
+        Err(moneybird_push::OptionsError::Connector(error)) if error.kind == Kind::Auth => {
+            ApiError::bad_request("Moneybird rejected the connection — reconnect it")
+                .into_response()
+        }
+        Err(moneybird_push::OptionsError::Connector(error)) => {
+            ApiError::bad_request(error.message).into_response()
+        }
+        Err(moneybird_push::OptionsError::Database(error)) => {
+            tracing::error!(%error, "[connect-api/moneybird-push] options failed");
+            ApiError::bad_request(error.to_string()).into_response()
+        }
+    }
+}
+
+/// `GET /connections/:id/moneybird/push-status`.
+async fn moneybird_push_status(caller: Caller, Path(id): Path<String>) -> Response {
+    let row = match moneybird_connection(&caller, &id).await {
+        Ok(row) => row,
+        Err(response) => return response,
+    };
+    match moneybird_push::status(&caller.db, &row).await {
+        Ok(status) => Data(status).into_response(),
+        Err(error) => unhandled(&error),
+    }
 }

@@ -457,6 +457,11 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
             connect_webhook_http()
         },
         trusted_proxies: state.trusted_proxies,
+        storage: if conformance {
+            None
+        } else {
+            state.infra.public_files.clone()
+        },
     }
 }
 
