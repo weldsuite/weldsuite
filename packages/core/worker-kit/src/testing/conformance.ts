@@ -47,6 +47,7 @@ import path from 'node:path';
 import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
 import { wireCompatiblePglite } from './pglite-wire';
+import { typeScriptSide } from './pglite-rollback';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
@@ -663,14 +664,16 @@ export function databaseUrlFor(client: PGliteClient): Promise<string> {
   return url;
 }
 
-/** A copy's client (`PGlite.clone()` answers the interface). */
-type PGliteCopy = Awaited<ReturnType<PGliteClient['clone']>>;
-
-/** A drizzle handle on a copy of the test's database, for the TypeScript side of a write. */
+/**
+ * A drizzle handle on a copy of the test's database, for the TypeScript side
+ * of a cron run. A write's runs on the database itself, in a transaction
+ * (./pglite-rollback.ts): a copy is a new pglite instance, and creating and
+ * closing many of them corrupts the process.
+ */
 export async function cloneDatabase(
   client: PGliteClient,
   kind: 'tenant' | 'master' = 'tenant',
-): Promise<{ db: Database; client: PGliteCopy; close: () => Promise<void> }> {
+): Promise<{ db: Database; close: () => Promise<void> }> {
   const [drizzlePg, schema] = await Promise.all([
     import('drizzle-orm/pglite'),
     kind === 'master' ? import('@weldsuite/db/schema/master') : import('@weldsuite/db/schema'),
@@ -680,7 +683,6 @@ export async function cloneDatabase(
   const closable = clone as unknown as { close: () => Promise<void>; mod?: unknown };
   return {
     db,
-    client: clone,
     close: async () => {
       await closable.close();
       // Let the copy's WebAssembly heap go even while something still holds the
@@ -692,83 +694,7 @@ export async function cloneDatabase(
   };
 }
 
-/** Whether a pglite has a transaction open. */
-function inTransaction(client: PGliteCopy): boolean {
-  const own = client as { isInTransaction?: () => boolean };
-  return typeof own.isInTransaction === 'function' && own.isInTransaction();
-}
-
-/** Where the database's WAL insertion is: it moves with every write, and only with writes. */
-async function walPosition(client: PGliteCopy): Promise<string | null> {
-  try {
-    const { rows } = await client.query<{ lsn: string }>('select pg_current_wal_insert_lsn()::text as lsn');
-    return rows[0]?.lsn ?? null;
-  } catch {
-    return null;
-  }
-}
-
-type DatabaseCopy = Awaited<ReturnType<typeof cloneDatabase>>;
-
-/** A copy the last write left unchanged, and where both databases' WAL stood then. */
-const spareCopies = new Map<PGliteClient, { copy: DatabaseCopy; source: string; own: string }>();
-
-/**
- * A copy of `client`'s database for the TypeScript side of a write, and how
- * to hand it back.
- *
- * Every write needs the database as it was before the write, and a copy
- * (`client.clone()`) is a new pglite instance: a WebAssembly heap with the
- * whole tenant database in it. Creating and closing hundreds of them in one
- * process crashes Node on Windows (an access violation, a V8
- * `Check failed: maybe_code.has_value()`, an `ErrnoError` from pglite's file
- * system or a hang, after 20 to 400 copies of the tenant database; a plain
- * clone-and-close loop does it, without vitest or Rust). So a copy is taken
- * only when it is needed: a write that neither side wrote (a refusal, a
- * validation error, a write the resource does not allow) leaves both
- * databases as they were, and the next write runs on the same copy. Whether
- * a database changed is whether its WAL insert position moved: every insert,
- * update, delete and DDL moves it (a failed or rolled back one too), reads
- * never do, and the tenant and master schemas have no sequences or unlogged
- * tables, the two kinds of change WAL can miss. Session state does not carry
- * over either: no route sets anything for its session.
- */
-export async function copyForTypeScript(
-  client: PGliteClient,
-  kind: 'tenant' | 'master',
-): Promise<{ db: Database; done: () => Promise<void> }> {
-  const spare = spareCopies.get(client);
-  spareCopies.delete(client);
-  const source = await walPosition(client);
-  let copy: DatabaseCopy | undefined;
-  if (spare) {
-    const unchanged =
-      source !== null &&
-      source === spare.source &&
-      !inTransaction(spare.copy.client) &&
-      (await walPosition(spare.copy.client)) === spare.own;
-    if (unchanged) copy = spare.copy;
-    else await spare.copy.close();
-  }
-  copy ??= await cloneDatabase(client, kind);
-  const kept = copy;
-  const own = await walPosition(kept.client);
-  return {
-    db: kept.db,
-    // After the TypeScript side ran: keep the copy for the next write if
-    // TypeScript left it as it was; the next write checks the source.
-    done: async () => {
-      const after = await walPosition(kept.client);
-      if (source !== null && own !== null && after === own && !inTransaction(kept.client)) {
-        spareCopies.set(client, { copy: kept, source, own });
-      } else {
-        await kept.close();
-      }
-    },
-  };
-}
-
-/** The copy of the master database the TypeScript side of a write runs on, while it runs. */
+/** The master database the TypeScript side of a write runs on, while it runs. */
 let masterForTypeScript: Database | undefined;
 
 /**
@@ -777,21 +703,22 @@ let masterForTypeScript: Database | undefined;
  *
  * The master database is shared with the Rust server like the tenant one, so
  * a write would otherwise run on TypeScript after Rust already changed it. For
- * the TypeScript side of a write this is a copy taken before Rust ran; at
- * every other moment (and outside conformance mode) it is `db` itself.
+ * the TypeScript side of a write this is `db` in the transaction that side
+ * runs in, rolled back before Rust runs; at every other moment (and outside
+ * conformance mode) it is `db` itself.
  */
 export function conformanceMasterDb<T>(db: T): T {
   return (masterForTypeScript as T | undefined) ?? db;
 }
 
-/** The copy of the tenant database the TypeScript side of a write runs on, while it runs. */
+/** The tenant database the TypeScript side of a write runs on, while it runs. */
 let tenantForTypeScript: Database | undefined;
 
 /**
  * The tenant database a test's `getTenantDbForWorkspace` mock should hand out,
  * for a route that opens the workspace's database itself instead of taking
  * the context's: `getTenantDbForWorkspace: async () => conformanceTenantDb(tenant.db)`.
- * Like {@link conformanceMasterDb}: the copy the TypeScript side of a write
+ * Like {@link conformanceMasterDb}: the handle the TypeScript side of a write
  * runs on while it runs, `db` itself at every other moment.
  */
 export function conformanceTenantDb<T>(db: T): T {
@@ -1326,23 +1253,24 @@ async function runBoth(
     const ts = await typeScript(request.ctx.tenantDb);
     return { ...ts, ...(await rustRun()) };
   }
-  const copy = await copyForTypeScript(client, 'tenant');
+  // TypeScript first, in transactions on the databases that are rolled back
+  // once it ran (./pglite-rollback.ts), and on copy-on-write views of the
+  // buckets and KV, so it starts from the state Rust then starts from.
+  const tenant = await typeScriptSide(client, 'tenant');
   // The master database too, when the test has one: Rust writes the shared one.
   const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
-  let masterCopy: Awaited<ReturnType<typeof copyForTypeScript>> | undefined;
+  let master: Awaited<ReturnType<typeof typeScriptSide>> | undefined;
   let ts: Awaited<ReturnType<typeof typeScript>>;
   try {
-    masterCopy = masterClient ? await copyForTypeScript(masterClient, 'master') : undefined;
-    // TypeScript first, on the copies and on copy-on-write views of the
-    // buckets and KV, so it starts from the state Rust then starts from.
-    masterForTypeScript = masterCopy?.db;
-    tenantForTypeScript = copy.db;
-    ts = await typeScript(copy.db, isolatedEnv(request.env));
+    master = masterClient ? await typeScriptSide(masterClient, 'master') : undefined;
+    masterForTypeScript = master?.db;
+    tenantForTypeScript = tenant.db;
+    ts = await typeScript(tenant.db, isolatedEnv(request.env));
   } finally {
     masterForTypeScript = undefined;
     tenantForTypeScript = undefined;
-    await copy.done();
-    await masterCopy?.done();
+    await master?.close();
+    await tenant.close();
   }
   return { ...ts, ...(await rustRun()) };
 }

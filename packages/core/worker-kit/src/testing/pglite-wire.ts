@@ -21,6 +21,7 @@
  */
 
 import type { PGlite } from '@electric-sql/pglite';
+import { heldByTypeScript } from './pglite-rollback';
 
 /** Frontend message types of the extended query protocol, minus Sync. */
 const EXTENDED_QUERY = new Set(['P', 'B', 'D', 'E', 'C', 'H'].map((type) => type.codePointAt(0)));
@@ -66,9 +67,20 @@ export function wireCompatiblePglite(client: PGlite): PGlite {
     const reply = withoutReadyForQuery(concat(chunks));
     if (reply.length > 0) onRawData(reply);
   };
+  // While the TypeScript side of a write holds the database (./pglite-rollback.ts),
+  // Rust's queries wait outside pglite's lock (inside it they would block the
+  // TypeScript side), and its transaction is none of a closing connection's
+  // business: pglite-socket rolls back what it takes for that connection's.
+  const runExclusive = async <T>(work: () => Promise<T>): Promise<T> => {
+    for (let hold = heldByTypeScript(client); hold; hold = heldByTypeScript(client)) await hold;
+    return client.runExclusive(work);
+  };
+  const isInTransaction = () => !heldByTypeScript(client) && client.isInTransaction();
   return new Proxy(client, {
     get(target, property) {
       if (property === 'execProtocolRawStream') return execProtocolRawStream;
+      if (property === 'runExclusive') return runExclusive;
+      if (property === 'isInTransaction') return isInTransaction;
       // Methods run on the real client: PGlite keeps private state.
       const value: unknown = Reflect.get(target, property, target);
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
