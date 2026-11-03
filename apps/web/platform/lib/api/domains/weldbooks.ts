@@ -1051,6 +1051,7 @@ export const accountingApi = {
   rematchDocument: (id: string) => weldbooksApi.post<ApiResponse<{ id: string; matchedContactId: string | null }>>(`/accounting-documents/${id}/rematch`),
   linkDocument: (id: string, data: { linkedEntityType: string; linkedEntityId: string }) => weldbooksApi.patch<ApiResponse<unknown>>(`/accounting-documents/${id}/link`, data),
   rejectDocument: (id: string) => weldbooksApi.patch<ApiResponse<unknown>>(`/accounting-documents/${id}/reject`),
+  deleteDocument: (id: string) => weldbooksApi.delete<unknown>(`/accounting-documents/${id}`),
   getDocumentStats: () => weldbooksApi.get<ApiResponse<Array<{ status: string; count: number }>>>('/accounting-documents/stats'),
 
   // Recurring Invoices

@@ -2883,6 +2883,7 @@ export const accounting = {
       groupProcessed: 'Verwerkt',
       groupLinked: 'Gekoppeld',
       groupRejected: 'Afgewezen',
+      groupFailed: 'Mislukt',
       groupOther: 'Overig',
       ocrSupplier: 'Leverancier',
       ocrMatched: 'Gevonden',
@@ -2925,6 +2926,15 @@ export const accounting = {
       viewOcrResult: 'OCR-resultaat bekijken',
       acceptedFormatsLabel: 'JPG, PNG, WEBP',
       ocrVatLine: 'BTW {rate}% over {amount}',
+      retryProcessing: 'Opnieuw scannen',
+      openFile: 'Bestand openen',
+      enterManually: 'Handmatig invoeren',
+      deleteDocument: 'Document verwijderen',
+      deleteConfirmTitle: 'Dit document verwijderen?',
+      deleteConfirmDescription: '{name} wordt uit de inbox verwijderd. Een factuur die ervan is gemaakt, behoudt haar gegevens.',
+      deleting: 'Verwijderen…',
+      failedHint: 'Dit document kon niet worden gescand. Scan het opnieuw, of voer de factuur handmatig in.',
+      insufficientCredits: 'Niet genoeg AI-credits om dit document te scannen. Vul credits aan en probeer opnieuw, of voer het handmatig in.',
     },
 
     // Entities page

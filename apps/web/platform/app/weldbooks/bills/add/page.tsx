@@ -26,6 +26,9 @@ export default function AddBillPage() {
     queryKey: ['accounting', 'bills', 'from-document', fromDocument],
     queryFn: () => accountingApi.getBillFromDocument(fromDocument!),
     enabled: !!fromDocument,
+    // A document whose scan failed has nothing to pre-fill (400): open the
+    // empty form at once; the bill is still linked to the document on save.
+    retry: false,
   });
 
   const handleSubmit = (data: BillPayload) => {
