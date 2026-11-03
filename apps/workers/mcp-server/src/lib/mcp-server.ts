@@ -8,13 +8,16 @@ import { allTools, toolError } from '../tools/registry';
 import {
   loadUserAppTools,
   userAppInputShape,
+  userAppToolMethod,
   executeUserAppTool,
 } from '../tools/user-apps';
 import {
   loadCustomObjectTools,
   buildCustomObjectTools,
+  customObjectToolMethod,
   executeCustomObjectTool,
 } from '../tools/custom-objects';
+import { annotationsFor, toolTitle } from './tool-annotations';
 
 /** Scope gating user-created WeldApp agent tools (and app storage access). */
 const USER_APPS_SCOPE = 'user-apps:manage';
@@ -134,15 +137,25 @@ export async function createMcpServer(
     if (!canUseScope(grantsOf(session), tool.scope)) continue;
     registeredNames.add(tool.name);
 
-    server.tool(tool.name, tool.description, tool.inputSchema, async (args) => {
-      try {
-        return await executeTool(tool, args as Record<string, unknown>, session, env, executionCtx);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-        console.error(`[MCP Tool] ${tool.name} error:`, error);
-        return toolError(message);
-      }
-    });
+    const title = toolTitle(tool.name);
+    server.registerTool(
+      tool.name,
+      {
+        title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: annotationsFor(tool.method, title, tool.annotations),
+      },
+      async (args) => {
+        try {
+          return await executeTool(tool, args as Record<string, unknown>, session, env, executionCtx);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+          console.error(`[MCP Tool] ${tool.name} error:`, error);
+          return toolError(message);
+        }
+      },
+    );
   }
 
   // Agent feedback (Clerk's `submit_feedback`): an agent that finds a tool
@@ -177,10 +190,15 @@ export async function createMcpServer(
       const toolName = uniqueToolName(baseName, registeredNames);
       registeredNames.add(toolName);
 
-      server.tool(
+      const title = `${appTool.appName}: ${toolTitle(appTool.name)}`;
+      server.registerTool(
         toolName,
-        `[${appTool.appName}] ${appTool.description}`,
-        userAppInputShape(appTool.parameters),
+        {
+          title,
+          description: `[${appTool.appName}] ${appTool.description}`,
+          inputSchema: userAppInputShape(appTool.parameters),
+          annotations: annotationsFor(userAppToolMethod(appTool), title),
+        },
         async (args) => {
           try {
             return await executeUserAppTool(
@@ -215,10 +233,15 @@ export async function createMcpServer(
         const toolName = uniqueToolName(objectTool.name, registeredNames);
         registeredNames.add(toolName);
 
-        server.tool(
+        const title = toolTitle(objectTool.name);
+        server.registerTool(
           toolName,
-          objectTool.description,
-          objectTool.inputSchema,
+          {
+            title,
+            description: objectTool.description,
+            inputSchema: objectTool.inputSchema,
+            annotations: annotationsFor(customObjectToolMethod(objectTool), title),
+          },
           async (args) => {
             try {
               return await executeCustomObjectTool(
