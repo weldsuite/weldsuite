@@ -25,6 +25,12 @@ export const theme = {
     accent: '#09090b',
     onAccent: '#ffffff',
   },
+  /** Traffic-light colors of a status word (status reports). Text color only, never a panel. */
+  status: {
+    green: '#15803d',
+    amber: '#b45309',
+    red: '#b91c1c',
+  },
   font: {
     family:
       "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, 'Helvetica Neue', Arial, sans-serif",

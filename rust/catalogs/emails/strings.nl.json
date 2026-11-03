@@ -235,6 +235,19 @@
     "useCode": "Vul deze code in om in te loggen:",
     "useLink": "Of vul deze code in:"
   },
+  "portalInvite": {
+    "body": "In het projectportaal van {workspace} volgt u de voortgang van dit project, leest u de statusrapporten en keurt u goed wat uw beslissing vraagt.",
+    "footer": "Deze uitnodiging is verstuurd namens {workspace}. Verwachtte u hem niet? Dan kunt u deze e-mail negeren.",
+    "greeting": "Goedendag {name},",
+    "greetingNoName": "Goedendag,",
+    "kicker": "{inviter} heeft u uitgenodigd om een project te volgen",
+    "kickerNoInviter": "U bent uitgenodigd om een project te volgen",
+    "open": "Het projectportaal openen",
+    "preview": "{inviter} heeft u uitgenodigd om {project} te volgen.",
+    "previewNoInviter": "U bent uitgenodigd om {project} te volgen.",
+    "signIn": "U hebt geen wachtwoord nodig. Open het portaal en vul dit e-mailadres in: u krijgt dan een eenmalige code om in te loggen.",
+    "subject": "U bent uitgenodigd om {project} te volgen"
+  },
   "reachApproved": {
     "body": "We hebben {workspace} goedgekeurd voor WeldReach. Open WeldReach om je afzendergegevens in te vullen, een betaalmethode voor inboxen toe te voegen en je eerste domein te koppelen.",
     "greeting": "Hoi {name},",
@@ -314,6 +327,22 @@
       "reason": "De reden",
       "subject": "\"{title}\" is ingetrokken"
     }
+  },
+  "statusReport": {
+    "footer": "U ontvangt deze e-mail omdat u {project} volgt.",
+    "intro": "Goedendag {name}, hierbij het laatste statusrapport.",
+    "introNoName": "Hierbij het laatste statusrapport.",
+    "kicker": "Statusrapport · {period}",
+    "preview": "{project}: {status}. Statusrapport over {period}.",
+    "publishedBy": "Gepubliceerd door {name}.",
+    "status": {
+      "amber": "In gevaar",
+      "green": "Op schema",
+      "red": "Achter op schema"
+    },
+    "statusLabel": "Algemene status",
+    "subject": "Statusrapport: {project}, {period} ({status})",
+    "view": "Het volledige rapport bekijken"
   },
   "task": {
     "due": "Deadline",
