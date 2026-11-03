@@ -58,6 +58,10 @@ export interface MeetingToolsPanelProps {
    * surrounding panel shows that in its own header (MeetingRightPanel does).
    */
   showToolHeader?: boolean;
+  /** List just these tools; a phone call only offers what works without a meeting. All when omitted. */
+  onlyTools?: MeetingToolKey[];
+  /** Show the Record row. Off where recording is not a tool, such as a phone call. */
+  showRecord?: boolean;
 }
 
 interface ToolItem {
@@ -232,6 +236,8 @@ export function MeetingToolsPanel({
   tools,
   labels: labelsProp,
   showToolHeader = true,
+  onlyTools,
+  showRecord = true,
 }: Readonly<MeetingToolsPanelProps>) {
   const labels = labelsProp ?? tools?.labels ?? DEFAULT_MEETING_TOOLS_LABELS;
   // Standalone (no controller) the panel keeps track of the open tool itself.
@@ -265,7 +271,7 @@ export function MeetingToolsPanel({
     );
   }
 
-  const hasRecording = recordingAvailable && (startRecording || stopRecording);
+  const hasRecording = showRecord && recordingAvailable && (startRecording || stopRecording);
   const recordTool = hasRecording
     ? buildRecordTool({
         isRecording,
@@ -288,12 +294,13 @@ export function MeetingToolsPanel({
       onClick: tools ? () => setActiveTool(key) : undefined,
     };
   };
-  const listed = (keys: MeetingToolKey[]) => keys.filter((key) => isToolListed(key, tools)).map(toToolItem);
+  const listed = (keys: MeetingToolKey[]) =>
+    keys.filter((key) => isToolListed(key, tools) && (!onlyTools || onlyTools.includes(key))).map(toToolItem);
 
   const items: ToolItem[] = [
     ...listed(TOOL_ORDER_BEFORE_RECORD),
     // Recording is the host's call: everyone else sees the row, but cannot use it.
-    ...(recordTool
+    ...(recordTool || !showRecord
       ? []
       : [{ key: 'record', label: 'Record', description: 'Capture the meeting', icon: Circle, badge: labels.hostOnly }]),
     ...listed(TOOL_ORDER_AFTER_RECORD),

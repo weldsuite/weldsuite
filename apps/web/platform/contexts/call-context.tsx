@@ -36,7 +36,17 @@ type TelnyxCall = {
   dtmf: (digits: string) => void;
   state: string;
   id: string;
+  localStream?: MediaStream;
+  remoteStream?: MediaStream;
 };
+
+/** The live call's audio, for level meters; both are null until the call has media. */
+interface CallStreams {
+  local: MediaStream | null;
+  remote: MediaStream | null;
+}
+
+const NO_STREAMS: CallStreams = { local: null, remote: null };
 
 type CallStatus = 'idle' | 'dialing' | 'ringing' | 'connected' | 'ended' | 'failed';
 
@@ -61,6 +71,7 @@ interface CallContextType {
   isDialerOpen: boolean;
   setIsDialerOpen: (open: boolean) => void;
   callState: CallState | null;
+  callStreams: CallStreams;
   startCall: (params: {
     toNumber: string;
     fromNumber: string;
@@ -113,6 +124,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isDialerOpen, setIsDialerOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [callState, setCallState] = useState<CallState | null>(null);
+  const [callStreams, setCallStreams] = useState<CallStreams>(NO_STREAMS);
   const [phoneNumbers, setPhoneNumbers] = useState<{ id: string; phoneNumber: string; formattedNumber?: string; displayName?: string; isDefault?: boolean }[]>([]);
   const [voipConfigured, setVoipConfigured] = useState(false);
   const [voiceToken, setVoiceToken] = useState<string | null>(null);
@@ -298,10 +310,16 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
           const state = notification.call?.state;
 
           // Attach remote audio stream when available
-          const remoteStream = notification.call?.remoteStream;
+          const remoteStream = notification.call?.remoteStream ?? call.remoteStream;
           if (remoteStream && remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = remoteStream;
             remoteAudioRef.current.play().catch(() => {});
+          }
+          if (remoteStream) {
+            const local = call.localStream ?? null;
+            setCallStreams(prev =>
+              prev.remote === remoteStream && prev.local === local ? prev : { local, remote: remoteStream }
+            );
           }
 
           switch (state) {
@@ -328,6 +346,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
                 durationInterval.current = null;
               }
               setCallState(prev => prev ? { ...prev, status: 'ended' } : null);
+              setCallStreams(NO_STREAMS);
               activeCall.current = null;
               telnyxClient.current?.off('telnyx.notification', handleNotification);
               setTimeout(() => {
@@ -378,6 +397,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
       activeCall.current = null;
     }
 
+    setCallStreams(NO_STREAMS);
     setCallState(prev => prev ? { ...prev, status: 'ended' } : null);
     setTimeout(() => {
       setCallState(null);
@@ -386,6 +406,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, []);
 
   const dismissCall = useCallback(() => {
+    setCallStreams(NO_STREAMS);
     setCallState(null);
     setIsMinimized(false);
   }, []);
@@ -428,6 +449,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
       isDialerOpen,
       setIsDialerOpen,
       callState,
+      callStreams,
       startCall,
       endCall,
       dismissCall,
@@ -449,7 +471,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
       setInitialDialerNumber,
     }),
     [
-      isDialerOpen, setIsDialerOpen, callState, startCall, endCall, dismissCall, toggleMute,
+      isDialerOpen, setIsDialerOpen, callState, callStreams, startCall, endCall, dismissCall, toggleMute,
       toggleHold, sendDigits, isMinimized, setIsMinimized, phoneNumbers, setPhoneNumbers,
       voipConfigured, setVoipConfigured, voiceToken, setVoiceToken, initializeVoip, resetVoip,
       isVoipReady, initialDialerNumber, setInitialDialerNumber,

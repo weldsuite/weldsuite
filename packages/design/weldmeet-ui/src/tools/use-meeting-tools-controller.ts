@@ -64,6 +64,8 @@ export function unavailableTools(meeting: MeetingClient | null): ReadonlySet<Mee
 
 interface ControllerOptions {
   meeting: MeetingClient | null;
+  /** No meeting connection (a phone call): the tools run for this viewer only. */
+  local?: boolean;
   participants: MeetingPeer[];
   isOrganizer: boolean;
   meetingTitle?: string;
@@ -109,12 +111,12 @@ function playTimerEndSound(): void {
  * Wires the meeting tools to one meeting: shared state, RealtimeKit polls /
  * transcript / livestream, caption translation and the notifications people
  * get when something happens while the panel is closed. Null until a meeting
- * client exists.
+ * client exists, unless `local` is set.
  */
 export function useMeetingToolsController(options: ControllerOptions): MeetingToolsController | null {
   const { meeting, participants, isOrganizer, meetingTitle, panelOpen, onOpenPanel } = options;
   const labels = options.labels ?? DEFAULT_MEETING_TOOLS_LABELS;
-  const store = useMeetingToolsStore(meeting);
+  const store = useMeetingToolsStore(meeting, options.local);
   const state = useMeetingToolsState(store);
   const [activeTool, setActiveTool] = useState<MeetingToolKey | null>(null);
 

@@ -33,6 +33,14 @@ export { PersonAvatar, type PersonAvatarProps } from './components/person-avatar
 export { ParticipantContextMenu, type ParticipantContextMenuProps } from './components/participant-context-menu';
 export { CallControlsBar, type CallControlsBarProps, type CallControlsDeviceSource } from './components/call-controls-bar';
 export {
+  CALL_CONTROLS_BAR_CLASSES,
+  CallTooltip,
+  IconHighlight,
+  OFF_STATE_CLASSES,
+  DISABLED_CONTROL_CLASSES,
+  type HighlightTone,
+} from './components/call-control-primitives';
+export {
   PermissionHelp,
   DEFAULT_PERMISSION_HELP_LABELS,
   type PermissionHelpLabels,
@@ -40,8 +48,8 @@ export {
 } from './components/permission-help';
 export { MeetingRoomView } from './components/meeting-room-view';
 export { MeetingHeader } from './components/meeting-header';
-export { MeetingRightPanel, type RightPanelKind } from './components/meeting-right-panel';
-export { MeetingToolsPanel, type MeetingToolsPanelProps } from './components/meeting-tools-panel';
+export { MeetingRightPanel, MeetingSidePanel, type RightPanelKind } from './components/meeting-right-panel';
+export { MeetingToolsPanel, toolTitle, type MeetingToolsPanelProps } from './components/meeting-tools-panel';
 export { ShareLinkCard } from './components/share-link-card';
 
 // Meeting tools (timer, polls, Q&A, breakout rooms, transcript, translation, live stream)

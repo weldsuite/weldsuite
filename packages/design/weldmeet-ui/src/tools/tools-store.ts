@@ -763,3 +763,15 @@ export function getMeetingToolsStore(meeting: MeetingClient): MeetingToolsStore 
   }
   return store;
 }
+
+// Every part of the client is optional to the store (see the constructor and
+// `send`), so a client with nothing in it is a store without a channel.
+const NO_CHANNEL = {} as MeetingClient;
+
+/**
+ * Tools for a call without a meeting connection, such as a phone call: they
+ * work for this viewer only and nothing is shared.
+ */
+export function createLocalMeetingToolsStore(): MeetingToolsStore {
+  return new MeetingToolsStore(NO_CHANNEL);
+}
