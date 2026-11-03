@@ -159,6 +159,8 @@ export function createWeldPassPasswordsApi(api: ClientApi) {
     createVault(body: {
       name: string;
       description?: string | null;
+      /** Teammates who get access straight away; the creator is the first manager. */
+      members?: { userId: string; role: WeldPassVaultRole }[];
     }): Promise<DataResponse<WeldPassVault>> {
       return api.post(`${base}/vaults`, body);
     },

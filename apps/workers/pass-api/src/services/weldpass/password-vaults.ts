@@ -385,6 +385,21 @@ export async function listTeammates(db: Database): Promise<Teammate[]> {
     .orderBy(asc(workspaceMembers.name), asc(workspaceMembers.email));
 }
 
+/**
+ * The first of `userIds` that is not a teammate a vault can be shared with, or
+ * null when all of them are. A new vault checks its first members with this
+ * before it is created, so a bad id leaves nothing half-made behind.
+ */
+export async function firstNonTeammate(db: Database, userIds: string[]): Promise<string | null> {
+  if (userIds.length === 0) return null;
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(inArray(workspaceMembers.userId, userIds), shareable));
+  const found = new Set(rows.map((row) => row.userId));
+  return userIds.find((userId) => !found.has(userId)) ?? null;
+}
+
 export async function listVaultMembers(db: Database, vaultId: string): Promise<VaultMember[]> {
   return db
     .select({

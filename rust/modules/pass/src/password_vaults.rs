@@ -383,6 +383,25 @@ pub(crate) async fn list_teammates(db: &PgPool) -> PassResult<Vec<Value>> {
     .await?)
 }
 
+/// `firstNonTeammate`: the first of `user_ids` a vault cannot be shared
+/// with, or `None` when all of them are teammates.
+pub(crate) async fn first_non_teammate(
+    db: &PgPool,
+    user_ids: &[String],
+) -> PassResult<Option<String>> {
+    if user_ids.is_empty() {
+        return Ok(None);
+    }
+    let found: Vec<String> = sqlx::query_scalar(
+        "select user_id from workspace_members where user_id = any($1) and status = 'ACTIVE' \
+         and member_type = 'INTERNAL' and deleted_at is null",
+    )
+    .bind(user_ids)
+    .fetch_all(db)
+    .await?;
+    Ok(user_ids.iter().find(|id| !found.contains(id)).cloned())
+}
+
 /// `listVaultMembers`: by name, then when they joined.
 pub(crate) async fn list_vault_members(db: &PgPool, vault_id: &str) -> PassResult<Vec<Value>> {
     let rows: Vec<Value> = sqlx::query_scalar(
