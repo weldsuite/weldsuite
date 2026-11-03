@@ -32,6 +32,7 @@ import {
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationNamespaces } from '@/lib/i18n';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { UserAppConsentDialog } from '@/components/weldapps/user-app-consent-dialog';
 import {
@@ -58,6 +59,21 @@ function formatBytes(bytes?: number | null): string {
     unitIndex += 1;
   }
   return `${value.toFixed(value < 10 && unitIndex > 0 ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+/**
+ * A version's status in the developer's words. The API's `published` only
+ * means "the bundle installs run" (a private draft app publishes every
+ * upload), so it reads as Current, not as live in the public store.
+ */
+function versionStatusLabel(status: string, wa: TranslationNamespaces['weldapps']): string {
+  switch (status) {
+    case 'published': return wa.versions.statusCurrent;
+    case 'superseded': return wa.versions.statusPrevious;
+    case 'draft': return wa.versions.statusAwaitingReview;
+    case 'rejected': return wa.versions.statusRejected;
+    default: return status;
+  }
 }
 
 function AppStatusBadges({ app }: Readonly<{ app: UserApp }>) {
@@ -175,7 +191,7 @@ function AppVersionsSection({
           {versions.map((v) => (
             <TableRow key={v.version}>
               <TableCell className="font-medium">{v.version}</TableCell>
-              <TableCell className="capitalize">{v.status}</TableCell>
+              <TableCell>{versionStatusLabel(v.status, wa)}</TableCell>
               <TableCell>{formatBytes(v.bundleSize)}</TableCell>
               <TableCell className="tabular-nums">{new Date(v.createdAt).toLocaleDateString()}</TableCell>
             </TableRow>
@@ -358,7 +374,12 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
                   </Button>
                 ) : (
                   canManage && (
-                    <Button size="sm" onClick={() => setInstallConsentOpen(true)}>
+                    <Button
+                      size="sm"
+                      onClick={() => setInstallConsentOpen(true)}
+                      disabled={!app.currentVersionId}
+                      aria-describedby={app.currentVersionId ? undefined : 'install-needs-version'}
+                    >
                       {wa.manage.installInWorkspace}
                     </Button>
                   )
@@ -369,6 +390,11 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
                   </Button>
                 )}
               </div>
+              {!isInstalledHere && canManage && !app.currentVersionId && (
+                <p id="install-needs-version" className="-mt-4 text-xs text-muted-foreground">
+                  {wa.manage.installNeedsVersion}
+                </p>
+              )}
 
               <AppListingSection app={app} />
 
@@ -403,7 +429,12 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
 
       {app && (
         <>
-          <UploadVersionDialog open={uploadOpen} onOpenChange={setUploadOpen} app={app} />
+          <UploadVersionDialog
+            open={uploadOpen}
+            onOpenChange={setUploadOpen}
+            app={app}
+            existingVersions={versions?.map((v) => v.version) ?? []}
+          />
 
           <Dialog open={submitOpen} onOpenChange={submitMutation.isPending ? undefined : setSubmitOpen}>
             <DialogContent className="sm:max-w-md">

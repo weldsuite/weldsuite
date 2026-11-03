@@ -15,38 +15,19 @@ import { Label } from '@weldsuite/ui/components/label';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useUploadUserAppVersion, type UserApp } from '@/hooks/queries/use-user-apps-queries';
+import { buildManifestTemplate, manifestErrorDetails } from './upload-version-helpers';
 
 interface UploadVersionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   app: UserApp;
+  /** Every version number uploaded so far, so the template suggests the next free one. */
+  existingVersions: readonly string[];
 }
 
 /** A `File` picked via a `webkitdirectory` input also carries this. */
 interface FileWithRelativePath extends File {
   webkitRelativePath: string;
-}
-
-function bumpPatch(version: string): string {
-  const parts = version.split('.').map((p) => Number.parseInt(p, 10));
-  if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return '0.0.1';
-  return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
-}
-
-function buildManifestTemplate(app: UserApp): string {
-  const lastManifest = (app.manifest ?? {}) as Record<string, unknown>;
-  const lastVersion = typeof lastManifest.version === 'string' ? lastManifest.version : '0.0.0';
-  const scopes = Array.isArray(lastManifest.scopes) ? lastManifest.scopes : app.requestedScopes;
-  return JSON.stringify(
-    {
-      code: app.code,
-      name: app.name,
-      version: bumpPatch(lastVersion),
-      scopes,
-    },
-    null,
-    2,
-  );
 }
 
 /** Strips the top-level picked folder from a `webkitRelativePath` (e.g. `my-app/dist/index.html` -> `dist/index.html`). */
@@ -65,15 +46,24 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   directory?: string;
 };
 
-export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<UploadVersionDialogProps>) {
+export function UploadVersionDialog({ open, onOpenChange, app, existingVersions }: Readonly<UploadVersionDialogProps>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [manifestText, setManifestText] = useState(() => buildManifestTemplate(app));
+  const [manifestText, setManifestText] = useState(() => buildManifestTemplate(app, existingVersions));
   const [changelog, setChangelog] = useState('');
   const [manifestFromFile, setManifestFromFile] = useState(false);
   const uploadMutation = useUploadUserAppVersion();
+
+  // Rebuild the template each time the dialog opens: the app and its versions
+  // have usually been refetched since the last upload, and a template from
+  // then suggests a version number that now exists.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setManifestText(buildManifestTemplate(app, existingVersions));
+  }
 
   const handleFilesPicked = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -106,7 +96,6 @@ export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<Upload
     setFiles([]);
     setChangelog('');
     setManifestFromFile(false);
-    setManifestText(buildManifestTemplate(app));
     if (inputRef.current) inputRef.current.value = '';
   };
 
@@ -141,7 +130,12 @@ export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<Upload
       toast.success(wa.uploadDialog.uploadSuccess);
       handleClose(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : wa.uploadDialog.uploadError);
+      const details = manifestErrorDetails(error);
+      if (details) {
+        toast.error(format(wa.uploadDialog.invalidManifestDetails, { details }));
+      } else {
+        toast.error(error instanceof Error ? error.message : wa.uploadDialog.uploadError);
+      }
     }
   };
 
