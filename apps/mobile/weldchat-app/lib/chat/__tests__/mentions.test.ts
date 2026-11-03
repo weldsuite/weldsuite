@@ -1,9 +1,13 @@
 import {
   detectMentionQuery,
+  fileTokenId,
+  fileTokenIds,
   insertMention,
   isAgentId,
   mentionLabel,
   mentionsToPlainText,
+  splitInlineFiles,
+  stripFileTokens,
 } from '../mentions';
 
 describe('detectMentionQuery', () => {
@@ -53,5 +57,53 @@ describe('isAgentId', () => {
     expect(isAgentId('agt_123')).toBe(true);
     expect(isAgentId('user_1')).toBe(false);
     expect(isAgentId('')).toBe(false);
+  });
+});
+
+describe('inline file tokens', () => {
+  const members = new Map([['user_1', 'Rananjay']]);
+
+  it('reads the attachment id of a file token and nothing else', () => {
+    expect(fileTokenId('file:att_1')).toBe('att_1');
+    expect(fileTokenId('file:')).toBeNull();
+    expect(fileTokenId('user_1')).toBeNull();
+    expect(fileTokenId('user_2:Ganesh')).toBeNull();
+    expect(fileTokenId('ticket:tkt_1|Broken')).toBeNull();
+  });
+
+  it('lists the inline attachment ids in order, once each', () => {
+    expect(fileTokenIds('a <@file:att_2> b <@user_1> <@file:att_1> <@file:att_2>')).toEqual([
+      'att_2',
+      'att_1',
+    ]);
+    expect(fileTokenIds('no files <@user_1>')).toEqual([]);
+  });
+
+  it('drops file tokens from one-line previews instead of showing an @att badge', () => {
+    expect(mentionsToPlainText('look <@file:att_1> here <@user_1>', members)).toBe('look  here @Rananjay');
+    expect(stripFileTokens('see <@file:att_1><@user_1>')).toBe('see <@user_1>');
+  });
+
+  it('splits the body at inline files it has, dropping the line breaks around them', () => {
+    expect(splitInlineFiles('before\n<@file:att_1>\nafter <@user_1>', new Set(['att_1']))).toEqual([
+      { kind: 'text', text: 'before' },
+      { kind: 'file', attachmentId: 'att_1' },
+      { kind: 'text', text: 'after <@user_1>' },
+    ]);
+    expect(splitInlineFiles('<@file:att_1><@file:att_2>', new Set(['att_1', 'att_2']))).toEqual([
+      { kind: 'file', attachmentId: 'att_1' },
+      { kind: 'file', attachmentId: 'att_2' },
+    ]);
+  });
+
+  it('renders nothing for a token whose attachment is missing', () => {
+    expect(splitInlineFiles('one <@file:gone> two', new Set())).toEqual([{ kind: 'text', text: 'one  two' }]);
+    expect(splitInlineFiles('<@file:gone>', new Set())).toEqual([]);
+  });
+
+  it('keeps a plain message as one text block', () => {
+    expect(splitInlineFiles('hi <@user_1>\nthere', new Set(['att_1']))).toEqual([
+      { kind: 'text', text: 'hi <@user_1>\nthere' },
+    ]);
   });
 });

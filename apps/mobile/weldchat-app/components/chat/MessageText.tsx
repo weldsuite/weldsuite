@@ -1,8 +1,8 @@
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { Colors } from '@weldsuite/mobile-ui/constants/theme';
 
 import type { ThemeColors } from '@/lib/theme-colors';
-import { mentionLabel, mentionTokenRegex } from '@/lib/chat/mentions';
+import { mentionLabel, mentionTokenRegex, splitInlineFiles } from '@/lib/chat/mentions';
 import { findLinks } from '@/lib/chat/links';
 import { openExternalUrl } from '@/utils/safe-url';
 
@@ -38,8 +38,43 @@ function renderLinks(text: string, keyPrefix: string, colors: ThemeColors): Reac
   return parts;
 }
 
-/** Render message text with `<@userId>` tokens as mention badges and links as links. */
-export function renderMessageText(content: string, members: Map<string, string>, colors: ThemeColors) {
+/** The message's own attachments, for the `<@file:…>` tokens placed in its text. */
+export interface InlineAttachments<T extends { id: string }> {
+  attachments: readonly T[];
+  render: (attachment: T) => React.ReactNode;
+}
+
+/**
+ * Render message text with `<@userId>` tokens as mention badges and links as
+ * links. An inline `<@file:…>` token shows its attachment at that spot (when
+ * `inline` has it) and is otherwise left out.
+ */
+export function renderMessageText<T extends { id: string }>(
+  content: string,
+  members: Map<string, string>,
+  colors: ThemeColors,
+  inline?: InlineAttachments<T>,
+) {
+  const byId = new Map((inline?.attachments ?? []).map((att) => [att.id, att]));
+  const blocks = splitInlineFiles(content, new Set(byId.keys()));
+  if (blocks.length === 1 && blocks[0].kind === 'text') {
+    return renderTextRun(blocks[0].text, members, colors);
+  }
+  if (blocks.length === 0) return null;
+  return (
+    <View style={{ gap: 6 }}>
+      {blocks.map((block, i) => {
+        if (block.kind === 'text') {
+          return <View key={`t${i}`}>{renderTextRun(block.text, members, colors)}</View>;
+        }
+        const att = byId.get(block.attachmentId);
+        return att && inline ? <View key={`f${i}`}>{inline.render(att)}</View> : null;
+      })}
+    </View>
+  );
+}
+
+function renderTextRun(content: string, members: Map<string, string>, colors: ThemeColors) {
   const textStyle = { fontSize: 15, lineHeight: 22, color: colors.text };
   const mentionBadgeStyle = {
     fontSize: 14,

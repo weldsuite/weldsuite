@@ -16,6 +16,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 import { useI18n } from '@/lib/i18n';
+import { stripFileTokens } from '@/lib/chat/mentions';
 
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '🙏', '🔥'];
@@ -177,7 +178,7 @@ export function MessageActions({
         </Pressable>
 
         {/* Nothing to copy on a message that is only a file or a voice note. */}
-        {message?.content?.trim() ? (
+        {message?.content && stripFileTokens(message.content).trim() ? (
           <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onCopy(); dismiss(); }}>
             <Copy size={20} color={colors.text} />
             <Text style={styles.actionText}>{t.messageActions.copyText}</Text>
