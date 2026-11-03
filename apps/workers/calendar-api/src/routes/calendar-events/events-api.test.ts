@@ -313,6 +313,28 @@ describe('attendees', () => {
     expect(sentMails()[0].html).toContain('https://app.weldsuite.org/w/org_test_default/weldcalendar');
   });
 
+  it('an organizer who adds themselves gets their own copy, published rather than requested (TASK-1071)', async () => {
+    const userId = `user_self_${next()}`;
+    const selfEmail = `self_${next()}@acme.com`;
+    await db.insert(schema.workspaceMembers).values({
+      id: generateId('wm'),
+      userId,
+      email: selfEmail,
+      name: 'Self',
+    });
+    await createEvent(userId, {
+      attendees: [{ email: 'guest@example.com' }, { email: selfEmail }],
+    });
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    const byTo = Object.fromEntries(sentMails().map((m) => [m.to[0], m]));
+    expect(byTo['guest@example.com'].attachments[0].content).toContain('METHOD:REQUEST');
+    const own = byTo[selfEmail];
+    expect(own.subject).toBe('Invitation: Planning');
+    expect(own.attachments[0].content).toContain('METHOD:PUBLISH');
+    expect(own.attachments[0].content).not.toContain('ATTENDEE');
+    expect(await settle()).toHaveLength(2);
+  });
+
   it('rejects an invalid attendee email and ignores unknown keys', async () => {
     const userId = `user_att_bad_${next()}`;
     const calendarId = await seedCalendar(userId);
