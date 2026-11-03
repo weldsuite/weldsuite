@@ -12,12 +12,20 @@ import {
   Upload,
   FileSpreadsheet,
   Search,
-  X,
   Check,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  FilterAddButton,
+  FilterButton,
+  FilterMenuItem,
+  FilterPill,
+  FilterPillButton,
+  FilterPillDivider,
+  FilterPillLabel,
+  FilterPillRemove,
+} from '@weldsuite/ui/components/filter-button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,14 +41,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
@@ -146,11 +146,14 @@ export function GridToolbar({
           {/* Sort */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
-                {t('sweep.entities.sort')}
-                {sortConfig.field && (
-                  <span className="text-[11px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[18px] h-[18px] flex items-center justify-center rounded-[5px]">1</span>
+              <Button
+                variant="outline"
+                className={cn(
+                  "h-8 text-sm px-3 shadow-none text-muted-foreground",
+                  sortConfig.field && "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary dark:border-primary/40 dark:bg-primary/10 dark:hover:bg-primary/15",
                 )}
+              >
+                {t('sweep.entities.sort')}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
@@ -216,7 +219,6 @@ export function GridToolbar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
-              <div className="px-2 py-2 text-xs font-semibold text-muted-foreground">{t('sweep.entities.showHideFields')}</div>
               {columns.map((column) => (
                 <DropdownMenuItem
                   key={column.id}
@@ -373,6 +375,7 @@ function GridFilterPills<TEntity>({
   const [editingOperatorIndex, setEditingOperatorIndex] = useState<number | null>(null);
   const [editingValueIndex, setEditingValueIndex] = useState<number | null>(null);
   const [textInputValue, setTextInputValue] = useState('');
+  const [valueSearchQuery, setValueSearchQuery] = useState('');
 
   const getColumn = (fieldId: string) => columns.find((c) => c.id === fieldId);
 
@@ -480,19 +483,13 @@ function GridFilterPills<TEntity>({
     return `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
   };
 
+  // Built from the shared filter controls, like the entity-list FilterPills
+  // (WeldFlow My Tasks), so both filter rows look the same.
   let filterTrigger: React.ReactNode = null;
   if (filters.length > 0 && filters.length < maxFilters) {
-    filterTrigger = (
-      <Button variant="ghost" className="flex items-center justify-center h-[30px] w-[30px] shrink-0 border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
-        <Plus className="h-3.5 w-3.5" />
-      </Button>
-    );
+    filterTrigger = <FilterAddButton aria-label={t('sweep.entities.filter')} />;
   } else if (filters.length === 0) {
-    filterTrigger = (
-      <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
-        {t('sweep.entities.filter')}
-      </Button>
-    );
+    filterTrigger = <FilterButton>{t('sweep.entities.filter')}</FilterButton>;
   }
 
   return (
@@ -504,16 +501,10 @@ function GridFilterPills<TEntity>({
         const selectedValues = filterValueList(filter.value);
         const valueSummary = getValueSummary(filter);
         return (
-        <div
-          key={filter.id}
-          className="flex items-center h-[30px] shrink-0 bg-muted/50 rounded-md border border-border text-[13px]"
-        >
-          {/* Field name */}
-          <div className="flex items-center px-2 h-full">
-            <span className="text-muted-foreground whitespace-nowrap">{getColumnName(filter.field)}</span>
-          </div>
+        <FilterPill key={filter.id}>
+          <FilterPillLabel>{getColumnName(filter.field)}</FilterPillLabel>
 
-          <div className="h-full w-px bg-border" />
+          <FilterPillDivider />
 
           {/* Operator popover */}
           <Popover
@@ -521,21 +512,16 @@ function GridFilterPills<TEntity>({
             onOpenChange={(open) => setEditingOperatorIndex(open ? index : null)}
           >
             <PopoverTrigger asChild>
-              <Button variant="ghost" className={`px-2 h-full whitespace-nowrap hover:bg-muted transition-colors ${filter.operator ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+              <FilterPillButton empty={!filter.operator}>
                 {filter.operator ? getOperatorLabel(filter) : t('sweep.entities.selectCondition')}
-              </Button>
+              </FilterPillButton>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-auto min-w-28 p-1">
               {getFilterOperators(getColumn(filter.field)).map((operator) => (
-                <Button
-                  key={operator}
-                  variant="ghost"
-                  onClick={() => updateOperator(index, operator)}
-                  className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-                >
+                <FilterMenuItem key={operator} onClick={() => updateOperator(index, operator)}>
                   <span>{getOperatorLabels(t, selectOptions !== null)[operator]}</span>
-                  {filter.operator === operator && <Check className="h-3.5 w-3.5 text-primary ml-2" />}
-                </Button>
+                  {filter.operator === operator && <Check className="h-3.5 w-3.5 text-primary" />}
+                </FilterMenuItem>
               ))}
             </PopoverContent>
           </Popover>
@@ -543,115 +529,132 @@ function GridFilterPills<TEntity>({
           {/* Value popover (only for operators that need a value) */}
           {operatorNeedsValue(filter.operator) && (
             <>
-              <div className="h-full w-px bg-border" />
+              <FilterPillDivider />
               <Popover
                 open={editingValueIndex === index}
                 onOpenChange={(open) => {
                   setEditingValueIndex(open ? index : null);
                   if (open) setTextInputValue(filterValueList(filter.value)[0] ?? '');
+                  if (!open) setValueSearchQuery('');
                 }}
               >
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" className="flex items-center px-2 h-full whitespace-nowrap hover:bg-muted transition-colors">
-                    {valueSummary ? (
-                      <span className="text-foreground">{valueSummary}</span>
-                    ) : (
-                      <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
-                    )}
-                  </Button>
+                  <FilterPillButton empty={!valueSummary}>
+                    {valueSummary ??
+                      (selectOptions
+                        ? t('sweep.entities.selectFieldValue', { field: getColumnName(filter.field).toLowerCase() })
+                        : t('sweep.entities.enterValue'))}
+                  </FilterPillButton>
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto min-w-40 p-2">
+                <PopoverContent align="start" className={cn('w-auto min-w-40', selectOptions ? 'p-0' : 'p-1')}>
                   {selectOptions ? (
                     // Single/multi-select column — pick from its configured
                     // options instead of typing free text (a filter on e.g.
                     // Status would otherwise never match anything, since the
                     // stored value is the status slug, not what's displayed).
-                    <Command>
-                      <CommandInput placeholder={t('sweep.entities.searchEllipsisPlaceholder')} />
-                      <CommandList className="max-h-56">
-                        <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>
-                        <CommandGroup>
-                          {selectOptions.map((option) => {
+                    <>
+                      <div className="flex items-center gap-1.5 px-3 h-[36px] border-b border-border">
+                        <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0 -translate-y-[0.5px]" />
+                        <input
+                          autoFocus
+                          value={valueSearchQuery}
+                          onChange={(e) => setValueSearchQuery(e.target.value)}
+                          placeholder={t('sweep.entities.searchEllipsisPlaceholder')}
+                          className="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted-foreground"
+                        />
+                      </div>
+                      <div className="max-h-[200px] overflow-y-auto p-1">
+                        {(() => {
+                          const query = valueSearchQuery.toLowerCase();
+                          const matching = selectOptions.filter((option) =>
+                            getValueLabel(filter.field, option).toLowerCase().includes(query),
+                          );
+                          if (matching.length === 0) {
+                            return (
+                              <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                                {t('sweep.entities.noOptionFound')}
+                              </div>
+                            );
+                          }
+                          return matching.map((option) => {
                             const isSelected = selectedValues.includes(option);
                             return (
-                              <CommandItem
+                              <FilterMenuItem
                                 key={option}
-                                value={`${getValueLabel(filter.field, option)} ${option}`}
-                                onSelect={() => (isMulti ? toggleValue(index, option) : updateValue(index, option))}
+                                onClick={() => {
+                                  if (isMulti) {
+                                    toggleValue(index, option);
+                                  } else {
+                                    updateValue(index, option);
+                                    setValueSearchQuery('');
+                                  }
+                                }}
                               >
                                 <span>{getValueLabel(filter.field, option)}</span>
-                                {isMulti ? (
-                                  <Checkbox checked={isSelected} className="ml-auto" />
-                                ) : (
-                                  isSelected && <Check className="h-3.5 w-3.5 text-primary ml-auto" />
-                                )}
-                              </CommandItem>
+                                {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                              </FilterMenuItem>
                             );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
+                          });
+                        })()}
+                      </div>
+                    </>
                   ) : (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (textInputValue.trim()) {
-                          updateValue(index, textInputValue.trim());
-                        }
-                      }}
-                    >
-                      <Input
-                        autoFocus
-                        value={textInputValue}
-                        onChange={(e) => setTextInputValue(e.target.value)}
-                        placeholder={t('sweep.entities.enterValueEllipsis')}
-                        className="h-8 text-sm"
-                      />
-                      <Button type="submit" size="sm" className="w-full mt-2 h-7 text-xs">
-                        {t('sweep.entities.apply')}
-                      </Button>
-                    </form>
+                    <div className="p-2">
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (textInputValue.trim()) {
+                            updateValue(index, textInputValue.trim());
+                          }
+                        }}
+                      >
+                        <Input
+                          autoFocus
+                          value={textInputValue}
+                          onChange={(e) => setTextInputValue(e.target.value)}
+                          placeholder={t('sweep.entities.enterValueEllipsis')}
+                          className="h-8 text-sm shadow-none focus-visible:ring-0"
+                        />
+                        <Button type="submit" size="sm" className="w-full mt-2 h-8 text-sm">
+                          {t('sweep.entities.apply')}
+                        </Button>
+                      </form>
+                    </div>
                   )}
                 </PopoverContent>
               </Popover>
             </>
           )}
 
-          <div className="h-full w-px bg-border" />
+          <FilterPillDivider />
 
-          {/* Remove button */}
-          <Button
-            variant="ghost"
-            onClick={() => removeFilter(index)}
-            className="px-[7px] text-foreground hover:text-muted-foreground h-full"
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+          <FilterPillRemove onClick={() => removeFilter(index)} />
+        </FilterPill>
         );
       })}
 
-      {/* Add filter button */}
-      <DropdownMenu open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
-        <DropdownMenuTrigger asChild>
+      {/* Add filter: field picker (Filter / + button) */}
+      <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
+        <PopoverTrigger asChild>
           {filterTrigger}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
+        </PopoverTrigger>
+        <PopoverContent
           align="start"
-          // Focus moves into the new filter's own popover, not back to the trigger.
+          // No close animation: the trigger moves when a pill is added, and the
+          // closing popover would visibly follow it. Focus moves into the new
+          // filter's own popover, not back to the trigger.
+          className="w-56 max-h-[300px] overflow-y-auto p-1 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
           onCloseAutoFocus={(e) => e.preventDefault()}
-          className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent"
         >
           {columns
             .filter((col) => !col.isEnrichField)
             .map((col) => (
-              <DropdownMenuItem key={col.id} onClick={() => addFilter(col.id)}>
-                {col.icon && React.createElement(col.icon, { className: 'h-4 w-4' })}
-                <span>{col.name}</span>
-              </DropdownMenuItem>
+              <FilterMenuItem key={col.id} onClick={() => addFilter(col.id)}>
+                {col.name}
+              </FilterMenuItem>
             ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

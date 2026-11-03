@@ -52,6 +52,8 @@ export interface MultiSelectProps {
   className?: string
   /** Class for the popover content. */
   contentClassName?: string
+  /** Class for each selected-option chip in the trigger. */
+  chipClassName?: string
   id?: string
   "aria-label"?: string
   /**
@@ -81,6 +83,7 @@ export function MultiSelect({
   maxDisplay,
   className,
   contentClassName,
+  chipClassName,
   id,
   "aria-label": ariaLabel,
   modal = false,
@@ -155,7 +158,7 @@ export function MultiSelect({
                   <Badge
                     key={v}
                     variant="secondary"
-                    className="gap-1 pr-1 font-normal"
+                    className={cn("gap-1 pr-1 font-normal", chipClassName)}
                   >
                     {option?.icon}
                     {option?.label ?? v}
@@ -173,7 +176,7 @@ export function MultiSelect({
                 )
               })}
               {overflowCount > 0 && (
-                <Badge variant="secondary" className="font-normal">
+                <Badge variant="secondary" className={cn("font-normal", chipClassName)}>
                   +{overflowCount}
                 </Badge>
               )}

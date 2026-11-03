@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@weldsuite/ui/components/table";
 import { Button } from "@weldsuite/ui/components/button";
+import { FilterButton } from "@weldsuite/ui/components/filter-button";
 import { Input } from "@weldsuite/ui/components/input";
 import {
   DropdownMenu,
@@ -653,14 +654,12 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
           {statusFilters.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 flex-shrink-0">
+                <FilterButton
+                  count={(statusFilter !== 'all' ? 1 : 0) + Object.values(additionalFilterValues).filter(Boolean).length}
+                  className="flex-shrink-0"
+                >
                   {t('sweep.entities.filter')}
-                  {(statusFilter !== 'all' || hasActiveFilters) && (
-                    <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-primary text-primary-foreground rounded">
-                      {(statusFilter !== 'all' ? 1 : 0) + Object.values(additionalFilterValues).filter(Boolean).length}
-                    </span>
-                  )}
-                </Button>
+                </FilterButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
                 <DropdownMenuLabel className="text-xs">{t('sweep.entities.fieldStatus')}</DropdownMenuLabel>
