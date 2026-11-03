@@ -4380,7 +4380,10 @@ name = "weldsuite-connect-domain"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.4.3",
  "hex",
+ "hmac",
+ "http",
  "regex",
  "serde_json",
  "sha2 0.11.1",
@@ -4390,6 +4393,7 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "url",
+ "uuid",
  "weldsuite-books-domain",
  "weldsuite-db",
  "weldsuite-events",

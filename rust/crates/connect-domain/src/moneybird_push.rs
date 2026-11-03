@@ -369,3 +369,27 @@ pub async fn push_after_stripe_ingest(
 ) {
     let _ = (db, env, stripe_connection_id);
 }
+
+/// `MoneybirdPushResult`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PushResult {
+    pub invoices_pushed: u64,
+    pub statements_pushed: u64,
+    pub lines_booked: u64,
+    pub failed: u64,
+    pub remaining: bool,
+    pub skipped: Option<String>,
+}
+
+/// `pushToMoneybird({ connection, trigger, force })`: one push pass.
+#[allow(clippy::unused_async)] // the push pass is still to come
+pub async fn push_to_moneybird(
+    db: &PgPool,
+    env: &crate::sync::SyncEnv,
+    connection: &Value,
+    trigger: &str,
+    force: bool,
+) -> Result<PushResult, sqlx::Error> {
+    let _ = (db, env, connection, trigger, force);
+    Ok(PushResult::default())
+}

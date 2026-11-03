@@ -313,7 +313,7 @@ pub struct Woo {
 }
 
 /// `normalizeStoreUrl(url)`.
-fn normalize_store_url(url: &str) -> Result<String, ConnectorError> {
+pub(crate) fn normalize_store_url(url: &str) -> Result<String, ConnectorError> {
     let trimmed = weldsuite_kit::validation::js_trim(url);
     if trimmed.is_empty() {
         return Err(ConnectorError::new(

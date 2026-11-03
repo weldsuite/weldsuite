@@ -57,6 +57,35 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             post(test).route_layer(gate.require([perm::INTEGRATIONS_CREATE])),
         )
         .route("/connections/{id}", get(connection).route_layer(read()))
+        .route(
+            "/connections/{id}",
+            axum::routing::patch(crate::connector_auth::patch_connection).route_layer(update()),
+        )
+        .route(
+            "/connections/{id}",
+            axum::routing::delete(crate::connector_auth::delete_connection)
+                .route_layer(gate.require([perm::INTEGRATIONS_DELETE])),
+        )
+        .route(
+            "/connect",
+            post(crate::connector_auth::connect)
+                .route_layer(gate.require([perm::INTEGRATIONS_CREATE])),
+        )
+        .route(
+            "/authorize",
+            post(crate::connector_auth::authorize)
+                .route_layer(gate.require([perm::INTEGRATIONS_CREATE])),
+        )
+        .route(
+            "/oauth/callback",
+            post(crate::connector_auth::oauth_callback)
+                .route_layer(gate.require([perm::INTEGRATIONS_CREATE])),
+        )
+        .route(
+            "/connections/{id}/select-account",
+            post(crate::connector_auth::select_account)
+                .route_layer(gate.require([perm::INTEGRATIONS_CREATE])),
+        )
         .route("/connections/{id}/runs", get(runs).route_layer(read()))
         .route(
             "/connections/{id}/records",

@@ -396,3 +396,32 @@ export const connectorSyncTriggeredSchema = z.object({ triggered: z.array(z.stri
 
 /** `POST /api/integrations/connections/:id/catch-up`: the watermarks after the catch-up. */
 export const connectorCatchUpSchema = z.object({ watermarks: z.record(z.string()) }).strict();
+
+/** `POST /api/connectors/connect`: the new connection, and why its webhooks are missing. */
+export const connectorConnectedSchema = connectorConnectionSchema.extend({ warning: z.string().nullable() }).strict();
+
+/** `POST /api/connectors/authorize`: where the merchant approves (WooCommerce: on a pending connection). */
+export const connectorAuthorizeSchema = z.union([
+  z.object({ authorizeUrl: z.string(), connectionId: z.string() }).strict(),
+  z.object({ authorizeUrl: z.string() }).strict(),
+]);
+
+const administrationSchema = z
+  .object({ id: z.string(), name: z.string(), language: z.string().nullable().optional(), currency: z.string().nullable().optional() })
+  .strict();
+
+/** `POST /api/connectors/oauth/callback`: the connection, and the administrations to pick from. */
+export const connectorOAuthCallbackSchema = z
+  .object({
+    connection: connectorConnectionSchema,
+    administrations: z.array(administrationSchema),
+    needsPicker: z.boolean(),
+    returnUrl: z.string(),
+  })
+  .strict();
+
+/** `POST /api/connectors/connections/:id/select-account`. */
+export const connectorSelectAccountSchema = z.object({ connection: connectorConnectionSchema }).strict();
+
+/** `DELETE /api/connectors/connections/:id`. */
+export const connectorDisconnectedSchema = z.object({ id: z.string(), disconnected: z.literal(true) }).strict();

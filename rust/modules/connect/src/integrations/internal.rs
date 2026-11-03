@@ -53,6 +53,11 @@ where
             "/api/integrations/connections/{id}/catch-up",
             post(connector_catch_up),
         )
+        .route(
+            "/api/integrations/connections/{id}/connector-event",
+            post(connector_event),
+        )
+        .route("/api/integrations/woocommerce-auth", post(woocommerce_auth))
         .with_state(state)
 }
 
@@ -72,9 +77,9 @@ fn serves(path: &str) -> bool {
     let segments: Vec<&str> = rest.trim_start_matches('/').split('/').collect();
     matches!(
         segments.as_slice(),
-        ["connections", id, "sync" | "renew-watch" | "catch-up"] if !id.is_empty()
+        ["connections", id, "sync" | "renew-watch" | "catch-up" | "connector-event"] if !id.is_empty()
     ) || matches!(segments.as_slice(), ["ad-connections", id, "sync"] if !id.is_empty())
-        || matches!(segments.as_slice(), ["ad-events"])
+        || matches!(segments.as_slice(), ["ad-events" | "woocommerce-auth"])
 }
 
 /// A request the internal router answers: a POST to one of its paths with
@@ -294,6 +299,99 @@ async fn connector_catch_up(
         Some(marks) => marks.clone(),
     };
     Data(json!({ "watermarks": watermarks })).into_response()
+}
+
+/// `POST /connections/:id/connector-event`: a store's webhook delivery,
+/// verified and ingested.
+async fn connector_event(
+    State(state): State<ConnectState>,
+    uri: http::Uri,
+    headers: HeaderMap,
+    extensions: http::Extensions,
+    body: Bytes,
+) -> Response {
+    let id = id_of(&uri);
+    let internal = match resolve(&state, &headers, &extensions).await {
+        Ok(internal) => internal,
+        Err(response) => return response,
+    };
+    let row = match weldsuite_connect_domain::connections::get_connection(&internal.db, &id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return ApiError::not_found("Connection", Some(&id)).into_response(),
+        Err(error) => return internal_error(&error, "Failed to ingest connector webhook"),
+    };
+    let workspace = headers
+        .get("x-internal-workspace-id")
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| internal.clerk_org_id.clone(), str::to_owned);
+    let env = crate::connector_sync::sync_env(&internal.overrides, &state);
+    let raw = String::from_utf8_lossy(&body).into_owned();
+    match weldsuite_connect_domain::webhooks::process_connector_webhook(
+        &internal.db,
+        &env,
+        &row,
+        "system",
+        &workspace,
+        &raw,
+        &headers,
+    )
+    .await
+    {
+        Ok(result) => (
+            http::StatusCode::from_u16(result.status).unwrap_or(http::StatusCode::OK),
+            axum::Json(json!({ "data": { "message": result.message } })),
+        )
+            .into_response(),
+        Err(error) => internal_error(&error, "Failed to ingest connector webhook"),
+    }
+}
+
+/// `POST /woocommerce-auth`: the shop's API keys for a WooCommerce
+/// authorisation (forwarded by the webhook ingress).
+async fn woocommerce_auth(
+    State(state): State<ConnectState>,
+    headers: HeaderMap,
+    extensions: http::Extensions,
+    body: Bytes,
+) -> Response {
+    let internal = match resolve(&state, &headers, &extensions).await {
+        Ok(internal) => internal,
+        Err(response) => return response,
+    };
+    let env = crate::connector_auth::auth_env(&internal.overrides, &state);
+    let raw = String::from_utf8_lossy(&body).into_owned();
+    let tenant_workspace = internal.tenant_workspace.clone();
+    let own_db = extensions.get::<Tenant>().map(|t| t.db.clone());
+    let tenants = state.tenants.clone();
+    let resolve_tenant = |org: String| async move {
+        if let (Some(db), Some(workspace_id)) = (own_db, tenant_workspace) {
+            return Ok(weldsuite_connect_domain::auth::TenantRef { db, workspace_id });
+        }
+        let Some(tenants) = tenants else {
+            return Err("no tenant databases".to_owned());
+        };
+        let db = tenants(org.clone()).await?;
+        Ok(weldsuite_connect_domain::auth::TenantRef {
+            db,
+            workspace_id: org,
+        })
+    };
+    match weldsuite_connect_domain::auth::complete_woo_app_auth(&env, &raw, resolve_tenant).await {
+        Ok((_, status, message)) => (
+            http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::OK),
+            axum::Json(json!({ "data": { "message": message } })),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "[app-api/integrations-internal] WooCommerce auth callback failed"
+            );
+            ApiError::internal()
+                .with_message("Failed to complete WooCommerce connection")
+                .into_response()
+        }
+    }
 }
 
 async fn renew_watch(

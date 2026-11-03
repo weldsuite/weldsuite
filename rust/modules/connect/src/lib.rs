@@ -20,6 +20,8 @@
 
 mod builder;
 mod catalog;
+mod connector_auth;
+mod connector_push;
 mod connector_sync;
 mod connectors;
 mod cron;
@@ -173,6 +175,12 @@ pub const ENV_NAMES: &[&str] = &[
     "HUBSPOT_CLIENT_SECRET",
     "GOOGLE_CALENDAR_CLIENT_ID",
     "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_CONNECT_CLIENT_ID",
+    "MONEYBIRD_CLIENT_ID",
+    "MONEYBIRD_CLIENT_SECRET",
+    "APP_API_PUBLIC_URL",
+    "CONNECTOR_WEBHOOK_BASE_URL",
 ];
 
 /// [`ENV_NAMES`] from the process environment.

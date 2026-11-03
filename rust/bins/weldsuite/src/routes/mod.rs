@@ -246,7 +246,20 @@ fn commerce_public(state: &AppState) -> Router<AppState> {
             Arc::clone(&state.conformance_pools),
             crate::conformance::public_tenant,
         ));
-    Router::new().nest("/public/commerce-portal", portal)
+    let woo_auth = weldsuite_commerce::woocommerce_auth_router(commerce_state(state));
+    #[cfg(feature = "conformance")]
+    let woo_auth = woo_auth
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public,
+        ));
+    Router::new()
+        .nest("/public/commerce-portal", portal)
+        .merge(woo_auth)
 }
 
 /// WeldCommerce's handle on the app: events, the workspace cache, system

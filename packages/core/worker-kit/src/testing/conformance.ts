@@ -203,6 +203,13 @@ export const FORWARDED_ENV = [
   'ATTIO_CLIENT_SECRET',
   'HUBSPOT_CLIENT_ID',
   'HUBSPOT_CLIENT_SECRET',
+  // WeldConnect's store and accounting connectors: the Moneybird OAuth app,
+  // WeldSuite's Stripe Connect platform (STRIPE_SECRET_KEY is forwarded for
+  // WeldCall below) and the public origin the stores deliver webhooks to.
+  'MONEYBIRD_CLIENT_ID',
+  'MONEYBIRD_CLIENT_SECRET',
+  'STRIPE_CONNECT_CLIENT_ID',
+  'CONNECTOR_WEBHOOK_BASE_URL',
   // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
   // tokens are signed with, the realtime origin it advertises to the widget, and
   // the secret its realtime publishes carry.

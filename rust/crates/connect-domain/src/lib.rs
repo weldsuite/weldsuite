@@ -31,6 +31,7 @@
     clippy::cast_sign_loss
 )]
 
+pub mod auth;
 pub mod catalog;
 pub mod clients;
 pub mod connections;
@@ -46,3 +47,4 @@ pub mod stripe;
 pub mod stripe_mappers;
 pub mod sync;
 pub mod tables;
+pub mod webhooks;
