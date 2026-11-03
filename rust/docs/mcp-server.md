@@ -115,8 +115,11 @@ on the edition's own host (one host serves every path, OPS-013).
   `jsonb`'s order.
 - **Auth.** The bearer is verified by the server's own session verifier: with
   `AUTH_PROVIDER=oidc` (Zitadel) an access token of the issuer, the org from
-  `OIDC_ORG_CLAIM`; with Clerk, Clerk's OAuth access tokens (`at+jwt`), never a
-  session token. The workspace, its restrictions and the member's permissions
+  `OIDC_ORG_CLAIM`. With Clerk it is the same verifier as `/api`'s, which
+  takes a token whose `typ` is `JWT` (a session token) and refuses Clerk's
+  OAuth access tokens (`at+jwt`), so an MCP client can't sign in on a
+  Clerk-mode Kubernetes install yet; Global's TypeScript server takes them.
+  The workspace, its restrictions and the member's permissions
   come from the same lookups the `/api` pipeline uses. Discovery names the
   edition's issuer (`OIDC_ISSUER`, or Clerk's from `CLERK_PUBLISHABLE_KEY`) and
   passes its `oauth-authorization-server` metadata through. Opaque Clerk
