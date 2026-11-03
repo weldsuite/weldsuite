@@ -22,7 +22,7 @@ futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
-regex = { workspace = true }
+regex = { workspace = true, features = ["unicode-perl"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }

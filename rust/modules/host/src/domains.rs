@@ -810,6 +810,21 @@ fn is_fqdn(text: &str) -> bool {
         })
 }
 
+/// Special-use TLDs (RFC 2606 / 6761 / 6762), `RESERVED_TLDS`: a TXT record
+/// on them can never be verified.
+const RESERVED_TLDS: [&str; 5] = ["example", "test", "invalid", "localhost", "local"];
+
+/// `externalDomainProblem(domain) === 'reserved'`: a valid name whose TLD is
+/// special-use.
+fn is_reserved_domain(domain: &str) -> bool {
+    (3..=253).contains(&domain.len())
+        && is_fqdn(domain)
+        && domain
+            .rsplit('.')
+            .next()
+            .is_some_and(|tld| RESERVED_TLDS.contains(&tld))
+}
+
 async fn external(
     State(state): State<HostState>,
     caller: Caller,
@@ -839,6 +854,18 @@ async fn external(
                         "validation": "regex",
                         "code": "invalid_string",
                         "message": "Enter a valid fully-qualified domain name (e.g. example.com)",
+                    }),
+                );
+                domain = None;
+            }
+            // The schema's refine, which runs after a failed regex too but
+            // only objects to a valid name.
+            if is_reserved_domain(&transformed) {
+                issues.issue_at(
+                    "domain",
+                    json!({
+                        "code": "custom",
+                        "message": "This top-level domain is reserved and can never be verified",
                     }),
                 );
                 domain = None;
@@ -2476,6 +2503,12 @@ mod tests {
         assert!(!is_fqdn("-example.com"));
         assert!(!is_fqdn("example"));
         assert!(!is_fqdn("Example.com"));
+        assert!(is_reserved_domain("brand.example"));
+        assert!(is_reserved_domain("printer.local"));
+        assert!(!is_reserved_domain("brand.shop"));
+        assert!(!is_reserved_domain("example.com"));
+        assert!(!is_reserved_domain("-bad.test"));
+        assert!(!is_reserved_domain(&format!("{}.test", "a".repeat(250))));
     }
 
     #[test]

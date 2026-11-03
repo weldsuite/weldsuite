@@ -307,15 +307,15 @@ describe('domains: create, update, delete', () => {
 describe('domains: external domains', () => {
   it('adds one with its verification record, once', async () => {
     const request = domains();
-    const res = await request('/api/domains/external', send('POST', { domain: '  Brand-New.Example  ', registrar: 'Gandi' }));
+    const res = await request('/api/domains/external', send('POST', { domain: '  Brand-New.Shop  ', registrar: 'Gandi' }));
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as {
       data: { fullDomain: string; status: string; registrar: string; verificationRecord: { name: string; type: string; value: string } };
     };
-    expect(data).toMatchObject({ fullDomain: 'brand-new.example', status: 'pending', registrar: 'Gandi' });
-    expect(data.verificationRecord.name).toBe('_weldhost-verify.brand-new.example');
+    expect(data).toMatchObject({ fullDomain: 'brand-new.shop', status: 'pending', registrar: 'Gandi' });
+    expect(data.verificationRecord.name).toBe('_weldhost-verify.brand-new.shop');
     expect(data.verificationRecord.value).toMatch(/^weldhost-verify=[0-9a-f]{32}$/);
-    const again = await request('/api/domains/external', send('POST', { domain: 'brand-new.example' }));
+    const again = await request('/api/domains/external', send('POST', { domain: 'brand-new.shop' }));
     expect(again.status).toBe(409);
   });
 
@@ -331,6 +331,19 @@ describe('domains: external domains', () => {
       expect((await request('/api/domains/external', send('POST', { domain }))).status, domain).toBe(400);
     }
     expect((await request('/api/domains/external', send('POST', { domain: 42 }))).status).toBe(400);
+  });
+
+  it('refuses a special-use TLD, which can never be verified', async () => {
+    const request = domains();
+    for (const domain of ['brand.example', 'Shop.TEST', 'a.invalid', 'my.localhost', 'printer.local']) {
+      const res = await request('/api/domains/external', send('POST', { domain }));
+      expect(res.status, domain).toBe(400);
+      expect(JSON.stringify(await res.json()), domain).toContain('This top-level domain is reserved');
+    }
+    // Not a domain at all: only the pattern's message.
+    const bad = await request('/api/domains/external', send('POST', { domain: '-bad.test' }));
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(await bad.json())).not.toContain('reserved');
   });
 });
 
