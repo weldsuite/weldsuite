@@ -76,6 +76,8 @@ import {
   SEQUENCE_TYPES,
   listNumberSequences,
   updateNumberSequences,
+  type NumberSequence,
+  type SequenceChanges,
 } from '../../services/accounting-number-sequences';
 import { normalizeBrAddress, normalizeBrSettings, syncBrTaxProfiles } from '../../services/br-entity-setup';
 import type { StoredPostalAddress } from '@weldsuite/db/schema';
@@ -1293,31 +1295,39 @@ app.patch(
       const entity = await findActiveEntity(db, id);
       if (!entity) return error.notFound(c, 'Entity', id);
 
-      const { sequences, changes } = await updateNumberSequences(db, id, body.sequences);
-      if (Object.keys(changes).length === 0) return success(c, sequences);
+      const recordChanges = async (changes: SequenceChanges, sequences: NumberSequence[]) => {
+        await writeAccountingAudit(c, db, {
+          accountingEntityId: id,
+          entityType: 'accounting_entity',
+          entityId: id,
+          action: 'numbering_updated',
+          changes,
+        });
+        publishEntityEvent({
+          c,
+          entityType: 'accounting_entity',
+          entityId: id,
+          action: 'updated',
+          data: {
+            id,
+            name: entity.name,
+            numberSequences: sequences.map(({ sequenceType, prefix, nextValue, padding }) => ({ sequenceType, prefix, nextValue, padding })),
+          },
+        });
+      };
 
-      await writeAccountingAudit(c, db, {
-        accountingEntityId: id,
-        entityType: 'accounting_entity',
-        entityId: id,
-        action: 'numbering_updated',
-        changes,
-      });
-      publishEntityEvent({
-        c,
-        entityType: 'accounting_entity',
-        entityId: id,
-        action: 'updated',
-        data: {
-          id,
-          name: entity.name,
-          numberSequences: sequences.map(({ sequenceType, prefix, nextValue, padding }) => ({ sequenceType, prefix, nextValue, padding })),
-        },
-      });
-
-      return success(c, sequences);
+      try {
+        const { sequences, changes } = await updateNumberSequences(db, id, body.sequences);
+        if (Object.keys(changes).length > 0) await recordChanges(changes, sequences);
+        return success(c, sequences);
+      } catch (err) {
+        if (!(err instanceof NumberSequenceError)) throw err;
+        // A document took a number mid-update: what was written before that
+        // still gets its audit row and event.
+        if (Object.keys(err.changes).length > 0) await recordChanges(err.changes, await listNumberSequences(db, id));
+        return error.badRequest(c, err.message);
+      }
     } catch (err) {
-      if (err instanceof NumberSequenceError) return error.badRequest(c, err.message);
       console.error('[books-api/accounting-entities] update number sequences failed:', err);
       return error.internal(c, 'Failed to update the numbering');
     }

@@ -39,9 +39,16 @@ export interface NumberSequenceUpdate {
 export type SequenceChanges = Record<string, { old: unknown; new: unknown }>;
 
 export class NumberSequenceError extends Error {
-  constructor(message: string) {
+  /**
+   * What was already written when the error was thrown. Empty unless a
+   * document took a number mid-update; the caller still audits these.
+   */
+  readonly changes: SequenceChanges;
+
+  constructor(message: string, changes: SequenceChanges = {}) {
     super(message);
     this.name = 'NumberSequenceError';
+    this.changes = changes;
   }
 }
 
@@ -72,8 +79,9 @@ export async function listNumberSequences(db: Database, entityId: string): Promi
 /**
  * Applies the updates and returns the sequences afterwards, plus what changed
  * (for the audit log). Throws `NumberSequenceError` when a next number would
- * move backwards, also when a document took a number between the read and
- * the write.
+ * move backwards; every update is checked before anything is written. When a
+ * document takes a number between the read and the write it throws too, with
+ * the changes already written on the error.
  */
 export async function updateNumberSequences(
   db: Database,
@@ -81,9 +89,8 @@ export async function updateNumberSequences(
   updates: NumberSequenceUpdate[],
 ): Promise<{ sequences: NumberSequence[]; changes: SequenceChanges }> {
   const current = await listNumberSequences(db, entityId);
-  const changes: SequenceChanges = {};
 
-  for (const update of updates) {
+  const planned = updates.map((update) => {
     const before = current.find((s) => s.sequenceType === update.sequenceType)!;
     const next = {
       prefix: update.prefix ?? before.prefix,
@@ -91,18 +98,19 @@ export async function updateNumberSequences(
       padding: update.padding ?? before.padding,
     };
     if (next.nextValue < before.nextValue) throw new NumberSequenceError(NEXT_VALUE_FORWARD_ONLY);
-
     const changed = (['prefix', 'nextValue', 'padding'] as const).filter((field) => next[field] !== before[field]);
+    return { sequenceType: update.sequenceType, before, next, changed };
+  });
+
+  const changes: SequenceChanges = {};
+  for (const { sequenceType, before, next, changed } of planned) {
     if (changed.length === 0) continue;
-    for (const field of changed) {
-      changes[`${update.sequenceType}.${field}`] = { old: before[field], new: next[field] };
-    }
 
     const now = new Date();
     const patch = Object.fromEntries(changed.map((field) => [field, next[field]]));
     const conditions = [
       eq(schema.entityNumberSequences.entityId, entityId),
-      eq(schema.entityNumberSequences.sequenceType, update.sequenceType),
+      eq(schema.entityNumberSequences.sequenceType, sequenceType),
     ];
     // The forward-only guard is repeated in the WHERE clause, so a document
     // numbered between the read above and this write can't be numbered twice.
@@ -112,15 +120,20 @@ export async function updateNumberSequences(
       .set({ ...patch, updatedAt: now })
       .where(and(...conditions))
       .returning({ id: schema.entityNumberSequences.id });
-    if (updated) continue;
 
-    const [inserted] = await db
-      .insert(schema.entityNumberSequences)
-      .values({ id: generateId('seq'), entityId, sequenceType: update.sequenceType, ...next, createdAt: now, updatedAt: now })
-      .onConflictDoNothing()
-      .returning({ id: schema.entityNumberSequences.id });
-    // A row exists but its next number is already past the requested one.
-    if (!inserted) throw new NumberSequenceError(NEXT_VALUE_FORWARD_ONLY);
+    if (!updated) {
+      const [inserted] = await db
+        .insert(schema.entityNumberSequences)
+        .values({ id: generateId('seq'), entityId, sequenceType, ...next, createdAt: now, updatedAt: now })
+        .onConflictDoNothing()
+        .returning({ id: schema.entityNumberSequences.id });
+      // A row exists but its next number is already past the requested one.
+      if (!inserted) throw new NumberSequenceError(NEXT_VALUE_FORWARD_ONLY, changes);
+    }
+
+    for (const field of changed) {
+      changes[`${sequenceType}.${field}`] = { old: before[field], new: next[field] };
+    }
   }
 
   return { sequences: await listNumberSequences(db, entityId), changes };

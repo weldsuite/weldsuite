@@ -103,6 +103,22 @@ describe('/api/accounting-entities/:id/number-sequences', () => {
     expect((await sequences(prefix)).invoice).toMatchObject({ prefix: 'F', nextValue: 3 });
   });
 
+  it('writes nothing when one sequence of the request would move back', async () => {
+    const id = await createEntity('Numbering Partial BV');
+    await nextEntityNumber(db, id, 'journal');
+    await nextEntityNumber(db, id, 'journal'); // next is now 3
+
+    const res = await patch(id, [
+      { sequenceType: 'invoice', prefix: '2026-' },
+      { sequenceType: 'journal', nextValue: 2 },
+    ]);
+    expect(res.status).toBe(400);
+
+    const list = await sequences(await request(`/api/accounting-entities/${id}/number-sequences`));
+    expect(list.invoice.prefix).toBe('INV-');
+    expect(list.journal.nextValue).toBe(3);
+  });
+
   it('creates a sequence that has no row yet', async () => {
     const id = await createEntity('Numbering Missing BV');
     // Entities created before sequences were seeded have none; mimic that for bills.

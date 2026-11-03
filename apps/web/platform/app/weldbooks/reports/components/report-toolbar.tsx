@@ -88,50 +88,15 @@ export function ReportToolbar({
   const basis = params.basis || defaults.basis || 'accrual';
   const periodsLocked = params.compare !== '';
   const compareLocked = params.periods !== '';
-  const from = params.from || defaults.from || '';
-  const to = params.to || defaults.to || '';
-  const rangeReversed = dates === 'period' && isReversedRange(from, to);
-
-  // Sends only the date the user changed. When that reverses the range, the
-  // other date goes along, so the page sees both and holds the request back.
-  const changeDate = (field: 'from' | 'to', value: string) => {
-    const other = field === 'from' ? 'to' : 'from';
-    const otherValue = params[other] || defaults[other] || '';
-    const reversed = field === 'from' ? isReversedRange(value, otherValue) : isReversedRange(otherValue, value);
-    onChange(reversed && !params[other] ? { [field]: value, [other]: otherValue } : { [field]: value });
-  };
+  const rangeReversed =
+    dates === 'period' && isReversedRange(params.from || defaults.from || '', params.to || defaults.to || '');
 
   return (
     <div className="flex flex-wrap items-end gap-x-4 gap-y-3" role="group" aria-label={tr.toolbar}>
       {children}
 
       {dates === 'period' ? (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor="report-from">{tb.from}</Label>
-            <Input
-              id="report-from"
-              type="date"
-              value={from}
-              onChange={(e) => changeDate('from', e.target.value)}
-              className="w-40"
-              aria-invalid={rangeReversed}
-              aria-describedby={rangeReversed ? 'report-range-error' : undefined}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="report-to">{tb.to}</Label>
-            <Input
-              id="report-to"
-              type="date"
-              value={to}
-              onChange={(e) => changeDate('to', e.target.value)}
-              className="w-40"
-              aria-invalid={rangeReversed}
-              aria-describedby={rangeReversed ? 'report-range-error' : undefined}
-            />
-          </div>
-        </>
+        <ReportPeriodInputs params={params} defaults={defaults} onChange={onChange} rangeReversed={rangeReversed} />
       ) : null}
 
       {dates === 'asOf' ? (
@@ -254,31 +219,7 @@ export function ReportToolbar({
             {tr.updating}
           </span>
         ) : null}
-        {exportControls ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" disabled={exportControls.disabled || exportControls.busy !== null}>
-                {exportControls.busy ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Download className="mr-1 h-4 w-4" aria-hidden />
-                )}
-                {exportControls.busy ? tr.exporting : tr.export}
-                <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={exportControls.onCsv}>
-                <FileSpreadsheet className="mr-2 h-4 w-4" aria-hidden />
-                {tr.exportCsv}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={exportControls.onPdf}>
-                <FileText className="mr-2 h-4 w-4" aria-hidden />
-                {tr.exportPdf}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+        {exportControls ? <ReportExportMenu controls={exportControls} /> : null}
       </div>
 
       {rangeReversed ? (
@@ -287,5 +228,91 @@ export function ReportToolbar({
         </p>
       ) : null}
     </div>
+  );
+}
+
+interface ReportPeriodInputsProps {
+  params: ReportParams;
+  defaults: ReportToolbarDefaults;
+  onChange: (patch: Partial<ReportParams>) => void;
+  rangeReversed: boolean;
+}
+
+/** The from and to dates of a period report. */
+function ReportPeriodInputs({ params, defaults, onChange, rangeReversed }: Readonly<ReportPeriodInputsProps>) {
+  const { t } = useI18n();
+  const tb = t.accounting.reports;
+  const from = params.from || defaults.from || '';
+  const to = params.to || defaults.to || '';
+  const describedBy = rangeReversed ? 'report-range-error' : undefined;
+
+  // Sends only the date the user changed. When that reverses the range, the
+  // other date goes along, so the page sees both and holds the request back.
+  const changeDate = (field: 'from' | 'to', value: string) => {
+    const other = field === 'from' ? 'to' : 'from';
+    const otherValue = params[other] || defaults[other] || '';
+    const reversed = field === 'from' ? isReversedRange(value, otherValue) : isReversedRange(otherValue, value);
+    onChange(reversed && !params[other] ? { [field]: value, [other]: otherValue } : { [field]: value });
+  };
+
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="report-from">{tb.from}</Label>
+        <Input
+          id="report-from"
+          type="date"
+          value={from}
+          onChange={(e) => changeDate('from', e.target.value)}
+          className="w-40"
+          aria-invalid={rangeReversed}
+          aria-describedby={describedBy}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="report-to">{tb.to}</Label>
+        <Input
+          id="report-to"
+          type="date"
+          value={to}
+          onChange={(e) => changeDate('to', e.target.value)}
+          className="w-40"
+          aria-invalid={rangeReversed}
+          aria-describedby={describedBy}
+        />
+      </div>
+    </>
+  );
+}
+
+/** The CSV and PDF export of a report. */
+function ReportExportMenu({ controls }: Readonly<{ controls: ReportExportControls }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksUs.reports;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={controls.disabled || controls.busy !== null}>
+          {controls.busy ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Download className="mr-1 h-4 w-4" aria-hidden />
+          )}
+          {controls.busy ? tr.exporting : tr.export}
+          <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={controls.onCsv}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" aria-hidden />
+          {tr.exportCsv}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={controls.onPdf}>
+          <FileText className="mr-2 h-4 w-4" aria-hidden />
+          {tr.exportPdf}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
