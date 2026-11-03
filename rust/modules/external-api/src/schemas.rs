@@ -427,3 +427,33 @@ pub(crate) const LIST_EXECUTIONS: Z = Z::Obj(
     &[("cursor", OPT_STR), ("limit", LIMIT), ("status", OPT_STR)],
     Keys::Strip,
 );
+
+// ---------------------------------------------------------------------------
+// social-posts/index.ts
+// ---------------------------------------------------------------------------
+
+/// `listSocialPostsQuery`.
+pub(crate) const LIST_SOCIAL_POSTS: Z = Z::Obj(
+    &[
+        ("cursor", OPT_STR),
+        ("limit", LIMIT),
+        ("status", OPT_STR),
+        ("campaignId", OPT_STR),
+    ],
+    Keys::Strip,
+);
+
+/// `schedulePostSchema`.
+pub(crate) const SCHEDULE_SOCIAL_POST: Z = Z::Obj(
+    &[
+        (
+            "scheduledAt",
+            Z::Str(&[S::Datetime {
+                offset: true,
+                msg: None,
+            }]),
+        ),
+        ("timezone", Z::Opt(&Z::Str(&[S::Max(50, None)]))),
+    ],
+    Keys::Strip,
+);

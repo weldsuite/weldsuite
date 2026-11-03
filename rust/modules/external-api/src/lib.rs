@@ -56,6 +56,7 @@ mod session;
 mod settings;
 mod simple;
 mod social;
+mod social_posts;
 mod table;
 #[rustfmt::skip]
 mod tables_gen;
@@ -100,6 +101,8 @@ pub struct ExternalApiState {
     /// WeldDesk's `AssignmentRouter` (`HELPDESK_WORKFLOW`); `None` picks in
     /// the request, as the worker does without the binding.
     pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
+    /// Outbound HTTP (PostPeer, for social publishing).
+    pub http: Option<weldsuite_ports::OutboundHttp>,
 }
 
 impl std::fmt::Debug for ExternalApiState {
@@ -199,7 +202,7 @@ where
         router
     };
     let router = if mounts("social") {
-        social::routes(router)
+        social_posts::routes(social::routes(router))
     } else {
         router
     };

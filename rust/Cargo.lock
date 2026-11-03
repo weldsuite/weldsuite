@@ -4818,6 +4818,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-social-domain",
 ]
 
 [[package]]

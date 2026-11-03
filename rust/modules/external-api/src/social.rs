@@ -35,7 +35,7 @@ use crate::zod;
 
 type S = State<ExternalApiState>;
 
-/// Social's routes (`social-posts` is not served here yet).
+/// Social's routes (`social-posts` is in `social_posts.rs`).
 pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
     [&ACCOUNTS, &CAMPAIGNS, &ANALYTICS]
         .into_iter()

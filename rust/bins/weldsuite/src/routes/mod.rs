@@ -2092,6 +2092,7 @@ pub(crate) fn external_api(state: &AppState) -> Router {
 
 fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiState {
     static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
     weldsuite_external_api::ExternalApiState {
         events: state.infra.events.clone(),
         master: state.workspaces.master().clone(),
@@ -2107,6 +2108,17 @@ fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiSt
         realtime: state.infra.realtime.clone(),
         // The test env binds no HELPDESK_WORKFLOW: conformance builds pick locally.
         assignment: (!cfg!(feature = "conformance")).then(desk_assignment_router),
+        // Conformance tests bring their own outbound bridge (a request extension).
+        http: if cfg!(feature = "conformance") {
+            None
+        } else {
+            HTTP.get_or_init(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+                    .ok()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone()
+        },
         env: Arc::clone(ENV.get_or_init(|| {
             Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
         })),

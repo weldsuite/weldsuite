@@ -168,6 +168,7 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'social-campaigns',
   'social-analytics',
   'social-media',
+  'social-posts',
   // Host
   'domains',
   // Know
