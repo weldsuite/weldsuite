@@ -5,6 +5,6 @@
   "buildCommand": "pnpm --filter docs build",
   "outputDirectory": ".next",
   "git": {
-    "deploymentEnabled": { "main": false, "develop": false }
+    "deploymentEnabled": false
   }
 }
