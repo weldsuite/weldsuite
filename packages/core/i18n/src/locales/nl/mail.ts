@@ -17,6 +17,32 @@ export const mail = {
       supportedProviders: 'Professionele e-mailhosting op uw eigen domeinen',
     },
 
+    // Screen-reader names for icon-only buttons and unlabelled fields
+    a11y: {
+      minimize: 'Minimaliseren',
+      restore: 'Herstellen',
+      markDone: 'Markeren als klaar',
+      moreActions: 'Meer acties',
+      removeQuotedText: 'Geciteerde tekst verwijderen',
+      addContext: 'Context toevoegen',
+      sources: 'Bronnen',
+      voiceInput: 'Spraakinvoer',
+      removeAttachment: 'Bijlage verwijderen',
+      removeLabel: 'Label verwijderen',
+      cancelSchedule: 'Gepland verzenden annuleren',
+      sendOptions: 'Meer verzendopties',
+      moreInfo: 'Meer informatie',
+      labelColor: 'Labelkleur',
+      labelOptions: 'Labelopties',
+      copyReply: 'Antwoord kopiëren',
+      removePerson: '{name} verwijderen',
+      removeKeyword: '{keyword} verwijderen',
+      sendTime: 'Verzendtijd',
+      generateDraft: 'Concept schrijven',
+      labelName: 'Labelnaam',
+      fontSize: 'Lettergrootte',
+    },
+
     // Inbox
     inbox: {
       title: 'Inbox',

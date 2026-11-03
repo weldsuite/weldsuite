@@ -201,7 +201,7 @@ export function CustomerDetailPanel({
               <span className="text-sm text-muted-foreground">{t.mail.customerPanel.loadingPerson}</span>
             </div>
           )}
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
+          <Button aria-label={t.common.actions.close} variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>

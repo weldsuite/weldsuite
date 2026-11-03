@@ -124,6 +124,7 @@ export function MailAccessPicker({
   idPrefix?: string;
 }>) {
   const tma = getTranslations('settings').weldmail.manageAccess;
+  const ta = getTranslations('mail').a11y;
   const [pickerOpen, setPickerOpen] = useState(false);
   const { isShared, setIsShared, selectedUserIds, toggleUser, members, membersLoading } =
     selection;
@@ -263,6 +264,7 @@ export function MailAccessPicker({
                     </Avatar>
                     {displayName}
                     <Button
+                      aria-label={ta.removePerson.replace('{name}', displayName)}
                       type="button"
                       variant="ghost"
                       size="icon"

@@ -1,5 +1,7 @@
 import { config } from "@weldsuite/eslint-config/react-internal"
 
+import { a11yStrictConfig } from "./eslint/a11y-strict.mjs"
+
 /** @type {import("eslint").Linter.Config} */
 export default [
   ...config,
@@ -55,4 +57,7 @@ export default [
       ],
     },
   },
+  // TASK-1184: modules whose accessibility pass is done. The shared config
+  // makes these warnings too; lib/a11y/a11y-strict.test.ts is the blocking check.
+  a11yStrictConfig,
 ]
