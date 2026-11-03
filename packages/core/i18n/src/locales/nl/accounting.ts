@@ -2488,6 +2488,7 @@ export const accounting = {
       colTotal: 'Totaal',
       colStatus: 'Status',
       noInvoices: 'Geen facturen gevonden',
+      emptyDescription: 'Maak je eerste factuur om te beginnen',
     },
 
     // Journal entry pages
@@ -2543,6 +2544,7 @@ export const accounting = {
     // Reports pages
     reports: {
       title: 'Rapporten',
+      rangeReversed: 'De Van-datum ligt na de Tot-datum. Kies een Van-datum op of vóór de Tot-datum.',
       profitLoss: 'Winst & Verlies',
       profitLossDesc: 'Omzet, kosten en nettowinst voor een periode',
       balanceSheet: 'Balans',
@@ -3372,6 +3374,34 @@ export const accounting = {
     },
 
     // Afsluitdatums + uitzonderingen (entiteit bewerken)
+    numbering: {
+      title: 'Nummering',
+      description:
+        'Hoe facturen, creditnota’s, inkoopfacturen en memoriaalboekingen genummerd worden. Wil je de nummering van je vorige pakket voortzetten, stel dan het volgende nummer in.',
+      types: {
+        invoice: 'Facturen',
+        creditNote: 'Creditnota’s',
+        bill: 'Inkoopfacturen',
+        journal: 'Memoriaalboekingen',
+      },
+      prefix: 'Voorvoegsel',
+      nextNumber: 'Volgend nummer',
+      digits: 'Cijfers',
+      preview: 'Volgend nummer: {number}',
+      gapNote:
+        'Het volgende nummer kan alleen omhoog, zodat geen nummer twee keer gebruikt wordt. Verhoog je het nadat er al documenten genummerd zijn, dan ontstaat er een gat in de reeks.',
+      errors: {
+        prefix: 'Gebruik maximaal 20 letters, cijfers, spaties of . _ / -',
+        nextValue: 'Vul een heel getal van 1 of hoger in.',
+        backwards: 'Het volgende nummer kan alleen omhoog: {number} of hoger.',
+        padding: 'Vul 0 tot 10 cijfers in.',
+      },
+      save: 'Nummering opslaan',
+      saving: 'Opslaan…',
+      saved: 'Nummering bijgewerkt',
+      saveFailed: 'De nummering kon niet worden bijgewerkt',
+      noPermission: 'Je hebt het recht om entiteiten bij te werken nodig om de nummering te wijzigen.',
+    },
     lockDates: {
       title: 'Afsluitdatums',
       description:

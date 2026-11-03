@@ -54,6 +54,11 @@ export function applyParamsPatch(current: ReportParams, patch: Partial<ReportPar
   return next;
 }
 
+/** True when both dates are set and `from` comes after `to` (YYYY-MM-DD compares as text). */
+export function isReversedRange(from: string | undefined, to: string | undefined): boolean {
+  return !!from && !!to && from > to;
+}
+
 /** The request the toolbar state stands for; empty values are left out. */
 export function toReportQuery(params: ReportParams): ReportQuery {
   const query: ReportQuery = {};

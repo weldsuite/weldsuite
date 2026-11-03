@@ -230,6 +230,27 @@ export interface UpdateLockDatesInput {
   hardLockDate?: string;
 }
 
+export type NumberSequenceType = 'invoice' | 'creditNote' | 'bill' | 'journal';
+
+/** One numbered series of an entity's documents. */
+export interface NumberSequence {
+  sequenceType: NumberSequenceType;
+  prefix: string;
+  /** The number the next document gets; it only moves forward. */
+  nextValue: number;
+  /** Minimum digits, zero-padded. */
+  padding: number;
+  /** The next document's number as printed, e.g. `INV-0042`. */
+  nextNumber: string;
+}
+
+export interface NumberSequenceUpdate {
+  sequenceType: NumberSequenceType;
+  prefix?: string;
+  nextValue?: number;
+  padding?: number;
+}
+
 export type LockType = 'sales' | 'purchase' | 'tax' | 'period';
 
 export interface LockDateException {
@@ -827,6 +848,10 @@ export const accountingApi = {
   /** US: the stored SSN in clear text (needs `tax_ids:reveal`; every reveal is logged). Never cache the result. */
   revealEntitySsn: (id: string, reason?: string) =>
     weldbooksApi.post<ApiResponse<{ ssn: string }>>(`/accounting-entities/${id}/reveal-ssn`, reason ? { reason } : {}),
+  listNumberSequences: (id: string) =>
+    weldbooksApi.get<ApiResponse<NumberSequence[]>>(`/accounting-entities/${id}/number-sequences`),
+  updateNumberSequences: (id: string, sequences: NumberSequenceUpdate[]) =>
+    weldbooksApi.patch<ApiResponse<NumberSequence[]>>(`/accounting-entities/${id}/number-sequences`, { sequences }),
   updateLockDates: (id: string, data: UpdateLockDatesInput) =>
     weldbooksApi.patch<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}/lock-dates`, data),
   listLockExceptions: (id: string) =>

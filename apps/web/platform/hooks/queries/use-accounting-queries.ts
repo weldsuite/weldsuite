@@ -16,6 +16,7 @@ import {
   type CreatePaymentInput,
   type DimensionValueFilters,
   type RecordInvoicePaymentInput,
+  type NumberSequenceUpdate,
   type ReconciliationRule,
   type UpdateAccountingEntityInput,
   type UpdateDimensionValueInput,
@@ -52,6 +53,7 @@ export const accountingKeys = {
     all: [...(['accounting', 'entities'] as const)],
     detail: (id: string) => [...accountingKeys.entities.all, 'detail', id] as const,
     lockExceptions: (id: string) => [...accountingKeys.entities.all, 'lock-exceptions', id] as const,
+    numberSequences: (id: string) => [...accountingKeys.entities.all, 'number-sequences', id] as const,
   },
 
   /** The lines of the entity's income-tax return (US), per tax year. */
@@ -268,6 +270,26 @@ export function useApplyTaxLines() {
       qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
       qc.invalidateQueries({ queryKey: accountingKeys.taxLines.all });
       qc.invalidateQueries({ queryKey: accountingKeys.reports.all });
+    },
+  });
+}
+
+/** The invoice, credit note, bill and journal numbering of an entity. */
+export function useNumberSequences(entityId: string | null | undefined) {
+  return useQuery({
+    queryKey: accountingKeys.entities.numberSequences(entityId ?? ''),
+    queryFn: async () => (await accountingApi.listNumberSequences(entityId!)).data ?? [],
+    enabled: !!entityId,
+  });
+}
+
+export function useUpdateNumberSequences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entityId, sequences }: { entityId: string; sequences: NumberSequenceUpdate[] }) =>
+      accountingApi.updateNumberSequences(entityId, sequences),
+    onSuccess: (res, { entityId }) => {
+      qc.setQueryData(accountingKeys.entities.numberSequences(entityId), res.data);
     },
   });
 }
