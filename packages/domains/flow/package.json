@@ -7,6 +7,8 @@
   "exports": {
     "./analytics-payload": "./src/analytics-payload.ts",
     "./approvals": "./src/approvals.ts",
+    "./capacity": "./src/capacity.ts",
+    "./intake": "./src/intake.ts",
     "./project-access": "./src/project-access.ts",
     "./day-boundaries": "./src/day-boundaries.ts",
     "./project-stats": "./src/project-stats.ts",
