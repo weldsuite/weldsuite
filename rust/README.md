@@ -232,9 +232,9 @@ reason. Not ported yet (P8):
 connect, agent and sheets, and the edge workers (`external-api`,
 `mcp-server`, the rest of the integration workers, above). WeldAgent stays
 off on Kubernetes while there is no AI provider: an agent that cannot chat
-or run does nothing for a user, so `agent` is not offered even once its
-data routes are ported; its event subscriber (`weldagent`) and the hourly
-routine sweep run agents and stay off with it.
+or run does nothing for a user, so its data routes are not ported either
+and wait for an EU AI provider. Its event subscriber (`weldagent`) and the
+hourly routine sweep run agents and stay off with it.
 
 ## Layout
 
