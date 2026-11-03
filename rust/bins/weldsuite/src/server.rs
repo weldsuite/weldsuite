@@ -627,6 +627,7 @@ mod tests {
                 provider: weldsuite_video_rooms::ClientProvider::LiveKit,
                 url: Some("wss://lk.example.eu".to_owned()),
             },
+            live_editing: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");

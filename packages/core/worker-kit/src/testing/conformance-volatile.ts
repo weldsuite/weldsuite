@@ -294,6 +294,15 @@ const ROUTES: VolatileRoute[] = [
   // TypeScript does from run to run). Compared in recipient order instead: a
   // new filing has one line per recipient.
   { method: 'POST', route: '/api/form-1099/filings', fields: [{ path: 'data.lines', sortBy: ['partyId'] }] },
+  // WeldSheets: a new workbook's tab ids are random (`sh_` and 16 hex digits), so its
+  // gzipped first checkpoint, whose size the drive file's event carries,
+  // compresses a byte or two differently per run.
+  ...['/api/sheets', '/api/sheets/import', '/api/sheets/convert'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [],
+    events: [{ path: 'data.fileSize' }],
+  })),
 ];
 
 /** The value at a dot path, as text for ordering. */

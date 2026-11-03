@@ -16,7 +16,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai'],
+  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'collab-rooms'],
 };
 
 afterEach(() => setRuntimeConfig(null));
@@ -117,5 +117,20 @@ describe('edition flags', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
     expect(isFeatureAvailable('credit-top-up')).toBe(true);
+  });
+
+  it('hides WeldDocs and WeldSheets without live editing, and offers them with it', () => {
+    const modules = ['core', 'docs', 'sheets', 'flow'];
+    setRuntimeConfig({ backend: 'rust', modules, unavailableFeatures: ['collab-rooms'] });
+    for (const app of ['welddocs', 'weldsheets']) expect(isAppOffered(app)).toBe(false);
+    expect(isModuleOffered('sheets')).toBe(false);
+    expect(isModuleOffered('docs')).toBe(false);
+    expect(isAppOffered('weldflow')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules, unavailableFeatures: ['billing'] });
+    for (const app of ['welddocs', 'weldsheets']) expect(isAppOffered(app)).toBe(true);
+    // Global lists no unavailable features: both stay.
+    setRuntimeConfig(null);
+    expect(isModuleOffered('sheets')).toBe(true);
+    expect(isAppOffered('welddocs')).toBe(true);
   });
 });

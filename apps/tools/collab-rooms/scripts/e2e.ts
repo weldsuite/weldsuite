@@ -3,7 +3,9 @@
  * service (dist/server.mjs) and an S3 stand-in, on real master and tenant
  * databases. Two people edit one document and one sheet through the Rust
  * server's routes and socket proxy; the rooms checkpoint; the service
- * restarts; everything is still there.
+ * restarts; everything is still there. The sheet also goes through the
+ * sheets engine on the service: a new workbook, a version's .xlsx, a
+ * connected table listed from the tenant database, a CSV import.
  *
  *   pnpm --filter collab-rooms build
  *   pnpm exec tsx apps/tools/collab-rooms/scripts/e2e.ts \
@@ -19,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { docsAdapter, type DocModel, type Op as DocOp } from '@weldsuite/docs-engine';
+import { sheetsAdapter, valuesOp, type Engine as SheetEngine, type Op as SheetOp } from '@weldsuite/sheets-engine';
 import { connect } from '../test/client';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +57,12 @@ function token(user: string): string {
   return `${signed}.${sign('sha256', Buffer.from(signed), keys.privateKey).toString('base64url')}`;
 }
 
+/** CRM companies a connected table lists. */
+const COMPANIES: [string, string, number][] = [
+  ['co_e2e_1', 'Bolt', 20],
+  ['co_e2e_2', 'Acme', 10],
+];
+
 // ---- Databases ----
 const dbUrl = (name: string) => Object.assign(new URL(pgAdmin), { pathname: `/${name}` }).toString();
 const masterName = `p8_docsh_master_${run}`;
@@ -79,6 +88,9 @@ async function createDatabases(): Promise<void> {
     ['wm_bob', 'user_bob', 'ADMIN', 'Bob'],
   ]) {
     await tenant`insert into workspace_members (id, user_id, role, name, status) values (${id}, ${user}, ${role}, ${name}, 'ACTIVE')`;
+  }
+  for (const [id, name, score] of COMPANIES) {
+    await tenant`insert into companies (id, name, display_name, lead_score) values (${id}, ${name}, ${name}, ${score})`;
   }
   await tenant.end();
 }
@@ -112,6 +124,9 @@ async function pgliteDatabases(): Promise<{ master: string; tenant: string }> {
     ['wm_bob', 'user_bob', 'ADMIN', 'Bob'],
   ]) {
     await tenant.db.execute(sql`insert into workspace_members (id, user_id, role, name, status) values (${id}, ${user}, ${role}, ${name}, 'ACTIVE')`);
+  }
+  for (const [id, name, score] of COMPANIES) {
+    await tenant.db.execute(sql`insert into companies (id, name, display_name, lead_score) values (${id}, ${name}, ${name}, ${score})`);
   }
   return { master: masterUrlLocal, tenant: tenantUrlLocal };
 }
@@ -288,6 +303,90 @@ async function docs(): Promise<void> {
   await carol.close();
 }
 
+async function sheets(): Promise<void> {
+  const created = await api<{ data: { id: string } }>('user_alice', 'POST', '/api/sheets', { name: 'E2E budget', firstTabName: 'Blad1' });
+  check(created.status === 201, `POST /api/sheets answers 201 (${created.status})`);
+  const id = created.body.data.id;
+  const ticketFor = async (user: string, sheetId: string) => {
+    const session = await api<{ data: { ticket: string; mode: string } }>(user, 'POST', `/api/sheets/${sheetId}/session`);
+    check(session.status === 200 && session.body.data.mode === 'edit', `${user} gets an edit session on the sheet`);
+    return session.body.data.ticket;
+  };
+  const open = async (user: string, sheetId = id) =>
+    connect<SheetEngine, SheetOp>(`ws://127.0.0.1:${RUST}/api/sheets/connect?ticket=${await ticketFor(user, sheetId)}`, sheetsAdapter() as never);
+  const download = (user: string, url: string) =>
+    fetch(`http://127.0.0.1:${RUST}${url}`, { headers: { authorization: `Bearer ${token(user)}` } });
+
+  const alice = await open('user_alice');
+  const bob = await open('user_bob');
+  const tab = alice.client.state!.workbook.sheets[0]!;
+  check(tab.name === 'Blad1', 'the new workbook comes from the sheets engine on the service');
+  alice.client.apply(valuesOp(tab.id, { row: 0, col: 0 }, [[2, 3]]));
+  bob.client.apply(valuesOp(tab.id, { row: 1, col: 0 }, [['=A1*B1']]));
+  await alice.until(() => !alice.client.hasPending && !bob.client.hasPending && alice.client.revision === 2 && bob.client.revision === 2);
+  check(alice.client.state!.getValue(tab.id, 1, 0) === 6 && bob.client.state!.getValue(tab.id, 1, 0) === 6, 'two editors converge on the sheet, formulas included');
+
+  const csv = await download('user_bob', `/api/sheets/${id}/export?format=csv`);
+  const text = await csv.text();
+  check(csv.status === 200 && text.startsWith('2,3') && text.includes('6'), 'GET /export writes the live workbook in its room');
+
+  const version = await api<{ data: { id: string; revision: number } }>('user_alice', 'POST', `/api/sheets/${id}/versions`, { name: 'Two' });
+  check(version.status === 201 && version.body.data.revision === 2, 'POST /versions saves the live sheet');
+  const xlsx = await download('user_alice', `/api/sheets/${id}/versions/${version.body.data.id}/export`);
+  const bytes = new Uint8Array(await xlsx.arrayBuffer());
+  const disposition = xlsx.headers.get('content-disposition') ?? '';
+  check(xlsx.status === 200 && bytes[0] === 0x50 && bytes[1] === 0x4b && disposition.includes('E2E budget (Two).xlsx'), 'the version downloads as an .xlsx the engine wrote');
+
+  // A connected table: the listing runs on the service, with the tenant database.
+  const connected = await api<{ data: { refreshed: boolean; source: { rowCount: number; lastError: string | null } } }>(
+    'user_alice',
+    'POST',
+    `/api/sheets/${id}/data-sources`,
+    {
+      objectType: 'companies',
+      definition: { columns: ['name', 'leadScore'], headers: ['Company', 'Score'], filters: [], sort: { field: 'name' }, limit: 100 },
+      target: { newTab: 'Companies' },
+    },
+  );
+  const source = connected.body.data?.source;
+  check(
+    connected.status === 201 && connected.body.data.refreshed && source.rowCount === COMPANIES.length,
+    `a connected table lists the tenant database's companies (${connected.status}, ${JSON.stringify(source?.lastError)})`,
+  );
+  await alice.until(() => alice.client.state!.workbook.sheets.some((s) => s.name === 'Companies'));
+  const companies = alice.client.state!.workbook.sheets.find((s) => s.name === 'Companies')!;
+  check(alice.client.state!.getValue(companies.id, 1, 0) === 'Acme', 'the table reaches the editors as an edit, sorted');
+
+  await alice.close();
+  await bob.close();
+  // The last one out checkpoints, and the room records it on the sheets row.
+  await sleep(1000);
+
+  // A restart of the service: the sheet comes back from its checkpoint.
+  await stop(rooms);
+  rooms = startRooms();
+  await live(`http://127.0.0.1:${ROOMS}/healthz`);
+  const carol = await open('user_bob');
+  check(carol.client.state!.getValue(tab.id, 1, 0) === 6 && carol.client.state!.workbook.sheets.length === 2, 'after a restart the sheet reloads as it was');
+  await carol.close();
+
+  // An upload: the engine reads the file, Rust stores the new sheet.
+  const form = new FormData();
+  form.append('file', new File(['Item;Prijs\nThee;2,25\n'], 'prijzen.csv'));
+  form.append('locale', 'nl');
+  const imported = await fetch(`http://127.0.0.1:${RUST}/api/sheets/import`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token('user_alice')}` },
+    body: form,
+  });
+  const importedBody = (await imported.json()) as { data: { sheet: { id: string; name: string } } };
+  check(imported.status === 201 && importedBody.data.sheet.name === 'prijzen', 'POST /import reads an upload through the engine');
+  const reader = await open('user_alice', importedBody.data.sheet.id);
+  const importedTab = reader.client.state!.workbook.sheets[0]!.id;
+  check(reader.client.state!.getValue(importedTab, 1, 1) === 2.25, 'the imported sheet opens in its room, read in Dutch');
+  await reader.close();
+}
+
 let rooms: ChildProcess;
 let passed = false;
 
@@ -302,6 +401,7 @@ async function main(): Promise<void> {
     await live(`http://127.0.0.1:${RUST}/livez`);
     await live(`http://127.0.0.1:${ROOMS}/healthz`);
     await docs();
+    await sheets();
     console.log('e2e passed');
     passed = true;
   } finally {

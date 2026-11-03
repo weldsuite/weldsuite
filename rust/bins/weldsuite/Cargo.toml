@@ -53,6 +53,7 @@ weldsuite-hr = { workspace = true }
 weldsuite-integrations = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-docs = { workspace = true }
+weldsuite-sheets = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }

@@ -14,7 +14,9 @@ import * as schema from '@weldsuite/db/schema';
 import type { SheetDataRefreshResult, SheetDataSource, SheetSession, SheetSummary, SheetVersion } from '@weldsuite/app-api-client/schemas/sheets';
 import { Engine, Sheet, Workbook, writeXlsx } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '../../types';
+import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { FakeBucket, liveRoomNamespace } from '../../test-support/fakes';
+import { sheetEngineNamespace } from '../../engine-ops';
 import { META_SHEET, type LegacyModel } from '../../services/legacy-project-sheet';
 import sheetRoutes from './index';
 import agentRoutes from '../internal/agent';
@@ -24,7 +26,8 @@ let db: Database;
 let agentReadOnly = false;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
+  // The rooms' and the engine's database: in conformance mode, the TypeScript run's copy while it runs.
+  getTenantDbForWorkspace: async () => conformanceTenantDb(db),
   // The agent's path param is the Clerk org id; the lookup hands back both ids, like the real one.
   getWorkspaceContextForOrg: async (_env: unknown, ref: string) => ({
     id: 'ws_test_default',
@@ -47,7 +50,7 @@ let bucket: FakeBucket;
 let publicBucket: FakeBucket;
 let rooms: ReturnType<typeof liveRoomNamespace>;
 
-const env = () => ({ PRIVATE_STORAGE: bucket.asBinding(), STORAGE: publicBucket.asBinding(), SHEET_ROOM: rooms.binding }) as unknown as Env;
+const env = () => ({ PRIVATE_STORAGE: bucket.asBinding(), STORAGE: publicBucket.asBinding(), SHEET_ROOM: rooms.binding, SHEET_ENGINE: sheetEngineNamespace() }) as unknown as Env;
 
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/sheets', sheetRoutes, {

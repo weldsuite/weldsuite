@@ -48,6 +48,15 @@ import {
   TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
 } from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
 import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
+import {
+  MAX_SHEET_DATA_COLUMNS,
+  MAX_SHEET_DATA_FILTERS,
+  MAX_SHEET_DATA_ROWS,
+  SHEET_DATA_FILTER_OPS,
+  SHEET_DATA_FILTER_OPS_BY_TYPE,
+  SHEET_DATA_OBJECT_KEYS,
+  SHEET_DATA_OBJECTS,
+} from '../packages/clients/app-api-client/src/schemas/sheet-data';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -116,6 +125,29 @@ function connectorsCatalog(): unknown {
   };
 }
 
+/**
+ * WeldSheets' connected tables (`@weldsuite/app-api-client/schemas/sheet-data`):
+ * the objects a sheet can list, in order, with the permission each needs and
+ * its fields' types, and the filter operators per type, for the definition
+ * checks of `/api/sheets/:id/data-sources`.
+ */
+function sheetDataCatalog(): unknown {
+  return {
+    objectKeys: SHEET_DATA_OBJECT_KEYS,
+    objects: Object.fromEntries(
+      SHEET_DATA_OBJECT_KEYS.map((key) => [
+        key,
+        { permission: SHEET_DATA_OBJECTS[key].permission, fields: SHEET_DATA_OBJECTS[key].fields.map(({ key: k, type }) => ({ key: k, type })) },
+      ]),
+    ),
+    filterOps: SHEET_DATA_FILTER_OPS,
+    filterOpsByType: SHEET_DATA_FILTER_OPS_BY_TYPE,
+    maxRows: MAX_SHEET_DATA_ROWS,
+    maxColumns: MAX_SHEET_DATA_COLUMNS,
+    maxFilters: MAX_SHEET_DATA_FILTERS,
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -126,6 +158,7 @@ async function main(): Promise<void> {
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
     'catalogs/weldconnect.json': weldconnectCatalog(),
     'catalogs/connectors.json': connectorsCatalog(),
+    'catalogs/sheet-data.json': sheetDataCatalog(),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

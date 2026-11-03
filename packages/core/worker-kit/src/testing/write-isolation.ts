@@ -133,9 +133,9 @@ function isolatedKv(kv: KvLike): KvLike {
 }
 
 /** The binding's own copy (`fork()`), for a stub that can make one; else undefined. */
-function forkOf(binding: unknown): unknown {
-  const fork = (binding as { fork?: () => unknown } | undefined)?.fork;
-  return typeof fork === 'function' ? fork.call(binding) : undefined;
+function forkOf(binding: unknown, env?: Record<string, unknown>): unknown {
+  const fork = (binding as { fork?: (env?: Record<string, unknown>) => unknown } | undefined)?.fork;
+  return typeof fork === 'function' ? fork.call(binding, env) : undefined;
 }
 
 /** `env` with each shared bucket and KV binding behind a copy-on-write view. */
@@ -151,10 +151,12 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
     isolated[name] = forkOf(env[name]) ?? isolatedKv(env[name] as KvLike);
   }
   // A Durable Object namespace stub that can copy its state (the portal's
-  // rate-limit counters) counts the TypeScript run on the copy, and a stream
-  // stub that can copy itself takes the TypeScript run's rows on the copy.
+  // rate-limit counters, WeldSheets' rooms) runs the TypeScript side on the
+  // copy, given the isolated env (its rooms write to the bucket views above),
+  // and a stream stub that can copy itself takes the TypeScript run's rows on
+  // the copy.
   for (const name of [...LEDGER_BINDINGS, ...PIPELINE_BINDINGS]) {
-    const copy = forkOf(env[name]);
+    const copy = forkOf(env[name], isolated);
     if (copy !== undefined) isolated[name] = copy;
   }
   return isolated;

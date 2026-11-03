@@ -596,7 +596,7 @@
     "prefixes": [
       "/api/sheets"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "sheets-api"
   },
   {

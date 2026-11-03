@@ -84,6 +84,19 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = if mounts("sheets") {
+        let sheets = weldsuite_sheets::SheetsState {
+            events: state.infra.events.clone(),
+            files: file_stores(state),
+            collab: crate::collab::rooms(state),
+        };
+        router.nest(
+            "/sheets",
+            weldsuite_sheets::router(sheets, &state.permissions),
+        )
+    } else {
+        router
+    };
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),

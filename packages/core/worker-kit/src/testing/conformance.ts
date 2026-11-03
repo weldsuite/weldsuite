@@ -854,6 +854,8 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
+  // A collaborative room's ticket: the room's id, then a secret new per call.
+  if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 
@@ -877,6 +879,9 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'inboundToken' && REACH_INBOUND_TOKEN.test(value)) return '<inbound-token>';
   return undefined;
 }
+
+/** A WeldDocs or WeldSheets room ticket: `<room id>.<secret>`. */
+const ROOM_TICKET = /^([0-9a-f]{64})\.[0-9A-Za-z_-]+$/;
 
 /** A provider webhook target of an integration connection. */
 const INTEGRATION_WEBHOOK_TARGET = /\/webhook\/(gcal\/)?intc_/;
