@@ -16,7 +16,8 @@
  *                The image also bundles the platform SPA and the sign portal,
  *                but those are built by Build on their own PRs; the image
  *                catches a Docker-only break on develop.
- *   conformance  rust or api: Rust · conformance (the suites narrow it further)
+ *   conformance  rust, api, or a file a conformance suite covers (CONFORMANCE_SUITES):
+ *                Rust · conformance (the suites narrow it further)
  *   workers      a file under apps/workers/ changed: Rust · conformance coverage
  *
  * A change to locale files only reaches the packages that read them (see
@@ -114,6 +115,25 @@ const RUST_PATHS = [
   'apps/workers/sheets-api/src/engine-ops',
 ];
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
+
+/**
+ * Each conformance suite names the paths it covers, and
+ * `rust:conformance --changed` runs a suite when one of them or one of its
+ * tests changed. Some suites cover workers outside API_PACKAGES
+ * (integration-webhook-worker, panel-ingest), so match them the same way.
+ */
+const CONFORMANCE_SUITES = 'rust/conformance/suites.json';
+
+function touchedSuites(files) {
+  const { suites } = JSON.parse(readFileSync(path.join(repoRoot, CONFORMANCE_SUITES), 'utf8'));
+  return suites.filter((suite) =>
+    files.some(
+      (f) =>
+        suite.paths.some((p) => f.startsWith(p)) ||
+        suite.tests.some((t) => f.startsWith(`${suite.workspace}/${t}`)),
+    ),
+  );
+}
 
 /**
  * Locale files are mostly imported one at a time
@@ -275,6 +295,7 @@ function decide(files) {
     if (matchesAny(dir, RUST_PACKAGES)) on('rust', why);
   }
   for (const why of [...reasons.rust, ...reasons.api]) on('conformance', why);
+  for (const suite of touchedSuites(files)) on('conformance', `the "${suite.name}" conformance suite covers a changed file`);
   return reasons;
 }
 
