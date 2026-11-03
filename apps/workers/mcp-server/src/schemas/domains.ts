@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { externalDomainSchema } from '@weldsuite/core-api-client/schemas/domains';
 
 // ============================================================================
 // Contact — fields Cloudflare Registrar accepts on registration
@@ -100,19 +101,7 @@ export const updateDomainSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-export const externalDomainSchema = z.object({
-  domain: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .min(3)
-    .max(253)
-    .regex(
-      /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/,
-      'Enter a valid fully-qualified domain name (e.g. example.com)',
-    ),
-  registrar: z.string().max(255).optional(),
-});
+export { externalDomainSchema };
 
 export { checkoutInput, MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
 export type { CheckoutInput } from '@weldsuite/core-api-client/schemas/domains';

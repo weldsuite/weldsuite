@@ -32,6 +32,7 @@ import {
   useImportDnsRecords,
   type ScannedDnsRecord,
 } from '@/hooks/queries/use-host-queries';
+import { externalDomainProblem } from '@weldsuite/core-api-client/schemas/domains';
 
 type Step = 'enter' | 'verify' | 'import' | 'nameservers';
 
@@ -64,7 +65,7 @@ function CopyRow({ label, value }: CopyRowProps) {
     <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/30 gap-3">
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">{label}</span>
-        <code className="font-mono text-sm font-medium truncate">{value}</code>
+        <code className="font-mono text-sm font-medium break-all">{value}</code>
       </div>
       <Button type="button" variant="ghost" size="sm" onClick={handleCopy}>
         {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
@@ -87,6 +88,8 @@ export function ExternalDomainClient() {
   const [step, setStep] = useState<Step>('enter');
   const [domainName, setDomainName] = useState('');
   const [registrar, setRegistrar] = useState('');
+  // Shown under the domain field once the user tried to continue with a bad value.
+  const [showDomainError, setShowDomainError] = useState(false);
   const [domainId, setDomainId] = useState<string | null>(null);
   const [verificationRecord, setVerificationRecord] = useState<VerificationRecord | null>(null);
   const [nameservers, setNameservers] = useState<string[]>([]);
@@ -124,10 +127,20 @@ export function ExternalDomainClient() {
     );
   }, [step, domainId, scannedRecords, scanDnsRecords, tx.errorScanFailed]);
 
+  const domainProblem = domainName.trim() ? externalDomainProblem(domainName) : null;
+  let domainError: string | null = null;
+  if (domainProblem === 'invalid') domainError = tx.errorInvalidDomain;
+  else if (domainProblem === 'reserved') domainError = tx.errorReservedTld;
+
   const handleReserve = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!domainName.trim()) {
       toast.error(tx.errorEnterDomain);
+      return;
+    }
+    if (domainError) {
+      setShowDomainError(true);
+      document.getElementById('domain')?.focus();
       return;
     }
     try {
@@ -245,9 +258,17 @@ export function ExternalDomainClient() {
                   className="pl-10"
                   value={domainName}
                   onChange={(e) => setDomainName(e.target.value)}
+                  onBlur={() => setShowDomainError(Boolean(domainError))}
+                  aria-invalid={showDomainError && Boolean(domainError)}
+                  aria-describedby={showDomainError && domainError ? 'domain-error' : undefined}
                   required
                 />
               </div>
+              {showDomainError && domainError && (
+                <p id="domain-error" role="alert" className="mt-1.5 text-sm text-destructive">
+                  {domainError}
+                </p>
+              )}
             </div>
 
             <div>
@@ -275,12 +296,16 @@ export function ExternalDomainClient() {
       },
     ];
 
+    let domainSummary: React.ReactNode = domainName.trim().toLowerCase();
+    if (!domainName.trim()) {
+      domainSummary = <span className="text-muted-foreground">{tx.notEntered}</span>;
+    } else if (domainProblem) {
+      domainSummary = <span className="text-muted-foreground">{tx.invalidDomain}</span>;
+    }
+
     const summaryFields: HostSummaryField[] = [
       { label: tx.stepLabel, value: tx.step1 },
-      {
-        label: tx.domainLabel,
-        value: domainName || <span className="text-muted-foreground">{tx.notEntered}</span>,
-      },
+      { label: tx.domainLabel, value: domainSummary },
       {
         label: tx.registrarSummaryLabel,
         value: registrar || <span className="text-muted-foreground">{tx.notSpecified}</span>,
