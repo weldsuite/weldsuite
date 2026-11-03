@@ -5,6 +5,7 @@
 
 pub mod access;
 pub mod analytics;
+pub mod approvals;
 pub mod day_bounds;
 pub mod js;
 pub mod numbering;
