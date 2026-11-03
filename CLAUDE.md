@@ -424,7 +424,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
-| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. |
+| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. On a PR, jobs run only for the areas the change touches (`.github/scripts/ci-changes.mjs`; a new job needs `needs: [changes]` and an area `if:`). |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
 | `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
