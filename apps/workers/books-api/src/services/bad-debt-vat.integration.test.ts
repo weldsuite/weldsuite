@@ -23,6 +23,9 @@ let entityId: string;
 const accountId: Record<string, string> = {};
 let hoogRate: string;
 const TODAY = new Date().toISOString().slice(0, 10);
+// The calendar month around TODAY, the period of a monthly return.
+const MONTH_START = `${TODAY.slice(0, 7)}-01`;
+const MONTH_END = new Date(Date.UTC(Number(TODAY.slice(0, 4)), Number(TODAY.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function call(mount: string, routes: Hono<any>, path: string, method = 'GET', body?: unknown) {
@@ -140,8 +143,8 @@ describe('write-off of a VAT invoice (art. 29 Wet OB)', () => {
 
     const res = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', {
       periodType: 'monthly',
-      periodStart: TODAY,
-      periodEnd: TODAY,
+      periodStart: MONTH_START,
+      periodEnd: MONTH_END,
     });
     expect(res.status).toBe(201);
     expect(res.data.rubrieken).toMatchObject({ r1a: -250, r1aBtw: -52.5, r5a: -52.5, r5c: -52.5, r5g: -52.5 });

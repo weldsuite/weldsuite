@@ -2806,6 +2806,14 @@ export const accounting = {
       icpDeleteFailed: 'Opgaaf ICP verwijderen mislukt',
       icpRecalculated: 'De bestaande opgaaf ICP van deze periode is bijgewerkt: {count} regel(s), totaal {total}',
       invalidPeriod: 'De einddatum van de periode mag niet vóór de begindatum liggen.',
+      periodNotWhole: {
+        monthly: 'Een maandaangifte loopt van de eerste tot de laatste dag van één maand.',
+        quarterly: 'Een kwartaalaangifte loopt van de eerste tot de laatste dag van één kwartaal (jan–mrt, apr–jun, jul–sep of okt–dec).',
+        yearly: 'Een jaaraangifte loopt van 1 januari tot en met 31 december.',
+      },
+      periodYear: 'Jaar',
+      periodMonth: 'Maand',
+      periodQuarter: 'Kwartaal',
       colStatus: 'Status',
       // VAT detail page
       filedSuccess: 'BTW-aangifte succesvol ingediend',

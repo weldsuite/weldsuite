@@ -169,6 +169,40 @@ describe('recalculating, deleting and period checks', () => {
     });
     expect(icp.status).toBe(400);
   });
+
+  it('rejects dates that are not exactly the month, quarter or year of the period type', async () => {
+    for (const body of [
+      { periodType: 'quarterly', periodStart: '2026-05-01', periodEnd: '2026-07-31' },
+      { periodType: 'quarterly', periodStart: '2026-10-01', periodEnd: '2026-12-30' },
+      { periodType: 'monthly', periodStart: '2026-10-02', periodEnd: '2026-10-31' },
+      { periodType: 'yearly', periodStart: '2027-01-01', periodEnd: '2027-06-30' },
+    ]) {
+      const vat = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', body);
+      expect(vat.status, JSON.stringify(body)).toBe(400);
+      const icp = await call('/api/icp-declarations', icpDeclarationsRoutes, '/api/icp-declarations/calculate', 'POST', body);
+      expect(icp.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('rejects a period that overlaps another return', async () => {
+    // Q2 2026 has a return (above): its months and the whole year overlap it.
+    const month = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', {
+      periodType: 'monthly',
+      periodStart: '2026-05-01',
+      periodEnd: '2026-05-31',
+    });
+    expect(month.status).toBe(400);
+    expect(month.error?.message).toContain('2026-04-01 to 2026-06-30');
+    const year = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', {
+      periodType: 'yearly',
+      periodStart: '2026-01-01',
+      periodEnd: '2026-12-31',
+    });
+    expect(year.status).toBe(400);
+
+    const rows = await db.select().from(schema.vatReturns).where(isNull(schema.vatReturns.deletedAt));
+    expect(rows.filter((r) => r.periodType !== 'quarterly')).toHaveLength(0);
+  });
 });
 
 describe('ICP: goods and services', () => {

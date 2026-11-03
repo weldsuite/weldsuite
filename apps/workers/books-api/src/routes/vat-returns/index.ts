@@ -22,7 +22,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { VatRubrieken } from '@weldsuite/db/schema';
@@ -37,7 +37,7 @@ import { resolveEntityId } from '../../lib/entity-context';
 import { isKorActive, writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { generateVatXml } from '@weldsuite/books-domain/accounting-vat-xml';
 import { normalizeVatRubrieken, recomputeRubriekTotals } from '@weldsuite/books-domain/jurisdictions/nl';
-import { isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
+import { formatPeriod, isSamePeriod, isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
 import { submitFiling, checkFilingStatus, createConfig } from '../../services/accounting-digipoort';
 import { GstReturnError, loadGstWorksheet } from '../../services/accounting-gst-return';
 
@@ -145,9 +145,25 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       );
     }
 
-    const period = parseReturnPeriod(data.periodStart, data.periodEnd);
+    const period = parseReturnPeriod(data.periodStart, data.periodEnd, data.periodType);
     if (!period.ok) return error.badRequest(c, period.error);
     const { start: periodStart, end: periodEnd } = period;
+
+    // Regular returns never overlap: a month already covered by a quarterly or yearly return is not declared twice.
+    const overlapping = await db
+      .select({ periodStart: schema.vatReturns.periodStart, periodEnd: schema.vatReturns.periodEnd })
+      .from(schema.vatReturns)
+      .where(and(
+        eq(schema.vatReturns.entityId, entityId),
+        lte(schema.vatReturns.periodStart, periodEnd),
+        gte(schema.vatReturns.periodEnd, periodStart),
+        isNull(schema.vatReturns.correctionOfId),
+        isNull(schema.vatReturns.deletedAt),
+      ));
+    const clash = overlapping.find((r) => !isSamePeriod({ start: r.periodStart, end: r.periodEnd }, period));
+    if (clash) {
+      return error.badRequest(c, `This period overlaps the BTW-aangifte of ${formatPeriod(clash.periodStart, clash.periodEnd)}.`);
+    }
 
     // The period's regular return, when one exists: an open one is recalculated in place, a filed one stands
     // (a correction of a filed return is a suppletie, not a second return).
