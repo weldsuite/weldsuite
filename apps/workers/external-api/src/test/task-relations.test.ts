@@ -109,6 +109,15 @@ describe('/v1/tasks relation guards · pglite integration', () => {
       expect(await row(id)).toMatchObject({ dependsOn: ['task_xrel_pre'], blocks: ['task_xrel_post'] });
       expect((await row('task_xrel_pre'))?.blocks).toEqual([id]);
       expect((await row('task_xrel_post'))?.dependsOn).toEqual([id]);
+      // The typed rows (FLOW-015) follow the arrays: fs, no lag, credited to the key's user.
+      const links = await db.select().from(schema.taskDependencies).where(eq(schema.taskDependencies.projectId, 'proj_xrel_a'));
+      const mine = links.filter((link) => link.predecessorId === id || link.successorId === id);
+      expect(mine.map((link) => [link.predecessorId, link.successorId, link.type, link.lagDays]).sort()).toEqual(
+        [
+          ['task_xrel_pre', id, 'fs', 0],
+          [id, 'task_xrel_post', 'fs', 0],
+        ].sort(),
+      );
     });
 
     it('rejects a link to a task that does not exist, and creates nothing', async () => {
