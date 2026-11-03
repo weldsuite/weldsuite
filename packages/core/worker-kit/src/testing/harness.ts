@@ -107,6 +107,13 @@ export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
    * app keep the worker's paths.
    */
   rustBasePath?: string;
+  /**
+   * Answer an error a route throws as the module workers do
+   * (`createModuleApi`'s onError: 500 `INTERNAL_ERROR`, "An unexpected error
+   * occurred") instead of with Hono's plain-text default, so the test (and
+   * conformance mode) sees what a client of the worker would.
+   */
+  moduleApiErrors?: boolean;
 }
 
 /**
@@ -213,14 +220,16 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     const built = new Hono<{ Bindings: E; Variables: V }>();
     built.use('*', stubAuth);
     built.route(basePath, router);
-    // An error a route throws answers as the module workers answer it
-    // (`createModuleApi`'s onError), not with Hono's plain-text default, so a
-    // test sees what a client would. An HTTPException keeps its own response.
-    built.onError((err, c) => {
-      if (err instanceof HTTPException) return err.getResponse();
-      console.error('[test app] route error:', err);
-      return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
-    });
+    // With `moduleApiErrors`, an error a route throws answers as the module
+    // workers answer it (`createModuleApi`'s onError). An HTTPException keeps
+    // its own response.
+    if (options.moduleApiErrors) {
+      built.onError((err, c) => {
+        if (err instanceof HTTPException) return err.getResponse();
+        console.error('[test app] route error:', err);
+        return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
+      });
+    }
     return built;
   };
   const app = buildApp(ctx.tenantDb);

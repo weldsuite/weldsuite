@@ -132,6 +132,8 @@ function app(grants: string[] = ADMIN, options: AppOptions = {}) {
       ENTITY_EVENTS: queue,
       PANEL_COLLECTOR_URL: options.collectorUrl ?? COLLECTOR,
     },
+    // A failed registry write throws: answered as panel-api's createModuleApi does.
+    moduleApiErrors: true,
   });
 }
 
