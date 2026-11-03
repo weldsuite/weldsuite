@@ -34,7 +34,7 @@ use axum::routing::{get, post};
 use http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use http::request::Parts;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
-use http_body_util::{BodyExt, Limited};
+use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -552,14 +552,40 @@ async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Opt
         .and_then(|value| value.to_str().ok())
         .map(weldsuite_kit::validation::js_number);
     #[allow(clippy::cast_precision_loss)]
-    if declared.is_some_and(|declared| declared.is_finite() && declared > limit as f64) {
+    let too_large =
+        declared.is_some_and(|declared| declared.is_finite() && declared > limit as f64);
+    let mut body = body;
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut seen = 0usize;
+    // Past the limit the rest is read and dropped, up to a cap, so the 413
+    // reaches a client still sending (closing on it resets the connection);
+    // beyond the cap the connection is given up.
+    while let Some(frame) = body.frame().await {
+        let Ok(frame) = frame else {
+            return None;
+        };
+        let Ok(data) = frame.into_data() else {
+            continue;
+        };
+        seen += data.len();
+        if too_large || seen > limit {
+            if seen > DRAIN_CAP {
+                break;
+            }
+            continue;
+        }
+        bytes.extend_from_slice(&data);
+    }
+    if too_large || seen > limit {
         return None;
     }
-    let bytes = Limited::new(body, limit).collect().await.ok()?.to_bytes();
     // `TextDecoder` drops a byte order mark and replaces what isn't UTF-8.
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     Some(String::from_utf8_lossy(bytes).into_owned())
 }
+
+/// How much of a too-large body is read and dropped before the 413.
+const DRAIN_CAP: usize = 1024 * 1024;
 
 /// `POST /e`: a batch of events. Everything that can be decided from the
 /// request is decided before the answer; what we choose not to count
