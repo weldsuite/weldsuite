@@ -23,6 +23,7 @@ import {
   completedBankLinkSchema,
   importPreviewSchema,
   importResultSchema,
+  importUndoneSchema,
   mappedBankFeedAccountsSchema,
   matchSuggestionSchema,
   reconciliationHistorySchema,
@@ -58,6 +59,7 @@ export const BOOKS_BANKING_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/bank-transactions/:id/reconcile', envelope: 'single', data: bankLineMatchSchema },
   { method: 'POST', route: '/api/bank-transactions/:id/unreconcile', envelope: 'single', data: bankLineMatchSchema },
   { method: 'POST', route: '/api/bank-transactions/:id/exclude', envelope: 'single', data: bankLineExcludedSchema },
+  { method: 'DELETE', route: '/api/bank-transactions/import-batches/:batchId', envelope: 'single', data: importUndoneSchema },
   // bank-deposits
   { method: 'GET', route: '/api/bank-deposits', envelope: 'list', data: bankDepositSchema },
   { method: 'GET', route: '/api/bank-deposits/undeposited', envelope: 'list', data: undepositedPaymentSchema },

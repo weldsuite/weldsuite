@@ -350,3 +350,12 @@ export const lockDateExceptionSchema = z
     createdAt: z.string(),
   })
   .passthrough();
+
+/** `GET|PATCH /api/accounting-entities/:id/number-sequences`: one document series and the number its next document gets. */
+export const numberSequenceSchema = z.object({
+  sequenceType: z.enum(['invoice', 'creditNote', 'bill', 'journal']),
+  prefix: z.string(),
+  nextValue: z.number().int(),
+  padding: z.number().int(),
+  nextNumber: z.string(),
+});

@@ -28,6 +28,7 @@ import {
   journalEntrySchema,
   jurisdictionSummarySchema,
   lockDateExceptionSchema,
+  numberSequenceSchema,
   postingCatchUpSchema,
   revealedSsnSchema,
   seededWorkflowTemplatesSchema,
@@ -83,6 +84,8 @@ const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/accounting-entities/:id/lock-exceptions', envelope: 'array', data: lockDateExceptionSchema },
   { method: 'POST', route: '/api/accounting-entities/:id/lock-exceptions', envelope: 'single', data: lockDateExceptionSchema },
   { method: 'POST', route: '/api/accounting-entities/:id/lock-exceptions/:exceptionId/revoke', envelope: 'single', data: lockDateExceptionSchema },
+  { method: 'GET', route: '/api/accounting-entities/:id/number-sequences', envelope: 'array', data: numberSequenceSchema },
+  { method: 'PATCH', route: '/api/accounting-entities/:id/number-sequences', envelope: 'array', data: numberSequenceSchema },
   // gl-accounts
   { method: 'GET', route: '/api/gl-accounts/tax-lines', envelope: 'single', data: taxLineCatalogSchema },
   { method: 'GET', route: '/api/gl-accounts', envelope: 'array', data: glAccountSchema },

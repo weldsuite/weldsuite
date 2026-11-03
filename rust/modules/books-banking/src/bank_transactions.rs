@@ -2,8 +2,10 @@
 //! lines entered by hand (optionally posted straight to an account),
 //! imported from a file (OFX / QFX / QBO, BAI2, CSV with a layout, MT940,
 //! CAMT.053; previewed first), matched to invoices, bills, payments and
-//! deposits, categorized, unreconciled and excluded. Every change is written
-//! to the accounting audit log.
+//! deposits, categorized (by hand, or with a reconciliation rule),
+//! unreconciled and excluded; a line that was never booked can be deleted,
+//! and an import undone. Every change is written to the accounting audit
+//! log.
 
 use std::sync::Arc;
 
@@ -12,9 +14,10 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::bank_categorize::{Categorize, categorize};
 use weldsuite_books_domain::bank_matching::{
     auto_reconcile_batch, find_matches, reconcile_to_deposit, reconcile_to_document,
     reconcile_to_payment, unreconcile,
@@ -22,15 +25,16 @@ use weldsuite_books_domain::bank_matching::{
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Refusal, Reply, created, now, ok, paged, reply, validate,
+    BooksState, Caller, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
 };
 use weldsuite_books_domain::js::{
     js_date, js_number_value, math_round, number_text, parse_int, to_fixed,
 };
+use weldsuite_books_domain::reconciliation_rules::{action, load_active_rule, record_rule_match};
 use weldsuite_books_domain::tables::{BANK_ACCOUNTS, BANK_IMPORT_BATCHES, BANK_TRANSACTIONS};
 use weldsuite_catalogs::entity_events::{
-    BANK_ACCOUNT_UPDATED, BANK_DEPOSIT_UPDATED, BANK_TRANSACTION_CREATED, BANK_TRANSACTION_UPDATED,
-    JOURNAL_ENTRY_CREATED, PAYMENT_CREATED, PAYMENT_UPDATED,
+    BANK_ACCOUNT_UPDATED, BANK_DEPOSIT_UPDATED, BANK_TRANSACTION_CREATED, BANK_TRANSACTION_DELETED,
+    BANK_TRANSACTION_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED, PAYMENT_UPDATED,
 };
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{
@@ -38,10 +42,9 @@ use weldsuite_kit::validation::{
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::categorize::categorize;
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
-use crate::import::{count_duplicates, import_transactions};
+use crate::import::{count_duplicates, delete_lines, import_transactions, line_delete_blocker};
 use crate::parsers::{CsvFormatRequired, ParseOptions, ParseResult, parse_bank_file};
 
 const FILE_FORMATS: [&str; 7] = ["mt940", "camt053", "csv", "ofx", "qfx", "qbo", "bai2"];
@@ -93,6 +96,11 @@ where
             "/{id}/exclude",
             post(exclude).route_layer(need("banking:update")),
         )
+        .route(
+            "/import-batches/{batch_id}",
+            delete(undo_import).route_layer(need("banking:delete")),
+        )
+        .route("/{id}", delete(remove).route_layer(need("banking:delete")))
         .with_state(state)
 }
 
@@ -432,9 +440,17 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
                 "Failed to create bank transaction".to_owned(),
             ));
         };
-        let posted = categorize(&caller.db, &inserted, category, None, None, caller.user())
-            .await
-            .map_err(posting_refusal)?;
+        let posted = categorize(
+            &caller.db,
+            &inserted,
+            Categorize {
+                category_account_id: category,
+                user_id: caller.user(),
+                ..Categorize::default()
+            },
+        )
+        .await
+        .map_err(posting_refusal)?;
         journal_entry_id = Some(posted.journal_entry_id);
     }
 
@@ -836,7 +852,7 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
     }
     BANK_IMPORT_BATCHES.insert_raw(&caller.db, batch).await?;
 
-    let (imported, duplicates) = import_transactions(
+    let counts = import_transactions(
         &caller.db,
         &entity_id,
         &account_id,
@@ -844,6 +860,7 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         &parse.transactions,
     )
     .await?;
+    let (imported, duplicates) = (counts.imported, counts.duplicates);
     let auto_reconciled = if weldsuite_books_domain::js::truthy(account.get("autoReconcile")) {
         let http = caller.http(state);
         auto_reconcile_batch(&caller.db, http.as_ref(), &account_id, None)
@@ -876,13 +893,14 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         .then(|| data.csv_format.clone())
         .flatten();
     if imported > 0 || remember.is_some() {
+        // The file's closing balance when it has one, otherwise the old
+        // balance plus the imported lines (a CSV export carries no balance).
+        let closing = parse.closing_balance.filter(|_| imported > 0);
         let stamp = now();
         let mut set = Map::new();
         set.insert("lastImportDate".to_owned(), json!(stamp));
         set.insert("updatedAt".to_owned(), json!(stamp));
-        if imported > 0
-            && let Some(closing) = parse.closing_balance
-        {
+        if let Some(closing) = closing {
             set.insert("lastImportBalance".to_owned(), json!(number_text(closing)));
             set.insert("currentBalance".to_owned(), json!(number_text(closing)));
         }
@@ -898,6 +916,16 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         BANK_ACCOUNTS
             .patch_raw(&caller.db, &account_id, BANK_ACCOUNTS.values(&set), false)
             .await?;
+        if closing.is_none() && counts.net != 0.0 {
+            sqlx::query(
+                "update bank_accounts set current_balance = \
+                 (coalesce(current_balance, 0)::numeric + $2::numeric) where id = $1",
+            )
+            .bind(&account_id)
+            .bind(to_fixed(counts.net, 2))
+            .execute(&caller.db)
+            .await?;
+        }
         caller.publish(
             state,
             BANK_ACCOUNT_UPDATED,
@@ -1011,7 +1039,7 @@ async fn suggestions(caller: Caller, Path(id): Path<String>) -> Response {
                 .iter()
                 .take(10)
                 .map(|m| {
-                    json!({
+                    let mut out = json!({
                         "type": m.kind,
                         "id": m.entity_id,
                         "number": m.entity_number,
@@ -1019,7 +1047,13 @@ async fn suggestions(caller: Caller, Path(id): Path<String>) -> Response {
                         "amount": m.amount,
                         "confidence": weldsuite_books_domain::js::number_value(m.confidence),
                         "reasons": m.reasons,
-                    })
+                    });
+                    if let Some(account) =
+                        m.category_account_id.as_deref().filter(|a| !a.is_empty())
+                    {
+                        out["categoryAccountId"] = json!(account);
+                    }
+                    out
                 })
                 .collect(),
         )))
@@ -1165,6 +1199,9 @@ struct ReconcileBody {
     category_account_id: Option<String>,
     tax_rate_id: Option<String>,
     contact_id: Option<String>,
+    /// A rule suggestion picked by hand: the rule's account, tax rate and
+    /// contact apply, and its match count goes up.
+    rule_id: Option<String>,
 }
 
 async fn reconcile(
@@ -1190,12 +1227,14 @@ async fn reconcile(
         let category_account_id = optional("categoryAccountId");
         let tax_rate_id = optional("taxRateId");
         let contact_id = optional("contactId");
+        let rule_id = optional("ruleId");
         ReconcileBody {
             kind: kind.into_option().unwrap_or_default(),
             entity_id,
             category_account_id,
             tax_rate_id,
             contact_id,
+            rule_id,
         }
     }) {
         Ok(data) => data,
@@ -1218,9 +1257,24 @@ async fn reconcile_line(
         return Err(Refusal::not_found("Transaction", id));
     };
     if data.kind == "manual" {
+        // `resolveCategorization`: a picked rule supplies its account, tax
+        // rate and contact, so the line is booked exactly as auto-reconcile
+        // books it; values in the request win over the rule's.
+        let rule = match data.rule_id.as_deref().filter(|r| !r.is_empty()) {
+            Some(rule_id) => {
+                let entity_id = text(&txn, "entityId").unwrap_or_default();
+                match load_active_rule(&caller.db, rule_id, entity_id).await? {
+                    Some(rule) => Some(rule),
+                    None => return Err(Refusal::not_found("Reconciliation rule", rule_id)),
+                }
+            }
+            None => None,
+        };
+        let from_rule = |key: &str| rule.as_ref().and_then(|r| action(r, key));
         let Some(category) = data
             .category_account_id
             .as_deref()
+            .or_else(|| from_rule("categoryAccountId"))
             .filter(|c| !c.is_empty())
         else {
             return Err(Refusal::bad_request(
@@ -1230,13 +1284,26 @@ async fn reconcile_line(
         let posted = categorize(
             &caller.db,
             &txn,
-            category,
-            data.contact_id.as_deref(),
-            data.tax_rate_id.as_deref(),
-            caller.user(),
+            Categorize {
+                category_account_id: category,
+                contact_id: data
+                    .contact_id
+                    .as_deref()
+                    .or_else(|| from_rule("contactId")),
+                tax_rate_id: data
+                    .tax_rate_id
+                    .as_deref()
+                    .or_else(|| from_rule("taxRateId")),
+                auto: false,
+                user_id: caller.user(),
+            },
         )
         .await
         .map_err(posting_refusal)?;
+        // A picked rule's match count goes up, as in auto-reconcile.
+        if let Some(rule_id) = rule.as_ref().and_then(|r| text(r, "id")) {
+            record_rule_match(&caller.db, rule_id).await?;
+        }
         write_accounting_audit(
             caller,
             &caller.db,
@@ -1442,4 +1509,142 @@ async fn exclude(
     }
     .await;
     reply(result, "Failed to exclude transaction")
+}
+
+// ── DELETE /import-batches/:batchId, DELETE /:id ────────────────────────────
+
+/// `recordLinesDeleted`: audit and announce each deleted line.
+async fn record_lines_deleted(
+    caller: &Caller,
+    state: &BooksState,
+    lines: &[Value],
+    batch_id: Option<&str>,
+) {
+    for line in lines {
+        let id = text(line, "id").unwrap_or_default();
+        let mut audit = vec![
+            ("amount", field(line, "amount"), Value::Null),
+            ("date", field(line, "date"), Value::Null),
+            ("description", field(line, "description"), Value::Null),
+        ];
+        if let Some(batch_id) = batch_id {
+            audit.push(("importBatchId", json!(batch_id), Value::Null));
+        }
+        write_accounting_audit(
+            caller,
+            &caller.db,
+            AuditInput {
+                accounting_entity_id: text(line, "entityId"),
+                entity_type: "bank_transaction",
+                entity_id: id,
+                action: "deleted",
+                changes: Some(changes(audit)),
+            },
+        )
+        .await;
+        caller.publish(
+            state,
+            BANK_TRANSACTION_DELETED,
+            id,
+            json!({
+                "id": id,
+                "bankAccountId": field(line, "bankAccountId"),
+                "amount": field(line, "amount"),
+                "description": field(line, "description"),
+                "status": field(line, "status"),
+            }),
+        );
+    }
+}
+
+/// Undo an import: removes its lines that were never booked (its reconciled
+/// lines stay).
+async fn undo_import(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(batch_id): Path<String>,
+) -> Response {
+    let result = async {
+        let Some(batch) = BANK_IMPORT_BATCHES.find_live(&caller.db, &batch_id).await? else {
+            return Err(Refusal::not_found("Import", &batch_id));
+        };
+        let lines: Vec<Value> = sqlx::query_scalar(concat!(
+            "select ",
+            weldsuite_books_domain::books_row!(bank_transactions),
+            " from bank_transactions t where t.import_batch_id = $1 and t.deleted_at is null"
+        ))
+        .bind(&batch_id)
+        .fetch_all(&caller.db)
+        .await?;
+        let (deleted, kept) = delete_lines(&caller.db, BANK_TRANSACTIONS.js_rows(lines)).await?;
+        sqlx::query(
+            "update bank_import_batches set status = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(&batch_id)
+        .bind(if kept > 0 { "partly_undone" } else { "undone" })
+        .bind(now())
+        .execute(&caller.db)
+        .await?;
+        write_accounting_audit(
+            &caller,
+            &caller.db,
+            AuditInput {
+                accounting_entity_id: text(&batch, "entityId"),
+                entity_type: "bank_import_batch",
+                entity_id: &batch_id,
+                action: "undone",
+                changes: Some(changes(vec![
+                    ("deletedCount", Value::Null, json!(deleted.len())),
+                    ("keptCount", Value::Null, json!(kept)),
+                ])),
+            },
+        )
+        .await;
+        record_lines_deleted(&caller, &state, &deleted, Some(&batch_id)).await;
+        if !deleted.is_empty() {
+            let account = text(&batch, "bankAccountId").unwrap_or_default();
+            caller.publish(
+                &state,
+                BANK_ACCOUNT_UPDATED,
+                account,
+                json!({ "id": account }),
+            );
+        }
+        Ok(ok(
+            json!({ "batchId": batch_id, "deleted": deleted.len(), "kept": kept }),
+        ))
+    }
+    .await;
+    reply(result, "Failed to undo the import")
+}
+
+/// Remove a line that was never booked (unreconciled or excluded).
+async fn remove(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    let result = async {
+        let Some(txn) = find_transaction(&caller.db, &id).await? else {
+            return Err(Refusal::not_found("Transaction", &id));
+        };
+        match line_delete_blocker(&txn) {
+            Some("reconciled") => {
+                return Err(Refusal::conflict(
+                    "This transaction is reconciled. Unreconcile it first, then delete it.",
+                ));
+            }
+            Some(_) => {
+                return Err(Refusal::conflict(
+                    "This transaction came from a bank feed and would come back on the next sync. Exclude it instead.",
+                ));
+            }
+            None => {}
+        }
+        let (deleted, _) = delete_lines(&caller.db, vec![txn]).await?;
+        record_lines_deleted(&caller, &state, &deleted, None).await;
+        Ok(no_content())
+    }
+    .await;
+    reply(result, "Failed to delete transaction")
 }

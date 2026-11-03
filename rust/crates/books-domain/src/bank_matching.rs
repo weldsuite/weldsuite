@@ -1,9 +1,9 @@
 //! Matching bank statement lines to the books (`accounting-reconciliation`,
 //! `accounting-bank-match`, `accounting-bank-similarity`): suggestions for a
 //! line (open invoices and bills, payments not yet tied to a bank line,
-//! deposits), the automatic matcher over an account's open lines, tying a
-//! line to an invoice or bill (a new payment), a payment or a deposit, and
-//! undoing a match.
+//! deposits, the entity's reconciliation rules), the automatic matcher over
+//! an account's open lines, tying a line to an invoice or bill (a new
+//! payment), a payment or a deposit, and undoing a match.
 //!
 //! The banking routes and the bank feeds (a sync runs the matcher over the
 //! lines it brought in) share it. Rows are `Value`s as Drizzle returns them
@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_ports::OutboundHttp;
 
+use crate::bank_categorize::{Categorize, categorize};
 use crate::document_posting::{owned, text, update_with_entry};
 use crate::http::now;
 use crate::js::{
@@ -23,6 +24,9 @@ use crate::payments::{
     AllocationInput, RecordPaymentInput, payment_net_amount, record_payment, void_payment,
 };
 use crate::posting::{PostError, ReverseArgs, reverse_journal_entry};
+use crate::reconciliation_rules::{
+    action, find_matching_rule, load_active_rules, record_rule_match,
+};
 use crate::tables::{BANK_DEPOSITS, BANK_TRANSACTIONS, BILLS, INVOICES, PAYMENTS};
 
 /// `reconciliation_type` of a line linked to a payment recorded earlier.
@@ -248,6 +252,8 @@ pub struct Candidates {
     pub deposits: Vec<Value>,
     /// `id → (name, iban)`.
     pub contacts: Vec<(String, Option<String>, Option<String>)>,
+    /// Active reconciliation rules, highest priority first.
+    pub rules: Vec<Value>,
 }
 
 impl Candidates {
@@ -266,8 +272,9 @@ fn amount_bounds(abs_amount: f64) -> (String, String) {
 }
 
 /// `loadMatchCandidates(db, args)`: the open invoices and bills, unlinked
-/// payments and unmatched deposits a line could belong to; with `amount`
-/// only the ones near it.
+/// payments and unmatched deposits a line could belong to (with `amount`
+/// only the ones near it), and the entity's active reconciliation rules.
+#[allow(clippy::too_many_lines)] // one query per kind of candidate, as the worker reads them
 pub async fn load_candidates(
     db: &PgPool,
     entity_id: Option<&str>,
@@ -343,6 +350,10 @@ pub async fn load_candidates(
         }
         _ => Vec::new(),
     };
+    let rules = match entity_id {
+        Some(entity) => load_active_rules(db, entity).await?,
+        None => Vec::new(),
+    };
     let invoices = INVOICES.js_rows(invoices);
     let bills = BILLS.js_rows(bills);
     let payments = PAYMENTS.js_rows(payments);
@@ -370,6 +381,7 @@ pub async fn load_candidates(
         payments,
         deposits,
         contacts,
+        rules,
     })
 }
 
@@ -378,21 +390,27 @@ pub async fn load_candidates(
 /// `ReconciliationSuggestion`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suggestion {
-    /// `invoice`, `bill`, `payment` or `deposit`.
+    /// `invoice`, `bill`, `payment`, `deposit` or `rule`.
     pub kind: &'static str,
+    /// The id of the invoice, bill, payment, deposit or rule.
     pub entity_id: String,
+    /// The document's number, the payment's check number or reference, the
+    /// deposit's memo, the rule's name.
     pub entity_number: Option<String>,
     pub contact_name: Option<String>,
     pub amount: String,
     pub confidence: f64,
     pub reasons: Vec<String>,
+    /// A rule's category account: picking the suggestion categorizes the
+    /// line to it.
+    pub category_account_id: Option<String>,
 }
 
 impl Suggestion {
     /// The suggestion as the matcher returns it (`{ type, entityId, …,
-    /// reason, reasons }`).
+    /// reason, reasons, categoryAccountId? }`).
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut out = json!({
             "type": self.kind,
             "entityId": self.entity_id,
             "entityNumber": self.entity_number,
@@ -401,7 +419,11 @@ impl Suggestion {
             "confidence": crate::js::number_value(self.confidence),
             "reason": self.reasons.join(", "),
             "reasons": self.reasons,
-        })
+        });
+        if let Some(account) = &self.category_account_id {
+            out["categoryAccountId"] = json!(account);
+        }
+        out
     }
 }
 
@@ -422,6 +444,7 @@ fn suggestion(
         amount,
         confidence: confidence.clamp(0.0, 1.0),
         reasons,
+        category_account_id: None,
     }
 }
 
@@ -707,6 +730,26 @@ fn match_deposits(pool: &Candidates, line: &Line<'_>, abs_amount: f64) -> Vec<Su
         .collect()
 }
 
+/// `matchRule(pool, transaction)`: the highest-priority reconciliation rule
+/// that matches the line, as a suggestion to categorize it.
+fn match_rule(pool: &Candidates, line: &Line<'_>) -> Option<Suggestion> {
+    let rule = find_matching_rule(line.0, &pool.rules)?;
+    let category = action(rule, "categoryAccountId").filter(|a| !a.is_empty())?;
+    let amount = parse_float(line.filled("amount").unwrap_or("0")).abs();
+    Some(Suggestion {
+        category_account_id: Some(category.to_owned()),
+        ..suggestion(
+            "rule",
+            text(rule, "id").unwrap_or_default(),
+            owned(rule, "name"),
+            None,
+            to_fixed(amount, 2),
+            0.7,
+            vec!["reconciliation rule matches".to_owned()],
+        )
+    })
+}
+
 /// `findMatches(db, schema, transaction, candidates)`: the suggestions for
 /// a line, most confident first; `pool` matches many lines against one
 /// load.
@@ -745,6 +788,7 @@ pub async fn find_matches(
         out.extend(match_payments(pool, &line, abs_amount, false));
         out
     };
+    suggestions.extend(match_rule(pool, &line));
     suggestions.sort_by(|a, b| {
         b.confidence
             .partial_cmp(&a.confidence)
@@ -1185,10 +1229,100 @@ impl AutoResult {
     }
 }
 
+/// `autoMatchDocument`: settle the line against its best invoice, bill or
+/// payment match when that match is confident enough (0.8 or more). The
+/// match it used, or `None` when there was none or it couldn't be posted.
+async fn auto_match_document(
+    db: &PgPool,
+    http: Option<&OutboundHttp>,
+    txn: &Value,
+    best: Option<&Suggestion>,
+    pool: &mut Candidates,
+    user_id: Option<&str>,
+) -> Option<(&'static str, String)> {
+    let best = best.filter(|s| s.confidence >= 0.8)?;
+    if !matches!(best.kind, "invoice" | "bill" | "payment") {
+        return None;
+    }
+    let outcome = if best.kind == "payment" {
+        reconcile_to_payment(db, txn, &best.entity_id).await
+    } else {
+        reconcile_to_document(
+            db,
+            http,
+            txn,
+            best.kind == "invoice",
+            &best.entity_id,
+            Some("auto"),
+            user_id.map(str::to_owned),
+        )
+        .await
+    };
+    if let Err(error) = outcome {
+        tracing::warn!(
+            line = text(txn, "id").unwrap_or_default(),
+            %error,
+            "[auto-reconcile] left as a suggestion"
+        );
+        return None;
+    }
+    // What was just used can't match the next line.
+    let used = |row: &Value| text(row, "id") != Some(best.entity_id.as_str());
+    pool.invoices.retain(used);
+    pool.bills.retain(used);
+    pool.payments.retain(used);
+    Some((best.kind, best.entity_id.clone()))
+}
+
+/// `autoApplyRule`: categorize the line with the reconciliation rule that
+/// matched it, applying the rule's tax rate and contact, and count the
+/// match. The rule suggestion it used, or `None`.
+async fn auto_apply_rule(
+    db: &PgPool,
+    txn: &Value,
+    suggestions: &[Suggestion],
+    pool: &Candidates,
+    user_id: Option<&str>,
+) -> Option<(&'static str, String)> {
+    let matched = suggestions.iter().find(|s| s.kind == "rule")?;
+    let rule = pool
+        .rules
+        .iter()
+        .find(|r| text(r, "id") == Some(matched.entity_id.as_str()))?;
+    let category = matched.category_account_id.as_deref()?;
+    let outcome = async {
+        categorize(
+            db,
+            txn,
+            Categorize {
+                category_account_id: category,
+                contact_id: action(rule, "contactId"),
+                tax_rate_id: action(rule, "taxRateId"),
+                auto: true,
+                user_id,
+            },
+        )
+        .await?;
+        record_rule_match(db, &matched.entity_id).await?;
+        Ok::<(), PostError>(())
+    }
+    .await;
+    if let Err(error) = outcome {
+        tracing::warn!(
+            line = text(txn, "id").unwrap_or_default(),
+            %error,
+            "[auto-reconcile] rule left the line as a suggestion"
+        );
+        return None;
+    }
+    Some((matched.kind, matched.entity_id.clone()))
+}
+
 /// `autoReconcileBatch(db, schema, bankAccountId, userId)`: match an
-/// account's unreconciled lines (up to 200); an invoice, bill or payment
+/// account's unreconciled lines (up to 200). An invoice, bill or payment
 /// match at 0.8 or more is recorded, one that can't be posted stays a
-/// suggestion.
+/// suggestion; a line without one that a reconciliation rule matches is
+/// categorized to the rule's account, and the rule's match count goes up.
 pub async fn auto_reconcile_batch(
     db: &PgPool,
     http: Option<&OutboundHttp>,
@@ -1220,49 +1354,20 @@ pub async fn auto_reconcile_batch(
     .await?;
     for txn in &lines {
         let suggestions = find_matches(db, txn, Some(&pool)).await?;
-        let auto = suggestions
-            .first()
-            .filter(|s| s.confidence >= 0.8 && matches!(s.kind, "invoice" | "bill" | "payment"))
-            .cloned();
-        let mut result = AutoResult {
+        let applied =
+            match auto_match_document(db, http, txn, suggestions.first(), &mut pool, user_id).await
+            {
+                Some(applied) => Some(applied),
+                None => auto_apply_rule(db, txn, &suggestions, &pool, user_id).await,
+            };
+        if applied.is_some() {
+            count += 1;
+        }
+        results.push(AutoResult {
             transaction_id: text(txn, "id").unwrap_or_default().to_owned(),
             suggestions,
-            reconciled: None,
-        };
-        if let Some(auto) = auto {
-            let outcome = if auto.kind == "payment" {
-                reconcile_to_payment(db, txn, &auto.entity_id).await
-            } else {
-                reconcile_to_document(
-                    db,
-                    http,
-                    txn,
-                    auto.kind == "invoice",
-                    &auto.entity_id,
-                    Some("auto"),
-                    user_id.map(str::to_owned),
-                )
-                .await
-            };
-            match outcome {
-                Ok(_) => {
-                    result.reconciled = Some((auto.kind, auto.entity_id.clone()));
-                    count += 1;
-                    let used = |row: &Value| text(row, "id") != Some(auto.entity_id.as_str());
-                    pool.invoices.retain(used);
-                    pool.bills.retain(used);
-                    pool.payments.retain(used);
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        line = %result.transaction_id,
-                        %error,
-                        "[auto-reconcile] left as a suggestion"
-                    );
-                }
-            }
-        }
-        results.push(result);
+            reconciled: applied,
+        });
     }
     Ok((count, results))
 }

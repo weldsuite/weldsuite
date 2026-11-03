@@ -1,6 +1,8 @@
 //! Posting a bank line straight to an account (`accounting-bank-categorize`):
 //! money that is not a customer payment or a supplier bill (fee refunds,
-//! settlements, interest, owner deposits, bank charges).
+//! settlements, interest, owner deposits, bank charges). The banking routes
+//! categorize by hand; the automatic matcher ([`crate::bank_matching`])
+//! categorizes a line a reconciliation rule matches.
 //!
 //! money in:  Dr bank ledger (gross) / Cr category (net), Cr tax payable (tax)
 //! money out: Dr category (net), Dr input tax (tax) / Cr bank ledger (gross)
@@ -11,46 +13,62 @@
 
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_books_domain::document_posting::{load_entity, update_with_entry};
-use weldsuite_books_domain::guards::{PostingLockKind, is_kor_active};
-use weldsuite_books_domain::http::now;
-use weldsuite_books_domain::js::{millis_of, round_money};
-use weldsuite_books_domain::jurisdictions;
-use weldsuite_books_domain::posting::{
+
+use crate::document_posting::{load_entity, text, update_with_entry};
+use crate::guards::{PostingLockKind, is_kor_active};
+use crate::http::now;
+use crate::js::{millis_of, round_money};
+use crate::jurisdictions;
+use crate::posting::{
     PostError, PostJournalEntryInput, PostingLine, PostingTaxLine, account_for_role,
     load_entity_accounts, post_journal_entry,
 };
-use weldsuite_books_domain::tables::{BANK_ACCOUNTS, BANK_TRANSACTIONS, TAX_RATES};
-
-use crate::common::text;
+use crate::tables::{BANK_ACCOUNTS, BANK_TRANSACTIONS, TAX_RATES};
 
 fn refuse(message: &str) -> PostError {
     PostError::Posting(message.to_owned())
 }
 
 /// What a categorization posted.
-pub(crate) struct Categorized {
-    pub(crate) journal_entry_id: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Categorized {
+    pub journal_entry_id: String,
+}
+
+/// Where a line goes (`CategorizeBankTransactionInput` without the line).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Categorize<'a> {
+    pub category_account_id: &'a str,
+    pub contact_id: Option<&'a str>,
+    pub tax_rate_id: Option<&'a str>,
+    /// `reconciliationType: 'auto'`: a reconciliation rule categorized the
+    /// line (`manual` otherwise).
+    pub auto: bool,
+    pub user_id: Option<&'a str>,
 }
 
 /// `categorizeBankTransaction(db, { txn, categoryAccountId, contactId,
-/// taxRateId, userId })`.
+/// taxRateId, reconciliationType, userId })`.
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
-pub(crate) async fn categorize(
+pub async fn categorize(
     db: &PgPool,
     txn: &Value,
-    category_account_id: &str,
-    contact_id: Option<&str>,
-    tax_rate_id: Option<&str>,
-    user_id: Option<&str>,
+    args: Categorize<'_>,
 ) -> Result<Categorized, PostError> {
+    let Categorize {
+        category_account_id,
+        contact_id,
+        tax_rate_id,
+        auto,
+        user_id,
+    } = args;
     if text(txn, "status") != Some("unreconciled") {
         return Err(refuse("Transaction is already reconciled or excluded"));
     }
     if text(txn, "journalEntryId").is_some_and(|v| !v.is_empty()) {
         return Err(refuse("Transaction already has a journal entry"));
     }
-    let amount = weldsuite_books_domain::js::js_number_value(txn.get("amount"));
+    let amount = crate::js::js_number_value(txn.get("amount"));
     let gross = round_money(amount.abs());
     if !gross.is_finite() || gross == 0.0 {
         return Err(refuse("Transaction amount must be non-zero"));
@@ -60,7 +78,7 @@ pub(crate) async fn categorize(
 
     let bank: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
-        weldsuite_books_domain::books_row!(bank_accounts),
+        crate::books_row!(bank_accounts),
         " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
     ))
     .bind(text(txn, "bankAccountId"))
@@ -127,7 +145,7 @@ pub(crate) async fn categorize(
     if let Some(rate_id) = tax_rate_id {
         let rate: Option<Value> = sqlx::query_scalar(concat!(
             "select ",
-            weldsuite_books_domain::books_row!(tax_rates),
+            crate::books_row!(tax_rates),
             " from tax_rates t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
         ))
         .bind(rate_id)
@@ -137,7 +155,7 @@ pub(crate) async fn categorize(
         let Some(rate) = rate.map(|row| TAX_RATES.js(row)) else {
             return Err(refuse("Tax rate not found for this accounting entity"));
         };
-        let percent = weldsuite_books_domain::js::js_number_value(rate.get("rate"));
+        let percent = crate::js::js_number_value(rate.get("rate"));
         let code = text(&entity, "jurisdictionCode").unwrap_or_default();
         let known = jurisdictions::has_adapter(code);
         let sales_tax_entity =
@@ -226,7 +244,10 @@ pub(crate) async fn categorize(
     let version = text(txn, "updatedAt").and_then(millis_of).unwrap_or(0);
     let mut set = Map::new();
     set.insert("status".to_owned(), json!("reconciled"));
-    set.insert("reconciliationType".to_owned(), json!("manual"));
+    set.insert(
+        "reconciliationType".to_owned(),
+        json!(if auto { "auto" } else { "manual" }),
+    );
     set.insert("categoryAccountId".to_owned(), json!(category_account_id));
     set.insert("taxRateId".to_owned(), json!(tax_rate_id));
     set.insert("contactId".to_owned(), json!(contact));

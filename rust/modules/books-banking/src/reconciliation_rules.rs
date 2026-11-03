@@ -260,8 +260,9 @@ async fn update(
         let Some(rule) = find(&caller, &id).await? else {
             return Err(Refusal::not_found("Rule", &id));
         };
+        let updated_at = now();
         let mut values = RECONCILIATION_RULES.values(&data);
-        RECONCILIATION_RULES.set(&mut values, "updatedAt", json!(now()));
+        RECONCILIATION_RULES.set(&mut values, "updatedAt", json!(updated_at));
         RECONCILIATION_RULES
             .patch_raw(&caller.db, &id, values, false)
             .await?;
@@ -284,8 +285,10 @@ async fn update(
             },
         )
         .await;
+        // `{ ...rule, ...data, updatedAt }`
         let mut merged = rule.as_object().cloned().unwrap_or_default();
         merged.extend(data);
+        merged.insert("updatedAt".to_owned(), json!(updated_at));
         let merged = Value::Object(merged);
         caller.publish(&state, RECONCILIATION_RULE_UPDATED, &id, merged.clone());
         Ok(ok(merged))

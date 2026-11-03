@@ -29,7 +29,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_kit::generate_id;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::filing::{is_unfiled, iso_day, load_period_lines, parse_period, submit_filing};
+use crate::filing::{
+    is_unfiled, iso_day, load_period_lines, overlapping_period, parse_period, submit_filing,
+};
 use crate::nl::{self, IcpXmlInput, IcpXmlLine};
 use crate::vat_returns::{
     PeriodBody, btw_number, company_name, entity_row, has_feature, phone, read_period, xml_response,
@@ -199,8 +201,24 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
             "ICP declarations only apply to EU (Dutch) entities",
         ));
     }
-    let (start, end) =
-        parse_period(&data.period_start, &data.period_end).map_err(Refusal::bad_request)?;
+    let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
+        .map_err(Refusal::bad_request)?;
+    // Declarations never overlap: the supplies of a month are declared once.
+    let periods: Vec<(String, String)> = sqlx::query_as(
+        "select to_char(period_start, 'YYYY-MM-DD'), to_char(period_end, 'YYYY-MM-DD') \
+         from icp_declarations where entity_id = $1 and period_start <= $3::timestamp \
+         and period_end >= $2::timestamp and deleted_at is null",
+    )
+    .bind(&entity_id)
+    .bind(&start)
+    .bind(&end)
+    .fetch_all(db)
+    .await?;
+    if let Some(clash) = overlapping_period(&periods, &start, &end) {
+        return Err(Refusal::bad_request(format!(
+            "This period overlaps the ICP declaration of {clash}."
+        )));
+    }
 
     let existing: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
