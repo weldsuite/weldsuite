@@ -74,8 +74,8 @@ spec:
               value: {{ .deadLetterStream | quote }}
             {{- with .subscribers }}
             - name: CONSUME_SUBSCRIBERS
-              {{- /* The inbound mail subscriber runs with mailInbound; reach-send always (the send sweep queues for it). */}}
-              value: {{ join "," (append (ternary (append . "mail-inbound") . $.Values.mailInbound.enabled) "reach-send" | uniq) | quote }}
+              {{- /* The inbound mail subscriber runs with mailInbound; reach-send and the warmup queues always (their crons queue for them). */}}
+              value: {{ join "," (concat (ternary (append . "mail-inbound") . $.Values.mailInbound.enabled) (list "reach-send" "reach-warmup-send" "reach-warmup-engage") | uniq) | quote }}
             {{- end }}
             {{- if .embeddings.url }}
             - name: EMBEDDINGS_URL

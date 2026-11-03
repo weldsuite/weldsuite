@@ -54,7 +54,8 @@ commands:
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
              calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
-             reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation
+             reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
+             reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit

@@ -20,7 +20,8 @@
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
 //! | `REACH_SEND_QUEUE` | `nats`: the WeldReach send sweep publishes to NATS, and the `reach-send` subscriber runs by default (stream `REACH_SEND` on `reach.send`) |
-//! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch |
+//! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
+//! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
 
 use std::fmt;
@@ -41,6 +42,11 @@ pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
 /// The WeldReach send queue's subscriber: not on the hub but on the
 /// `REACH_SEND` stream, which `weldsuite cron reach-send-sweep` publishes to.
 pub(crate) const REACH_SEND: &str = "reach-send";
+
+/// The WeldReach warmup network's two queues (`REACH_WARMUP`), which
+/// `weldsuite cron reach-warmup-dispatch` publishes to.
+pub(crate) const REACH_WARMUP_SEND: &str = "reach-warmup-send";
+pub(crate) const REACH_WARMUP_ENGAGE: &str = "reach-warmup-engage";
 
 /// Where the `mail-inbound` subscriber reads and writes.
 #[derive(Clone)]
@@ -283,12 +289,22 @@ impl ConsumeConfig {
                 false
             }
         };
+        let reach_warmup = match lookup("REACH_WARMUP_QUEUE").as_deref() {
+            None | Some("inline") => false,
+            Some("nats") => true,
+            Some(_) => {
+                problems.push("REACH_WARMUP_QUEUE must be nats or inline".to_owned());
+                false
+            }
+        };
         let subscribers: Vec<String> = match lookup("CONSUME_SUBSCRIBERS") {
             None => PORTED
                 .iter()
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
                 .chain(reach_send.then_some(REACH_SEND))
+                .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
+                .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
                 .map(str::to_owned)
                 .collect(),
             Some(list) => list
@@ -306,7 +322,7 @@ impl ConsumeConfig {
                 }
                 continue;
             }
-            if id == REACH_SEND {
+            if id == REACH_SEND || id == REACH_WARMUP_SEND || id == REACH_WARMUP_ENGAGE {
                 continue;
             }
             if !PORTED.contains(&id.as_str()) {
@@ -439,6 +455,35 @@ mod tests {
         assert!(queued.subscribers.iter().any(|s| s == REACH_SEND));
         assert_eq!(queued.master_db_flags, Some(Duration::from_secs(30)));
         assert!(config(&[base[0], base[1], ("REACH_SEND_QUEUE", "kafka")]).is_err());
+    }
+
+    #[test]
+    fn the_reach_warmup_queue_adds_its_two_subscribers() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let inline = config(&base).expect("valid");
+        assert!(
+            !inline
+                .subscribers
+                .iter()
+                .any(|s| s.starts_with("reach-warmup"))
+        );
+        let queued = config(&[base[0], base[1], ("REACH_WARMUP_QUEUE", "nats")]).expect("valid");
+        assert!(queued.subscribers.iter().any(|s| s == REACH_WARMUP_SEND));
+        assert!(queued.subscribers.iter().any(|s| s == REACH_WARMUP_ENGAGE));
+        let listed = config(&[
+            base[0],
+            base[1],
+            (
+                "CONSUME_SUBSCRIBERS",
+                "audit,reach-warmup-send,reach-warmup-engage",
+            ),
+        ])
+        .expect("valid");
+        assert_eq!(listed.subscribers.len(), 3);
+        assert!(config(&[base[0], base[1], ("REACH_WARMUP_QUEUE", "sqs")]).is_err());
     }
 
     #[test]

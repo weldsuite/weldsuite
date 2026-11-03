@@ -383,7 +383,8 @@ consume:
   replicaCount: 2
   # The subscribers to run; empty runs every ported one (audit, search-index,
   # webhooks, realtime, and reach-send: WeldReach's sends, which the
-  # reach-send-sweep cron then queues on NATS). search-index needs
+  # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
+  # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
   # `embeddings` below.
   subscribers: []
   # With config.nats.ensureStreams: create or update the hub and the
@@ -566,6 +567,26 @@ cron:
       enabled: true
       schedule: "15 3 * * *"
       activeDeadlineSeconds: 600
+    # WeldReach's warmup network (master database only; kill switch
+    # weldreach-warmup; needs WELDREACH_WARMUP_KEY). The dispatch hands due
+    # warmup mail to the reach-warmup-send / -engage subscribers on NATS with
+    # consume.enabled; otherwise it sends and engages them itself.
+    reach-warmup-dispatch:
+      enabled: true
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 290
+    # Turns the pool into the day's scheduled warmup mail, and brings back
+    # mailboxes whose login works again.
+    reach-warmup-plan:
+      enabled: true
+      schedule: "*/30 * * * *"
+      activeDeadlineSeconds: 1500
+    # The ramp, stats, auto-pause and resume, and the cleanup of old warmup
+    # mail over IMAP.
+    reach-warmup-daily:
+      enabled: true
+      schedule: "30 2 * * *"
+      activeDeadlineSeconds: 3000
     # The identity provider's changes (users, organizations, memberships)
     # into the databases: what Clerk's webhooks do on Global. Needs
     # config.identity.
