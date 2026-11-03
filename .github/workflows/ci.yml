@@ -485,7 +485,8 @@ jobs:
   # Module-worker Vitest stays one package per process: several start
   # pglite (WASM Postgres), which crashes (ERRORDATA_STACK_SIZE) when many
   # instances boot on the same machine. Shards are separate runners, so
-  # they can run at once. Round-robin (--shard) spreads the slow workers.
+  # they can run at once. --shard balances by measured test time
+  # (TEST_SECONDS in module-workers.mjs), so the slow workers spread out.
   # "Unit · app-api" is the required status check. It does not run tests
   # itself; it fails unless the core job and every shard succeeded.
   # Keep --shards equal to the matrix length.
