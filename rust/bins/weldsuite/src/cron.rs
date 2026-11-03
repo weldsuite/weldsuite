@@ -35,6 +35,13 @@
 //! - `reach-slot-reconciliation` (daily, 03:15 UTC): gives back Mailpool
 //!   slots no active mailbox needs (`cron/slot-reconciliation.ts`; master
 //!   database only).
+//! - `reach-warmup-dispatch` (every minute), `reach-warmup-plan` (every 30
+//!   minutes), `reach-warmup-daily` (02:30 UTC): the WeldReach warmup
+//!   network (`apps/workers/reach-warmup-worker`; master database only,
+//!   kill switch `weldreach-warmup`). With `REACH_WARMUP_QUEUE=nats` the
+//!   dispatch publishes the due messages for the `reach-warmup-send` and
+//!   `reach-warmup-engage` subscribers of `weldsuite consume`; otherwise it
+//!   sends and engages them itself.
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
 //!   `weldsuite_core_onboarding::IdentitySync`).
@@ -77,7 +84,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, bank-feed-due, workflow-schedules";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, workflow-schedules";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -95,6 +102,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "reach-send-sweep"
         | "reach-warmup-sweep"
         | "reach-slot-reconciliation"
+        | "reach-warmup-dispatch"
+        | "reach-warmup-plan"
+        | "reach-warmup-daily"
         | "bank-feed-due"
         | "workflow-schedules"),
     ) = job
@@ -137,6 +147,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "desk-sla-sweep" => desk_sla_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
+            "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
+                reach_warmup_network(config, job).await
+            }
             "bank-feed-due" => bank_feed_due(config).await,
             _ => sign_lifecycle(config).await,
         }
@@ -575,6 +588,92 @@ async fn reach_send_sweep(config: Config) -> Result<(), Box<dyn std::error::Erro
             "due": result.due, "processed": result.processed, "failed": result.failed,
         } })
     );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// The warmup network's three jobs: `reach-warmup-dispatch` (over NATS with
+/// `REACH_WARMUP_QUEUE=nats`, else inline), `reach-warmup-plan` and
+/// `reach-warmup-daily`.
+async fn reach_warmup_network(config: Config, job: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use weldsuite_reach::warmup_network::{clock, daily, dispatch, planner};
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let network = crate::reach::warmup_network(master, Arc::clone(&infra.flags))?;
+    let now_ms = || {
+        weldsuite_reach::weldsuite_reach_domain::epoch_ms(
+            weldsuite_reach::weldsuite_reach_domain::now(),
+        )
+    };
+    let mut rng = clock::random_float;
+    let result = match job {
+        "reach-warmup-plan" => {
+            let result = planner::run_planner(&network, now_ms(), &mut rng).await?;
+            serde_json::json!({
+                "status": result.status, "poolMailboxes": result.pool_mailboxes,
+                "poolDomains": result.pool_domains, "started": result.started,
+                "loginsRestored": result.logins_restored,
+                "mailboxesPlanned": result.mailboxes_planned,
+                "messagesPlanned": result.messages_planned,
+            })
+        }
+        "reach-warmup-daily" => {
+            let result = daily::run_daily(&network, now_ms()).await;
+            serde_json::json!({
+                "disabled": result.disabled, "advanced": result.advanced,
+                "graduated": result.graduated, "rolledUp": result.rolled_up,
+                "autoPaused": result.auto_paused, "resumed": result.resumed,
+                "cleaned": result.cleanup.map(|c| c.cleaned),
+                "mailboxesVisited": result.cleanup.map(|c| c.mailboxes_visited),
+                "rowsDeleted": result.cleanup.map(|c| c.rows_deleted),
+            })
+        }
+        _ => {
+            let queued = std::env::var("REACH_WARMUP_QUEUE").as_deref() == Ok("nats");
+            let bus = if queued {
+                let Some(url) = &config.infra.nats_url else {
+                    return Err("REACH_WARMUP_QUEUE=nats needs NATS_URL".into());
+                };
+                let bus = weldsuite_adapters_oss::JetStreamEventBus::connect(
+                    &weldsuite_adapters_oss::NatsOptions {
+                        url: url.clone(),
+                        user: config.infra.nats_user.clone(),
+                        token: config.infra.nats_token.clone(),
+                        name: Some("weldsuite-cron".to_owned()),
+                    },
+                )
+                .await?;
+                bus.ensure_stream(crate::reach::warmup_stream_config(1))
+                    .await?;
+                Some(bus)
+            } else {
+                None
+            };
+            let queue = match &bus {
+                Some(bus) => dispatch::WarmupQueue::Nats(bus),
+                None => dispatch::WarmupQueue::Inline,
+            };
+            let result = dispatch::run_dispatch(&network, &queue, &now_ms, &mut rng).await?;
+            serde_json::json!({
+                "queue": if queued { "nats" } else { "inline" },
+                "disabled": result.disabled, "expired": result.expired,
+                "sendQueued": result.send_queued, "engageQueued": result.engage_queued,
+            })
+        }
+    };
+    println!("{}", serde_json::json!({ "job": job, "result": result }));
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await

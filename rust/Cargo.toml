@@ -88,6 +88,7 @@ weldsuite-reach = { path = "modules/reach" }
 weldsuite-reach-domain = { path = "crates/reach-domain" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }
@@ -119,6 +120,8 @@ redis = { version = "1.8.0", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
 restate-sdk = { version = "0.13.0", default-features = false, features = ["http_server", "aws_lc_rs"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-platform-verifier = "0.7.1"
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
@@ -127,6 +130,7 @@ sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
 time = "0.3.55"
 tokio = "1.54.1"
+tokio-rustls = { version = "0.26.6", default-features = false }
 tokio-tungstenite = { version = "0.29.0", default-features = false }
 tokio-util = "0.7.19"
 tower = "0.5.3"

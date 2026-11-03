@@ -67,6 +67,9 @@ cron jobs and the migration Job read the same settings
 {{- /* WeldReach's send sweep queues on NATS for the consume role's reach-send subscriber. */}}
 - name: REACH_SEND_QUEUE
   value: "nats"
+{{- /* And the warmup dispatch for its reach-warmup-send / -engage subscribers. */}}
+- name: REACH_WARMUP_QUEUE
+  value: "nats"
 {{- end }}
 {{- with .Values.config.edition }}
 {{- if not (has . (list "eu" "self-hosted")) }}
