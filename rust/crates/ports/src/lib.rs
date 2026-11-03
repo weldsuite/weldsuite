@@ -18,6 +18,7 @@
 //! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
 //! | [`BatchHandler`] | a Cloudflare Queues consumer (`queue(batch)`, `ack()`, `retry()`) | (call `handle` directly) |
 //! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
+//! | [`ImapConnector`] | `@weldsuite/imap` over `cloudflare:sockets` (the WeldReach warmup network) | [`MemoryImap`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
@@ -37,6 +38,7 @@ pub mod events;
 pub mod files;
 pub mod flags;
 pub mod identity;
+pub mod imap;
 pub mod in_process_jobs;
 pub mod jobs;
 pub mod ledger_store;
@@ -65,6 +67,10 @@ pub use identity::{
     IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
     NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
     OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
+};
+pub use imap::{
+    ImapConfig, ImapConnector, ImapError, ImapErrorKind, ImapSession, MailboxInfo, MemoryImap,
+    MemoryMessage, SelectResult, SpecialUse,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{

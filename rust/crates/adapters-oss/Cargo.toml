@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-adapters-oss"
-description = "Open-source adapters for the ports: Valkey cache and pub/sub, NATS JetStream, flags from the master database, S3 files, Restate jobs, SMTP mail, CloudNativePG databases"
+description = "Open-source adapters for the ports: Valkey cache and pub/sub, NATS JetStream, flags from the master database, S3 files, Restate jobs, SMTP mail, IMAP, CloudNativePG databases"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,7 @@ weldsuite-db = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-ports = { workspace = true }
+async-imap = { workspace = true }
 async-nats = { workspace = true, features = ["aws-lc-rs", "jetstream"] }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
@@ -24,12 +25,15 @@ lettre = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 restate-sdk = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
 serde = { workspace = true }
 rusty-s3 = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
