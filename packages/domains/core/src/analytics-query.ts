@@ -16,6 +16,8 @@
  *  - ordering and limits of rolled-up series are applied on the merged result.
  */
 
+import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -177,6 +179,16 @@ interface RatioSpec {
   filter?: Record<string, string>;
 }
 
+/**
+ * Completed and cancelled, in every spelling a project row has been stored with
+ * (older rows predate normalizeProjectStatus), as a SQL list.
+ */
+const CLOSED_PROJECT_STATUSES = [
+  'Completed', 'completed', 'COMPLETED',
+  'Cancelled', 'cancelled', 'CANCELLED',
+  'Canceled', 'canceled', 'CANCELED',
+].map((status) => `'${status}'`).join(',');
+
 interface ResolvedMetric {
   metric: string;           // key into METRIC_MAP
   groupByOverride?: string; // key into GROUP_BY_MAP (overrides params.groupBy)
@@ -227,7 +239,7 @@ const COMPOUND_METRICS: Record<string, ResolvedMetric> = {
   // WeldFlow — projects
   total_projects:        { metric: 'count' },
   // Align with KPI summary: non-terminal status (isActive is not available in R2 rows).
-  active_projects:       { metric: 'count', filterOverride: { status: "NOT IN ('Completed','Cancelled')" } },
+  active_projects:       { metric: 'count', filterOverride: { status: `NOT IN (${CLOSED_PROJECT_STATUSES})` } },
   projects_by_status:    { metric: 'count', groupByOverride: 'status' },
   projects_by_health:    { metric: 'count', groupByOverride: 'health' },
   projects_by_day:       { metric: 'count', groupByOverride: 'day' },
@@ -536,11 +548,14 @@ export function bucketLabel(day: string, bucket: DateBucket): string {
   }
 }
 
-/** Sums every value column of rows that share a label (after re-bucketing). */
-function mergeRows(rows: ParsedRow[], bucket: DateBucket | undefined): ParsedRow[] {
+/** Maps a row's label to the label it is merged under (a date bucket, a canonical status). */
+type LabelOf = (label: string) => string;
+
+/** Sums every value column of rows that share a label (after relabelling). */
+function mergeRows(rows: ParsedRow[], labelOf: LabelOf | undefined): ParsedRow[] {
   const merged = new Map<string, number[]>();
   for (const row of rows) {
-    const label = bucket ? bucketLabel(row.label, bucket) : row.label;
+    const label = labelOf ? labelOf(row.label) : row.label;
     const acc = merged.get(label) ?? [];
     row.values.forEach((v, i) => {
       acc[i] = (acc[i] ?? 0) + v;
@@ -550,12 +565,11 @@ function mergeRows(rows: ParsedRow[], bucket: DateBucket | undefined): ParsedRow
   return [...merged.entries()].map(([label, values]) => ({ label, values }));
 }
 
-/** Rolls per-day rows up to `bucket`, combining values the way `fn` aggregates. */
-function rollUp(rows: ParsedRow[], bucket: DateBucket, fn: AggregateFn): ParsedRow[] {
-  if (bucket === 'day') return rows;
+/** Rolls rows up to the labels `labelOf` gives them, combining values the way `fn` aggregates. */
+function rollUp(rows: ParsedRow[], labelOf: LabelOf, fn: AggregateFn): ParsedRow[] {
   const groups = new Map<string, ParsedRow[]>();
   for (const row of rows) {
-    const label = bucketLabel(row.label, bucket);
+    const label = labelOf(row.label);
     const list = groups.get(label) ?? [];
     list.push(row);
     groups.set(label, list);
@@ -571,7 +585,7 @@ function rollUp(rows: ParsedRow[], bucket: DateBucket, fn: AggregateFn): ParsedR
         value = Math.min(...values);
         break;
       case 'AVG': {
-        // Weighted by the number of events behind each day's average.
+        // Weighted by the number of events behind each row's average.
         const weights = list.map((r) => r.values[1] ?? 1);
         const totalWeight = weights.reduce((a, b) => a + b, 0);
         value =
@@ -663,18 +677,35 @@ export function planChartQuery(workspace: WorkspaceRefs, params: ChartQueryParam
   };
   const limit = sanitizeLimit(params.limit);
   const bucket = groupByInfo.isDate ? groupByInfo.bucket ?? 'day' : undefined;
+  const relabel = statusRelabel(entityInfo.entityType, groupByInfo);
 
   if (compound?.ratio) {
-    return planRatio(ctx, compound.ratio, { bucket, isDate: groupByInfo.isDate, sortOrder: params.sortOrder, limit });
+    return planRatio(ctx, compound.ratio, { bucket, relabel, isDate: groupByInfo.isDate, sortOrder: params.sortOrder, limit });
   }
   return planAggregate(ctx, {
     spec: withCalculation(baseSpec, params.aggregation),
     metricKey: resolvedMetricKey,
     filterOverride: compound?.filterOverride,
     bucket,
+    relabel,
     sortOrder: params.sortOrder,
     limit,
   });
+}
+
+/**
+ * Project statuses are grouped by their canonical spelling, so "active" rows
+ * from before normalizeProjectStatus join "Active" instead of being a slice of
+ * their own.
+ */
+function statusRelabel(entityType: string, group: GroupByInfo): LabelOf | undefined {
+  return entityType === 'project' && group.column === 'status' ? normalizeProjectStatus : undefined;
+}
+
+/** How rows are merged after the query: by date bucket, else by relabel (a group is never both). */
+function labelsFor(bucket: DateBucket | undefined, relabel: LabelOf | undefined): LabelOf | undefined {
+  if (bucket && bucket !== 'day') return (day) => bucketLabel(day, bucket);
+  return relabel;
 }
 
 /** A plain aggregate over one metric column. */
@@ -685,15 +716,17 @@ function planAggregate(
     metricKey: string;
     filterOverride: Record<string, string> | undefined;
     bucket: DateBucket | undefined;
+    relabel: LabelOf | undefined;
     sortOrder: string | undefined;
     limit: number | undefined;
   },
 ): ChartPlan {
-  const { spec, bucket, limit } = plan;
+  const { spec, limit } = plan;
   const isDate = ctx.group.isDate;
-  const rolledUp = bucket !== undefined && bucket !== 'day';
+  const labelOf = labelsFor(plan.bucket, plan.relabel);
+  const rolledUp = labelOf !== undefined;
   const selects = [aggregateSql(spec)];
-  // Averages rolled up to a coarser bucket need the event count as their weight.
+  // Averages merged after the query need the event count as their weight.
   if (rolledUp && spec.fn === 'AVG') selects.push('SUM(count)');
 
   // For count-based metrics on time series, only count 'created' events.
@@ -703,7 +736,7 @@ function planAggregate(
     filters: plan.filterOverride ? [plan.filterOverride] : [],
     extraWhere,
     // A time series with a limit asks for its most recent days; rolled-up series
-    // are limited after merging the per-day rows.
+    // are limited after merging their rows.
     order: isDate
       ? { by: ctx.groupColumn, direction: limit && !rolledUp ? 'DESC' : 'ASC' }
       : { by: aggregateSql(spec), direction: plan.sortOrder === 'desc' ? 'DESC' : 'ASC' },
@@ -714,9 +747,9 @@ function planAggregate(
     queries: [query],
     finish: ([rows = []]) => {
       let parsed = parseRows(rows);
-      if (rolledUp && bucket) parsed = rollUp(parsed, bucket, spec.fn);
+      if (labelOf) parsed = rollUp(parsed, labelOf, spec.fn);
       const points = parsed.map((r) => ({ label: r.label, value: r.values[0] ?? 0 }));
-      return isDate ? sortAndLimit(points, true, plan.sortOrder, limit) : points;
+      return isDate || rolledUp ? sortAndLimit(points, isDate, plan.sortOrder, limit) : points;
     },
   };
 }
@@ -724,7 +757,13 @@ function planAggregate(
 function planRatio(
   ctx: QueryContext,
   ratio: RatioSpec,
-  shape: { bucket: DateBucket | undefined; isDate: boolean; sortOrder: string | undefined; limit: number | undefined },
+  shape: {
+    bucket: DateBucket | undefined;
+    relabel: LabelOf | undefined;
+    isDate: boolean;
+    sortOrder: string | undefined;
+    limit: number | undefined;
+  },
 ): ChartPlan {
   const numerator = METRIC_MAP[ratio.numerator.metric];
   const denominator = METRIC_MAP[ratio.denominator.metric];
@@ -736,6 +775,7 @@ function planRatio(
   const denFilter = { ...ratio.filter, ...ratio.denominator.filter };
   const sameFilter = JSON.stringify(numFilter) === JSON.stringify(denFilter);
   const order = { by: ctx.groupColumn, direction: 'ASC' as const };
+  const labelOf = labelsFor(shape.bucket, shape.relabel);
 
   // One query when both sides read the same rows, otherwise one per side.
   const queries = sameFilter
@@ -750,7 +790,7 @@ function planRatio(
     finish: (results) => {
       const sums = new Map<string, { num: number; den: number }>();
       const add = (rows: ParsedRow[], side: (v: number[]) => { num?: number; den?: number }) => {
-        for (const row of mergeRows(rows, shape.bucket)) {
+        for (const row of mergeRows(rows, labelOf)) {
           const part = side(row.values);
           const acc = sums.get(row.label) ?? { num: 0, den: 0 };
           acc.num += part.num ?? 0;
