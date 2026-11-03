@@ -17,6 +17,32 @@ export const mail = {
       supportedProviders: 'Professional email hosting on your custom domains',
     },
 
+    // Screen-reader names for icon-only buttons and unlabelled fields
+    a11y: {
+      minimize: 'Minimize',
+      restore: 'Restore',
+      markDone: 'Mark as done',
+      moreActions: 'More actions',
+      removeQuotedText: 'Remove quoted text',
+      addContext: 'Add context',
+      sources: 'Sources',
+      voiceInput: 'Voice input',
+      removeAttachment: 'Remove attachment',
+      removeLabel: 'Remove label',
+      cancelSchedule: 'Cancel scheduled send',
+      sendOptions: 'More send options',
+      moreInfo: 'More information',
+      labelColor: 'Label colour',
+      labelOptions: 'Label options',
+      copyReply: 'Copy reply',
+      removePerson: 'Remove {name}',
+      removeKeyword: 'Remove {keyword}',
+      sendTime: 'Send time',
+      generateDraft: 'Write draft',
+      labelName: 'Label name',
+      fontSize: 'Font size',
+    },
+
     // Inbox
     inbox: {
       title: 'Inbox',

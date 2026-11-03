@@ -18,7 +18,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -31,7 +31,7 @@ import { getContactVatNumber } from '@weldsuite/books-domain/accounting-complian
 import { normalizeVatNumber } from '@weldsuite/books-domain/vies';
 import { generateIcpXml, type IcpXmlLine } from '../../services/accounting-icp-xml';
 import { loadTaxLinesForPeriod } from '../../services/accounting-tax-ledger';
-import { isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
+import { formatPeriod, isSamePeriod, isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
 import { getJurisdictionFeatures } from '@weldsuite/books-domain/jurisdictions/registry';
 import { submitFiling, createConfig } from '../../services/accounting-digipoort';
 
@@ -205,9 +205,24 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       return error.badRequest(c, 'ICP declarations only apply to EU (Dutch) entities');
     }
 
-    const period = parseReturnPeriod(data.periodStart, data.periodEnd);
+    const period = parseReturnPeriod(data.periodStart, data.periodEnd, data.periodType);
     if (!period.ok) return error.badRequest(c, period.error);
     const { start: periodStart, end: periodEnd } = period;
+
+    // Declarations never overlap: the supplies of a month are declared once.
+    const overlapping = await db
+      .select({ periodStart: schema.icpDeclarations.periodStart, periodEnd: schema.icpDeclarations.periodEnd })
+      .from(schema.icpDeclarations)
+      .where(and(
+        eq(schema.icpDeclarations.entityId, entityId),
+        lte(schema.icpDeclarations.periodStart, periodEnd),
+        gte(schema.icpDeclarations.periodEnd, periodStart),
+        isNull(schema.icpDeclarations.deletedAt),
+      ));
+    const clash = overlapping.find((r) => !isSamePeriod({ start: r.periodStart, end: r.periodEnd }, period));
+    if (clash) {
+      return error.badRequest(c, `This period overlaps the ICP declaration of ${formatPeriod(clash.periodStart, clash.periodEnd)}.`);
+    }
 
     // The period's declaration, when one exists: an open one is recalculated in place, a filed one stands.
     const [existing] = await db

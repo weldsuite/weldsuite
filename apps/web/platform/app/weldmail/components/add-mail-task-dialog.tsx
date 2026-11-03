@@ -63,10 +63,6 @@ function AddMailTaskForm({ draft, onClose }: Readonly<{ draft: MailTaskDraft; on
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>{t.mail.messageList.addTaskTitle}</DialogTitle>
-        <DialogDescription>{t.mail.messageList.addTaskDescription}</DialogDescription>
-      </DialogHeader>
       <div className="space-y-4 py-2">
         <div className="space-y-2">
           <Label htmlFor="mail-task-title">{t.mail.messageList.taskTitleLabel}</Label>
@@ -114,9 +110,16 @@ function AddMailTaskForm({ draft, onClose }: Readonly<{ draft: MailTaskDraft; on
  * current user, in a project when one is picked, with a link back to the mail.
  */
 export function AddMailTaskDialog({ draft, onClose }: Readonly<{ draft: MailTaskDraft | null; onClose: () => void }>) {
+  const { t } = useI18n();
   return (
     <Dialog open={draft !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent>{draft && <AddMailTaskForm draft={draft} onClose={onClose} />}</DialogContent>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t.mail.messageList.addTaskTitle}</DialogTitle>
+          <DialogDescription>{t.mail.messageList.addTaskDescription}</DialogDescription>
+        </DialogHeader>
+        {draft && <AddMailTaskForm draft={draft} onClose={onClose} />}
+      </DialogContent>
     </Dialog>
   );
 }

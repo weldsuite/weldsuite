@@ -318,7 +318,7 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
                                 </span>
                               </div>
                             </div>
-                            <Button
+                            <Button aria-label={t.mail.a11y.copyReply}
                               size="sm"
                               variant="ghost"
                               onClick={() => handleCopy(reply.text, index)}
