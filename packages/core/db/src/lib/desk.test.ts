@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { appendDeskMessage, type DeskConversation } from './desk';
+import { appendDeskMessage, normalizeEmailSubject, type DeskConversation } from './desk';
 
 /**
  * Just enough of the query builder: one stored conversation, and the columns
@@ -82,5 +82,19 @@ describe('appendDeskMessage owner write-back', () => {
       metadata: { eventType: 'unassigned' },
     });
     expect(updates[0]).toHaveProperty('assigneeId', null);
+  });
+});
+
+describe('normalizeEmailSubject', () => {
+  it('strips stacked reply and forward prefixes', () => {
+    expect(normalizeEmailSubject('Re: Fwd: RE: Printer is jammed')).toBe('Printer is jammed');
+    expect(normalizeEmailSubject('AW: WG: Antw: Doorst: Offerte')).toBe('Offerte');
+    expect(normalizeEmailSubject('Fw:Report')).toBe('Report');
+  });
+
+  it('leaves a subject without a prefix alone', () => {
+    expect(normalizeEmailSubject('  Return policy  ')).toBe('Return policy');
+    expect(normalizeEmailSubject('Reorder: 20 boxes')).toBe('Reorder: 20 boxes');
+    expect(normalizeEmailSubject(null)).toBe('');
   });
 });

@@ -107,6 +107,53 @@ describe('ingestDeskEmail · pglite', () => {
     expect(reply.conversation.id).toBe(first.conversation.id);
     expect(reply.message.body).toBe('It is still jammed.');
   });
+
+  it('opens a new conversation for a new subject from the same sender (TASK-1026)', async () => {
+    const open = await ingestDeskEmail(db, {
+      generateId,
+      fromEmail: 'grace@customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'Invoice question',
+      body: 'Why was I charged twice?',
+      rfcMessageId: 'grace-1@customer.test',
+    });
+
+    const other = await ingestDeskEmail(db, {
+      generateId,
+      fromEmail: 'grace@customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'Fwd: Attachment for you',
+      body: 'Forwarding this file.',
+      rfcMessageId: 'grace-2@customer.test',
+    });
+
+    expect(other.created).toBe(true);
+    expect(other.conversation.id).not.toBe(open.conversation.id);
+    expect(other.conversation.title).toBe('Attachment for you');
+  });
+
+  it('threads a reply without In-Reply-To by sender and subject', async () => {
+    const first = await ingestDeskEmail(db, {
+      generateId,
+      fromEmail: 'linus@customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'Login fails',
+      body: 'I cannot sign in.',
+      rfcMessageId: 'linus-1@customer.test',
+    });
+
+    const reply = await ingestDeskEmail(db, {
+      generateId,
+      fromEmail: 'Linus@Customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'AW: Re: Login fails',
+      body: 'Still failing.',
+      rfcMessageId: 'linus-2@customer.test',
+    });
+
+    expect(reply.created).toBe(false);
+    expect(reply.conversation.id).toBe(first.conversation.id);
+  });
 });
 
 describe('/api/desk/widget · pglite integration', () => {

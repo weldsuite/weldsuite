@@ -51,6 +51,7 @@ import {
   autoAssignDeskEmailConversation,
   deskNotificationContent,
   findPriorDeskState,
+  isAutomatedDeskEmail,
   notifyDeskOfEmail,
   planDeskNotification,
   storeDeskAttachments,
@@ -1738,6 +1739,11 @@ export async function processHelpdeskInboxEmail(
   email: ParsedEmail,
   attachments: ParsedAttachment[] = [],
 ): Promise<{ processed: boolean; conversationIds: string[] }> {
+  // Auto-replies and the platform's own notices never become conversations.
+  if (isAutomatedDeskEmail(email)) {
+    return { processed: false, conversationIds: [] };
+  }
+
   const recipientEmails = collectRecipientEmails(email);
 
   const masterDb = getMasterDb(env);
