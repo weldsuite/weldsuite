@@ -487,20 +487,20 @@ jobs:
   # itself; it fails unless the core job and every shard succeeded.
   # Keep --shards equal to the matrix length.
   unit-api-modules:
-    name: Unit · module APIs (${{ matrix.shard }}/4)
+    name: Unit · module APIs (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest · module API workers
         run: |
           set -euo pipefail
-          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 4); do
+          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 6); do
             echo "=== $w ==="
             pnpm --filter "$w" test
           done
