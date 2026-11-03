@@ -369,7 +369,7 @@
   "normalizeEmailSubject": [
     [
       "Re: Fwd: Hello ",
-      "Fwd: Hello"
+      "Hello"
     ],
     [
       "FW:Hello",
@@ -386,6 +386,106 @@
     [
       "",
       ""
+    ],
+    [
+      "AW: Antw: WG: Doorst: Hallo",
+      "Hallo"
+    ],
+    [
+      "sv :vs: Hej",
+      "Hej"
+    ],
+    [
+      "re : nbsp",
+      "nbsp"
+    ],
+    [
+      "Re[2]: Hi",
+      "Re[2]: Hi"
+    ],
+    [
+      "Re:",
+      ""
+    ],
+    [
+      "  RE:  re:  ",
+      ""
+    ],
+    [
+      "Reminder: invoice",
+      "Reminder: invoice"
+    ],
+    [
+      "fw d: no",
+      "fw d: no"
+    ]
+  ],
+  "isAutomatedDeskEmail": [
+    [
+      {
+        "from": {
+          "email": "notifications@mail.weldsuite.org",
+          "name": "WeldSuite"
+        },
+        "headers": {}
+      },
+      true
+    ],
+    [
+      {
+        "from": {
+          "email": " Notifications@Mail.WeldSuite.org ",
+          "name": null
+        },
+        "headers": {}
+      },
+      true
+    ],
+    [
+      {
+        "from": {
+          "email": "ann@cust.test",
+          "name": "Ann"
+        },
+        "headers": {
+          "auto-submitted": "auto-replied"
+        }
+      },
+      true
+    ],
+    [
+      {
+        "from": {
+          "email": "ann@cust.test",
+          "name": "Ann"
+        },
+        "headers": {
+          "auto-submitted": " No "
+        }
+      },
+      false
+    ],
+    [
+      {
+        "from": {
+          "email": "ann@cust.test",
+          "name": "Ann"
+        },
+        "headers": {
+          "auto-submitted": ""
+        }
+      },
+      false
+    ],
+    [
+      {
+        "from": {
+          "email": "ann@cust.test",
+          "name": "Ann"
+        },
+        "headers": {}
+      },
+      false
     ]
   ],
   "normalizeRfcMessageId": [

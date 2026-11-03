@@ -6,10 +6,7 @@
 
 use serde_json::{Value, json};
 use weldsuite_db::PgPool;
-use weldsuite_desk_domain::email::{
-    IngestEmail, find_by_rfc_message_ids, find_open_by_email, find_recent, ingest_desk_email,
-    normalize_email_subject,
-};
+use weldsuite_desk_domain::email::{IngestEmail, find_desk_email_conversation, ingest_desk_email};
 use weldsuite_desk_domain::notify::{
     EntityKind, PREVIEW_MAX, customer_reply, preview as helpdesk_preview,
 };
@@ -212,23 +209,13 @@ async fn store_desk_attachments(
 /// this email, when there is one.
 async fn find_prior_state(db: &PgPool, email: &ParsedEmail) -> Option<(String, bool)> {
     let from = email.from.email.to_lowercase();
-    let normalized = normalize_email_subject(Some(&email.subject));
-    let title = if normalized.is_empty() {
-        email.subject.clone()
-    } else {
-        normalized
-    };
-    let lookup = async {
-        let mut ids: Vec<Option<&str>> = vec![email.in_reply_to.as_deref()];
-        ids.extend(email.references.iter().flatten().map(|r| Some(r.as_str())));
-        if let Some(found) = find_by_rfc_message_ids(db, &ids).await? {
-            return Ok::<_, sqlx::Error>(Some(found));
-        }
-        if let Some(found) = find_open_by_email(db, &from).await? {
-            return Ok(Some(found));
-        }
-        find_recent(db, &from, &title).await
-    };
+    let lookup = find_desk_email_conversation(
+        db,
+        &from,
+        Some(&email.subject),
+        email.in_reply_to.as_deref(),
+        email.references.as_deref().unwrap_or_default(),
+    );
     match lookup.await {
         Ok(found) => found.map(|c| {
             (
@@ -684,6 +671,25 @@ async fn ingest_helpdesk(
     Some(id)
 }
 
+/// The address every WeldSuite system email comes from (`SYSTEM_FROM_ADDRESS`
+/// in `@weldsuite/emails`).
+pub const SYSTEM_FROM_ADDRESS: &str = "notifications@mail.weldsuite.org";
+
+/// `isAutomatedDeskEmail(email)`: mail no person wrote, which must not open
+/// or reopen a conversation. Anything marked `Auto-Submitted` (RFC 3834:
+/// auto-replies, auto-generated notices) and the platform's own system emails
+/// (calendar invites, notifications). WeldMail still stores it; only the
+/// helpdesk skips it.
+pub fn is_automated_desk_email(email: &ParsedEmail) -> bool {
+    if weldsuite_kit::validation::js_trim(&email.from.email).to_lowercase() == SYSTEM_FROM_ADDRESS {
+        return true;
+    }
+    email
+        .header("auto-submitted")
+        .map(|value| weldsuite_kit::validation::js_trim(value).to_lowercase())
+        .is_some_and(|value| !value.is_empty() && value != "no")
+}
+
 /// `processHelpdeskInboxEmail`: the conversation ids it touched.
 pub async fn process_helpdesk_inbox(
     ctx: &InboundContext,
@@ -691,6 +697,10 @@ pub async fn process_helpdesk_inbox(
     attachments: &[ParsedAttachment],
 ) -> Result<Vec<String>, sqlx::Error> {
     if !ctx.fan_out.desk {
+        return Ok(Vec::new());
+    }
+    // Auto-replies and the platform's own notices never become conversations.
+    if is_automated_desk_email(email) {
         return Ok(Vec::new());
     }
     let recipients = collect_recipient_emails(email);

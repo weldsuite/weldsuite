@@ -21,23 +21,45 @@ pub fn normalize_rfc_message_id(id: Option<&str>) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
-/// `normalizeEmailSubject(subject)`: leading `Re:`/`Fwd:`/`Fw:` prefixes
-/// (each followed by optional whitespace) removed, then trimmed.
+/// Reply and forward prefixes mail clients put before a subject (en, nl, de,
+/// nordic): `SUBJECT_PREFIX`, `/^(?:re|fwd|fw|aw|antw|wg|sv|vs|doorst)\s?:/i`.
+const SUBJECT_PREFIXES: [&str; 9] = ["re", "fwd", "fw", "aw", "antw", "wg", "sv", "vs", "doorst"];
+
+/// JavaScript's `\s`: Unicode `White_Space` without U+0085, plus U+FEFF.
+fn is_js_whitespace(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
+}
+
+/// The length of the reply/forward prefix `text` starts with, if any. The
+/// regex's `i` without `u` folds ASCII letters only.
+fn subject_prefix_len(text: &str) -> Option<usize> {
+    SUBJECT_PREFIXES.iter().find_map(|prefix| {
+        if !text.get(..prefix.len())?.eq_ignore_ascii_case(prefix) {
+            return None;
+        }
+        // `\s?:`
+        let mut rest = text[prefix.len()..].chars();
+        match rest.next()? {
+            ':' => Some(prefix.len() + 1),
+            c if is_js_whitespace(c) => {
+                (rest.next()? == ':').then(|| prefix.len() + c.len_utf8() + 1)
+            }
+            _ => None,
+        }
+    })
+}
+
+/// `normalizeEmailSubject(subject)`: the subject without its reply/forward
+/// prefixes ("Re: Fwd: AW: x" → "x").
 pub fn normalize_email_subject(subject: Option<&str>) -> String {
-    let Some(mut rest) = subject.filter(|s| !s.is_empty()) else {
+    let Some(subject) = subject.filter(|s| !s.is_empty()) else {
         return String::new();
     };
-    // `/^(Re|Fwd|Fw):\s*/gi`: `^` without `m` matches at the start only, so
-    // one prefix goes, even with `g`.
-    let lower = rest.to_ascii_lowercase();
-    if let Some(len) = ["re:", "fwd:", "fw:"]
-        .into_iter()
-        .find(|p| lower.starts_with(p))
-        .map(str::len)
-    {
-        rest = rest[len..].trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    let mut rest = weldsuite_kit::validation::js_trim(subject);
+    while let Some(len) = subject_prefix_len(rest) {
+        rest = weldsuite_kit::validation::js_trim(&rest[len..]);
     }
-    weldsuite_kit::validation::js_trim(rest).to_owned()
+    rest.to_owned()
 }
 
 /// `findDeskConversationByRfcMessageIds(db, ids)`: the conversation of the
@@ -71,19 +93,6 @@ pub async fn find_by_rfc_message_ids(
     Ok(None)
 }
 
-/// `findOpenEmailConversationByEmail(db, email)`.
-pub async fn find_open_by_email(db: &PgPool, email: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t
-         where t.channel = 'email' and t.state = 'open' and t.email = $1
-         order by t.last_message_at desc limit 1",
-    )
-    .bind(email.to_lowercase())
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_CONVERSATIONS.js(row)))
-}
-
 /// `findRecentEmailConversation(db, email, title)`: the same sender and
 /// subject within thirty days.
 pub async fn find_recent(
@@ -105,6 +114,27 @@ pub async fn find_recent(
     .fetch_optional(db)
     .await?;
     Ok(row.map(|row| DESK_CONVERSATIONS.js(row)))
+}
+
+/// `findDeskEmailConversation(db, email)`: the conversation an inbound email
+/// belongs to, the one its In-Reply-To / References point at, else a recent
+/// one from the same sender with the same subject (a client that dropped the
+/// headers). Never by sender alone: a new subject from the same customer is a
+/// new conversation.
+pub async fn find_desk_email_conversation(
+    db: &PgPool,
+    from_email: &str,
+    subject: Option<&str>,
+    in_reply_to: Option<&str>,
+    references: &[String],
+) -> Result<Option<Value>, sqlx::Error> {
+    let title = normalize_email_subject(subject);
+    let mut ids: Vec<Option<&str>> = vec![in_reply_to];
+    ids.extend(references.iter().map(|r| Some(r.as_str())));
+    if let Some(found) = find_by_rfc_message_ids(db, &ids).await? {
+        return Ok(Some(found));
+    }
+    find_recent(db, from_email, &title).await
 }
 
 /// `IngestDeskEmailInput`.
@@ -156,15 +186,14 @@ pub async fn ingest_desk_email(
     .find(|t| !t.is_empty())
     .unwrap_or_default();
 
-    let mut thread_ids: Vec<Option<&str>> = vec![input.in_reply_to];
-    thread_ids.extend(input.references.iter().map(|r| Some(r.as_str())));
-    let mut conversation = find_by_rfc_message_ids(db, &thread_ids).await?;
-    if conversation.is_none() {
-        conversation = find_open_by_email(db, &from_email).await?;
-    }
-    if conversation.is_none() {
-        conversation = find_recent(db, &from_email, &title).await?;
-    }
+    let conversation = find_desk_email_conversation(
+        db,
+        &from_email,
+        Some(input.subject),
+        input.in_reply_to,
+        input.references,
+    )
+    .await?;
 
     let visitor: Option<Value> =
         sqlx::query_scalar("select to_jsonb(t) from desk_visitors t where t.email = $1 limit 1")
@@ -283,11 +312,20 @@ mod tests {
             Some("a@b")
         );
         assert_eq!(normalize_rfc_message_id(Some("<>")), None);
-        assert_eq!(
-            normalize_email_subject(Some("Re: Fwd: Hello ")),
-            "Fwd: Hello"
-        );
+        assert_eq!(normalize_email_subject(Some("Re: Fwd: Hello ")), "Hello");
         assert_eq!(normalize_email_subject(Some("FW:Hello")), "Hello");
+        assert_eq!(
+            normalize_email_subject(Some("AW: Antw: WG: Doorst: Hallo")),
+            "Hallo"
+        );
+        assert_eq!(normalize_email_subject(Some("sv :vs: Hej")), "Hej");
+        assert_eq!(normalize_email_subject(Some("re\u{a0}: x")), "x");
+        assert_eq!(normalize_email_subject(Some("Re[2]: Hi")), "Re[2]: Hi");
+        assert_eq!(
+            normalize_email_subject(Some("Reminder: invoice")),
+            "Reminder: invoice"
+        );
+        assert_eq!(normalize_email_subject(Some("Re:")), "");
         assert_eq!(normalize_email_subject(Some("Hello Re: x")), "Hello Re: x");
         assert_eq!(normalize_email_subject(None), "");
     }

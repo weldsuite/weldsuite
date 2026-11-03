@@ -75,8 +75,8 @@
       "created": true
     },
     {
-      "conversationNumber": 2,
-      "created": false
+      "conversationNumber": 3,
+      "created": true
     }
   ],
   "conversations": [
@@ -117,7 +117,7 @@
       "email": "dan@cust.test",
       "external_id": null,
       "last_message_at": "<ts>",
-      "last_message_preview": "still open",
+      "last_message_preview": null,
       "name": "Dan",
       "priority": null,
       "rated_at": null,
@@ -131,6 +131,33 @@
       "tags": [],
       "ticket_type_id": null,
       "title": "dan@cust.test",
+      "updated_at": "<ts>",
+      "waiting_since": "<ts>"
+    },
+    {
+      "assignee_id": null,
+      "channel": "email",
+      "contact_id": null,
+      "conversation_number": 3,
+      "created_at": "<ts>",
+      "department_id": null,
+      "email": "dan@cust.test",
+      "external_id": null,
+      "last_message_at": "<ts>",
+      "last_message_preview": "still open",
+      "name": "Dan D",
+      "priority": null,
+      "rated_at": null,
+      "rating": null,
+      "rating_comment": null,
+      "sla_due_at": null,
+      "sla_metric": null,
+      "sla_policy_id": null,
+      "sla_status": null,
+      "state": "open",
+      "tags": [],
+      "ticket_type_id": null,
+      "title": "Other topic",
       "updated_at": "<ts>",
       "waiting_since": "<ts>"
     }
@@ -203,7 +230,7 @@
       "attachments": null,
       "author_type": "visitor",
       "body": "still open",
-      "conversation": 2,
+      "conversation": 3,
       "created_at": "<ts>",
       "kind": "message",
       "metadata": {
@@ -213,6 +240,7 @@
         "emailFrom": "dan@cust.test",
         "emailMessageId": "d2@cust.test",
         "emailSubject": "Fwd: Other topic",
+        "emailThreadMessageId": "d2@cust.test",
         "emailTo": [
           "help@acme.test",
           "x@acme.test"

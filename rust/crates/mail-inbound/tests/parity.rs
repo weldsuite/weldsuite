@@ -19,8 +19,8 @@ use sqlx::PgPool;
 use weldsuite_mail_inbound::catch_all::expand_catch_all_candidates;
 use weldsuite_mail_inbound::deliver::run_rules;
 use weldsuite_mail_inbound::fanout::{
-    Plan, accounting_attachment_type, notification_content, plan, select_desk_attachments,
-    stored_file_metadata,
+    Plan, accounting_attachment_type, is_automated_desk_email, notification_content, plan,
+    select_desk_attachments, stored_file_metadata,
 };
 use weldsuite_mail_inbound::parsed::{EmailAddress, ParsedAttachment, ParsedEmail, parse_inbound};
 use weldsuite_mail_inbound::promotion::{PromotionInput, classify_promotion};
@@ -415,6 +415,13 @@ fn helpers_match() {
         assert_eq!(
             weldsuite_desk_domain::email::normalize_email_subject(case[0].as_str()),
             case[1].as_str().unwrap_or_default(),
+            "{case}"
+        );
+    }
+    for case in h["isAutomatedDeskEmail"].as_array().expect("cases") {
+        assert_eq!(
+            json!(is_automated_desk_email(&parsed_email(&case[0]))),
+            case[1],
             "{case}"
         );
     }
