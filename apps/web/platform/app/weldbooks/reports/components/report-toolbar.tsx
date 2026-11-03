@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-gr
 import { useDimensionValues } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import type { ReportBasis, ReportCompare, ReportPeriods } from '@/lib/weldbooks/report-types';
-import type { ReportParams } from './report-model';
+import { isReversedRange, type ReportParams } from './report-model';
 
 /** Select items can't have an empty value, so "all" and "none" are sentinels. */
 const ALL = '__all__';
@@ -88,6 +88,18 @@ export function ReportToolbar({
   const basis = params.basis || defaults.basis || 'accrual';
   const periodsLocked = params.compare !== '';
   const compareLocked = params.periods !== '';
+  const from = params.from || defaults.from || '';
+  const to = params.to || defaults.to || '';
+  const rangeReversed = dates === 'period' && isReversedRange(from, to);
+
+  // Sends only the date the user changed. When that reverses the range, the
+  // other date goes along, so the page sees both and holds the request back.
+  const changeDate = (field: 'from' | 'to', value: string) => {
+    const other = field === 'from' ? 'to' : 'from';
+    const otherValue = params[other] || defaults[other] || '';
+    const reversed = field === 'from' ? isReversedRange(value, otherValue) : isReversedRange(otherValue, value);
+    onChange(reversed && !params[other] ? { [field]: value, [other]: otherValue } : { [field]: value });
+  };
 
   return (
     <div className="flex flex-wrap items-end gap-x-4 gap-y-3" role="group" aria-label={tr.toolbar}>
@@ -100,9 +112,11 @@ export function ReportToolbar({
             <Input
               id="report-from"
               type="date"
-              value={params.from || defaults.from || ''}
-              onChange={(e) => onChange({ from: e.target.value })}
+              value={from}
+              onChange={(e) => changeDate('from', e.target.value)}
               className="w-40"
+              aria-invalid={rangeReversed}
+              aria-describedby={rangeReversed ? 'report-range-error' : undefined}
             />
           </div>
           <div className="space-y-1.5">
@@ -110,9 +124,11 @@ export function ReportToolbar({
             <Input
               id="report-to"
               type="date"
-              value={params.to || defaults.to || ''}
-              onChange={(e) => onChange({ to: e.target.value })}
+              value={to}
+              onChange={(e) => changeDate('to', e.target.value)}
               className="w-40"
+              aria-invalid={rangeReversed}
+              aria-describedby={rangeReversed ? 'report-range-error' : undefined}
             />
           </div>
         </>
@@ -264,6 +280,12 @@ export function ReportToolbar({
           </DropdownMenu>
         ) : null}
       </div>
+
+      {rangeReversed ? (
+        <p id="report-range-error" role="alert" className="basis-full text-sm text-destructive">
+          {tb.rangeReversed}
+        </p>
+      ) : null}
     </div>
   );
 }

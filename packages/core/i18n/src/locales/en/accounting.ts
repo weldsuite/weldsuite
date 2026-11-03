@@ -2454,6 +2454,7 @@ export const accounting = {
       colTotal: 'Total',
       colStatus: 'Status',
       noInvoices: 'No invoices found',
+      emptyDescription: 'Create your first invoice to get started',
     },
 
     // Journal entry pages
@@ -2509,6 +2510,7 @@ export const accounting = {
     // Reports pages
     reports: {
       title: 'Reports',
+      rangeReversed: 'The From date is after the To date. Pick a From date on or before the To date.',
       profitLoss: 'Profit & Loss',
       profitLossDesc: 'Revenue, expenses, and net profit for a period',
       balanceSheet: 'Balance Sheet',
@@ -3339,6 +3341,34 @@ export const accounting = {
     },
 
     // Lock dates + lock exceptions (entity edit page)
+    numbering: {
+      title: 'Numbering',
+      description:
+        'How invoices, credit notes, bills and journal entries are numbered. To continue the numbering from your previous software, set the next number.',
+      types: {
+        invoice: 'Invoices',
+        creditNote: 'Credit notes',
+        bill: 'Bills',
+        journal: 'Journal entries',
+      },
+      prefix: 'Prefix',
+      nextNumber: 'Next number',
+      digits: 'Digits',
+      preview: 'Next number: {number}',
+      gapNote:
+        'The next number can only go up, so no number is used twice. Raising it after documents have been numbered leaves a gap in the series.',
+      errors: {
+        prefix: 'Use at most 20 letters, digits, spaces or . _ / -',
+        nextValue: 'Enter a whole number of 1 or more.',
+        backwards: 'The next number can only go up: {number} or more.',
+        padding: 'Enter 0 to 10 digits.',
+      },
+      save: 'Save numbering',
+      saving: 'Saving…',
+      saved: 'Numbering updated',
+      saveFailed: 'Could not update the numbering',
+      noPermission: 'You need permission to update entities to change the numbering.',
+    },
     lockDates: {
       title: 'Lock dates',
       description:

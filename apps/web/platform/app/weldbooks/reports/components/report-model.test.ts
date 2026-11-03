@@ -16,6 +16,7 @@ import {
   columnHeading,
   EMPTY_REPORT_PARAMS,
   isComparing,
+  isReversedRange,
   profitLossRows,
   toReportQuery,
   trialBalanceRows,
@@ -266,6 +267,14 @@ describe('columnHeading', () => {
 });
 
 describe('report params', () => {
+  it('spots a From date after the To date, and only when both are set', () => {
+    expect(isReversedRange('2026-12-31', '2026-10-08')).toBe(true);
+    expect(isReversedRange('2026-10-08', '2026-10-08')).toBe(false);
+    expect(isReversedRange('2026-01-01', '2026-12-31')).toBe(false);
+    expect(isReversedRange('2026-12-31', '')).toBe(false);
+    expect(isReversedRange(undefined, '2026-01-01')).toBe(false);
+  });
+
   it('sends only what was set', () => {
     expect(toReportQuery(EMPTY_REPORT_PARAMS)).toEqual({});
     expect(toReportQuery({ ...EMPTY_REPORT_PARAMS, basis: 'cash', compare: 'prior_year', classId: 'dim_1' })).toEqual({

@@ -42,6 +42,7 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
 }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: { revealEntitySsn: vi.fn() } }));
 vi.mock('./components/lock-dates-card', () => ({ LockDatesCard: () => <div data-testid="lock-dates" /> }));
+vi.mock('./components/numbering-card', () => ({ NumberingCard: () => <div data-testid="numbering" /> }));
 vi.mock('./components/lock-exceptions-card', () => ({ LockExceptionsCard: () => <div data-testid="lock-exceptions" /> }));
 vi.mock('@/app/weldbooks/settings/entity-settings', () => ({
   WeldbooksEntitySettings: ({ entity, features }: { entity: { id: string }; features: { salesTax: boolean } }) => (
