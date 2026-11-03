@@ -1,4 +1,4 @@
-import { useMemo, useRef, useSyncExternalStore } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import { DocHeader, type DocStatus } from '../doc/doc-chrome';
@@ -12,6 +12,7 @@ import { PrintView } from './print-view';
 import { Ruler } from './ruler';
 import { Toolbar } from './toolbar';
 import { PageView } from './view/page-view';
+import { DocScrollContext, type DocScroll } from './view/scroll-context';
 
 /**
  * The document editor, laid out like Google Docs: name and menus, the
@@ -42,31 +43,36 @@ export function DocEditor({
 }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [roomBelow, setRoomBelow] = useState(0);
+  const scroll = useMemo<DocScroll>(() => ({ scrollRef, setRoomBelow }), []);
 
   return (
-    <TooltipProvider delayDuration={400}>
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <DocHeader name={name} canRename={canRename} onRename={onRename} status={status} menubar={<Menubar controller={controller} name={name} />}>
-          {headerExtra}
-        </DocHeader>
-        <Toolbar controller={controller} />
-        {controller.showRuler && !controller.doc.props.pageless && <Ruler controller={controller} scrollRef={scrollRef} />}
-        <div className="flex min-h-0 flex-1">
-          {controller.showOutline && <Outline controller={controller} />}
-          <div className="relative min-w-0 flex-1">
-            <div ref={scrollRef} className="absolute inset-0 overflow-auto bg-muted/60">
-              <PageView controller={controller} scrollRef={scrollRef} />
+    <DocScrollContext.Provider value={scroll}>
+      <TooltipProvider delayDuration={400}>
+        <div className="flex h-full min-h-0 flex-col bg-background">
+          <DocHeader name={name} canRename={canRename} onRename={onRename} status={status} menubar={<Menubar controller={controller} name={name} />}>
+            {headerExtra}
+          </DocHeader>
+          <Toolbar controller={controller} />
+          {controller.showRuler && !controller.doc.props.pageless && <Ruler controller={controller} scrollRef={scrollRef} />}
+          <div className="flex min-h-0 flex-1">
+            {controller.showOutline && <Outline controller={controller} />}
+            <div className="relative min-w-0 flex-1">
+              <div ref={scrollRef} className="absolute inset-0 overflow-auto bg-muted/60">
+                <PageView controller={controller} scrollRef={scrollRef} />
+                {roomBelow > 0 && <div aria-hidden style={{ height: roomBelow }} />}
+              </div>
+              {controller.find && <FindBar controller={controller} />}
             </div>
-            {controller.find && <FindBar controller={controller} />}
+            {controller.showVersions && versionsPanel}
+            {!controller.showVersions && controller.showComments && (controller.draft || controller.threads().length > 0) && (commentsPanel ?? <SuggestionsPanel controller={controller} />)}
           </div>
-          {controller.showVersions && versionsPanel}
-          {!controller.showVersions && controller.showComments && (controller.draft || controller.threads().length > 0) && (commentsPanel ?? <SuggestionsPanel controller={controller} />)}
+          <StatusLine controller={controller} />
         </div>
-        <StatusLine controller={controller} />
-      </div>
-      <DocDialogs controller={controller} />
-      {controller.printing && <PrintView controller={controller} />}
-    </TooltipProvider>
+        <DocDialogs controller={controller} />
+        {controller.printing && <PrintView controller={controller} />}
+      </TooltipProvider>
+    </DocScrollContext.Provider>
   );
 }
 
