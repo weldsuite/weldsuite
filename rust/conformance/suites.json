@@ -1555,6 +1555,30 @@
       ]
     },
     {
+      "name": "flow: project control",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-raid/integration.test.ts",
+        "src/routes/project-control-links/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-raid",
+        "/api/project-control-links"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-raid/",
+        "apps/workers/flow-api/src/routes/project-control-links/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-control.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "core: dashboard",
       "module": "core",
       "workspace": "apps/workers/app-api",

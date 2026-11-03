@@ -2,7 +2,8 @@
  * WeldSuite flow-api — the WeldFlow (projects, project members, labels,
  * messages, files, documents, sheets, pipeline stages and analytics, tasks,
  * task comments / tags / projects, my tasks, sprints, milestones, goals,
- * whiteboards, documents, time entries and task digest settings) module's API
+ * whiteboards, documents, time entries, task digest settings and the project-
+ * control RAID log and links) module's API
  * worker, plus the SendDigest and ImportTasks workflows and the hourly task
  * digest cron.
  *
@@ -20,12 +21,14 @@ import { goalsRoutes } from './routes/goals';
 import { milestonesRoutes } from './routes/milestones';
 import { myTasksRoutes } from './routes/my-tasks';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
+import { projectControlLinksRoutes } from './routes/project-control-links';
 import { projectDocumentsRoutes } from './routes/project-documents';
 import { projectFilesRoutes } from './routes/project-files';
 import { projectLabelsRoutes } from './routes/project-labels';
 import { projectMembersRoutes } from './routes/project-members';
 import { projectMessagesRoutes } from './routes/project-messages';
 import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
+import { projectRaidRoutes } from './routes/project-raid';
 import { projectSheetsRoutes } from './routes/project-sheets';
 import { projectsRoutes } from './routes/projects';
 import { sprintsRoutes } from './routes/sprints';
@@ -47,12 +50,14 @@ app.route('/api/documents', documentsRoutes);
 app.route('/api/goals', goalsRoutes);
 app.route('/api/milestones', milestonesRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
+app.route('/api/project-control-links', projectControlLinksRoutes);
 app.route('/api/project-files', projectFilesRoutes);
 app.route('/api/project-labels', projectLabelsRoutes);
 app.route('/api/project-documents', projectDocumentsRoutes);
 app.route('/api/project-members', projectMembersRoutes);
 app.route('/api/project-messages', projectMessagesRoutes);
 app.route('/api/project-pipeline-stages', projectPipelineStagesRoutes);
+app.route('/api/project-raid', projectRaidRoutes);
 app.route('/api/project-sheets', projectSheetsRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sprints', sprintsRoutes);

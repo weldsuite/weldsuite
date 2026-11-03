@@ -37,7 +37,9 @@ export interface RemovedTask {
  *   workspace-wide, since a dependency can cross projects;
  * - the tasks' comments and attachments (`files` rows; the stored objects stay
  *   put, like every other soft-deleted file). Time entries are deliberately
- *   kept: they are billing history and stay reportable by project.
+ *   kept: they are billing history and stay reportable by project;
+ * - the project-control links (mitigates, resolves, affects, ...) of every
+ *   removed task, deleted for real (FLOW-011: a task's links go with it).
  *
  * Returns the removed tasks, the requested one first, or `null` when it does
  * not exist or is already deleted. Publishing the `project_task` `deleted`
@@ -117,6 +119,14 @@ export async function softDeleteTaskTree(db: Database, id: string): Promise<Remo
           eq(schema.files.entityType, 'task'),
           inArray(schema.files.entityId, removedIds),
           isNull(schema.files.deletedAt),
+        ),
+      ),
+    handle
+      .delete(schema.projectControlLinks)
+      .where(
+        or(
+          and(eq(schema.projectControlLinks.fromType, 'task'), inArray(schema.projectControlLinks.fromId, removedIds)),
+          and(eq(schema.projectControlLinks.toType, 'task'), inArray(schema.projectControlLinks.toId, removedIds)),
         ),
       ),
     ...dependentTasks

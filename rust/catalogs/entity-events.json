@@ -860,6 +860,10 @@
     "deleted",
     "archived"
   ],
+  "project_control_link": [
+    "created",
+    "deleted"
+  ],
   "project_document": [
     "created",
     "updated",
@@ -900,6 +904,14 @@
     "created",
     "updated",
     "deleted"
+  ],
+  "project_raid_item": [
+    "created",
+    "updated",
+    "deleted",
+    "escalated",
+    "converted",
+    "closed"
   ],
   "project_sprint": [
     "created",

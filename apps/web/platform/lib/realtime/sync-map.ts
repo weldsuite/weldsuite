@@ -151,6 +151,9 @@ export const platformSyncMap: EntitySyncMap = {
   project_message: { invalidate: [projectKeys.all] },
   project_whiteboard: { invalidate: [projectKeys.all] },
   project_milestone: inv(projectKeys.all), // replaces the stale 'milestone' topic
+  // RAID log (project control): refine to the RAID query keys when the RAID tab lands.
+  project_raid_item: inv(projectKeys.all),
+  project_control_link: inv(projectKeys.all),
   project_sprint: inv(projectKeys.all),
   // Project-scoped tasks publish as `project_task` (not `task`). Invalidate
   // My Tasks (`['task']`) as well as project boards + the object panel so

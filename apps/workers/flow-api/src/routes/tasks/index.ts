@@ -31,7 +31,6 @@ import { z } from 'zod';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, ilike, isNull, lt, notInArray, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
 import {
   createCalendarEventForTask,
   rescheduleCalendarEvent,
@@ -53,13 +52,14 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { dispatchAssignmentNotifications } from '../../lib/task-notifications';
 import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
-import { getMasterDb, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createFile } from '@weldsuite/core-domain/files';
 import {
   accessibleProjectIds,
@@ -77,7 +77,6 @@ import { dayBoundsInTimezone, workspaceDayBounds, type DayBounds } from '@weldsu
 import { containsPattern, queryBoolean } from '../../lib/query-params';
 import { markFilePurgeDue } from '../../lib/file-purge';
 import { taskInLiveProject } from '../../lib/task-scope';
-import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -382,98 +381,6 @@ async function insertTask(
   opts: { projectId?: string | null; userId: string },
 ) {
   return createTask(db, data, opts);
-}
-
-// ============================================================================
-// Assignment notification dispatcher
-// ============================================================================
-
-function dispatchAssignmentNotifications(
-  c: {
-    env: Env;
-    executionCtx: ExecutionContext;
-    get: (k: 'tenantDb' | 'userId' | 'workspaceId' | 'clerkOrgId') => any;
-  },
-  opts: {
-    assigneeIds: string[];
-    taskId: string;
-    taskTitle: string;
-    projectId: string | null;
-    taskPriority?: string | null;
-    dueDate?: Date | string | null;
-    taskDescription?: string | null;
-  },
-): void {
-  if (opts.assigneeIds.length === 0) return;
-
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  // sendTaskAssignmentNotification builds the app links and persists with the Clerk org id.
-  const clerkOrgId = c.get('clerkOrgId');
-  const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
-  // Web in-app opens the task itself via the stable `/weldflow/task/{id}` link
-  // (it resolves the project and opens the panel); mobile push uses
-  // projectId/taskId from the Expo data payload for a direct
-  // `/task/{projectId}/{taskId}` deep link.
-  const actionUrl = opts.projectId
-    ? `/weldflow/task/${opts.taskId}`
-    : `/weldcrm/tasks`;
-
-  const enrichment = (async () => {
-    const [projectName, workspaceName] = await Promise.all([
-      opts.projectId
-        ? db
-            .select({ name: schema.projects.name })
-            .from(schema.projects)
-            .where(eq(schema.projects.id, opts.projectId))
-            .limit(1)
-            .then((rows: { name: string | null }[]) => rows[0]?.name ?? null)
-            .catch(() => null)
-        : Promise.resolve(null),
-      (async () => {
-        try {
-          const masterDb = getMasterDb(c.env);
-          const [row] = await masterDb
-            .select({ name: masterSchema.workspaces.name })
-            .from(masterSchema.workspaces)
-            .where(matchWorkspaceRef(c.get('workspaceId')))
-            .limit(1);
-          return row?.name ?? null;
-        } catch {
-          return null;
-        }
-      })(),
-    ]);
-    return { projectName, workspaceName };
-  })();
-
-  for (const assigneeId of opts.assigneeIds) {
-    c.executionCtx.waitUntil(
-      enrichment
-        .then(({ projectName, workspaceName }) =>
-          sendTaskAssignmentNotification({
-            db,
-            env: c.env,
-            workspaceId: clerkOrgId,
-            assigneeId,
-            assignedByUserId: userId,
-            taskId: opts.taskId,
-            taskTitle: opts.taskTitle,
-            category,
-            actionUrl,
-            projectId: opts.projectId,
-            projectName,
-            taskPriority: opts.taskPriority ?? null,
-            dueDate: opts.dueDate ?? null,
-            taskDescription: opts.taskDescription ?? null,
-            workspaceName,
-          }),
-        )
-        .catch((err) =>
-          console.error('[app-api/tasks] assignment notification failed:', err),
-        ),
-    );
-  }
 }
 
 // ============================================================================
