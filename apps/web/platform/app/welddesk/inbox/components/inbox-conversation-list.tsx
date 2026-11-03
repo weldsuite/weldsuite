@@ -1,7 +1,7 @@
 
 import { useState, useMemo, type Dispatch, type SetStateAction } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
-import { Button } from '@weldsuite/ui/components/button';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import { Toggle } from '@weldsuite/ui/components/toggle';
 import {
   Popover,
@@ -161,15 +161,7 @@ export function InboxConversationList({
   const filterContent = (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn('h-8 text-sm px-3 shadow-none gap-1.5', activeFilter === 'all' ? 'text-muted-foreground' : 'text-foreground')}
-        >
-          {ti.filters.filter}
-          {activeFilter !== 'all' && (
-            <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">1</span>
-          )}
-        </Button>
+        <FilterButton count={activeFilter !== 'all' ? 1 : 0}>{ti.filters.filter}</FilterButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[220px] p-3">
         <p className="text-xs font-medium text-muted-foreground mb-2">{ti.status}</p>

@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Button } from '@weldsuite/ui/components/button';
-import { Loader2, Database, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/multi-select';
 import {
@@ -38,42 +38,25 @@ interface ProvisioningStep {
   status: ProvisioningStepStatus;
 }
 
-const STEP_ROW_CLASSES: Record<ProvisioningStepStatus, string> = {
-  completed: 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800',
-  in_progress: 'bg-muted/50 border-border',
-  pending: 'bg-background border-border/50',
-};
-
-const STEP_ICON_CLASSES: Record<ProvisioningStepStatus, string> = {
-  completed: 'text-green-600 dark:text-green-400',
-  in_progress: 'text-muted-foreground',
-  pending: 'text-muted-foreground/40',
-};
-
 const STEP_LABEL_CLASSES: Record<ProvisioningStepStatus, string> = {
-  completed: 'text-green-700 dark:text-green-300 font-medium',
-  in_progress: 'text-foreground font-medium',
-  pending: 'text-muted-foreground/60',
+  completed: 'text-muted-foreground',
+  in_progress: 'text-foreground',
+  pending: 'text-muted-foreground/50',
 };
 
-function ProvisioningStepIcon({ step }: Readonly<{ step: ProvisioningStep }>) {
-  if (step.status === 'completed') return <CheckCircle2 className="h-4 w-4" />;
-  if (step.status === 'in_progress') return <Loader2 className="h-4 w-4 animate-spin" />;
-  if (step.id === 'database') return <Database className="h-4 w-4" />;
-  if (step.id === 'security') return <Shield className="h-4 w-4" />;
-  return <Sparkles className="h-4 w-4" />;
+function ProvisioningStepIcon({ status }: Readonly<{ status: ProvisioningStepStatus }>) {
+  if (status === 'completed') return <Check className="size-4 text-muted-foreground" />;
+  if (status === 'in_progress') return <Loader2 className="size-4 animate-spin text-foreground" />;
+  return <span className="size-1.5 rounded-full bg-muted-foreground/40" />;
 }
 
-function ProvisioningStepRow({ step, doneLabel }: Readonly<{ step: ProvisioningStep; doneLabel: string }>) {
+function ProvisioningStepRow({ step }: Readonly<{ step: ProvisioningStep }>) {
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-lg border ${STEP_ROW_CLASSES[step.status]}`}>
-      <div className={`flex-shrink-0 ${STEP_ICON_CLASSES[step.status]}`}>
-        <ProvisioningStepIcon step={step} />
-      </div>
-      <span className={`flex-1 text-sm ${STEP_LABEL_CLASSES[step.status]}`}>{step.label}</span>
-      {step.status === 'completed' && (
-        <span className="text-xs text-green-600 dark:text-green-400 font-medium">{doneLabel}</span>
-      )}
+    <div className="flex items-center gap-3 text-sm">
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <ProvisioningStepIcon status={step.status} />
+      </span>
+      <span className={STEP_LABEL_CLASSES[step.status]}>{step.label}</span>
     </div>
   );
 }
@@ -323,7 +306,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className={territory ? 'max-h-[92vh] overflow-y-auto sm:max-w-lg' : 'sm:max-w-[425px]'} onInteractOutside={(e) => { if (isProvisioning) e.preventDefault(); }}>
+      <DialogContent className={territory ? 'max-h-[92vh] overflow-y-auto sm:max-w-lg' : 'sm:max-w-[425px]'} showCloseButton={!isProvisioning} onInteractOutside={(e) => { if (isProvisioning) e.preventDefault(); }}>
         {territory && (
           <>
             <DialogHeader className="sr-only">
@@ -347,33 +330,31 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
                 {t('sweep.shared.usuallyTakesLessThanAMinute')}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 py-4">
+            <div className="space-y-3 py-2">
               {provisioningSteps.map((step) => (
-                <ProvisioningStepRow key={step.id} step={step} doneLabel={t('sweep.shared.done')} />
+                <ProvisioningStepRow key={step.id} step={step} />
               ))}
-              {provisioningPollCount >= 90 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center dark:bg-amber-950/30 dark:border-amber-800">
-                  <p className="text-sm text-amber-700 dark:text-amber-300">
-                    {t('sweep.shared.takingLongerThanExpectedBefore')}{' '}
-                    <Button
-                      variant="ghost"
-                      onClick={() => window.location.reload()}
-                      className="font-medium underline hover:no-underline"
-                    >
-                      {t('sweep.shared.refreshThePage')}
-                    </Button>{' '}
-                    {t('sweep.shared.takingLongerThanExpectedAfter')}
-                  </p>
-                </div>
-              )}
             </div>
+            {provisioningPollCount >= 90 && (
+              <p className="text-xs text-muted-foreground">
+                {t('sweep.shared.takingLongerThanExpectedBefore')}{' '}
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="text-foreground underline underline-offset-2 hover:no-underline"
+                >
+                  {t('sweep.shared.refreshThePage')}
+                </button>{' '}
+                {t('sweep.shared.takingLongerThanExpectedAfter')}
+              </p>
+            )}
           </>
         )}
         {!territory && !isProvisioning && (
           <>
             <DialogHeader>
               <DialogTitle>{t('sweep.shared.createNewWorkspace')}</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="sr-only">
                 {t('sweep.shared.createNewWorkspaceDescription')}
               </DialogDescription>
             </DialogHeader>
@@ -409,7 +390,6 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground -mt-1">{t('partner.createWorkspace.countryHint')}</p>
               </div>
 
               <div className="grid gap-2">
@@ -427,6 +407,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
                   placeholder={isLoadingApps ? t('sweep.shared.loadingAppsEllipsis') : t('sweep.shared.selectApps')}
                   searchPlaceholder={t('sweep.shared.searchAppsPlaceholder')}
                   emptyText={t('sweep.shared.noAppsFound')}
+                  className="py-1.5"
+                  contentClassName="w-(--radix-popover-trigger-width)"
+                  chipClassName="h-[22px] rounded text-[12px] font-medium leading-none [&>img]:size-3.5 [&>svg]:size-3.5"
                   maxDisplay={6}
                   modal
                 />

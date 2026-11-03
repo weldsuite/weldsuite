@@ -61,7 +61,7 @@ const entities: Row[] = [
 ];
 
 beforeAll(() => {
-  // cmdk / Radix need these; jsdom has neither.
+  // Radix needs these; jsdom has neither.
   class RO {
     observe() { /* no-op */ }
     unobserve() { /* no-op */ }
@@ -84,10 +84,14 @@ function renderToolbar() {
 }
 
 async function addStatusFilter() {
-  // The column menu is a dropdown menu: it opens from the keyboard (or a
-  // pointer press), not from a synthetic click.
-  fireEvent.keyDown(screen.getByRole('button', { name: 'sweep.entities.filter' }), { key: 'Enter' });
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Status' }));
+  fireEvent.click(screen.getByRole('button', { name: 'sweep.entities.filter' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Status' }));
+}
+
+/** The value popover of a select column: the one holding the option search box. */
+async function findValueList() {
+  const search = await screen.findByPlaceholderText('sweep.entities.searchEllipsisPlaceholder');
+  return search.closest('[role="dialog"]') as HTMLElement;
 }
 
 describe('GridToolbar filter on a select column', () => {
@@ -96,7 +100,7 @@ describe('GridToolbar filter on a select column', () => {
     await addStatusFilter();
 
     // The value picker opens on its own, listing every configured status.
-    const list = await screen.findByRole('listbox');
+    const list = await findValueList();
     expect(within(list).getByText('Active')).toBeInTheDocument();
     expect(within(list).getByText('Prospect')).toBeInTheDocument();
     expect(within(list).getByText('VIP')).toBeInTheDocument();
@@ -111,7 +115,7 @@ describe('GridToolbar filter on a select column', () => {
   it('offers is / is not / is any of rather than contains / starts with', async () => {
     renderToolbar();
     await addStatusFilter();
-    fireEvent.click(within(await screen.findByRole('listbox')).getByText('Active'));
+    fireEvent.click(within(await findValueList()).getByText('Active'));
 
     fireEvent.click(await screen.findByRole('button', { name: 'sweep.entities.operatorIs' }));
     expect(await screen.findByRole('button', { name: 'sweep.entities.operatorIsNot' })).toBeInTheDocument();
@@ -123,13 +127,13 @@ describe('GridToolbar filter on a select column', () => {
   it('lets several statuses be ticked with "is any of"', async () => {
     renderToolbar();
     await addStatusFilter();
-    fireEvent.click(within(await screen.findByRole('listbox')).getByText('Active'));
+    fireEvent.click(within(await findValueList()).getByText('Active'));
 
     fireEvent.click(await screen.findByRole('button', { name: 'sweep.entities.operatorIs' }));
     fireEvent.click(await screen.findByRole('button', { name: 'sweep.entities.operatorIsAnyOf' }));
 
     // "Active" stays selected when the operator changes; add VIP too.
-    const list = await screen.findByRole('listbox');
+    const list = await findValueList();
     fireEvent.click(within(list).getByText('VIP'));
     expect(await screen.findByRole('button', { name: 'Active, VIP' })).toBeInTheDocument();
   });
