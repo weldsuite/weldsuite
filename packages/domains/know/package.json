@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "exports": {
-    "./access": "./src/access.ts"
+    "./access": "./src/access.ts",
+    "./pages": "./src/pages.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
