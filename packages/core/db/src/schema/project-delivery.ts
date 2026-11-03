@@ -254,7 +254,8 @@ export type GateCriterion =
 export interface GateResult {
   /** ISO date-time the criteria were evaluated. */
   checkedAt: string;
-  criteria: Array<{ criterion: GateCriterion; met: boolean; detail?: string | null }>;
+  // slice C: `detail` is the structured facts of the criterion (counts, codes, amounts), not prose.
+  criteria: Array<{ criterion: GateCriterion; met: boolean; detail?: Record<string, unknown> | null }>;
   /** Criteria the sponsor waived, with the note they gave. */
   waived: Array<{ index: number; note: string; by: string; at: string }>;
 }

@@ -1,0 +1,213 @@
+{
+  "_comment": "Fixtures of checkGate, run by gates.test.ts and by rust/crates/flow-domain/src/gates.rs: both languages must give these answers. `expected` lists only the fields a case is about; every listed field must match exactly.",
+  "cases": [
+    {
+      "name": "every automatic criterion met, and a manual one ticked",
+      "criteria": [
+        { "key": "deliverable_tasks_done", "params": { "deliverableId": "dlv_1" } },
+        { "key": "deliverable_accepted", "params": { "deliverableId": "dlv_1" } },
+        { "key": "no_open_risk_above", "params": { "band": "critical" } },
+        { "key": "decision_decided", "params": { "decisionId": "dec_1" } },
+        { "key": "no_change_request_pending" },
+        { "key": "spend_within_baseline" },
+        { "manual": "Security review signed off", "met": true, "metAt": "2026-10-28T09:00:00.000Z" }
+      ],
+      "facts": {
+        "deliverables": [{ "id": "dlv_1", "number": 2, "title": "Catalogue", "status": "accepted", "tasksDone": 31, "tasksTotal": 31 }],
+        "risks": [{ "id": "raid_1", "number": 7, "title": "Slow supplier", "score": 12 }],
+        "decisions": [{ "id": "dec_1", "number": 5, "title": "Payment API", "status": "decided", "decisionDueAt": null }],
+        "changeRequests": [],
+        "spend": { "spent": "104800.00", "budget": "186400.00", "currency": "EUR", "baselineVersion": 4 }
+      },
+      "waivers": [],
+      "expected": {
+        "total": 7,
+        "metCount": 7,
+        "waivedCount": 0,
+        "satisfiedCount": 7,
+        "allSatisfied": true,
+        "items": [
+          { "index": 0, "kind": "automatic", "key": "deliverable_tasks_done", "met": true, "facts": { "deliverableId": "dlv_1", "code": "D2", "title": "Catalogue", "done": 31, "total": 31 }, "link": { "kind": "tasks", "id": "dlv_1" } },
+          { "index": 1, "met": true, "facts": { "code": "D2", "status": "accepted" }, "link": { "kind": "deliverable", "id": "dlv_1" } },
+          { "index": 2, "met": true, "facts": { "band": "critical", "count": 0, "top": null }, "link": { "kind": "raid", "id": null } },
+          { "index": 3, "met": true, "facts": { "code": "DEC-5", "status": "decided" }, "link": { "kind": "decision", "id": "dec_1" } },
+          { "index": 4, "met": true, "facts": { "count": 0, "first": null }, "link": { "kind": "change_requests", "id": null } },
+          { "index": 5, "met": true, "facts": { "spent": "104800.00", "budget": "186400.00", "currency": "EUR", "baselineVersion": 4 }, "link": { "kind": "finance", "id": null } },
+          { "index": 6, "kind": "manual", "key": null, "text": "Security review signed off", "params": null, "met": true, "facts": { "metAt": "2026-10-28T09:00:00.000Z" }, "link": null }
+        ]
+      }
+    },
+    {
+      "name": "open work, a critical risk, a proposed decision and a pending change keep the gate shut",
+      "criteria": [
+        { "key": "deliverable_tasks_done", "params": { "deliverableId": "dlv_2" } },
+        { "key": "no_open_risk_above", "params": { "band": "critical" } },
+        { "key": "decision_decided", "params": { "decisionId": "dec_5" } },
+        { "key": "no_change_request_pending" },
+        { "manual": "Acceptance test plan approved" }
+      ],
+      "facts": {
+        "deliverables": [{ "id": "dlv_2", "number": 2, "title": "Webshop", "status": "in_progress", "tasksDone": 18, "tasksTotal": 31 }],
+        "risks": [
+          { "id": "raid_9", "number": 9, "title": "Low band", "score": 3 },
+          { "id": "raid_4", "number": 4, "title": "Data migration loses historical order data", "score": 20 },
+          { "id": "raid_6", "number": 6, "title": "Another critical", "score": 20 },
+          { "id": "raid_8", "number": 8, "title": "High", "score": 15 }
+        ],
+        "decisions": [{ "id": "dec_5", "number": 5, "title": "Payment API", "status": "proposed", "decisionDueAt": "2026-11-06T00:00:00.000Z" }],
+        "changeRequests": [
+          { "id": "cr_8", "number": 8, "title": "Offer pay-in-3 terms" },
+          { "id": "cr_9", "number": 9, "title": "Second" }
+        ],
+        "spend": null
+      },
+      "waivers": [],
+      "expected": {
+        "total": 5,
+        "metCount": 0,
+        "waivedCount": 0,
+        "satisfiedCount": 0,
+        "allSatisfied": false,
+        "items": [
+          { "met": false, "satisfied": false, "facts": { "done": 18, "total": 31 } },
+          { "met": false, "facts": { "count": 2, "top": { "id": "raid_4", "code": "RSK-4", "title": "Data migration loses historical order data", "score": 20 } }, "link": { "kind": "raid", "id": "raid_4" } },
+          { "met": false, "facts": { "status": "proposed", "decisionDueAt": "2026-11-06T00:00:00.000Z" } },
+          { "met": false, "facts": { "count": 2, "first": { "id": "cr_8", "code": "CR-8", "title": "Offer pay-in-3 terms" } }, "link": { "kind": "change_requests", "id": "cr_8" } },
+          { "kind": "manual", "met": false, "facts": { "metAt": null } }
+        ]
+      }
+    },
+    {
+      "name": "a waiver satisfies a criterion that is not met, and is ignored for one that is",
+      "criteria": [
+        { "key": "no_change_request_pending" },
+        { "manual": "Plan approved" },
+        { "key": "spend_within_baseline" }
+      ],
+      "facts": {
+        "deliverables": [],
+        "risks": [],
+        "decisions": [],
+        "changeRequests": [{ "id": "cr_1", "number": 1, "title": "A change" }],
+        "spend": { "spent": "10.00", "budget": "100.00", "currency": "EUR", "baselineVersion": 1 }
+      },
+      "waivers": [
+        { "index": 0, "note": "Approved next week", "by": "user_sponsor", "at": "2026-11-03T10:00:00.000Z" },
+        { "index": 2, "note": "Not needed", "by": "user_sponsor", "at": "2026-11-03T10:00:00.000Z" },
+        { "index": 9, "note": "No such criterion", "by": "user_sponsor", "at": "2026-11-03T10:00:00.000Z" }
+      ],
+      "expected": {
+        "total": 3,
+        "metCount": 1,
+        "waivedCount": 1,
+        "satisfiedCount": 2,
+        "allSatisfied": false,
+        "items": [
+          { "met": false, "waived": true, "satisfied": true, "waiver": { "index": 0, "note": "Approved next week", "by": "user_sponsor" } },
+          { "met": false, "waived": false, "satisfied": false, "waiver": null },
+          { "met": true, "waived": false, "satisfied": true, "waiver": null }
+        ]
+      }
+    },
+    {
+      "name": "no tasks, a missing deliverable and a missing decision are not met",
+      "criteria": [
+        { "key": "deliverable_tasks_done", "params": { "deliverableId": "dlv_empty" } },
+        { "key": "deliverable_accepted", "params": { "deliverableId": "dlv_gone" } },
+        { "key": "decision_decided", "params": { "decisionId": "dec_gone" } },
+        { "key": "decision_decided", "params": { "decisionId": "dec_old" } }
+      ],
+      "facts": {
+        "deliverables": [{ "id": "dlv_empty", "number": 3, "title": "Empty", "status": "not_started", "tasksDone": 0, "tasksTotal": 0 }],
+        "risks": [],
+        "decisions": [{ "id": "dec_old", "number": 1, "title": "Replaced", "status": "superseded", "decisionDueAt": null }],
+        "changeRequests": [],
+        "spend": null
+      },
+      "waivers": [],
+      "expected": {
+        "metCount": 1,
+        "allSatisfied": false,
+        "items": [
+          { "met": false, "facts": { "code": "D3", "done": 0, "total": 0 } },
+          { "met": false, "facts": { "deliverableId": "dlv_gone", "missing": true }, "link": { "kind": "deliverable", "id": "dlv_gone" } },
+          { "met": false, "facts": { "decisionId": "dec_gone", "missing": true } },
+          { "met": true, "facts": { "status": "superseded" } }
+        ]
+      }
+    },
+    {
+      "name": "spend: over the budget, exactly on it, and no baseline to compare with",
+      "criteria": [{ "key": "spend_within_baseline" }],
+      "facts": {
+        "deliverables": [],
+        "risks": [],
+        "decisions": [],
+        "changeRequests": [],
+        "spend": { "spent": "186400.01", "budget": "186400.00", "currency": "EUR", "baselineVersion": 4 }
+      },
+      "waivers": [],
+      "expected": { "metCount": 0, "items": [{ "met": false, "facts": { "spent": "186400.01", "budget": "186400.00" } }] }
+    },
+    {
+      "name": "spend exactly on the budget is within it",
+      "criteria": [{ "key": "spend_within_baseline" }],
+      "facts": {
+        "deliverables": [],
+        "risks": [],
+        "decisions": [],
+        "changeRequests": [],
+        "spend": { "spent": "186400.00", "budget": "186400.00", "currency": "EUR", "baselineVersion": 4 }
+      },
+      "waivers": [],
+      "expected": { "metCount": 1, "allSatisfied": true, "items": [{ "met": true }] }
+    },
+    {
+      "name": "no baseline budget means the spend criterion cannot be met",
+      "criteria": [{ "key": "spend_within_baseline" }],
+      "facts": {
+        "deliverables": [],
+        "risks": [],
+        "decisions": [],
+        "changeRequests": [],
+        "spend": { "spent": "50.00", "budget": null, "currency": null, "baselineVersion": null }
+      },
+      "waivers": [],
+      "expected": { "metCount": 0, "items": [{ "met": false, "facts": { "spent": "50.00", "budget": null, "baselineVersion": null } }] }
+    },
+    {
+      "name": "the risk band is a floor: high counts a 10 but not a 9",
+      "criteria": [
+        { "key": "no_open_risk_above", "params": { "band": "high" } },
+        { "key": "no_open_risk_above", "params": { "band": "low" } },
+        { "key": "no_open_risk_above", "params": { "band": "medium" } }
+      ],
+      "facts": {
+        "deliverables": [],
+        "risks": [
+          { "id": "raid_a", "number": 1, "title": "Nine", "score": 9 },
+          { "id": "raid_b", "number": 2, "title": "Ten", "score": 10 },
+          { "id": "raid_c", "number": 3, "title": "One", "score": 1 }
+        ],
+        "decisions": [],
+        "changeRequests": [],
+        "spend": null
+      },
+      "waivers": [],
+      "expected": {
+        "items": [
+          { "met": false, "facts": { "band": "high", "count": 1, "top": { "id": "raid_b", "code": "RSK-2", "score": 10 } } },
+          { "met": false, "facts": { "band": "low", "count": 3, "top": { "id": "raid_b" } } },
+          { "met": false, "facts": { "band": "medium", "count": 2 } }
+        ]
+      }
+    },
+    {
+      "name": "a gate with no criteria is satisfied",
+      "criteria": [],
+      "facts": { "deliverables": [], "risks": [], "decisions": [], "changeRequests": [], "spend": null },
+      "waivers": [],
+      "expected": { "total": 0, "allSatisfied": true, "items": [] }
+    }
+  ]
+}
