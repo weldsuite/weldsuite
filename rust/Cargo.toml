@@ -64,6 +64,7 @@ weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
 weldsuite-know-domain = { path = "crates/know-domain" }
 weldsuite-docs = { path = "modules/docs" }
@@ -161,6 +162,13 @@ must_use_candidate = "allow"
 dbg_macro = "warn"
 todo = "warn"
 unwrap_used = "warn"
+
+# The binary links every module. With full debug info its test binary
+# outgrows what MSVC's linker writes into one PDB (LNK1318 on Windows), so it
+# keeps line tables only: backtraces still name files and lines. The crates
+# it links keep full debug info.
+[profile.dev.package.weldsuite]
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"

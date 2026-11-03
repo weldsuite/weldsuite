@@ -231,6 +231,10 @@ export const FORWARDED_ENV = [
   // WeldAds: the Meta app (OAuth and the Graph API).
   'FACEBOOK_APP_ID',
   'FACEBOOK_APP_SECRET',
+  // integration-webhook-worker's Meta ad webhook handshake.
+  'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
+  // integration-webhook-worker's Slack app (the workflow trigger receiver's signature).
+  'SLACK_SIGNING_SECRET',
   // WeldSocial: PostPeer (the API key, base URL and BYOK app ids) and the
   // secret its delivery webhooks are signed with.
   'POSTPEER_API_KEY',
@@ -813,6 +817,12 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/** A generated id inside an MCP tool result's text. */
+const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
+/** The same, for `test` (a global pattern's `test` keeps state). */
+const MCP_TEXT_HAS_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/;
+/** A humanised created/updated time in an MCP tool result (`- Created At: 2026-11-03 07:12`). */
+const MCP_TEXT_MINUTE = /((?:Created|Updated) At: )\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?/g;
 /** A WeldDesk helpdesk mail account id: `helpdesk_` and a generated id (`helpdesk_hd_<id>`). */
 const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
@@ -936,6 +946,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   // A collaborative room's ticket: the room's id, then a secret new per call.
   if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
+  // An MCP tool result's text (mcp-server): a record written by the call is
+  // presented with its new ids and the minute it was written.
+  if (key === 'text' && MCP_TEXT_HAS_ID.test(value)) {
+    return value.replaceAll(MCP_TEXT_ID, '<id>').replaceAll(MCP_TEXT_MINUTE, '$1<minute>');
+  }
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 
@@ -1486,7 +1501,8 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
   const seen = new Request('http://localhost/', {
     method,
     headers,
-    body: method === 'GET' || method === 'HEAD' ? undefined : body,
+    // A replayed byte body is a valid BodyInit; TS's DOM lib types narrow it.
+    body: method === 'GET' || method === 'HEAD' ? undefined : (body as BodyInit | undefined),
   }).headers;
   const context = { ...baseContext, requestHeaders: [...seen.keys()] };
   const rustHeaders = new Headers(headers);

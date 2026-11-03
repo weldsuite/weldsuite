@@ -238,6 +238,28 @@ fn provider_credentials(
     )
 }
 
+/// `upsertCrmIndex(..., dueNow: true)`: Global schedules the connection in
+/// the D1 `crm_sync_index`; the Kubernetes editions mark the workspace due
+/// in the master `workspace_due_index` (kind `crm_sync`), which the
+/// `crm-due` cron reads (`weldsuite_integrations::crm::due`). Best effort,
+/// and only with the app's own master database (conformance builds have
+/// none, as Global's tests bind no D1 index).
+async fn mark_crm_due(master: Option<&PgPool>, workspace_id: &str) {
+    if let Some(master) = master {
+        weldsuite_db::due_index::mark_due(
+            master,
+            CRM_SYNC_DUE_KIND,
+            workspace_id,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await;
+    }
+}
+
+/// The `workspace_due_index` kind of the CRM syncs (the same as
+/// `weldsuite_integrations::crm::due::CRM_SYNC_DUE_KIND`).
+const CRM_SYNC_DUE_KIND: &str = "crm_sync";
+
 /// `triggerCrmSync(env, payload)`: start the `CRM_SYNC` Workflow, or skip it
 /// without the binding.
 pub(crate) async fn trigger_crm_sync(
@@ -345,6 +367,8 @@ pub(crate) struct WatchRenewal<'a> {
     pub(crate) client_id: Option<String>,
     pub(crate) client_secret: Option<String>,
     pub(crate) environment: Option<String>,
+    /// `APP_API_PUBLIC_URL`: this server's public origin (Kubernetes).
+    pub(crate) public_url: Option<String>,
 }
 
 /// `renewGoogleCalendarWatch`: refresh the token when possible, stop the old
@@ -410,7 +434,10 @@ pub(crate) async fn renew_google_calendar_watch(
     }
     let target = format!(
         "{}/webhook/gcal/{connection_id}",
-        webhook_worker_url(renewal.environment.as_deref())
+        webhook_worker_url(
+            renewal.public_url.as_deref(),
+            renewal.environment.as_deref()
+        )
     );
     let registration = adapter
         .register_webhooks(renewal.http, &access_token, &target)
@@ -1252,7 +1279,11 @@ async fn attio_callback(
             .map_err(thrown)?;
         let id = generate_id("intc");
         let environment = caller.overrides.env(&state, "ENVIRONMENT");
-        let target = format!("{}/webhook/{id}", webhook_worker_url(environment.as_deref()));
+        let public_url = caller.overrides.env(&state, "APP_API_PUBLIC_URL");
+        let target = format!(
+            "{}/webhook/{id}",
+            webhook_worker_url(public_url.as_deref(), environment.as_deref())
+        );
         let registration = adapter
             .register_webhooks(&http, tokens.bearer(), &target)
             .await
@@ -1277,6 +1308,7 @@ async fn attio_callback(
         .await
         .map_err(|error| thrown(error.to_string()))?;
         put_connection_mapping(&cache, &id, &caller.workspace_id, "attio").await?;
+        mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
         if let Err(error) =
             trigger_crm_sync(crm_runs(&extensions).as_ref(), &id, &org_id, "attio", "full").await
         {
@@ -1366,9 +1398,10 @@ async fn generic_callback(
             id.clone()
         };
         let environment = caller.overrides.env(&state, "ENVIRONMENT");
+        let public_url = caller.overrides.env(&state, "APP_API_PUBLIC_URL");
         let target = format!(
             "{}/webhook/{path}",
-            webhook_worker_url(environment.as_deref())
+            webhook_worker_url(public_url.as_deref(), environment.as_deref())
         );
         let registration = adapter
             .register_webhooks(&http, tokens.bearer(), &target)
@@ -1424,6 +1457,7 @@ async fn generic_callback(
                 .map_err(|error| thrown(error.to_string()))?;
         }
         put_connection_mapping(&cache, &id, &caller.workspace_id, &provider).await?;
+        mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
         if let Err(error) = trigger_crm_sync(
             crm_runs(&extensions).as_ref(),
             &id,
@@ -1731,6 +1765,7 @@ async fn renew_watch(
         client_id: caller.env_value(&state, "GOOGLE_CALENDAR_CLIENT_ID"),
         client_secret: caller.env_value(&state, "GOOGLE_CALENDAR_CLIENT_SECRET"),
         environment: caller.overrides.env(&state, "ENVIRONMENT"),
+        public_url: caller.overrides.env(&state, "APP_API_PUBLIC_URL"),
     };
     let result = renew_google_calendar_watch(&caller.db, renewal, &id).await;
     action_response(result, &id, false, "Failed to renew watch channel")

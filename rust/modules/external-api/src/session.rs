@@ -57,6 +57,37 @@ pub struct ApiSession {
     pub app_code: Option<String>,
     #[serde(default)]
     pub install_id: Option<String>,
+    /// A workspace member calling through the MCP server instead of a key:
+    /// its scope rule replaces the key's (see [`MemberScopes`]).
+    #[serde(skip)]
+    pub member: Option<MemberScopes>,
+}
+
+/// The scope rule of a `/v1` caller that is a workspace member rather than a
+/// key: the MCP server's tools (`apps/workers/mcp-server`), whose copy of
+/// these routes checks the member's effective permissions, by the request's
+/// method, in place of a key's scopes (its `src/api/lib/scopes.ts`).
+pub trait MemberScopeRule: Send + Sync {
+    /// `requireScope(scope)` on `method` at the matched route (Hono's
+    /// pattern, `/v1/reach/campaigns/:id/launch`): `Err(message)` is the 403.
+    fn require(
+        &self,
+        scope: &str,
+        method: &http::Method,
+        route: Option<&str>,
+    ) -> Result<(), String>;
+    /// `hasScope(session.scopes, scope)` inside a route.
+    fn holds(&self, scope: &str) -> bool;
+}
+
+/// The member's scope rule, carried on its [`ApiSession`].
+#[derive(Clone)]
+pub struct MemberScopes(pub std::sync::Arc<dyn MemberScopeRule>);
+
+impl std::fmt::Debug for MemberScopes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MemberScopes")
+    }
 }
 
 fn free_tier() -> String {
@@ -71,7 +102,10 @@ impl ApiSession {
     }
 
     pub fn has_scope(&self, required: &str) -> bool {
-        has_scope(&self.scopes, required)
+        match &self.member {
+            Some(member) => member.0.holds(required),
+            None => has_scope(&self.scopes, required),
+        }
     }
 }
 
@@ -167,11 +201,38 @@ pub(crate) async fn require_scope(
 ) -> Response {
     match request.extensions().get::<ApiSession>() {
         None => unauthorized("Unauthorized").into_response(),
+        Some(ApiSession {
+            member: Some(member),
+            ..
+        }) => {
+            let route = request
+                .extensions()
+                .get::<axum::extract::MatchedPath>()
+                .map(|path| hono_pattern(path.as_str()));
+            match member.0.require(scope, request.method(), route.as_deref()) {
+                Ok(()) => next.run(request).await,
+                Err(message) => forbidden(message).into_response(),
+            }
+        }
         Some(session) if !session.has_scope(scope) => {
             forbidden(format!("Missing required scope: {scope}")).into_response()
         }
         Some(_) => next.run(request).await,
     }
+}
+
+/// An axum route (`/v1/reach/campaigns/{id}/launch`) as Hono writes it
+/// (`/v1/reach/campaigns/:id/launch`).
+fn hono_pattern(path: &str) -> String {
+    path.split('/')
+        .map(
+            |segment| match segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                Some(name) => format!(":{}", name.trim_start_matches('*')),
+                None => segment.to_owned(),
+            },
+        )
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Who is asking: the key's session and the workspace's tenant database.

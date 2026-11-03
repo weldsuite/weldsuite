@@ -148,3 +148,60 @@ pub(crate) fn integrations_books(
         }) as Arc<dyn weldsuite_integrations::ServiceBinding>
     }))
 }
+
+/// The test's `CONNECT_INTERNAL` (connect-api's `ConnectInternal`
+/// entrypoint) as the integration workers call it: the same bridge, with
+/// the call's own headers (`X-Workspace-Id` or `X-Internal-Workspace-Id`).
+struct BridgedConnect {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_integrations::ConnectInternal for BridgedConnect {
+    fn fetch(
+        &self,
+        call: weldsuite_integrations::ConnectCall,
+    ) -> weldsuite_ports::BoxFuture<'_, Result<weldsuite_integrations::BindingResponse, String>>
+    {
+        Box::pin(async move {
+            let method = reqwest::Method::from_bytes(call.method.as_bytes())
+                .map_err(|error| error.to_string())?;
+            let url = reqwest::Url::parse_with_params(
+                &format!("{}/fetch", self.bridge),
+                [
+                    ("binding", "CONNECT_INTERNAL"),
+                    ("path", call.path.as_str()),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+            let mut request = self.client.request(method, url);
+            for (name, value) in &call.headers {
+                request = request.header(name.to_ascii_lowercase(), value);
+            }
+            if let Some(body) = call.body {
+                request = request.body(body);
+            }
+            let response = request.send().await.map_err(|error| error.to_string())?;
+            let threw = response.headers().contains_key("x-binding-error");
+            let status = response.status().as_u16();
+            let body = response.text().await.map_err(|error| error.to_string())?;
+            if threw {
+                return Err(body);
+            }
+            Ok(weldsuite_integrations::BindingResponse { status, body })
+        })
+    }
+}
+
+/// The test's `CONNECT_INTERNAL` for the integration workers, or none when
+/// the test binds none (the worker then only logs).
+pub(crate) fn integrations_connect_internal(
+    services: &HashMap<String, String>,
+) -> weldsuite_integrations::RequestConnectInternal {
+    weldsuite_integrations::RequestConnectInternal(services.get("CONNECT_INTERNAL").map(|url| {
+        Arc::new(BridgedConnect {
+            bridge: url.trim_end_matches('/').to_owned(),
+            client: Client::new(),
+        }) as Arc<dyn weldsuite_integrations::ConnectInternal>
+    }))
+}

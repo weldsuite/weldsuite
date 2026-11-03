@@ -23,7 +23,7 @@ weldsuite-know-domain = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 weldsuite-ports = { workspace = true }
 weldsuite-social-domain = { workspace = true }
-axum = { workspace = true, features = ["json", "multipart", "original-uri", "query"] }
+axum = { workspace = true, features = ["json", "matched-path", "multipart", "original-uri", "query"] }
 form_urlencoded = { workspace = true }
 regex = { workspace = true, features = ["unicode-perl"] }
 url = { workspace = true }

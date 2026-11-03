@@ -1295,6 +1295,13 @@ async fn remove(
                 &row.id,
                 &weldsuite_flow_domain::task_tree::removed_event_data(row),
             );
+            crate::github_outbound::dispatch(
+                &state,
+                &caller,
+                &row.id,
+                row.project_id.as_deref(),
+                vec!["delete"],
+            );
         }
         Ok(NoContent.into_response())
     }

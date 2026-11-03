@@ -432,6 +432,40 @@ pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
     Some(router)
 }
 
+/// WeldConnect's handle for a cron run (no `AppState`): the same as
+/// [`connect_state`], with `jobs` (Restate) and the process's infra.
+pub(crate) fn cron_connect_state(
+    infra: &crate::infra::Infra,
+    workspaces: &Arc<weldsuite_db::Workspaces>,
+    environment: &str,
+    jobs: Arc<dyn weldsuite_ports::DynJobs>,
+) -> weldsuite_connect::ConnectState {
+    let opener = Arc::clone(workspaces);
+    let tenants: weldsuite_connect::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&opener);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let mut env = weldsuite_connect::env_from_process();
+    env.insert("ENVIRONMENT".to_owned(), environment.to_owned());
+    weldsuite_connect::ConnectState {
+        events: infra.events.clone(),
+        cache: infra.cache.clone(),
+        master: Some(workspaces.master().clone()),
+        http: shared_outbound(),
+        jobs: Some(jobs),
+        tenants: Some(tenants),
+        env: Arc::new(env),
+        webhooks: connect_webhook_http(),
+        trusted_proxies: 1,
+    }
+}
+
 /// WeldConnect's handle on the app: events, the cache (the webhook
 /// registry's), the master database, third-party HTTP, the jobs runs start
 /// on and the workspaces' tenant databases. Conformance builds take the
@@ -478,7 +512,7 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
 /// The outbound webhooks' HTTP client, for the test delivery of
 /// `/api/external-webhooks/:id/test` (`WEBHOOK_ALLOW_PRIVATE_NETWORKS` as
 /// `weldsuite consume` reads it: private addresses are refused unless set).
-fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
+pub(crate) fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
     static HTTP: OnceLock<Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>> =
         OnceLock::new();
     HTTP.get_or_init(|| {
@@ -779,7 +813,7 @@ fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 
 /// The third-party HTTP client the ported modules share (30 s), or none
 /// when it cannot be built.
-fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
+pub(crate) fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
     static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
     HTTP.get_or_init(|| {
         weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
@@ -1278,6 +1312,10 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
             })
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+        // Conformance builds dispatch nothing, as flow-api's tests bind no
+        // `GITHUB_PROJECT_OUTBOUND`.
+        github_outbound: (!cfg!(feature = "conformance"))
+            .then(|| integrations::flow_github_outbound(state)),
     }
 }
 
@@ -1893,7 +1931,7 @@ fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {
 /// Whether to serve a module: it is marked ported (`ApiModule.rust`, WP
 /// 1.10). Conformance builds serve every module with a crate, so a port is
 /// checked against its TypeScript tests before it is marked.
-fn mounts(module: &str) -> bool {
+pub(crate) fn mounts(module: &str) -> bool {
     cfg!(feature = "conformance")
         || weldsuite_catalogs::api_modules()
             .iter()
@@ -2090,6 +2128,72 @@ pub(crate) fn external_api(state: &AppState) -> Router {
         ))
     };
     Router::new().nest("/v1", api).layer(
+        tower_http::cors::CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([
+                http::Method::GET,
+                http::Method::HEAD,
+                http::Method::PUT,
+                http::Method::POST,
+                http::Method::DELETE,
+                http::Method::PATCH,
+            ])
+            .allow_headers(tower_http::cors::AllowHeaders::mirror_request()),
+    )
+}
+
+/// The MCP server (mcp-server): `/mcp` on this host, its tools calling the
+/// public API's `/v1` routes in process (`weldsuite_mcp`, design in
+/// `rust/docs/mcp-server.md`), and the OAuth discovery documents. The bearer
+/// token is checked by the server's session verifier; conformance builds take
+/// the member's session from the test's context instead.
+pub(crate) fn mcp(state: &AppState) -> Router {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    let v1 = weldsuite_external_api::router::<()>(external_api_state(state), &mounts);
+    let env = Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mcp::McpState::env_from_process())));
+    let issuer = std::env::var("OIDC_ISSUER")
+        .ok()
+        .filter(|issuer| !issuer.is_empty())
+        .or_else(|| {
+            std::env::var("CLERK_PUBLISHABLE_KEY")
+                .ok()
+                .and_then(|key| weldsuite_mcp::auth::clerk_frontend_api_url(&key))
+        });
+    let auth = env.get("MCP_SERVER_URL").map(|server_url| {
+        Arc::new(weldsuite_mcp::McpAuth {
+            verifier: Arc::clone(&state.verifier),
+            issuer,
+            server_url: server_url.clone(),
+            outbound: shared_outbound(),
+        })
+    });
+    let mcp_state = weldsuite_mcp::McpState::new(
+        v1,
+        state.workspaces.master().clone(),
+        Arc::clone(&state.workspaces),
+        state.infra.cache.clone(),
+        auth.clone(),
+        env,
+    );
+    let endpoint = weldsuite_mcp::router::<()>(mcp_state.clone());
+    #[cfg(not(feature = "conformance"))]
+    let endpoint = endpoint.layer(axum::middleware::from_fn_with_state(
+        mcp_state,
+        weldsuite_mcp::auth::authenticate,
+    ));
+    #[cfg(feature = "conformance")]
+    let endpoint = {
+        drop(mcp_state);
+        endpoint.layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::mcp,
+        ))
+    };
+    let router = match auth {
+        Some(auth) => endpoint.merge(weldsuite_mcp::well_known_router(auth)),
+        None => endpoint,
+    };
+    router.layer(
         tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods([

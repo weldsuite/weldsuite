@@ -519,6 +519,13 @@ fn announce_next(state: &FlowState, caller: &Caller, row: &Value) {
         text_of(row, "id").unwrap_or_default(),
         &task_analytics_payload(row, &json!({ "projectId": project }), crate::now_ms()),
     );
+    crate::github_outbound::dispatch(
+        state,
+        caller,
+        text_of(row, "id").unwrap_or_default(),
+        text_of(row, "projectId"),
+        vec!["create"],
+    );
     crate::notify::assignment(
         state,
         caller,
@@ -824,6 +831,7 @@ async fn create_with(
             crate::now_ms(),
         ),
     );
+    crate::github_outbound::dispatch(state, caller, &id, project_id.as_deref(), vec!["create"]);
     crate::notify::assignment(
         state,
         caller,
@@ -950,6 +958,15 @@ pub(crate) async fn toggle(
             &json!({ "status": new_status }),
             &update,
         );
+        if Some(new_status.as_str()) != before {
+            crate::github_outbound::dispatch(
+                &state,
+                &caller,
+                &id,
+                text_of(&task, "projectId"),
+                vec!["status"],
+            );
+        }
         Ok(status_reply(&id, &new_status, stage, &task, next))
     }
     .await;
@@ -1012,6 +1029,15 @@ pub(crate) async fn status(
             &json!({ "status": wanted }),
             &update,
         );
+        if Some(wanted.as_str()) != before {
+            crate::github_outbound::dispatch(
+                &state,
+                &caller,
+                &id,
+                text_of(&task, "projectId"),
+                vec!["status"],
+            );
+        }
         Ok(status_reply(&id, &wanted, stage, &task, next))
     }
     .await;
@@ -1108,6 +1134,17 @@ pub(crate) async fn position(
             &Value::Object(echo.clone()),
             &status_only,
         );
+        if let Some(status) = js_text(&status_only, "status").filter(|s| !s.is_empty())
+            && Some(status) != text_of(&task, "status")
+        {
+            crate::github_outbound::dispatch(
+                &state,
+                &caller,
+                &id,
+                text_of(&task, "projectId"),
+                vec!["status"],
+            );
+        }
         let mut body = Map::new();
         body.insert("id".to_owned(), Value::String(id.clone()));
         body.extend(echo);
@@ -1540,6 +1577,19 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
             crate::now_ms(),
         ),
         changes,
+    );
+    crate::github_outbound::dispatch(
+        state,
+        caller,
+        id,
+        text_of(&task, "projectId"),
+        crate::github_outbound::kinds_for_update(
+            ["title", "description", "labels"]
+                .iter()
+                .any(|key| data.get(key).is_some()),
+            resolved.as_deref(),
+            text_of(&task, "status"),
+        ),
     );
 
     let mut reply_body = Map::new();

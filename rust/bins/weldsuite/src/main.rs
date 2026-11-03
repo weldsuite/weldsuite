@@ -59,7 +59,7 @@ commands:
              calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
-             workflow-schedules
+             crm-due, ad-sync, workflow-polls, workflow-schedules
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit
