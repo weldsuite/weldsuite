@@ -60,7 +60,7 @@ import {
   presentProjectRequest,
   presentRequestApproval,
   presentSettings,
-  requestApprovalEventData,
+  requestCode,
   scoreBreakdown,
   scoreRequest,
   scoresError,
@@ -68,6 +68,7 @@ import {
   sortRoadmapItems,
 } from '@weldsuite/flow-domain/intake';
 import { listSubjectApprovals, requestApprovals, cancelPendingApprovals } from '@weldsuite/flow-domain/approvals';
+import { announceApprovalsCancelled, announceApprovalsRequested } from '../../services/approvals';
 import { allocateNumber } from '@weldsuite/flow-domain/task-numbering';
 import type { Env, Variables } from '../../types';
 import { accessibleProjectIds, canManageProject } from '../../lib/project-access';
@@ -114,16 +115,6 @@ function publishRequest(
     entityId: row.id,
     action,
     data: { ...presentProjectRequest(row) },
-  });
-}
-
-function publishApproval(c: Ctx, action: 'requested' | 'cancelled', row: typeof approvalsTable.$inferSelect) {
-  publishEntityEvent({
-    c,
-    entityType: 'flow_approval',
-    entityId: row.id,
-    action,
-    data: requestApprovalEventData(row),
   });
 }
 
@@ -566,7 +557,7 @@ app.delete('/:id', requirePermission('portfolio:read'), async (c) => {
         data: { ...presentBooking(booking) },
       });
     }
-    for (const review of reviews) publishApproval(c, 'cancelled', review);
+    announceApprovalsCancelled(c, reviews);
     return noContent(c);
   } catch (err) {
     console.error('[flow-api/project-requests] delete failed:', err);
@@ -656,7 +647,7 @@ app.post('/:id/submit', requirePermission('portfolio:read'), async (c) => {
     const row = await findProjectRequest(db, id);
     if (!row) return error.internal(c, 'Failed to submit project request');
     publishRequest(c, 'submitted', row);
-    for (const review of asked.rows) publishApproval(c, 'requested', review);
+    announceApprovalsRequested(c, { rows: asked.rows, subject: { code: requestCode(row.number), title: row.title } });
     return success(c, { ...presentProjectRequest(row), approvals: asked.rows.map(presentRequestApproval) });
   } catch (err) {
     console.error('[flow-api/project-requests] submit failed:', err);

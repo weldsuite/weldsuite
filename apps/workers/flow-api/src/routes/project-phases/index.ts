@@ -87,6 +87,7 @@ import {
   waiversOf,
   type PhaseRow,
 } from '../../services/project-phases';
+import { announceApprovalsCancelled, announceApprovalsRequested } from '../../services/approvals';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const phases = schema.projectPhases;
@@ -360,7 +361,7 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
         : []),
     ]);
     // Nobody is asked about a gate that no longer exists.
-    await cancelPendingApprovals(db, { subjectType: 'gate', subjectId: id, includeDecided: true, now });
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'gate', subjectId: id, includeDecided: true, now }));
     publishPhase(c, 'deleted', existing);
     if (activate) {
       const row = await findPhase(db, activate);
@@ -474,7 +475,7 @@ app.post('/:id/request-approval', requirePermission('projects:update'), async (c
 
     // A gate asked for before and turned down starts its approvals over.
     const now = new Date();
-    await cancelPendingApprovals(db, { subjectType: 'gate', subjectId: id, includeDecided: true, now });
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'gate', subjectId: id, includeDecided: true, now }));
     const sponsor = sponsorOf(project.settings, project.projectManagerId);
     const asked = await requestApprovals(db, {
       projectId: phase.projectId,
@@ -504,24 +505,11 @@ app.post('/:id/request-approval', requirePermission('projects:update'), async (c
     if (!row) return error.notFound(c, LABEL, id);
 
     publishPhase(c, 'gate_requested', row, { approverIds: asked.rows.map((approval) => approval.approverId) });
-    for (const approval of asked.rows) {
-      publishEntityEvent({
-        c,
-        entityType: 'flow_approval',
-        entityId: approval.id,
-        action: 'requested',
-        data: {
-          id: approval.id,
-          projectId: approval.projectId,
-          subjectType: approval.subjectType,
-          subjectId: approval.subjectId,
-          approverKind: approval.approverKind,
-          approverId: approval.approverId,
-          step: approval.step,
-          decision: approval.decision,
-        },
-      });
-    }
+    announceApprovalsRequested(c, {
+      rows: asked.rows,
+      subject: { code: null, title: `${phase.name} gate` },
+      projectName: project.name,
+    });
     const result: PhaseGateRequestResult = {
       phase: await presentPhaseGate(db, row, project),
       approvals: asked.rows.map(presentGateApproval),

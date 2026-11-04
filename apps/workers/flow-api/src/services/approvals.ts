@@ -33,11 +33,15 @@ import type {
   SentReview,
 } from '@weldsuite/app-api-client/schemas/flow-approvals';
 import {
+  decideApproval,
   isStepActive,
+  listSubjectApprovals,
   listPendingForApprover,
   resolveSubjectRows,
   reviewBucket,
   type ApprovalActor,
+  type ApprovalDecision,
+  type DecideApprovalResult,
   type ApprovalOutcome,
   type ApprovalRow,
 } from '@weldsuite/flow-domain/approvals';
@@ -236,6 +240,54 @@ export async function runApprovalAftermath(c: AppContext, type: ApprovalSubjectT
   } catch (err) {
     console.error(`[flow-api/approvals] ${type} aftermath failed:`, err);
   }
+}
+
+/**
+ * Answer a review and announce it: the one path behind
+ * `POST /api/approvals/:id/decide` and the client portal's decide. Runs
+ * `decideApproval`, publishes `flow_approval.decided`, clears the rows a
+ * rejection leaves open (`cancelled`), then either runs the subject's
+ * aftermath (the answer settled it) or tells the approvers whose step came up.
+ * A refusal is returned untouched for the caller to map to a response.
+ */
+export async function decideAndAnnounce(
+  c: AppContext,
+  row: Pick<ApprovalRow, 'id' | 'subjectType' | 'subjectId' | 'projectId'>,
+  input: { actor: string | ApprovalActor; decision: ApprovalDecision; note?: string | null },
+): Promise<DecideApprovalResult> {
+  const db = c.get('tenantDb');
+  const before = await listSubjectApprovals(db, row.subjectType, row.subjectId);
+  const result = await decideApproval(db, { approvalId: row.id, actor: input.actor, decision: input.decision, note: input.note, now: new Date() });
+  if (!result.ok) return result;
+
+  publishApproval(c, 'decided', result.approval, { outcome: result.outcome, resolved: result.resolved, viaDelegation: result.viaDelegation });
+  // A rejection clears the other open rows: nobody is asked about a settled subject.
+  announceApprovalsCancelled(
+    c,
+    before.filter((b) => !result.rows.some((r) => r.id === b.id)),
+  );
+
+  if (result.resolved) {
+    await runApprovalAftermath(c, row.subjectType, {
+      subjectId: row.subjectId,
+      projectId: row.projectId,
+      outcome: result.outcome as 'approved' | 'rejected',
+      rows: result.rows,
+      decided: result.approval,
+      actor: typeof input.actor === 'string' ? { kind: 'member', id: input.actor } : input.actor,
+    });
+  } else if (input.decision === 'approved' || input.decision === 'approved_with_conditions') {
+    // The next step's approvers are told when their turn comes.
+    const info = (await loadSubjectInfo(db, [row])).get(`${row.subjectType}:${row.subjectId}`);
+    announceStepsActivated(
+      c,
+      before.map((b) => (b.id === result.approval.id ? result.approval : b)),
+      result.rows,
+      { code: info?.code ?? null, title: info?.title ?? row.subjectId },
+      null,
+    );
+  }
+  return result;
 }
 
 // ── What a subject is ───────────────────────────────────────────────────────

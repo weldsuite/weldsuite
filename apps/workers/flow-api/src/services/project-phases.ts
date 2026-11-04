@@ -16,6 +16,7 @@
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { registerApprovalAftermath } from './approvals';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { ProjectPhase } from '@weldsuite/db/schema/project-delivery';
@@ -365,5 +366,9 @@ export async function publishGateResolution(
     data: phaseEventData(phase, { rejectedBy: rejected?.approverId ?? null, note: rejected?.note ?? null }),
   });
 }
+
+registerApprovalAftermath('gate', async (c, info) => {
+  await publishGateResolution(c, c.get('tenantDb'), info.subjectId, info.outcome);
+});
 
 export { findLiveProject };

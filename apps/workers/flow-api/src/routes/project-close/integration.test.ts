@@ -706,7 +706,7 @@ describe('POST /:projectId/request', () => {
           approverKind: 'member',
           approverId: SPONSOR,
           step: 1,
-          ruleCode: 'close',
+          delegatedFrom: null,
           decision: 'pending',
           dueAt: null,
         },
@@ -777,7 +777,7 @@ describe('POST /:projectId/request', () => {
     const live = await approvalsOf('prj_cls_req7');
     expect(live).toHaveLength(1);
     expect(live[0]!.id).not.toBe(first!.id);
-    expect(actions()).toEqual(['flow_approval.requested']);
+    expect(actions()).toEqual(['flow_approval.cancelled', 'flow_approval.requested']);
   });
 
   it('is for project managers: members, viewers and outsiders are refused, and so is a missing permission', async () => {

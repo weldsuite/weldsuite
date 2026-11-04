@@ -18,6 +18,7 @@ import { registerApprovalSubject, type ResolvedApprovalOutcome } from '@weldsuit
 import { DEFAULT_SCORING_MODEL, presentProjectRequest } from '@weldsuite/flow-domain/intake';
 import type { ScoringCriterionInput } from '@weldsuite/app-api-client/schemas/flow-portfolio';
 import type { Env, Variables } from '../types';
+import { registerApprovalAftermath } from './approvals';
 
 const t = schema.projectRequests;
 const settingsTable = schema.flowWorkspaceSettings;
@@ -70,6 +71,10 @@ export async function publishProjectRequestOutcome(
     data: { ...presentProjectRequest(row) },
   });
 }
+
+registerApprovalAftermath('project_request', async (c, info) => {
+  await publishProjectRequestOutcome(c, info.subjectId, info.outcome);
+});
 
 export async function findProjectRequest(db: Database, id: string): Promise<ProjectRequestRow | null> {
   const [row] = await db

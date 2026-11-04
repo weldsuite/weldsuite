@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { markFinanceSnapshotDue } from '../../cron/finance-snapshot';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -229,6 +230,7 @@ app.post('/projects/:projectId/initial', requirePermission('projects:update'), a
       .returning();
     if (!row) return error.internal(c, 'Failed to sign off the baseline');
     publishEntityEvent({ c, entityType: 'project_baseline', entityId: row.id, action: 'created', data: baselineEventData(row) });
+    markFinanceSnapshotDue(c);
     return success(c, presentBaseline(row, null), 201);
   } catch (err) {
     console.error('[flow-api/project-baselines] sign off failed:', err);

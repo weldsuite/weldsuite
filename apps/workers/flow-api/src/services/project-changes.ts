@@ -17,6 +17,7 @@
 import type { Context } from 'hono';
 import { and, eq, isNull } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { markFinanceSnapshotDue } from '../cron/finance-snapshot';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { registerApprovalSubject } from '@weldsuite/flow-domain/approvals';
 import { baselineEventData, type PlanState } from '@weldsuite/flow-domain/baselines';
@@ -155,6 +156,7 @@ async function publishApplied(c: AppContext, change: ChangeRequestRow, result: A
       action: 'created',
       data: baselineEventData(result.baseline),
     });
+    markFinanceSnapshotDue(c);
   }
   if (result.decision) publishDecision(c, result.decision);
 }

@@ -91,7 +91,8 @@ import {
   newDecisionValues,
   type DecisionRow,
 } from '../../services/project-decisions';
-import { publishCancelled, publishRequested } from '../../services/governance-approvals';
+import { announceApprovalsCancelled, announceApprovalsRequested, projectNamesOf } from '../../services/approvals';
+import '../../services/governance-approvals';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectDecisions;
@@ -129,6 +130,13 @@ function publishLink(c: AppContext, row: typeof linksTable.$inferSelect) {
     action: 'deleted',
     data: controlLinkEventData(row),
   });
+}
+
+/** Announce that `rows` were asked about `row`: `flow_approval.requested`, the notifications and the reminder mark. */
+async function announceAsked(c: AppContext, row: DecisionRow, rows: readonly ApprovalRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const projectName = (await projectNamesOf(c.get('tenantDb'), [row.projectId])).get(row.projectId) ?? null;
+  announceApprovalsRequested(c, { rows, subject: { code: decisionCode(row.number), title: row.title }, projectName });
 }
 
 /** Ask the named decider: the approval rows of a proposed decision (the caller publishes their events). */
@@ -274,7 +282,7 @@ app.post('/', requirePermission('projects:create'), async (c) => {
 
     publishDecision(c, 'created', row);
     if (row.status === 'decided') publishDecision(c, 'decided', row);
-    publishRequested(c, asked);
+    await announceAsked(c, row, asked);
     return success(c, presentDecision(row), 201);
   } catch (err) {
     console.error('[flow-api/project-decisions] create failed:', err);
@@ -343,8 +351,8 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
     if (reroute) {
       // Asked again from scratch: the decider or the date changed, or the proposal was declined.
       const cleared = await cancelPendingApprovals(db, { subjectType: 'decision', subjectId: id, includeDecided: true });
-      publishCancelled(c, cleared);
-      publishRequested(c, await askDecider(c, row, userId));
+      announceApprovalsCancelled(c, cleared);
+      await announceAsked(c, row, await askDecider(c, row, userId));
     }
     return success(c, presentDecision(row));
   } catch (err) {
@@ -393,7 +401,7 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       data: { id, projectId: existing.projectId, code: decisionCode(existing.number) },
     });
     for (const link of linkRows) publishLink(c, link);
-    publishCancelled(c, await cancelPendingApprovals(db, { subjectType: 'decision', subjectId: id, includeDecided: true }));
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'decision', subjectId: id, includeDecided: true }));
     for (const source of replaced) {
       const reverted = await findDecision(db, source.id);
       if (reverted) publishDecision(c, 'updated', reverted);
@@ -448,7 +456,7 @@ app.post('/:id/decide', requirePermission('projects:update'), async (c) => {
 
     publishDecision(c, 'decided', row);
     // Nobody is asked about a decision that is taken.
-    publishCancelled(c, await cancelPendingApprovals(db, { subjectType: 'decision', subjectId: id }));
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'decision', subjectId: id }));
     return success(c, presentDecision(row));
   } catch (err) {
     console.error('[flow-api/project-decisions] decide failed:', err);

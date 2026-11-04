@@ -13,7 +13,8 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { CloseChecklist, CloseBenefit, CloseRaidItem } from '@weldsuite/app-api-client/schemas/project-closing';
-import { getApprovalSubjectHandler, listSubjectApprovals, registerApprovalSubject, type ApprovalRow } from '@weldsuite/flow-domain/approvals';
+import { getApprovalSubjectHandler, listSubjectApprovals, registerApprovalSubject } from '@weldsuite/flow-domain/approvals';
+import { registerApprovalAftermath } from './approvals';
 import { raidCode } from '@weldsuite/flow-domain/raid';
 import {
   canRequestClose,
@@ -91,21 +92,11 @@ export async function publishProjectClosed(c: EventContext, projectId: string): 
   });
 }
 
-/** The payload of a `flow_approval` event. */
-export function approvalEventData(row: ApprovalRow) {
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    subjectType: row.subjectType,
-    subjectId: row.subjectId,
-    approverKind: row.approverKind,
-    approverId: row.approverId,
-    step: row.step,
-    ruleCode: row.rule.code,
-    decision: row.decision,
-    dueAt: row.dueAt ? row.dueAt.toISOString() : null,
-  };
-}
+// The sponsor's approval closes the project: `POST /api/approvals/:id/decide`
+// runs the handler above, then this aftermath publishes `project.closed`.
+registerApprovalAftermath('project_close', async (c, info) => {
+  if (info.outcome === 'approved') await publishProjectClosed(c, info.subjectId);
+});
 
 // ── The checklist ───────────────────────────────────────────────────────────
 

@@ -360,7 +360,14 @@ describe('approvals', () => {
     const ok = await p.send('POST', `/approvals/${cr.id}/decide`, { decision: 'approved' }, token);
     expect(ok.status).toBe(200);
     expect((await json<{ data: Record<string, unknown> }>(ok)).data).toMatchObject({ decision: 'approved', outcome: 'approved', resolved: true });
-    expect(actions()).toEqual(['flow_approval.decided', 'project_change_request.approved']);
+    // The same aftermath as a member's answer: the change, the project it moved and the decision log entry.
+    expect(actions()).toEqual([
+      'flow_approval.decided',
+      'project_change_request.approved',
+      'project.updated',
+      'project_decision.created',
+      'project_decision.decided',
+    ]);
     const [row] = await db.select().from(schema.flowApprovals).where(eq(schema.flowApprovals.id, cr.id));
     expect(row!.decidedBy).toBe('pe_femke');
     expect((await p.send('POST', `/approvals/${cr.id}/decide`, { decision: 'approved' }, token)).status).toBe(409);

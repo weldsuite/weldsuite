@@ -252,15 +252,3 @@ export function presentRequestApproval(row: ApprovalRow): RequestApproval {
     createdAt: row.createdAt.toISOString(),
   };
 }
-
-/** The `flow_approval` entity-event payload of a request's approval row. */
-export function requestApprovalEventData(row: ApprovalRow): Record<string, unknown> {
-  return {
-    ...presentRequestApproval(row),
-    projectId: row.projectId,
-    subjectType: row.subjectType,
-    subjectId: row.subjectId,
-    rule: row.rule,
-    dueAt: row.dueAt ? row.dueAt.toISOString() : null,
-  };
-}

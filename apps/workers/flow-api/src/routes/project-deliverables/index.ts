@@ -90,7 +90,8 @@ import {
   taskProgressForDeliverables,
   type DeliverableRow,
 } from '../../services/project-deliverables';
-import { publishCancelled, publishRequested } from '../../services/governance-approvals';
+import { announceApprovalsCancelled, announceApprovalsRequested, projectNamesOf } from '../../services/approvals';
+import '../../services/governance-approvals';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectDeliverables;
@@ -345,7 +346,7 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
         data: controlLinkEventData(link),
       });
     }
-    publishCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id, includeDecided: true }));
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id, includeDecided: true }));
     return noContent(c);
   } catch (err) {
     console.error('[flow-api/project-deliverables] delete failed:', err);
@@ -401,8 +402,12 @@ app.post('/:id/request-signoff', requirePermission('projects:update'), async (c)
     });
     if (!requested.ok) return error.conflict(c, requested.message);
 
-    publishCancelled(c, cleared);
-    publishRequested(c, requested.rows);
+    announceApprovalsCancelled(c, cleared);
+    announceApprovalsRequested(c, {
+      rows: requested.rows,
+      subject: { code: deliverableCode(existing.number), title: existing.title },
+      projectName: (await projectNamesOf(db, [existing.projectId])).get(existing.projectId) ?? null,
+    });
     const row = await findDeliverable(db, id);
     if (!row) return error.internal(c, 'Failed to request sign-off');
     return success(c, { deliverable: await presentOne(c, row), signoff: requested.rows.map(presentSignoffApproval) }, 201);
@@ -436,7 +441,7 @@ app.post('/:id/accept', requirePermission('projects:update'), async (c) => {
 
     publishDeliverable(c, 'accepted', row);
     // Nobody is asked to sign off a deliverable that is accepted.
-    publishCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id }));
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id }));
     return success(c, await presentOne(c, row));
   } catch (err) {
     console.error('[flow-api/project-deliverables] accept failed:', err);
@@ -469,7 +474,7 @@ app.post('/:id/reject', requirePermission('projects:update'), async (c) => {
     if (!row) return error.internal(c, 'Failed to reject deliverable');
 
     publishDeliverable(c, 'updated', row, { note: input.note ?? null });
-    publishCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id }));
+    announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'deliverable', subjectId: id }));
     return success(c, await presentOne(c, row));
   } catch (err) {
     console.error('[flow-api/project-deliverables] reject failed:', err);

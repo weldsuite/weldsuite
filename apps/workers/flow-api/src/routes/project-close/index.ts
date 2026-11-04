@@ -33,7 +33,8 @@ import type { Env, Variables } from '../../types';
 import { canAccessProject, canManageProject } from '../../lib/project-access';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { PROJECT_DENIED, PROJECT_MANAGE_DENIED, parseBody, type AppContext } from '../../lib/closing-input';
-import { approvalEventData, findLiveProject, loadChecklist } from '../../services/project-closing';
+import { findLiveProject, loadChecklist } from '../../services/project-closing';
+import { announceApprovalsCancelled, announceApprovalsRequested } from '../../services/approvals';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -220,7 +221,7 @@ app.post('/:projectId/request', requirePermission('projects:update'), async (c) 
     // A request the sponsor declined starts over from scratch.
     const earlier = await listSubjectApprovals(db, 'project_close', projectId);
     if (earlier.length > 0) {
-      await cancelPendingApprovals(db, { subjectType: 'project_close', subjectId: projectId, includeDecided: true });
+      announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'project_close', subjectId: projectId, includeDecided: true }));
     }
     const requested = await requestApprovals(db, {
       projectId,
@@ -231,15 +232,11 @@ app.post('/:projectId/request', requirePermission('projects:update'), async (c) 
     });
     if (!requested.ok) return error.conflict(c, requested.message);
 
-    for (const row of requested.rows) {
-      publishEntityEvent({
-        c,
-        entityType: 'flow_approval',
-        entityId: row.id,
-        action: 'requested',
-        data: approvalEventData(row),
-      });
-    }
+    announceApprovalsRequested(c, {
+      rows: requested.rows,
+      subject: { code: null, title: `Close ${project.name}` },
+      projectName: project.name,
+    });
     return success(c, await loadChecklist(db, project, { amountsVisible: true }), 201);
   } catch (err) {
     console.error('[flow-api/project-close] request failed:', err);

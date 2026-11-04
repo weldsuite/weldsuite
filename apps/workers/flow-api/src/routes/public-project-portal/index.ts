@@ -50,7 +50,7 @@ import {
   releaseRateLimit,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { decideApproval, type DecideApprovalError, type DecideApprovalResult } from '@weldsuite/flow-domain/approvals';
+import type { DecideApprovalError } from '@weldsuite/flow-domain/approvals';
 import {
   PORTAL_CODE_TTL_SECONDS,
   PORTAL_MAX_VERIFY_ATTEMPTS,
@@ -95,6 +95,11 @@ import {
   type PortalProjectRow,
 } from '../../services/project-portal';
 import { sendPortalCodeEmail } from '../../services/project-portal-mail';
+import { decideAndAnnounce } from '../../services/approvals';
+// Registers every approval subject's handler and aftermath, so a contact's answer settles them as a member's does.
+import '../../services/governance-approvals';
+import '../../services/project-changes';
+import '../../services/project-phases';
 import type { Env } from '../../types';
 
 const app = new Hono<{ Bindings: Env; Variables: PortalVariables }>();
@@ -575,55 +580,6 @@ function refusal(c: PortalContext, code: DecideApprovalError, message: string, i
   }
 }
 
-/**
- * The events of an answer: the review's own, and, when it settled its subject,
- * the subject's (the same ones the app publishes when a member answers).
- */
-function publishDecision(
-  c: PortalContext,
-  row: typeof approvals.$inferSelect,
-  result: Extract<DecideApprovalResult, { ok: true }>,
-): void {
-  const answered = result.approval;
-  publishEntityEvent({
-    c,
-    entityType: 'flow_approval',
-    entityId: answered.id,
-    action: 'decided',
-    data: {
-      id: answered.id,
-      projectId: answered.projectId,
-      subjectType: answered.subjectType,
-      subjectId: answered.subjectId,
-      approverKind: answered.approverKind,
-      approverId: answered.approverId,
-      decision: answered.decision,
-      note: answered.note,
-      outcome: result.outcome,
-      resolved: result.resolved,
-    },
-  });
-  if (!result.resolved || result.outcome === 'pending') return;
-  const subject = { id: row.subjectId, projectId: row.projectId };
-  if (row.subjectType === 'change_request') {
-    publishEntityEvent({
-      c,
-      entityType: 'project_change_request',
-      entityId: row.subjectId,
-      action: result.outcome === 'approved' ? 'approved' : 'rejected',
-      data: subject,
-    });
-  } else if (row.subjectType === 'deliverable') {
-    publishEntityEvent({
-      c,
-      entityType: 'project_deliverable',
-      entityId: row.subjectId,
-      action: result.outcome === 'approved' ? 'accepted' : 'updated',
-      data: subject,
-    });
-  }
-}
-
 app.post('/approvals/:id/decide', async (c) => {
   const id = c.req.param('id') ?? '';
   const db = c.get('tenantDb');
@@ -650,15 +606,14 @@ app.post('/approvals/:id/decide', async (c) => {
     if (!body.ok) return body.response;
 
     c.set('userId', row.approverId);
-    const result = await decideApproval(db, {
-      approvalId: id,
+    // The same service as `POST /api/approvals/:id/decide`: the contact answers, the events and aftermath are the app's.
+    const result = await decideAndAnnounce(c as unknown as Parameters<typeof decideAndAnnounce>[0], row, {
       actor: { kind: 'contact', id: row.approverId },
       decision: body.data.decision,
       note: body.data.note ?? null,
     });
     if (!result.ok) return refusal(c, result.code, result.message, id);
 
-    publishDecision(c, row, result);
     const decided: PortalDecisionResult = {
       id: result.approval.id,
       decision: result.approval.decision,

@@ -41,10 +41,7 @@ import {
   setSponsorSchema,
 } from '@weldsuite/app-api-client/schemas/flow-approvals';
 import {
-  decideApproval,
   decisionInputError,
-  listSubjectApprovals,
-  type ApprovalRow,
 } from '@weldsuite/flow-domain/approvals';
 import {
   SPONSOR_MESSAGES,
@@ -59,19 +56,20 @@ import { canManageProject } from '../../lib/project-access';
 import { parseLimit } from '../../lib/query-params';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
-  announceApprovalsCancelled,
-  announceStepsActivated,
   countMyReviews,
   loadDoneReviews,
   loadMyReviews,
   loadSentReviews,
-  loadSubjectInfo,
-  publishApproval,
-  runApprovalAftermath,
+  decideAndAnnounce,
 } from '../../services/approvals';
 import { findLiveProject, projectMemberIds } from '../../services/project-changes';
 import { applyTimeEntryReview, reviewDenial } from '../../services/time-entry-review';
+// Every approval subject registers its handler and aftermath on import.
 import '../../services/risk-acceptance';
+import '../../services/governance-approvals';
+import '../../services/project-phases';
+import '../../services/project-closing';
+import '../../services/project-requests';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.flowApprovals;
@@ -306,9 +304,7 @@ app.post('/:id/decide', requirePermission('projects:read'), async (c) => {
       .limit(1);
     if (!row) return await decideTimeEntry(c, id, decision, note ?? null);
 
-    const before = await listSubjectApprovals(db, row.subjectType, row.subjectId);
-    const now = new Date();
-    const result = await decideApproval(db, { approvalId: id, actor: userId, decision, note, now });
+    const result = await decideAndAnnounce(c, row, { actor: userId, decision, note });
     if (!result.ok) {
       switch (result.code) {
         case 'not_found':
@@ -323,31 +319,6 @@ app.post('/:id/decide', requirePermission('projects:read'), async (c) => {
       }
     }
 
-    publishApproval(c, 'decided', result.approval, { outcome: result.outcome, resolved: result.resolved, viaDelegation: result.viaDelegation });
-    // A rejection clears the other open rows: nobody is asked about a settled subject.
-    const cleared: ApprovalRow[] = before.filter((b) => !result.rows.some((r) => r.id === b.id));
-    announceApprovalsCancelled(c, cleared);
-
-    if (result.resolved) {
-      await runApprovalAftermath(c, row.subjectType, {
-        subjectId: row.subjectId,
-        projectId: row.projectId,
-        outcome: result.outcome as 'approved' | 'rejected',
-        rows: result.rows,
-        decided: result.approval,
-        actor: { kind: 'member', id: userId },
-      });
-    } else if (decision === 'approved' || decision === 'approved_with_conditions') {
-      // The next step's approvers are told when their turn comes.
-      const info = (await loadSubjectInfo(db, [row])).get(`${row.subjectType}:${row.subjectId}`);
-      announceStepsActivated(
-        c,
-        before.map((b) => (b.id === result.approval.id ? result.approval : b)),
-        result.rows,
-        { code: info?.code ?? null, title: info?.title ?? row.subjectId },
-        null,
-      );
-    }
     return success(c, {
       approval: { ...presentReviewApprover(result.approval), subjectType: row.subjectType, subjectId: row.subjectId, projectId: row.projectId },
       outcome: result.outcome,
