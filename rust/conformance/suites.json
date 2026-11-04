@@ -3403,6 +3403,36 @@
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
+    },
+    {
+      "name": "flow: schedule and gates",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/task-dependencies/integration.test.ts",
+        "src/routes/task-dependencies/compat.integration.test.ts",
+        "src/routes/project-schedule/integration.test.ts",
+        "src/routes/project-phases/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/task-dependencies",
+        "/api/project-schedule",
+        "/api/project-phases"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/task-dependencies/",
+        "apps/workers/flow-api/src/routes/project-schedule/",
+        "apps/workers/flow-api/src/routes/project-phases/",
+        "apps/workers/flow-api/src/routes/tasks/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-schedule.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/modules/external-api/",
+        "rust/crates/flow-domain/"
+      ]
     }
   ]
 }

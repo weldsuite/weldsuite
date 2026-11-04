@@ -61,6 +61,9 @@ const flowApprovalKeys = { all: ['flow-approvals'] as const };
 // WeldFlow portfolio — mirrors portfolioKeys in hooks/queries/use-flow-portfolio-queries.ts.
 const portfolioKeys = { all: ['flow-portfolio'] as const };
 
+// WeldFlow schedule: mirrors scheduleKeys in hooks/queries/use-project-schedule-queries.ts.
+const scheduleKeys = { all: ['project-schedule'] as const };
+
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
 const pipelineKeys = { all: ['crm', 'pipelines'] as const };
@@ -170,7 +173,7 @@ export const platformSyncMap: EntitySyncMap = {
   // My Tasks (`['task']`) as well as project boards + the object panel so
   // cross-screen sync covers every task surface. The RAID root too: an item's
   // mitigation progress and its linked tasks come from the task's status.
-  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel'], raidKeys.all),
+  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel'], raidKeys.all, scheduleKeys.all),
   project_time_entry: inv(projectKeys.all),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),
@@ -209,8 +212,8 @@ export const platformSyncMap: EntitySyncMap = {
   project_benefit: inv(projectKeys.all),
 
   // Schedule: dependencies, phases and gates.
-  task_dependency: inv(projectKeys.all),
-  project_phase: inv(projectKeys.all),
+  task_dependency: inv(projectKeys.all, scheduleKeys.all),
+  project_phase: inv(projectKeys.all, scheduleKeys.all),
 
   // Reporting: status reports and stakeholders.
   project_status_report: inv(projectKeys.all),

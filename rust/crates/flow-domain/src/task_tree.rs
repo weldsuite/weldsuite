@@ -51,8 +51,9 @@ pub async fn live_children(
 /// `softDeleteTaskTree(db, id)`: the removed tasks, the requested one
 /// first, or `None` when it does not exist or is already deleted. One
 /// transaction: the tasks, their calendar slots, comments and attachment
-/// rows, their project-control links (deleted for real, FLOW-011), and the
-/// removed ids pruned from every other live task's `dependsOn` / `blocks`.
+/// rows, their project-control links (deleted for real, FLOW-011), their typed
+/// `task_dependencies` rows (deleted for real, FLOW-015), and the removed ids
+/// pruned from every other live task's `dependsOn` / `blocks`.
 /// Publishing the events is the caller's job (no link events, as in
 /// TypeScript).
 pub async fn soft_delete_task_tree(
@@ -156,6 +157,14 @@ async fn write_removal(
         "delete from project_control_links
          where (from_type = 'task' and from_id = any($1))
             or (to_type = 'task' and to_id = any($1))",
+    )
+    .bind(removed_ids)
+    .execute(&mut *tx)
+    .await?;
+    // FLOW-015: so are the typed dependency rows.
+    sqlx::query(
+        "delete from task_dependencies
+         where predecessor_id = any($1) or successor_id = any($1)",
     )
     .bind(removed_ids)
     .execute(&mut *tx)

@@ -24,6 +24,11 @@ export default defineConfig({
     // pglite WASM download + full tenant migration on first call is slow.
     testTimeout: 30_000,
     hookTimeout: 60_000,
+    // The project-control and delivery schema (new tables and columns) has no
+    // migration yet: pglite diffs it in memory against the last snapshot. Empty
+    // once the migration exists; remove then (worker-kit testing/pglite.ts).
+    // Task writes through flow-domain keep the typed task_dependencies rows.
+    env: { PGLITE_SCHEMA_DELTA: '1' },
   },
   resolve: {
     alias: {

@@ -51,6 +51,13 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { atomically } from '@weldsuite/worker-kit/atomically';
+import {
+  dependencyRowChanges,
+  dependencyRowStatements,
+  detectCycle as detectDependencyCycle,
+  waitsForAfter,
+  type DependencyRowChanges,
+} from '@weldsuite/flow-domain/task-dependencies';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { dispatchAssignmentNotifications } from '../../lib/task-notifications';
 import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
@@ -337,23 +344,9 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
 // Dependency cycle detection
 // ============================================================================
 
-async function detectCycle(db: any, taskId: string, newDependsOn: string[]): Promise<boolean> {
-  const visited = new Set<string>();
-  const queue = [...newDependsOn];
-  const { tasks } = schema;
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (current === taskId) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    const [task] = await db
-      .select({ dependsOn: tasks.dependsOn })
-      .from(tasks)
-      .where(eq(tasks.id, current))
-      .limit(1);
-    if (task?.dependsOn) queue.push(...task.dependsOn);
-  }
-  return false;
+/** The shared walk (`@weldsuite/flow-domain/task-dependencies`): it follows the `task_dependencies` rows and the arrays. */
+function detectCycle(db: TaskDb, taskId: string, newDependsOn: string[]): Promise<boolean> {
+  return detectDependencyCycle(db as unknown as Parameters<typeof detectDependencyCycle>[0], taskId, newDependsOn);
 }
 
 // ============================================================================
@@ -703,6 +696,8 @@ type DependencyPlan = {
   dependsOn: string[];
   blocks: string[];
   reciprocal: ReciprocalLink[];
+  /** The typed rows the lists imply (FLOW-015, transition release). */
+  rows: DependencyRowChanges;
 };
 
 const LINKED_TASK_DENIED = "You are not a member of a linked task's project";
@@ -776,15 +771,19 @@ async function planDependencyUpdate(
   // the blocked task is reachable from this task's (new) dependsOn.
   const cyclic =
     (addedDeps.length > 0 && (await detectCycle(db, id, addedDeps))) ||
-    (await anyAsync(addedBlocks, (blockedId) => detectCycle(db, blockedId, newDependsOn)));
+    (addedBlocks.length > 0 &&
+      (await anyAsync(addedBlocks, async (blockedId) =>
+        detectCycle(
+          db,
+          blockedId,
+          await waitsForAfter(db as unknown as Parameters<typeof waitsForAfter>[0], id, newDependsOn, removedDeps),
+        ),
+      )));
   if (cyclic) return { ok: false, kind: 'invalid', message: 'Circular dependency detected' };
 
-  const reciprocal = await reciprocalLinkUpdates(db, id, {
-    addedDeps,
-    removedDeps,
-    addedBlocks,
-    removedBlocks,
-  });
+  const diff = { addedDeps, removedDeps, addedBlocks, removedBlocks };
+  const reciprocal = await reciprocalLinkUpdates(db, id, diff);
+  const rows = await dependencyRowChanges(db as unknown as Parameters<typeof dependencyRowChanges>[0], id, diff);
 
   return {
     ok: true,
@@ -792,6 +791,7 @@ async function planDependencyUpdate(
     dependsOn: newDependsOn,
     blocks: newBlocks,
     reciprocal,
+    rows,
   };
 }
 
@@ -803,6 +803,7 @@ async function commitDependencyUpdate(
   db: TaskDb,
   id: string,
   plan: DependencyPlan,
+  userId: string,
   columns: Record<string, any> = {},
 ): Promise<void> {
   const now = new Date();
@@ -814,6 +815,7 @@ async function commitDependencyUpdate(
       .update(t)
       .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
       .where(and(eq(t.id, id), isNull(t.deletedAt))),
+    ...dependencyRowStatements(handle as unknown as Parameters<typeof dependencyRowStatements>[0], plan.rows, userId, now),
   ]);
 }
 
@@ -2264,7 +2266,7 @@ app.put(
     try {
       const plan = await planDependencyUpdate(c, db, id, data);
       if (!plan.ok) return dependencyFailureResponse(c, id, plan);
-      await commitDependencyUpdate(db, id, plan);
+      await commitDependencyUpdate(db, id, plan, c.get('userId'));
 
       publishEntityEvent({
         c,
@@ -2404,8 +2406,8 @@ app.post(
       // project) and sprint/milestone/stage are reset to the destination's
       // defaults. One all-or-nothing batch, so a failure can't leave the parent
       // and its subtasks split across projects.
-      await atomically(db, (handle) =>
-        allIds.map((taskId, i) =>
+      await atomically(db, (handle) => [
+        ...allIds.map((taskId, i) =>
           handle
             .update(t)
             .set({
@@ -2422,7 +2424,16 @@ app.post(
             })
             .where(eq(t.id, taskId)),
         ),
-      );
+        // A typed dependency stays inside one project (FLOW-015): the moved tasks' rows go.
+        handle
+          .delete(schema.taskDependencies)
+          .where(
+            or(
+              inArray(schema.taskDependencies.predecessorId, allIds),
+              inArray(schema.taskDependencies.successorId, allIds),
+            ),
+          ),
+      ]);
 
       // One event per moved task, so audit, analytics and subscriptions see every row that changed.
       const moved = [{ id, title: (existing as any).title as string }, ...descendants];
@@ -2467,12 +2478,13 @@ async function writePatchedTask(
     update: Record<string, any>;
     resolvedStatus: unknown;
     dependencyPlan: DependencyPlan | null;
+    userId: string;
   },
 ): Promise<boolean> {
-  const { id, existing, update, resolvedStatus, dependencyPlan } = args;
+  const { id, existing, update, resolvedStatus, dependencyPlan, userId } = args;
   const completed = await claimCompletion(db, id, existing.status, resolvedStatus);
   if (dependencyPlan) {
-    await commitDependencyUpdate(db, id, dependencyPlan, update);
+    await commitDependencyUpdate(db, id, dependencyPlan, userId, update);
   } else {
     await db.update(t).set(update).where(liveTask(id));
   }
@@ -2566,7 +2578,7 @@ app.patch(
       const update = buildTaskUpdate(data);
       const resolvedStatus = await applyStatusChange(db, existing, data, update);
 
-      const completed = await writePatchedTask(db, { id, existing, update, resolvedStatus, dependencyPlan });
+      const completed = await writePatchedTask(db, { id, existing, update, resolvedStatus, dependencyPlan, userId });
 
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);
