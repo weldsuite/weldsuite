@@ -34,6 +34,7 @@ import {
   type InstantiateCopy,
   type InstantiateResult,
 } from '@weldsuite/app-api-client/schemas/project-closing';
+import { GATE_CRITERION_KEYS } from './gates';
 import { nextReviewAt, riskBand, riskScore } from './risk';
 import { initialRaidStatus, raidSequence, type RaidKind } from './raid';
 import type { NumberSequence } from './task-numbering';
@@ -79,16 +80,79 @@ export type ReadBlueprintResult = { ok: true; blueprint: Blueprint } | { ok: fal
  * A stored blueprint, upgraded to the current layout and checked. Older
  * versions are upgraded here when there are any (there is one so far); an
  * unknown version or a blueprint that no longer passes the schema and the
- * integrity rules is refused.
+ * integrity rules is refused. Gate criteria saved before they carried local
+ * keys (they kept the source project's ids) are turned into manual ones, see
+ * {@link upgradeGateCriteria}.
  */
 export function readBlueprint(stored: unknown): ReadBlueprintResult {
   const version = typeof stored === 'object' && stored !== null ? (stored as { version?: unknown }).version : undefined;
   if (version !== BLUEPRINT_VERSION) return { ok: false, message: TEMPLATE_MESSAGES.unsupportedVersion };
   const parsed = blueprintSchema.safeParse(stored);
   if (!parsed.success) return { ok: false, message: TEMPLATE_MESSAGES.invalidBlueprint };
-  const broken = blueprintIntegrityError(parsed.data);
+  const upgraded = upgradeGateCriteria(parsed.data);
+  const broken = blueprintIntegrityError(upgraded);
   if (broken) return { ok: false, message: TEMPLATE_MESSAGES.invalidBlueprint };
-  return { ok: true, blueprint: parsed.data };
+  return { ok: true, blueprint: upgraded };
+}
+
+// ── Gate criteria in a blueprint ────────────────────────────────────────────
+//
+// A gate criterion of a project points at rows of that project: a deliverable
+// or a decision by id. None of those ids exist in a project made from the
+// template, so a blueprint stores them differently:
+//
+//   - `deliverable_accepted` / `deliverable_tasks_done` keep `params.deliverableKey`
+//     (the deliverable's local key) instead of `params.deliverableId`. Creating
+//     the project maps the key to the new deliverable's id. When the deliverables
+//     are not copied, the criterion becomes a manual one: "Deliverable accepted:
+//     <title>".
+//   - `decision_decided` becomes the manual criterion "Decision decided": decisions
+//     are never copied, so there is nothing for it to resolve to.
+//   - A key that is not in the catalogue becomes a manual criterion with the key
+//     as its text (nothing could ever evaluate it).
+//
+// The other criteria (risk band, change requests, spend) have no ids and are kept.
+
+type BlueprintCriterion = Blueprint['phases'][number]['gateCriteria'][number];
+
+const DELIVERABLE_CRITERION_TEXT: Readonly<Record<string, string>> = {
+  deliverable_accepted: 'Deliverable accepted',
+  deliverable_tasks_done: 'Deliverable tasks done',
+};
+const DECISION_CRITERION_KEY = 'decision_decided';
+const DECISION_CRITERION_TEXT = 'Decision decided';
+
+function isDeliverableCriterion(key: string): boolean {
+  return key in DELIVERABLE_CRITERION_TEXT;
+}
+
+/** The manual text a deliverable criterion turns into: its name, then the deliverable's title when known. */
+function deliverableCriterionText(key: string, title: string | null): string {
+  const text = DELIVERABLE_CRITERION_TEXT[key] ?? key;
+  return title ? `${text}: ${title}` : text;
+}
+
+function deliverableKeyOf(params: Record<string, unknown> | undefined): string | null {
+  const value = params?.deliverableKey;
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** A criterion of a stored blueprint that cannot be kept as it is, as a manual one; the others unchanged. */
+function upgradeCriterion(criterion: BlueprintCriterion): BlueprintCriterion {
+  if ('manual' in criterion) return criterion;
+  if (isDeliverableCriterion(criterion.key)) {
+    return deliverableKeyOf(criterion.params) ? criterion : { manual: deliverableCriterionText(criterion.key, null) };
+  }
+  if (criterion.key === DECISION_CRITERION_KEY) return { manual: DECISION_CRITERION_TEXT };
+  if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) return { manual: criterion.key };
+  return criterion;
+}
+
+function upgradeGateCriteria(blueprint: Blueprint): Blueprint {
+  return {
+    ...blueprint,
+    phases: blueprint.phases.map((phase) => ({ ...phase, gateCriteria: phase.gateCriteria.map(upgradeCriterion) })),
+  };
 }
 
 // ── Integrity ───────────────────────────────────────────────────────────────
@@ -119,6 +183,7 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
     duplicateKeyError(blueprint) ??
     ownerRoleError(blueprint, keys.roles) ??
     taskReferenceError(blueprint, keys) ??
+    gateCriteriaError(blueprint, keys.deliverables) ??
     ancestorError(blueprint) ??
     dependencyError(blueprint, keys.tasks)
   );
@@ -174,6 +239,26 @@ function taskReferenceError(
       return `Task ${task.key} refers to an unknown deliverable: ${task.deliverableKey}`;
     }
     for (const role of task.assigneeRoles) if (!keys.roles.has(role)) return `Task ${task.key} refers to an unknown role: ${role}`;
+  }
+  return null;
+}
+
+/** A gate criterion is a catalogue key the blueprint can carry, and refers to a deliverable by one of its keys. */
+function gateCriteriaError(blueprint: Blueprint, deliverables: ReadonlySet<string>): string | null {
+  for (const phase of blueprint.phases) {
+    for (const criterion of phase.gateCriteria) {
+      if ('manual' in criterion) continue;
+      if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) {
+        return `Phase ${phase.key} has an unknown gate criterion: ${criterion.key}`;
+      }
+      if (criterion.key === DECISION_CRITERION_KEY) {
+        return `Phase ${phase.key} has a gate criterion a template cannot carry: ${criterion.key}`;
+      }
+      if (!isDeliverableCriterion(criterion.key)) continue;
+      const deliverableKey = deliverableKeyOf(criterion.params);
+      if (!deliverableKey) return `Phase ${phase.key} has a ${criterion.key} criterion without a deliverableKey`;
+      if (!deliverables.has(deliverableKey)) return `Phase ${phase.key} refers to an unknown deliverable: ${deliverableKey}`;
+    }
   }
   return null;
 }
@@ -392,9 +477,25 @@ function presentDates(...dates: Array<Date | null | undefined>): Date[] {
   return dates.filter((date): date is Date => Boolean(date));
 }
 
-/** A gate criterion as a blueprint stores it. */
-function blueprintCriterion(criterion: PhaseRow['gateCriteria'][number]): Blueprint['phases'][number]['gateCriteria'][number] {
+/**
+ * A gate criterion as a blueprint stores it: a deliverable by its local key, a
+ * decision (or a deliverable that is gone) as a manual criterion; see the notes
+ * above {@link upgradeCriterion}.
+ */
+function blueprintCriterion(
+  criterion: PhaseRow['gateCriteria'][number],
+  deliverableKeys: ReadonlyMap<string, string>,
+): BlueprintCriterion {
   if ('manual' in criterion) return { manual: criterion.manual };
+  if (isDeliverableCriterion(criterion.key)) {
+    const id = criterion.params?.deliverableId;
+    const local = typeof id === 'string' ? deliverableKeys.get(id) : undefined;
+    if (!local) return { manual: deliverableCriterionText(criterion.key, null) };
+    const { deliverableId: _source, ...rest } = criterion.params ?? {};
+    return { key: criterion.key, params: { ...rest, deliverableKey: local } };
+  }
+  if (criterion.key === DECISION_CRITERION_KEY) return { manual: DECISION_CRITERION_TEXT };
+  if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) return { manual: criterion.key };
   return criterion.params ? { key: criterion.key, params: criterion.params } : { key: criterion.key };
 }
 
@@ -561,7 +662,7 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
       name: phase.name,
       startOffset: offsetOf(phase.plannedStart),
       endOffset: offsetOf(phase.plannedEnd),
-      gateCriteria: phase.gateCriteria.map(blueprintCriterion),
+      gateCriteria: phase.gateCriteria.map((criterion) => blueprintCriterion(criterion, deliverableKeys)),
     })),
     milestones: milestones.map((row) => ({
       key: milestoneKeys.get(row.id) ?? '',
@@ -755,6 +856,29 @@ function stageFor(stages: readonly NewStageRow[], status: 'backlog' | 'todo'): s
   return (status === 'backlog' ? (byStatus('backlog') ?? byStatus('todo')) : (byStatus('todo') ?? byStatus('backlog'))) ?? stages[0]?.id ?? null;
 }
 
+/**
+ * A blueprint criterion as a phase row of the new project holds it: a
+ * deliverable key becomes the new deliverable's id; with the deliverables not
+ * copied, or for a decision, it is a manual criterion with a readable text.
+ */
+function instantiateCriterion(
+  criterion: BlueprintCriterion,
+  blueprint: Blueprint,
+  deliverableIds: ReadonlyMap<string, string>,
+): NonNullable<NewPhaseRow['gateCriteria']>[number] {
+  if ('manual' in criterion) return { manual: criterion.manual, met: false, metAt: null };
+  if (criterion.key === DECISION_CRITERION_KEY) return { manual: DECISION_CRITERION_TEXT, met: false, metAt: null };
+  if (!isDeliverableCriterion(criterion.key)) return criterion;
+  const local = deliverableKeyOf(criterion.params);
+  const id = local ? deliverableIds.get(local) : undefined;
+  if (!id) {
+    const title = blueprint.deliverables.find((deliverable) => deliverable.key === local)?.title ?? null;
+    return { manual: deliverableCriterionText(criterion.key, title), met: false, metAt: null };
+  }
+  const { deliverableKey: _local, ...rest } = criterion.params ?? {};
+  return { key: criterion.key, params: { ...rest, deliverableId: id } };
+}
+
 function planPhases(blueprint: Blueprint, scope: PlanScope): NewPhaseRow[] {
   const { ctx } = scope;
   if (!ctx.copy.phases) return [];
@@ -767,12 +891,19 @@ function planPhases(blueprint: Blueprint, scope: PlanScope): NewPhaseRow[] {
     plannedEnd: scope.at(phase.endOffset),
     // The project starts in its first phase.
     status: index === 0 ? ('active' as const) : ('upcoming' as const),
-    gateCriteria: phase.gateCriteria.map((criterion) =>
-      'manual' in criterion ? { manual: criterion.manual, met: false, metAt: null } : criterion,
-    ),
+    // Resolved against the new deliverables once those are made, see resolveGateCriteria.
+    gateCriteria: [],
     createdBy: ctx.userId,
     createdAt: ctx.now,
     updatedAt: ctx.now,
+  }));
+}
+
+/** The phases with their gate criteria resolved against the new project's deliverables. */
+function resolveGateCriteria(blueprint: Blueprint, phases: readonly NewPhaseRow[], deliverableIds: ReadonlyMap<string, string>): NewPhaseRow[] {
+  return phases.map((phase, index) => ({
+    ...phase,
+    gateCriteria: (blueprint.phases[index]?.gateCriteria ?? []).map((criterion) => instantiateCriterion(criterion, blueprint, deliverableIds)),
   }));
 }
 
@@ -1059,9 +1190,10 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
 
   const members = planMembers(blueprint, scope);
   const stages = planStages(blueprint, scope);
-  const phases = planPhases(blueprint, scope);
+  const phaseRows = planPhases(blueprint, scope);
   const milestones = planMilestones(blueprint, scope);
   const deliverables = planDeliverables(blueprint, scope);
+  const phases = resolveGateCriteria(blueprint, phaseRows, deliverables.ids);
 
   const taskIds = new Map<string, string>();
   if (ctx.copy.tasks) for (const task of blueprint.tasks) taskIds.set(task.key, ctx.newId('task'));

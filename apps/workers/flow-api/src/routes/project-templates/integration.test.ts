@@ -37,13 +37,14 @@ let db: Database;
 
 type Send = (method: string, path: string, body?: unknown) => Promise<Response>;
 
-function as(userId: string, keys: string[] = ADMIN_KEYS): Send {
+function as(userId: string, keys: string[] = ADMIN_KEYS, env?: Record<string, unknown>): Send {
   const { request } = createTestApp('/api/project-templates', projectTemplatesRoutes, {
     context: {
       userId,
       permissions: permissions(...keys, ...(userId === SCOPE_ALL ? ['projects:scope:all'] : [])),
       tenantDb: db,
     },
+    ...(env ? { env } : {}),
   });
   return (method, path, body) =>
     request(`/api/project-templates${path}`, {
@@ -180,7 +181,7 @@ async function seedSource(id = 'prj_tpl_src') {
       plannedStart: at('2027-01-11'),
       plannedEnd: at('2027-01-22'),
       status: 'active',
-      gateCriteria: [{ key: 'deliverables_accepted' }, { manual: 'Design signed', met: true, metAt: '2027-01-20T00:00:00.000Z' }],
+      gateCriteria: [{ key: 'no_change_request_pending' }, { manual: 'Design signed', met: true, metAt: '2027-01-20T00:00:00.000Z' }],
       createdBy: ADMIN,
       createdAt: now,
       updatedAt: now,
@@ -564,6 +565,28 @@ describe('POST /:id/instantiate', () => {
     template = await saveTemplate({ name: 'Instantiate me', shared: true }, admin(), 'prj_tpl_inst');
   });
 
+  it('marks the status report sweep due when the project carries a report schedule', async () => {
+    const marks: unknown[][] = [];
+    const scheduleIndex = {
+      prepare: () => ({
+        bind: (...args: unknown[]) => ({
+          run: async () => {
+            marks.push(args);
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+    const send = as(ADMIN, ADMIN_KEYS, { SCHEDULE_INDEX: scheduleIndex });
+    expect((await instantiate(template.id, { name: 'Scheduled reports' }, send)).status).toBe(201);
+    expect(marks.map(([kind]) => kind)).toEqual(['status_report_due']);
+
+    // No schedule copied, nothing to draft: the index is left alone.
+    marks.length = 0;
+    const without = await instantiate(template.id, { name: 'No reports', copy: { statusReport: false } }, send);
+    expect(without.status).toBe(201);
+    expect(marks).toEqual([]);
+  });
+
   it('creates the whole project from the template, with dates counted in working days from the start', async () => {
     published.mockClear();
     const res = await instantiate(template.id, { clientId: 'cmp_tpl_1' }, user(MEMBER));
@@ -627,7 +650,7 @@ describe('POST /:id/instantiate', () => {
       ['Build', 'active', '2027-03-03', '2027-03-16'],
       ['Go-live', 'upcoming', '2027-03-17', '2027-03-30'],
     ]);
-    expect(phases[0]!.gateCriteria).toEqual([{ key: 'deliverables_accepted' }, { manual: 'Design signed', met: false, metAt: null }]);
+    expect(phases[0]!.gateCriteria).toEqual([{ key: 'no_change_request_pending' }, { manual: 'Design signed', met: false, metAt: null }]);
 
     const [deliverable] = await db.select().from(schema.projectDeliverables).where(eq(schema.projectDeliverables.projectId, projectId));
     expect(deliverable).toMatchObject({ number: 1, title: 'Ordering', status: 'not_started', ownerId: NEW_DEV, clientVisible: true, acceptedAt: null, position: 0, createdBy: MEMBER });

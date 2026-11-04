@@ -17,9 +17,12 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value, json};
 
 use crate::blueprint::{
-    BLUEPRINT_MEMBER_ROLES, BLUEPRINT_VERSION, Json, PROJECT_MANAGER_ROLE, SPONSOR_ROLE,
-    SYSTEM_STATUSES, blueprint_integrity_error, validate_blueprint,
+    BLUEPRINT_MEMBER_ROLES, BLUEPRINT_VERSION, DECISION_CRITERION_KEY, DECISION_CRITERION_TEXT,
+    Json, PROJECT_MANAGER_ROLE, SPONSOR_ROLE, SYSTEM_STATUSES, blueprint_integrity_error,
+    deliverable_criterion_text, deliverable_key_of, is_deliverable_criterion,
+    upgrade_gate_criteria, validate_blueprint,
 };
+use crate::gates::GATE_CRITERION_KEYS;
 use crate::js::{iso_from_millis, millis_of, truthy};
 use crate::numbering::NumberSequence;
 use crate::project_closing::{DEFAULT_WORKING_DAYS, add_working_days, working_day_offset};
@@ -39,12 +42,13 @@ pub fn unknown_role_message(role: &str) -> String {
 
 /// A stored blueprint, upgraded to the current layout and checked
 /// (`readBlueprint`). An unknown version, or a blueprint that no longer passes
-/// the schema and the integrity rules, is refused with the message.
+/// the schema and the integrity rules, is refused with the message. Gate
+/// criteria saved with the source project's ids are made manual ones.
 pub fn read_blueprint(stored: &Value) -> Result<Value, &'static str> {
     if stored.get("version").and_then(Value::as_i64) != Some(BLUEPRINT_VERSION) {
         return Err(UNSUPPORTED_VERSION);
     }
-    let parsed = validate_blueprint(stored).ok_or(INVALID_BLUEPRINT)?;
+    let parsed = upgrade_gate_criteria(validate_blueprint(stored).ok_or(INVALID_BLUEPRINT)?);
     if blueprint_integrity_error(&parsed).is_some() {
         return Err(INVALID_BLUEPRINT);
     }
@@ -490,7 +494,7 @@ pub fn build_blueprint(source: &BlueprintSource, role_labels: &Labels) -> Value 
             "name": phase.at("name"),
             "startOffset": offset_value(millis(phase, "plannedStart")),
             "endOffset": offset_value(millis(phase, "plannedEnd")),
-            "gateCriteria": phase.items("gateCriteria").iter().map(gate_criterion).collect::<Vec<_>>(),
+            "gateCriteria": phase.items("gateCriteria").iter().map(|c| gate_criterion(c, &deliverable_keys)).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "milestones": milestones.iter().map(|row| json!({
             "key": key_of(&milestone_keys, row.text("id")),
@@ -536,9 +540,31 @@ fn project_attributes(project: &Value) -> Value {
     Value::Object(out)
 }
 
-fn gate_criterion(criterion: &Value) -> Value {
+/// A gate criterion as a blueprint stores it: a deliverable by its local key, a
+/// decision (or a deliverable that is gone) as a manual criterion.
+fn gate_criterion(criterion: &Value, deliverable_keys: &HashMap<String, String>) -> Value {
     if let Some(manual) = criterion.get("manual") {
         return json!({ "manual": manual });
+    }
+    let key = criterion.text("key").unwrap_or_default();
+    if is_deliverable_criterion(key) {
+        let local = criterion
+            .at("params")
+            .text("deliverableId")
+            .and_then(|id| deliverable_keys.get(id));
+        let (Some(local), Some(params)) = (local, criterion.at("params").as_object()) else {
+            return json!({ "manual": deliverable_criterion_text(key, None) });
+        };
+        let mut params = params.clone();
+        params.remove("deliverableId");
+        params.insert("deliverableKey".to_owned(), json!(local));
+        return json!({ "key": key, "params": params });
+    }
+    if key == DECISION_CRITERION_KEY {
+        return json!({ "manual": DECISION_CRITERION_TEXT });
+    }
+    if !GATE_CRITERION_KEYS.contains(&key) {
+        return json!({ "manual": key });
     }
     match criterion
         .get("params")
@@ -844,14 +870,6 @@ impl Planner<'_> {
             .iter()
             .enumerate()
             .map(|(index, phase)| {
-                let criteria: Vec<Value> = phase
-                    .items("gateCriteria")
-                    .iter()
-                    .map(|criterion| match criterion.text("manual") {
-                        Some(manual) => json!({ "manual": manual, "met": false, "metAt": null }),
-                        None => criterion.clone(),
-                    })
-                    .collect();
                 json!({
                     "id": self.id("phs"), "projectId": self.ctx.project_id, "position": index,
                     "name": phase.at("name"),
@@ -859,11 +877,72 @@ impl Planner<'_> {
                     "plannedEnd": self.at(phase.int("endOffset")),
                     // The project starts in its first phase.
                     "status": if index == 0 { "active" } else { "upcoming" },
-                    "gateCriteria": criteria, "createdBy": self.ctx.user_id,
+                    // Resolved against the new deliverables once those are made, see resolve_gate_criteria.
+                    "gateCriteria": [], "createdBy": self.ctx.user_id,
                     "createdAt": self.now, "updatedAt": self.now,
                 })
             })
             .collect()
+    }
+
+    /// The phases with their gate criteria resolved against the new project's deliverables.
+    fn resolve_gate_criteria(
+        &self,
+        mut phases: Vec<Value>,
+        deliverable_ids: &HashMap<String, String>,
+    ) -> Vec<Value> {
+        let blueprint_phases = self.blueprint.items("phases");
+        for (index, phase) in phases.iter_mut().enumerate() {
+            let criteria: Vec<Value> = blueprint_phases
+                .get(index)
+                .map(|source| source.items("gateCriteria"))
+                .unwrap_or_default()
+                .iter()
+                .map(|criterion| self.instantiate_criterion(criterion, deliverable_ids))
+                .collect();
+            phase["gateCriteria"] = Value::Array(criteria);
+        }
+        phases
+    }
+
+    /// A blueprint criterion as a phase row of the new project holds it: a
+    /// deliverable key becomes the new deliverable's id; with the deliverables
+    /// not copied, or for a decision, it is a manual criterion.
+    fn instantiate_criterion(
+        &self,
+        criterion: &Value,
+        deliverable_ids: &HashMap<String, String>,
+    ) -> Value {
+        if let Some(manual) = criterion.text("manual") {
+            return json!({ "manual": manual, "met": false, "metAt": null });
+        }
+        let key = criterion.text("key").unwrap_or_default();
+        if key == DECISION_CRITERION_KEY {
+            return json!({ "manual": DECISION_CRITERION_TEXT, "met": false, "metAt": null });
+        }
+        if !is_deliverable_criterion(key) {
+            return criterion.clone();
+        }
+        let local = deliverable_key_of(criterion.at("params"));
+        let Some(id) = local.and_then(|local| deliverable_ids.get(local)) else {
+            let title = self
+                .blueprint
+                .items("deliverables")
+                .iter()
+                .find(|d| d.text("key") == local)
+                .and_then(|d| d.text("title"));
+            return json!({
+                "manual": deliverable_criterion_text(key, title), "met": false, "metAt": null
+            });
+        };
+        let mut params = criterion
+            .at("params")
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        params.remove("deliverableKey");
+        params.insert("deliverableId".to_owned(), json!(id));
+        json!({ "key": key, "params": params })
     }
 
     fn milestones(&self) -> (Vec<Value>, HashMap<String, String>) {
@@ -1247,9 +1326,10 @@ pub fn plan_instantiation(blueprint: &Value, ctx: &InstantiateContext<'_>) -> In
     );
     let members = planner.members();
     let stages = planner.stages();
-    let phases = planner.phases();
+    let phase_rows = planner.phases();
     let (milestones, milestone_ids) = planner.milestones();
     let (deliverables, deliverable_ids) = planner.deliverables();
+    let phases = planner.resolve_gate_criteria(phase_rows, &deliverable_ids);
     let (tasks, dependencies) = plan_tasks(&planner, &stages, &milestone_ids, &deliverable_ids);
     let (raid_items, assessments) = plan_raid(&planner);
     let project = plan_project(&planner, &phases, end_ms);
@@ -1317,7 +1397,13 @@ mod tests {
             ],
             phases: vec![
                 json!({ "id": "ph1", "position": 0, "name": "Build", "plannedStart": iso("2027-01-11"), "plannedEnd": iso("2027-01-22"),
-                    "gateCriteria": [{ "key": "deliverables_accepted" }, { "manual": "Design signed", "met": true, "metAt": "2027-01-20T00:00:00.000Z" }] }),
+                    "gateCriteria": [
+                        { "key": "deliverable_accepted", "params": { "deliverableId": "dl1" } },
+                        { "key": "deliverable_tasks_done", "params": { "deliverableId": "dl_gone" } },
+                        { "key": "decision_decided", "params": { "decisionId": "dec1" } },
+                        { "key": "no_open_risk_above", "params": { "band": "high" } },
+                        { "manual": "Design signed", "met": true, "metAt": "2027-01-20T00:00:00.000Z" },
+                    ] }),
                 json!({ "id": "ph2", "position": 1, "name": "Go-live", "plannedStart": iso("2027-01-25"), "plannedEnd": iso("2027-02-05"), "gateCriteria": [] }),
             ],
             milestones: vec![
@@ -1409,7 +1495,13 @@ mod tests {
         assert_eq!(blueprint["raid"][0]["kind"], "risk");
         assert_eq!(
             blueprint["phases"][0]["gateCriteria"],
-            json!([{ "key": "deliverables_accepted" }, { "manual": "Design signed" }])
+            json!([
+                { "key": "deliverable_accepted", "params": { "deliverableKey": "d1" } },
+                { "manual": "Deliverable tasks done" },
+                { "manual": "Decision decided" },
+                { "key": "no_open_risk_above", "params": { "band": "high" } },
+                { "manual": "Design signed" },
+            ])
         );
         assert_eq!(
             blueprint["settings"]["changeControl"]["boardRoles"],
@@ -1541,9 +1633,16 @@ mod tests {
         assert_eq!(plan.phases[1]["status"], "upcoming");
         assert_eq!(plan.phases[0]["plannedEnd"], iso("2027-03-16"));
         assert_eq!(plan.phases[1]["plannedStart"], iso("2027-03-17"));
+        // The deliverable criterion points at the new deliverable, not the source project's.
         assert_eq!(
             plan.phases[0]["gateCriteria"],
-            json!([{ "key": "deliverables_accepted" }, { "manual": "Design signed", "met": false, "metAt": null }])
+            json!([
+                { "key": "deliverable_accepted", "params": { "deliverableId": plan.deliverables[0]["id"] } },
+                { "manual": "Deliverable tasks done", "met": false, "metAt": null },
+                { "manual": "Decision decided", "met": false, "metAt": null },
+                { "key": "no_open_risk_above", "params": { "band": "high" } },
+                { "manual": "Design signed", "met": false, "metAt": null },
+            ])
         );
         assert_eq!(plan.milestones[0]["dueDate"], iso("2027-03-09"));
         assert_eq!(plan.milestones[0]["ownerId"], "new_sponsor");
@@ -1614,6 +1713,82 @@ mod tests {
                 "schedule": { "workingDays": [1, 2, 3, 4, 5], "holidays": [], "autoSchedule": true },
                 "riskAppetite": 12,
             })
+        );
+    }
+
+    #[test]
+    fn a_deliverable_criterion_turns_manual_when_the_deliverables_are_not_copied() {
+        let plan = plan(
+            CopyOptions {
+                deliverables: false,
+                ..resolve_copy(None)
+            },
+            &PEOPLE,
+        );
+        assert_eq!(
+            plan.phases[0]["gateCriteria"][0],
+            json!({ "manual": "Deliverable accepted: Ordering", "met": false, "metAt": null })
+        );
+        assert_eq!(
+            plan.phases[0]["gateCriteria"][1],
+            json!({ "manual": "Deliverable tasks done", "met": false, "metAt": null })
+        );
+    }
+
+    #[test]
+    fn the_integrity_rules_refuse_gate_criteria_a_blueprint_cannot_resolve() {
+        let valid = build_blueprint(&source(), &HashMap::new());
+        let with = |criteria: Value| {
+            let mut blueprint = valid.clone();
+            blueprint["phases"][0]["gateCriteria"] = criteria;
+            blueprint_integrity_error(&blueprint)
+        };
+        assert_eq!(
+            with(json!([{ "key": "deliverable_accepted", "params": { "deliverableKey": "d9" } }])),
+            Some("Phase p1 refers to an unknown deliverable: d9".to_owned())
+        );
+        assert_eq!(
+            with(
+                json!([{ "key": "deliverable_tasks_done", "params": { "deliverableId": "dl1" } }])
+            ),
+            Some(
+                "Phase p1 has a deliverable_tasks_done criterion without a deliverableKey"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            with(json!([{ "key": "decision_decided", "params": { "decisionId": "dec1" } }])),
+            Some(
+                "Phase p1 has a gate criterion a template cannot carry: decision_decided"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            with(json!([{ "key": "made_up" }])),
+            Some("Phase p1 has an unknown gate criterion: made_up".to_owned())
+        );
+    }
+
+    #[test]
+    fn reading_upgrades_criteria_stored_with_the_source_ids() {
+        let mut stored = build_blueprint(&source(), &HashMap::new());
+        stored["phases"][0]["gateCriteria"] = json!([
+            { "key": "deliverable_accepted", "params": { "deliverableId": "dl1" } },
+            { "key": "deliverable_tasks_done", "params": { "deliverableKey": "d1" } },
+            { "key": "decision_decided", "params": { "decisionId": "dec1" } },
+            { "key": "made_up" },
+            { "key": "no_change_request_pending" },
+        ]);
+        let read = read_blueprint(&stored).expect("readable");
+        assert_eq!(
+            read["phases"][0]["gateCriteria"],
+            json!([
+                { "manual": "Deliverable accepted" },
+                { "key": "deliverable_tasks_done", "params": { "deliverableKey": "d1" } },
+                { "manual": "Decision decided" },
+                { "manual": "made_up" },
+                { "key": "no_change_request_pending" },
+            ])
         );
     }
 

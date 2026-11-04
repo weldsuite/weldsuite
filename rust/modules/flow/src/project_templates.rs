@@ -24,6 +24,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_TEMPLATE_CREATED, PROJECT_TEMPLATE_DELETED, PROJECT_TEMPLATE_INSTANTIATED,
     PROJECT_TEMPLATE_UPDATED,
@@ -505,6 +506,24 @@ async fn create_project(
         },
     );
     weldsuite_db::atomically(db, plan_statements(&plan)).await?;
+
+    // A project made with a report schedule is drafted from the next tick on, like one
+    // whose schedule was set through PUT /api/project-status-reports/settings/:projectId.
+    if plan
+        .project
+        .at("settings")
+        .get("statusReport")
+        .is_some_and(|report| !report.is_null())
+        && let Some(master) = caller.master(state)
+    {
+        weldsuite_db::due_index::mark_due(
+            &master,
+            "status_report_due",
+            &caller.workspace_id,
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+    }
 
     publish_planned_events(state, caller, &plan).await?;
     let mut data = crate::templates_store::template_event_data(template);

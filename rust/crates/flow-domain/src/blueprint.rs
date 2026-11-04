@@ -16,6 +16,8 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 
+use crate::gates::GATE_CRITERION_KEYS;
+
 /// The blueprint layout this code writes and reads (FLOW-021: versioned,
 /// upgraded when read).
 pub const BLUEPRINT_VERSION: i64 = 1;
@@ -258,9 +260,13 @@ impl<'a> Obj<'a> {
             is_date_shape,
             DATE_MESSAGE,
         );
-        if let Field::Set(text) = &field
-            && !is_real_date(text)
-        {
+        // zod runs the refinement after a failed regex too, so a string of the wrong
+        // shape reports both issues (the refinement can never pass for it).
+        let refused = match &field {
+            Field::Set(text) => !is_real_date(text),
+            _ => self.fields.get(key).is_some_and(Value::is_string),
+        };
+        if refused {
             self.issues.custom(key, DATE_MESSAGE);
         }
         self.keep(key, field);
@@ -998,6 +1004,129 @@ fn dependency_error(blueprint: &Value) -> Option<String> {
     None
 }
 
+// ── Gate criteria in a blueprint ────────────────────────────────────────────
+//
+// A gate criterion of a project points at rows of that project (a deliverable
+// or a decision, by id), and none of those exist in a project made from the
+// template. So a blueprint stores them differently (mirrors project-templates.ts):
+//
+// - `deliverable_accepted` / `deliverable_tasks_done` keep `params.deliverableKey`
+//   (the deliverable's local key) instead of `params.deliverableId`; creating
+//   the project maps it to the new deliverable's id. With the deliverables not
+//   copied it becomes a manual criterion ("Deliverable accepted: <title>").
+// - `decision_decided` becomes the manual criterion "Decision decided":
+//   decisions are never copied.
+// - A key outside the catalogue becomes a manual criterion with the key as text.
+
+const DELIVERABLE_CRITERIA: [(&str, &str); 2] = [
+    ("deliverable_accepted", "Deliverable accepted"),
+    ("deliverable_tasks_done", "Deliverable tasks done"),
+];
+pub const DECISION_CRITERION_KEY: &str = "decision_decided";
+pub const DECISION_CRITERION_TEXT: &str = "Decision decided";
+
+pub fn is_deliverable_criterion(key: &str) -> bool {
+    DELIVERABLE_CRITERIA.iter().any(|(known, _)| *known == key)
+}
+
+/// The manual text a deliverable criterion turns into: its name, then the deliverable's title when known.
+pub fn deliverable_criterion_text(key: &str, title: Option<&str>) -> String {
+    let base = DELIVERABLE_CRITERIA
+        .iter()
+        .find(|(known, _)| *known == key)
+        .map_or(key, |(_, text)| *text);
+    match title.filter(|title| !title.is_empty()) {
+        Some(title) => format!("{base}: {title}"),
+        None => base.to_owned(),
+    }
+}
+
+/// `params.deliverableKey`, when it is a non-empty string.
+pub fn deliverable_key_of(params: &Value) -> Option<&str> {
+    params
+        .get("deliverableKey")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())
+}
+
+fn is_catalogue_key(key: &str) -> bool {
+    GATE_CRITERION_KEYS.contains(&key)
+}
+
+/// A criterion of a stored blueprint that cannot be kept as it is, as a manual one; the others unchanged.
+fn upgrade_criterion(criterion: &Value) -> Value {
+    if criterion.get("manual").is_some() {
+        return criterion.clone();
+    }
+    let key = criterion.text("key").unwrap_or_default();
+    if is_deliverable_criterion(key) {
+        return if deliverable_key_of(criterion.at("params")).is_some() {
+            criterion.clone()
+        } else {
+            json!({ "manual": deliverable_criterion_text(key, None) })
+        };
+    }
+    if key == DECISION_CRITERION_KEY {
+        return json!({ "manual": DECISION_CRITERION_TEXT });
+    }
+    if !is_catalogue_key(key) {
+        return json!({ "manual": key });
+    }
+    criterion.clone()
+}
+
+/// The blueprint with the gate criteria that carry the source project's ids made manual (`upgradeGateCriteria`).
+pub fn upgrade_gate_criteria(mut blueprint: Value) -> Value {
+    if let Some(phases) = blueprint.get_mut("phases").and_then(Value::as_array_mut) {
+        for phase in phases {
+            let upgraded: Vec<Value> = phase
+                .items("gateCriteria")
+                .iter()
+                .map(upgrade_criterion)
+                .collect();
+            phase["gateCriteria"] = Value::Array(upgraded);
+        }
+    }
+    blueprint
+}
+
+/// A gate criterion is a catalogue key the blueprint can carry and refers to a deliverable by one of its keys.
+fn gate_criteria_error(blueprint: &Value, deliverables: &HashSet<&str>) -> Option<String> {
+    for phase in blueprint.items("phases") {
+        let phase_key = phase.text("key").unwrap_or_default();
+        for criterion in phase.items("gateCriteria") {
+            if criterion.get("manual").is_some() {
+                continue;
+            }
+            let key = criterion.text("key").unwrap_or_default();
+            if !is_catalogue_key(key) {
+                return Some(format!(
+                    "Phase {phase_key} has an unknown gate criterion: {key}"
+                ));
+            }
+            if key == DECISION_CRITERION_KEY {
+                return Some(format!(
+                    "Phase {phase_key} has a gate criterion a template cannot carry: {key}"
+                ));
+            }
+            if !is_deliverable_criterion(key) {
+                continue;
+            }
+            let Some(deliverable) = deliverable_key_of(criterion.at("params")) else {
+                return Some(format!(
+                    "Phase {phase_key} has a {key} criterion without a deliverableKey"
+                ));
+            };
+            if !deliverables.contains(deliverable) {
+                return Some(format!(
+                    "Phase {phase_key} refers to an unknown deliverable: {deliverable}"
+                ));
+            }
+        }
+    }
+    None
+}
+
 /// The rules a blueprint keeps beyond its shape (`blueprintIntegrityError`):
 /// keys are unique within their list, every reference (parent, milestone,
 /// deliverable, role, dependency end) names something the blueprint has, a
@@ -1019,6 +1148,10 @@ pub fn blueprint_integrity_error(blueprint: &Value) -> Option<String> {
     let roles = key_set(blueprint.items("roles"), "key");
     role_reference_error(blueprint, &roles)
         .or_else(|| task_reference_error(blueprint, &roles))
+        .or_else(|| {
+            let deliverables = key_set(blueprint.items("deliverables"), "key");
+            gate_criteria_error(blueprint, &deliverables)
+        })
         .or_else(|| ancestor_error(blueprint))
         .or_else(|| dependency_error(blueprint))
 }
@@ -1269,7 +1402,7 @@ mod tests {
         let blueprint = change(|b| {
             b["stages"] = json!([{ "key": "s1", "name": "Backlog", "color": "#94a3b8", "systemStatus": "backlog" }]);
             b["phases"] = json!([{ "key": "p1", "name": "Build", "startOffset": 0, "endOffset": 9,
-                "gateCriteria": [{ "key": "deliverables_accepted", "params": { "min": 2 } }, { "manual": " Design signed " }] }]);
+                "gateCriteria": [{ "key": "no_open_risk_above", "params": { "band": "high" } }, { "manual": " Design signed " }] }]);
             b["milestones"] = json!([{ "key": "m1", "name": "Signed off", "description": null, "offset": 4, "isKey": true, "ownerRole": "project_manager" }]);
             b["deliverables"] = json!([{ "key": "d1", "title": "Ordering", "description": "Place orders", "ownerRole": null,
                 "startOffset": 1, "endOffset": 8, "acceptanceCriteria": [" Checkout works "], "clientVisible": true }]);

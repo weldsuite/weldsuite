@@ -26,6 +26,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
   blueprintSchema,
@@ -313,6 +314,12 @@ app.post('/:id/instantiate', requirePermission('projects:create'), async (c) => 
       taskNumbers,
     });
     await atomically(db, (handle) => planStatements(handle, plan));
+
+    // A project made with a report schedule is drafted from the next tick on, like one whose
+    // schedule was set through PUT /api/project-status-reports/settings/:projectId.
+    if (plan.project.settings?.statusReport && c.env.SCHEDULE_INDEX) {
+      c.executionCtx.waitUntil(markWorkspaceDue(c.env.SCHEDULE_INDEX, 'status_report_due', c.get('clerkOrgId'), now));
+    }
 
     await publishPlannedEvents(c, plan);
     publishEntityEvent({

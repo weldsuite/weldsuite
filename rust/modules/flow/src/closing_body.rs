@@ -404,6 +404,30 @@ mod tests {
     }
 
     #[test]
+    fn a_date_of_the_wrong_shape_reports_the_format_and_the_calendar_issue_like_zod() {
+        let issues = |date: Value| {
+            let answer = refused(parse_body(
+                &body(&json!({ "name": "x", "startDate": date })),
+                read_instantiate,
+            ));
+            answer["error"]["details"].clone()
+        };
+        let message = "Use a date as YYYY-MM-DD";
+        let wrong_shape = issues(json!("03-03-2027"));
+        assert_eq!(wrong_shape.as_array().map(Vec::len), Some(2));
+        for issue in wrong_shape.as_array().into_iter().flatten() {
+            assert_eq!(issue, &json!({ "message": message, "path": "startDate" }));
+        }
+        // A real-looking date that is not one: the calendar issue only.
+        assert_eq!(
+            issues(json!("2027-02-30")).as_array().map(Vec::len),
+            Some(1)
+        );
+        // Not a string: the type issue only.
+        assert_eq!(issues(json!(5)).as_array().map(Vec::len), Some(1));
+    }
+
+    #[test]
     fn an_instantiate_body_needs_a_real_date_and_known_copy_options() {
         let ok = json!({ "name": "x", "startDate": "2027-03-03", "roles": { "sponsor": "u" }, "copy": { "tasks": false } });
         assert!(parse_body(&body(&ok), read_instantiate).is_ok());

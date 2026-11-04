@@ -127,7 +127,13 @@ function source(): BlueprintSource {
       name: 'Build',
       plannedStart: at('2027-01-11'),
       plannedEnd: at('2027-01-22'),
-      gateCriteria: [{ key: 'deliverables_accepted', params: { all: true } }, { manual: 'Design signed', met: true, metAt: '2027-01-20T00:00:00.000Z' }],
+      gateCriteria: [
+        { key: 'deliverable_accepted', params: { deliverableId: 'dlv_1' } },
+        { key: 'deliverable_tasks_done', params: { deliverableId: 'dlv_gone' } },
+        { key: 'decision_decided', params: { decisionId: 'dec_1' } },
+        { key: 'no_open_risk_above', params: { band: 'high' } },
+        { manual: 'Design signed', met: true, metAt: '2027-01-20T00:00:00.000Z' },
+      ],
     },
     { id: 'phs_2', position: 1, name: 'Go-live', plannedStart: at('2027-01-25'), plannedEnd: at('2027-02-05'), gateCriteria: [] },
   ] as unknown as Row<'projectPhases'>[];
@@ -369,7 +375,13 @@ describe('buildBlueprint', () => {
       ['s2', 'To Do', 'todo'],
       ['s3', 'Done', 'done'],
     ]);
-    expect(blueprint.phases[0]?.gateCriteria).toEqual([{ key: 'deliverables_accepted', params: { all: true } }, { manual: 'Design signed' }]);
+    expect(blueprint.phases[0]?.gateCriteria).toEqual([
+      { key: 'deliverable_accepted', params: { deliverableKey: 'd1' } },
+      { manual: 'Deliverable tasks done' },
+      { manual: 'Decision decided' },
+      { key: 'no_open_risk_above', params: { band: 'high' } },
+      { manual: 'Design signed' },
+    ]);
   });
 
   it('copies the change control, the report schedule, the calendar and the project attributes, with the board as roles', () => {
@@ -424,6 +436,24 @@ describe('blueprintIntegrityError', () => {
 
   it('accepts what the builder makes', () => {
     expect(blueprintIntegrityError(valid())).toBeNull();
+  });
+
+  it('refuses a gate criterion that names a deliverable or a key the blueprint does not have', () => {
+    const missing = valid();
+    missing.phases[0]!.gateCriteria = [{ key: 'deliverable_accepted', params: { deliverableKey: 'd9' } }];
+    expect(blueprintIntegrityError(missing)).toBe('Phase p1 refers to an unknown deliverable: d9');
+
+    const sourceId = valid();
+    sourceId.phases[0]!.gateCriteria = [{ key: 'deliverable_tasks_done', params: { deliverableId: 'dlv_1' } }];
+    expect(blueprintIntegrityError(sourceId)).toBe('Phase p1 has a deliverable_tasks_done criterion without a deliverableKey');
+
+    const decision = valid();
+    decision.phases[0]!.gateCriteria = [{ key: 'decision_decided', params: { decisionId: 'dec_1' } }];
+    expect(blueprintIntegrityError(decision)).toBe('Phase p1 has a gate criterion a template cannot carry: decision_decided');
+
+    const unknown = valid();
+    unknown.phases[0]!.gateCriteria = [{ key: 'made_up' }];
+    expect(blueprintIntegrityError(unknown)).toBe('Phase p1 has an unknown gate criterion: made_up');
   });
 
   it('refuses duplicate keys', () => {
@@ -504,6 +534,28 @@ describe('the blueprint schema', () => {
     const badKey = structuredClone(blueprint);
     badKey.tasks[0]!.key = 'Task 1';
     expect(blueprintSchema.safeParse(badKey).success).toBe(false);
+  });
+
+  it('upgrades gate criteria stored with the source project ids into manual ones', () => {
+    const stored = structuredClone(buildBlueprint(source()));
+    stored.phases[0]!.gateCriteria = [
+      { key: 'deliverable_accepted', params: { deliverableId: 'dlv_1' } },
+      { key: 'deliverable_tasks_done', params: { deliverableKey: 'd1' } },
+      { key: 'decision_decided', params: { decisionId: 'dec_1' } },
+      { key: 'made_up' },
+      { key: 'no_change_request_pending' },
+    ];
+    const read = readBlueprint(JSON.parse(JSON.stringify(stored)));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.blueprint.phases[0]?.gateCriteria).toEqual([
+        { manual: 'Deliverable accepted' },
+        { key: 'deliverable_tasks_done', params: { deliverableKey: 'd1' } },
+        { manual: 'Decision decided' },
+        { manual: 'made_up' },
+        { key: 'no_change_request_pending' },
+      ]);
+    }
   });
 
   it('reads a stored blueprint of another version or shape as unusable', () => {
@@ -675,11 +727,24 @@ describe('planInstantiation', () => {
     expect(made.tasks[1]?.stageId).toBe(stageByName.get('Backlog'));
     expect(made.phases.map((phase) => phase.status)).toEqual(['active', 'upcoming']);
     expect(made.project.settings?.currentPhaseId).toBe(made.phases[0]?.id);
+    // The deliverable criterion points at the new deliverable, not the source project's.
     expect(made.phases[0]?.gateCriteria).toEqual([
-      { key: 'deliverables_accepted', params: { all: true } },
+      { key: 'deliverable_accepted', params: { deliverableId: made.deliverables[0]?.id } },
+      { manual: 'Deliverable tasks done', met: false, metAt: null },
+      { manual: 'Decision decided', met: false, metAt: null },
+      { key: 'no_open_risk_above', params: { band: 'high' } },
       { manual: 'Design signed', met: false, metAt: null },
     ]);
+    expect(made.deliverables[0]?.id).toBeTruthy();
     expect(made.deliverables[0]).toMatchObject({ status: 'not_started', acceptanceCriteria: [{ text: 'Checkout works', met: false, metAt: null }] });
+  });
+
+  it('turns a deliverable criterion into a manual one when the deliverables are not copied', () => {
+    const made = plan(blueprint, { copy: resolveCopy({ deliverables: false }) });
+    expect(made.phases[0]?.gateCriteria.slice(0, 2)).toEqual([
+      { manual: 'Deliverable accepted: Ordering', met: false, metAt: null },
+      { manual: 'Deliverable tasks done', met: false, metAt: null },
+    ]);
   });
 
   it('starts the register with the first status of each kind, assessing the risk', () => {
