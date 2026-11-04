@@ -56,7 +56,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@weldsuite/ui/components/dialog";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ConfirmDialog } from "@weldsuite/ui/components/confirm-dialog";
 import {
   ArrowUpDown,
   ArrowUp,
@@ -96,7 +96,7 @@ import {
   TreeNodeTrigger,
   TreeProvider,
   TreeView,
-} from "@/components/kibo-ui/tree";
+} from "@weldsuite/ui/components/tree";
 import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n/provider";
 

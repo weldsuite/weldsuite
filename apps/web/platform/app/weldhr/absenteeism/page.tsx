@@ -7,9 +7,10 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
-import { DetailPage, HrTabsPage, useHrBreadcrumbs } from '../components/page-kit';
-import { ErrorBanner } from '../components/shared';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { HrTabsPage, useHrBreadcrumbs } from '../components/page-kit';
+import { DetailPage } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { AbsencesTab } from './components/absences-tab';
 
 type Tab = 'ongoing' | 'completed';

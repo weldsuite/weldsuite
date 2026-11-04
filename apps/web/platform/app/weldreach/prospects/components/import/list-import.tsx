@@ -25,14 +25,12 @@ import {
   useImportReachFromWeldData,
 } from '@/hooks/queries/use-reach-prospect-queries';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  EmptyText,
-  ErrorBanner,
-  InlineSpinner,
-  Notice,
-  errorMessage,
-} from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
 import { ImportReportView } from './import-report';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 export type ListSource = 'crm' | 'welddata';
 
@@ -203,7 +201,7 @@ export function ListImport({
         onNameChange={setListName}
       />
 
-      <Notice>{t('reachEngage.import.b2bNote')}</Notice>
+      <InfoBanner variant="neutral">{t('reachEngage.import.b2bNote')}</InfoBanner>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose} disabled={pending}>

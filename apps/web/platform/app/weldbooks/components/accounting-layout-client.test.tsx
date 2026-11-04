@@ -41,7 +41,7 @@ vi.mock('@/components/layout/module-content', () => ({
   ),
 }));
 
-vi.mock('@/components/page-loader', () => ({
+vi.mock('@weldsuite/ui/components/page-loader', () => ({
   PageLoader: () => <div data-testid="page-loader">Loading</div>,
 }));
 

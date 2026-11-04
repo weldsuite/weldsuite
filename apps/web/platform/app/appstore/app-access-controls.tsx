@@ -9,7 +9,7 @@ import { Clock, ShieldAlert, XCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { AppAccessView } from '@weldsuite/app-api-client/schemas/reach';
-import { SoftBadge } from '@/components/shared/soft-badge';
+import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { useReachFormat } from '@/lib/reach/format';
 import { AppAccessRequestDialog } from './app-access-request-dialog';
 import { accessBadgeTone, canRequestAccess, type AppAccessState } from './app-access-state';

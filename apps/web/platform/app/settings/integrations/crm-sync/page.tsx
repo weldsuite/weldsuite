@@ -23,7 +23,7 @@ import {
 
 type IntegrationConnectionWithDeals = IntegrationConnection & { opportunitiesSynced?: number };
 import { FieldMappingEditor } from '@/components/settings/field-mapping-editor';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 function formatDate(dateStr: string | null): string | null {
   if (!dateStr) return null;

@@ -22,10 +22,11 @@ import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr
 import { createHrPayrollEmployerSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
 import { useCreateHrPayrollEmployer, useUpdateHrPayrollEmployer } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { currentYear, humanizeKey } from '../lib/format';
 import { NumberField, PlainNumberField, PlainTriStateField, SelectField, SwitchField, TextField } from './form-fields';
 import { FormSection } from './payroll-ui';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof createHrPayrollEmployerSchema>;
 type Parsed = z.output<typeof createHrPayrollEmployerSchema>;

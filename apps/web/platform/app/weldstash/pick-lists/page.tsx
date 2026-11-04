@@ -1,6 +1,6 @@
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInfiniteWeldstashPickLists, type WeldstashPickList } from '@/hooks/queries/use-weldstash-queries';
 import { PickListsList } from './components/pick-lists-list';
 

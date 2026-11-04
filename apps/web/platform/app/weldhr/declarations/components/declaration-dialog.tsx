@@ -23,8 +23,9 @@ import {
   useUpdateHrDeclaration,
   useUploadHrDeclarationReceipt,
 } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 import { RECEIPT_ACCEPT, parseAmount, receiptProblem } from './receipt-field';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Currency = (typeof HR_DECLARATION_CURRENCIES)[number];
 

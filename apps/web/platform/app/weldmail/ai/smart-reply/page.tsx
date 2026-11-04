@@ -1,7 +1,7 @@
 
 import { SmartReplyClient } from './smart-reply-client';
 import { useMailAccounts, useMailMessages } from '@/hooks/queries/use-mail-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { stripTags } from '@/lib/utils';
 

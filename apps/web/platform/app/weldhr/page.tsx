@@ -9,11 +9,16 @@ import { CalendarClock, Clock, Palmtree, Users } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useHrDashboard } from '@/hooks/queries/use-weldhr-queries';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_PATHS } from './access';
-import { DashboardPage, KpiCard, KpiGrid, SectionCard, EmptyText, useHrBreadcrumbs } from './components/page-kit';
-import { EmployeeAvatar, ErrorBanner, errorMessage, formatDate } from './components/shared';
+import { useHrBreadcrumbs } from './components/page-kit';
+import { EmployeeAvatar, errorMessage, formatDate } from './components/shared';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
+import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /** The dashboard for HR; a member who only has My HR is sent there instead. */
 export default function WeldHrDashboardPage() {

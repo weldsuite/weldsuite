@@ -1,7 +1,7 @@
 
 import { SettingsClient } from './settings-client';
 import { useHelpdeskSettings } from '@/hooks/queries/use-app-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import type { HelpdeskSettingsData } from '@/hooks/queries/use-helpdesk-queries';
 
 // `useHelpdeskSettings` only ever returns the server-persisted subset

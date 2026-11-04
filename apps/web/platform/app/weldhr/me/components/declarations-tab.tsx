@@ -7,14 +7,16 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfDeclaration } from '@weldsuite/app-api-client/domains/weldhr';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useMyHrCancelDeclaration,
   useMyHrDeclarations,
   useMyHrOpenDeclarationReceipt,
 } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatMoney } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate, formatMoney } from '../../components/shared';
 import { MyDeclarationDialog } from './declaration-dialog';
 import { Meta, TabLoading } from './shared';
 

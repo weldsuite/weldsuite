@@ -34,8 +34,10 @@ import {
   useUpdateReachProspect,
 } from '@/hooks/queries/use-reach-prospect-queries';
 import { TIMEZONES } from '@/lib/timezones';
-import { ErrorBanner, Notice, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
 import { CUSTOM_FIELDS_MAX } from '../lib/import-mapping';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const NO_TIMEZONE = '__none__';
 
@@ -262,7 +264,7 @@ export function ProspectDialog({
               </div>
             ))}
             {errors.customFields && (
-              <Notice tone="warning">{t('reachEngage.prospects.dialog.customKeyInvalid')}</Notice>
+              <InfoBanner variant="warning">{t('reachEngage.prospects.dialog.customKeyInvalid')}</InfoBanner>
             )}
           </div>
 

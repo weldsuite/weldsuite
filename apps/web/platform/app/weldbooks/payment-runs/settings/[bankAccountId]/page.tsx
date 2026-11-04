@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { getCheckLayout } from '@/lib/weldbooks/check-layout';
 import { renderAlignmentTestPdf } from '@/lib/weldbooks/check-pdf';

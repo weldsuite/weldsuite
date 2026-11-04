@@ -6,7 +6,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { useHrPayrollSchedules } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { FieldGrid, SectionCard } from '../../components/page-kit';
+import { FieldGrid } from '@weldsuite/ui/components/field-grid';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { formatDate } from '../../components/shared';
 import { IssueList } from '../components/payroll-ui';
 

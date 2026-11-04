@@ -35,8 +35,9 @@ import {
   useUpdateReachList,
 } from '@/hooks/queries/use-reach-prospect-queries';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { ErrorBanner, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
 import { chunk } from '../lib/import-mapping';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type ListFormValues = z.infer<typeof createReachListSchema>;
 

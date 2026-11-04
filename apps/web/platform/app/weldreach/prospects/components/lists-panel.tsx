@@ -13,7 +13,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { ReachProspectList } from '@weldsuite/app-api-client/schemas/reach';
 import { cn } from '@/lib/utils';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { ErrorBanner, InlineSpinner } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 export function ListsPanel({
   lists,

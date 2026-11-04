@@ -63,7 +63,7 @@ import { toast } from 'sonner';
 import { tasksApi, labelsApi } from '../lib/api-client';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { buildEntityAssigneeDirectory, isPickableAssignee } from '../project/[projectId]/tasks/entity-assignees';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { LabelOverflowList } from '../lib/label-overflow-list';

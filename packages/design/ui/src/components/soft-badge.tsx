@@ -1,19 +1,17 @@
 import type { ComponentProps } from 'react';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { cn } from '@/lib/utils';
+import { cn } from '@weldsuite/ui/lib/utils';
 
 export type SoftTone = 'neutral' | 'success' | 'warning' | 'danger';
 
+export type SoftBadgeProps = { tone: SoftTone } & Omit<ComponentProps<typeof Badge>, 'variant'>;
+
 /**
- * A status badge in four soft tones. The library's `destructive` badge is solid
- * red, which shouts next to its soft `success` and `warning` badges; `danger`
- * here is the same soft treatment in red.
+ * A status badge in four soft tones. `Badge`'s `destructive` variant is solid
+ * red, which shouts next to its soft `success` and `warning` variants;
+ * `danger` here is the same soft treatment in red.
  */
-export function SoftBadge({
-  tone,
-  className,
-  ...props
-}: Readonly<{ tone: SoftTone } & Omit<ComponentProps<typeof Badge>, 'variant'>>) {
+export function SoftBadge({ tone, className, ...props }: Readonly<SoftBadgeProps>) {
   if (tone === 'danger') {
     return (
       <Badge

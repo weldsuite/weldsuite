@@ -25,8 +25,8 @@ import type {
   WeldPassEnvironment,
   WeldPassSecret,
 } from '@weldsuite/app-api-client/domains/weldpass';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useParams } from '@/lib/router';
 import {
@@ -36,10 +36,12 @@ import {
   useWeldPassSecrets,
 } from '@/hooks/queries/use-weldpass-queries';
 import { cn } from '@/lib/utils';
-import { emptyIcon, TabBody } from '../components/page-kit';
-import { AutoSyncSummary, ErrorBanner, TimeAgo, errorMessage } from '../components/shared';
+import { emptyIcon } from '../components/page-kit';
+import { AutoSyncSummary, TimeAgo, errorMessage } from '../components/shared';
 import { HistoryDialog, ImportDialog, SecretDialog, useRevealer } from '../components/secret-dialogs';
 import { ProjectPage } from './components/project-page';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Dialog =
   | { kind: 'create' }

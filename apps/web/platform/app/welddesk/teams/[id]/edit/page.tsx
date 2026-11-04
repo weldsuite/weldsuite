@@ -2,7 +2,7 @@
 import { useParams } from '@/lib/router';
 import { useDepartment } from '@/hooks/queries/use-helpdesk-queries';
 import { DepartmentForm } from '../../components/department-form';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function EditDepartmentPage() {
   const params = useParams();

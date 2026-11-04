@@ -27,8 +27,9 @@ import type {
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { useMoveWeldPassItem } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function MoveItemDialog({
   item,

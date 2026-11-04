@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { useAuth, useOrganizationList, ClerkOnly } from '@/lib/auth';
 import { useClerk } from '@/lib/auth/clerk';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { useOpenAIPixel } from '@/hooks/use-openai-pixel';
 import { consumeSignupIntent, measureRegistrationCompleted } from '@/lib/openai-ads';

@@ -12,15 +12,19 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPaySchedule } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { usePathname } from '@/lib/router';
 import { useDeleteHrPaySchedule, useHrPayrollEmployers, useHrPayrollSchedules } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { DashboardPage, EmptyText, SectionCard, useHrBreadcrumbs } from '../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
+import { useHrBreadcrumbs } from '../../components/page-kit';
+import { errorMessage, formatDate } from '../../components/shared';
 import { PayrollGate } from '../components/payroll-ui';
 import { ScheduleDialog } from '../components/schedule-dialog';
 import { periodRange } from '../lib/format';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export default function WeldHrPayrollSettingsPage() {
   return (

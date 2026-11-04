@@ -3,7 +3,8 @@ import React from 'react';
 import { useParams } from '@/lib/router';
 import TicketListClient from '../ticket-list-client';
 import TicketDetailClient from './ticket-detail-client';
-import { ListDetailLayout } from '@/components/list-detail-layout';
+import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
+import { useIsDetailSelected } from '@/hooks/use-is-detail-selected';
 import { useTicket } from '@/hooks/queries/use-helpdesk-queries';
 import { Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -38,10 +39,12 @@ export default function TicketPage() {
     );
   }
 
+  const isDetailSelected = useIsDetailSelected('/welddesk/tickets');
+
   return (
     <ListDetailLayout
       listWidth={420}
-      basePath="/welddesk/tickets"
+      isDetailSelected={isDetailSelected}
       list={<TicketListClient />}
     >
       {detailContent}

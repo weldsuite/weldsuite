@@ -1,20 +1,22 @@
+'use client';
+
 import * as React from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { CommandGroup, CommandItem, CommandSeparator } from '@weldsuite/ui/components/command';
-import { cn } from '@/lib/utils';
+import { cn } from '@weldsuite/ui/lib/utils';
 
 /**
  * Building blocks for field pickers (status, assignees, labels, owner, …) so
- * every picker in the platform's panels is the stock shadcn Command list with
- * the same check mark, the same "Clear" row and the same scrolling behaviour.
+ * every picker is the stock Command list with the same check mark, the same
+ * "Clear" row and the same scrolling behaviour.
  */
 
-/** Trailing check on the active row of a picker — shadcn's combobox pattern. */
+/** Trailing check on the active row of a picker (shadcn's combobox pattern). */
 export function PickerCheck({ selected }: Readonly<{ selected: boolean }>) {
   return <Check className={cn('ml-auto', selected ? 'opacity-100' : 'opacity-0')} />;
 }
 
-/** "Clear" row of a picker, styled like shadcn's destructive menu item. */
+/** "Clear" row of a picker, styled like a destructive menu item. */
 export function ClearPickerItem({ label, onSelect }: Readonly<{ label: string; onSelect: () => void }>) {
   return (
     <CommandItem
@@ -50,7 +52,8 @@ export function PickerFooter({ children }: Readonly<{ children: React.ReactNode 
 
 /**
  * For pickers without a search input: move focus to the Command list when the
- * popover opens, so the arrow keys and Enter work as they do in a menu.
+ * popover opens, so the arrow keys and Enter work as they do in a menu. Pass it
+ * as `PopoverContent`'s `onOpenAutoFocus`.
  */
 export function focusPickerList(event: Event) {
   event.preventDefault();

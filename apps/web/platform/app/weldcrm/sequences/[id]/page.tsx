@@ -7,7 +7,7 @@ import { useSequence, useLaunchSequence, useResumeSequence, usePauseSequence } f
 import { SequenceWizardNav } from './components/sequence-wizard-nav';
 import { WorkflowEditorShell } from '@/components/workflow-editor';
 import type { WorkflowEditorShellProps } from '@/components/workflow-editor/workflow-editor-shell';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { CheckCircle2, XCircle } from 'lucide-react';

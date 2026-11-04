@@ -24,7 +24,7 @@ import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfi
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { documentsApi } from '@/app/weldflow/lib/api-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { toast } from 'sonner';
 
 interface DocumentItem {

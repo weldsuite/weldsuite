@@ -5,7 +5,7 @@ import type { ReachDomain } from '@weldsuite/app-api-client/schemas/reach';
 import { useReachAccess, useReachDomainCandidates } from '@/hooks/queries/use-reach-queries';
 import { DomainCandidateList, WeldHostDomainShortcuts } from '../components/domain-candidates';
 import { DomainStatusBadge } from '../components/status';
-import { ErrorPanel } from '../components/page-kit';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { StepFooter, StepFrame } from './setup-shell';
 
 export function DomainsStep({
@@ -62,7 +62,7 @@ export function DomainsStep({
             {t('reach.common.loading')}
           </div>
         )}
-        {candidates.isError && <ErrorPanel onRetry={() => void candidates.refetch()} />}
+        {candidates.isError && <ErrorState onRetry={() => void candidates.refetch()} />}
         {candidates.data && <DomainCandidateList candidates={candidates.data} canConnect={canConnect} />}
       </div>
 

@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAccountingInvoice } from '@/hooks/queries/use-accounting-queries';
 import { InvoiceForm } from '../../components/invoice-form';
 

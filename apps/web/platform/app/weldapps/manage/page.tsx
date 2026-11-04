@@ -13,7 +13,7 @@ import {
   TableCell,
 } from '@weldsuite/ui/components/table';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { TranslationNamespaces } from '@/lib/i18n';
 import { useMyUserApps, type UserApp } from '@/hooks/queries/use-user-apps-queries';

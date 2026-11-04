@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type {
   TicketMessage,
   TicketTypeConfig,

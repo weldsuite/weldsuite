@@ -15,7 +15,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDisconnectPayrollConnection,
   useSetPayrollConnectionMapping,

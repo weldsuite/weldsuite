@@ -2,7 +2,7 @@
 import { useParams } from '@/lib/router';
 import { MessagesClient } from './messages-client';
 import { useProjectMessages } from '@/hooks/queries/use-projects-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function ProjectMessagesPage() {
   const params = useParams();

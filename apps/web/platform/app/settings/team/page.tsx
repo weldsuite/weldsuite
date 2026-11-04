@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useAuth } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { TeamSection, type TeamMember } from '@/components/settings';
 import {
   useTeamMembers,
@@ -15,7 +15,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { MemberDetailPanel } from '@/components/settings/member-detail-panel';
 import { PendingInvitationsSection } from '@/components/settings/pending-invitations-section';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';

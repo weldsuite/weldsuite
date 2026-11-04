@@ -19,9 +19,9 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { ReconciliationStatus } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { DateRangeFilter } from '../shared/date-range';
 import { DocumentLink } from '../shared/document-link';
-import { Notice } from '../shared/notice';
 import { EmptyState, ErrorState, RowsSkeleton } from '../shared/query-states';
 import { fill, toCents } from '../shared/text';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const STATUS_VARIANT: Record<ReconciliationStatus, 'success' | 'secondary' | 'destructive' | 'warning'> = {
   ok: 'success',
@@ -80,9 +80,9 @@ export function ProviderReconciliationReport() {
               {fill(tc.showingRange, { from: formatDate(report.from), to: formatDate(report.to) })}
             </span>
           </div>
-          <Notice tone="info">
+          <InfoBanner>
             <p>{tp.note}</p>
-          </Notice>
+          </InfoBanner>
 
           {report.periods.length > 0 ? (
             <div className="space-y-2">

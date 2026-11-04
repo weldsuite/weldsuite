@@ -1,7 +1,7 @@
 import { useParams } from '@/lib/router';
 import { ServerPipelineKanban } from '@/components/weldcrm/pipeline/server-pipeline-kanban';
 import { usePipeline } from '@/hooks/queries/use-pipelines-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 export default function DynamicPipelinePage() {

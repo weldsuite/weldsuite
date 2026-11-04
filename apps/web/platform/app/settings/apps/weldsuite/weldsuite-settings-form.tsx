@@ -7,7 +7,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
 import { useUserPreferences, useUpdateUserPreferences } from '@/hooks/queries/use-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AppIcon } from '@/components/app-icon';
 import { HOME_WIDGETS, WIDGETS_BY_MODULE, emptySlots, isWidgetEnabled, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
 import { WIDGET_MODULES, type HomeWidgetSlot, type WidgetId, type WidgetModule } from '@/lib/home-widgets/types';

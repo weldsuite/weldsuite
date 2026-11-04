@@ -2,7 +2,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrLeaveBalance } from '@weldsuite/app-api-client/domains/weldhr';
-import { EmptyText } from '../../components/page-kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { ColorDot } from './shared';
 
 export function LeaveBalanceTiles({ balances }: Readonly<{ balances: HrLeaveBalance[] }>) {

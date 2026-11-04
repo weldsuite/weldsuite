@@ -20,15 +20,13 @@ import { useReachMailboxes } from '@/hooks/queries/use-reach-queries';
 import { Link } from '@/lib/router';
 import { MailboxStatusBadge } from '@/app/weldreach/components/engage/badges';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  EmptyText,
-  ErrorBanner,
-  InlineSpinner,
-  Notice,
-  SectionCard,
-  TabBody,
-  errorMessage,
-} from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 function sameSet(a: Set<string>, b: string[]): boolean {
   return a.size === b.length && b.every((id) => a.has(id));
@@ -179,9 +177,9 @@ export function MailboxesTab({
       <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
       {selected.size > 0 && !canSend && !mailboxes.isLoading && (
-        <Notice tone="warning" title={t('reachEngage.mailboxes.noActiveTitle')}>
+        <InfoBanner variant="warning" title={t('reachEngage.mailboxes.noActiveTitle')}>
           {t('reachEngage.mailboxes.noActiveHint')}
-        </Notice>
+        </InfoBanner>
       )}
 
       <SectionCard

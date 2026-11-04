@@ -2,15 +2,15 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSsoConfig } from '@/hooks/queries/use-sso-queries';
 import { SsoActivateStep } from './sso-activate-step';
 import { SsoAddonCard } from './sso-addon-card';
 import { SsoConnectionStep } from './sso-connection-step';
 import { SsoDomainStep } from './sso-domain-step';
-import { Notice } from './sso-parts';
 import { ssoStatus, type SsoStatus } from './sso-view';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const STATUS_BADGE: Record<SsoStatus, 'success' | 'secondary' | 'outline'> = {
   active: 'success',
@@ -77,7 +77,7 @@ export default function SsoSettingsPage() {
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
 
-      {!canManage && <Notice>{ts.readOnlyNotice}</Notice>}
+      {!canManage && <InfoBanner variant="neutral">{ts.readOnlyNotice}</InfoBanner>}
 
       <SsoAddonCard />
 

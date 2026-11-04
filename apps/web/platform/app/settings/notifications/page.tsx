@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useI18n } from '@/lib/i18n/provider';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AppIcon } from '@/components/app-icon';
 import { toast } from 'sonner';
 import { Switch } from '@weldsuite/ui/components/switch';

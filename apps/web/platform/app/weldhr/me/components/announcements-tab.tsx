@@ -14,8 +14,9 @@ import type { HrSelfAnnouncement } from '@weldsuite/app-api-client/domains/weldh
 import { useMyHrAnnouncements, useMyHrMarkAnnouncementRead } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { emptyIcon } from '../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
+import { errorMessage, formatDate } from '../../components/shared';
 import { TabLoading } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function MyAnnouncementsTab({ openId }: Readonly<{ openId?: string }>) {
   const t = useTranslations();

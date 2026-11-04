@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { CustomerDetailClient } from './customer-detail-client';
 import { useHelpdeskCustomer, useHelpdeskCustomerConversations } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 

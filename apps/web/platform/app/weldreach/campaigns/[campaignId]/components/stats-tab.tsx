@@ -23,14 +23,12 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { ReachCampaignDetail } from '@weldsuite/app-api-client/schemas/reach';
 import { useReachStepStats } from '@/hooks/queries/use-reach-campaign-queries';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  EmptyText,
-  ErrorBanner,
-  InlineSpinner,
-  SectionCard,
-  TabBody,
-  errorMessage,
-} from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
 
 function Kpi({
   label,

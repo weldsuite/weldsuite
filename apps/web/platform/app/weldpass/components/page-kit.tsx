@@ -11,15 +11,15 @@
  *   button, plus the section's search and buttons) and the underline tab strip
  *   of the WeldMeet meeting page, then either a full-bleed list or content
  *   padded with `TabBody`.
- * - Overview pages use `DashboardPage`.
+ * - Overview pages use `DashboardPage`, `TabBody` pads a non-list section and
+ *   `SectionCard` / `EmptyText` build its content (all from `@weldsuite/ui`).
  * - Loading is `<PageLoader fullScreen={false} />`; confirmations use
- *   `ConfirmDialog` from `@/components/confirm-dialog`.
+ *   `ConfirmDialog` (both from `@weldsuite/ui`).
  */
 
 import type { ComponentType, ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { ListToolbar, type ListToolbarProps } from '@weldsuite/ui/components/list-toolbar';
 import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -150,84 +150,6 @@ export function TabsPage({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
-    </div>
-  );
-}
-
-/** Padded content for a non-list tab section. */
-export function TabBody({
-  children,
-  className,
-}: Readonly<{ children: ReactNode; className?: string }>) {
-  return <div className={cn('space-y-6 p-6', className)}>{children}</div>;
-}
-
-// ---------------------------------------------------------------------------
-// Cards
-// ---------------------------------------------------------------------------
-
-/** A titled card section on an overview or settings-like page. */
-export function SectionCard({
-  title,
-  description,
-  action,
-  children,
-  className,
-  contentClassName,
-}: Readonly<{
-  title: ReactNode;
-  description?: ReactNode;
-  action?: ReactNode;
-  children: ReactNode;
-  className?: string;
-  contentClassName?: string;
-}>) {
-  return (
-    <Card className={className}>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-3">
-        <div className="min-w-0 space-y-1">
-          <CardTitle className="text-base font-semibold">{title}</CardTitle>
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
-        </div>
-        {action}
-      </CardHeader>
-      <CardContent className={contentClassName}>{children}</CardContent>
-    </Card>
-  );
-}
-
-/** Quiet inline empty text for small lists inside cards (full pages use EntityList's empty state). */
-export function EmptyText({ children }: Readonly<{ children: ReactNode }>) {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{children}</p>;
-}
-
-// ---------------------------------------------------------------------------
-// Overview pages
-// ---------------------------------------------------------------------------
-
-export function DashboardPage({
-  title,
-  description,
-  actions,
-  children,
-}: Readonly<{
-  title: ReactNode;
-  description?: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-}>) {
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h1 className="text-2xl font-semibold">{title}</h1>
-            {description && <p className="text-sm text-muted-foreground">{description}</p>}
-          </div>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
-        </div>
-        {children}
-      </div>
     </div>
   );
 }

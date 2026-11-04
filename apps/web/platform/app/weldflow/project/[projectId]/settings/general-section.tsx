@@ -12,7 +12,7 @@ import { FolderKanban, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useRouter } from '@/lib/router';
 import { DeleteProjectDialog } from '@/app/weldflow/components/delete-project-dialog';
 import { useI18n } from '@/lib/i18n/provider';

@@ -5,7 +5,7 @@ import { useCreateBill } from '@/hooks/queries/use-accounting-queries';
 import { BillForm, type BillPayload, type BillPrefill } from '../components/bill-form';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft, Sparkles } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';

@@ -1,5 +1,5 @@
 
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTriggerTypes, useEntityEvents, type TriggerType } from '@/hooks/queries/use-automation-queries';
 import { TriggersClient } from './triggers-client';

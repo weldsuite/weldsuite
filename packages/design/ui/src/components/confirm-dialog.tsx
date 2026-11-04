@@ -10,13 +10,16 @@ import {
 import { Button, buttonVariants } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Loader2 } from 'lucide-react';
+import { useUiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 
 export interface ConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description: React.ReactNode;
+  /** Defaults to the `confirm` label of `UiLabelsProvider`. */
   confirmLabel?: string;
+  /** Defaults to the `cancel` label of `UiLabelsProvider`. */
   cancelLabel?: string;
   variant?: 'default' | 'destructive';
   loading?: boolean;
@@ -28,12 +31,13 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'default',
   loading = false,
   onConfirm,
 }: Readonly<ConfirmDialogProps>) {
+  const labels = useUiLabels();
   const [pending, setPending] = React.useState(false);
   const isLoading = loading || pending;
 
@@ -60,7 +64,7 @@ export function ConfirmDialog({
             disabled={isLoading}
             onClick={() => onOpenChange(false)}
           >
-            {cancelLabel}
+            {cancelLabel ?? labels.cancel}
           </Button>
           <Button
             type="button"
@@ -69,7 +73,7 @@ export function ConfirmDialog({
             className={cn(variant === 'destructive' && buttonVariants({ variant: 'destructive' }))}
           >
             {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {confirmLabel}
+            {confirmLabel ?? labels.confirm}
           </Button>
         </DialogFooter>
       </DialogContent>

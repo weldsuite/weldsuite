@@ -8,7 +8,7 @@ import type { SheetDataRefreshResult, SheetDataSource } from '@weldsuite/app-api
 import { findDataTable, formatA1 } from '@weldsuite/sheets-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Person } from '../editor/comments/comments-panel';

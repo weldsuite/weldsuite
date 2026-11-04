@@ -1,7 +1,7 @@
 import { useParams } from '@/lib/router';
 import { useProjectMembers, useProjectAvailableUsers } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SettingsClient } from './settings-client';
 
 export default function ProjectSettingsPage() {

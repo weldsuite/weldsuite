@@ -3,7 +3,7 @@ import React, { useState, useMemo, useTransition, useEffect, useCallback, useRef
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';

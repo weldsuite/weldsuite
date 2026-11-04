@@ -24,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { ReachSuppression } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useAddReachSuppressions,
   useDeleteReachSuppression,
@@ -33,7 +33,9 @@ import {
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { useReachFormat } from '@/lib/reach/format';
 import { parseSuppressionInput } from '@/lib/reach/suppressions';
-import { EmptyPanel, ErrorPanel, SectionCard } from '../components/page-kit';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 
 export function SuppressionsSection() {
   const t = useTranslations();
@@ -94,9 +96,9 @@ export function SuppressionsSection() {
           {t('reach.common.loading')}
         </div>
       )}
-      {suppressions.isError && <ErrorPanel onRetry={() => void suppressions.refetch()} />}
+      {suppressions.isError && <ErrorState onRetry={() => void suppressions.refetch()} />}
       {suppressions.data && rows.length === 0 && (
-        <EmptyPanel
+        <EmptyState
           icon={ShieldOff}
           title={debounced ? t('reach.settings.suppressions.emptySearch') : t('reach.settings.suppressions.empty')}
         />

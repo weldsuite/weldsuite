@@ -21,12 +21,12 @@ import {
   FormMessage,
 } from '@weldsuite/ui/components/form';
 import { SSO_PROVIDER_IDS, type SsoConfigView, type SsoProviderId } from '@weldsuite/app-api-client/schemas/sso';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRemoveSsoConnection, useSaveSsoConnection } from '@/hooks/queries/use-sso-queries';
 import { CopyField } from './copy-field';
 import { ssoErrorMessage } from './sso-errors';
-import { InlineError, Notice, StepCard } from './sso-parts';
+import { InlineError, StepCard } from './sso-parts';
 import {
   connectionInputFrom,
   idpFormValues,
@@ -36,6 +36,7 @@ import {
   type SsoConnection,
   type SsoIdp,
 } from './sso-view';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const IDP_METHODS: readonly IdpMethod[] = ['url', 'xml', 'manual'];
 
@@ -59,14 +60,14 @@ export function SsoConnectionStep({ config, canManage }: Readonly<SsoConnectionS
   if (!config.entitlement.entitled) {
     return (
       <StepCard {...header}>
-        <Notice>{copy.needsEntitlement}</Notice>
+        <InfoBanner variant="neutral">{copy.needsEntitlement}</InfoBanner>
       </StepCard>
     );
   }
   if (!config.domain?.verified) {
     return (
       <StepCard {...header}>
-        <Notice>{copy.needsDomain}</Notice>
+        <InfoBanner variant="neutral">{copy.needsDomain}</InfoBanner>
       </StepCard>
     );
   }

@@ -4,13 +4,15 @@ import { UserPlus, UserRoundSearch } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useMyHr } from '@/hooks/queries/use-weldhr-queries';
 import { CreateEmployeeDialog } from '../employees/components/create-employee-dialog';
-import { DetailPage, emptyIcon } from '../components/page-kit';
-import { ErrorBanner, errorMessage } from '../components/shared';
+import { emptyIcon } from '../components/page-kit';
+import { errorMessage } from '../components/shared';
 import { MyHrProvider } from './components/my-hr-context';
 import { useMyHrBreadcrumbs } from './components/my-hr-page';
+import { DetailPage } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /**
  * My HR: the signed-in member's own WeldHR employee record, one page per

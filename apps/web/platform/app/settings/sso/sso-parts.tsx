@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { AlertCircle, Check, Info } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { cn } from '@/lib/utils';
 
@@ -53,17 +53,3 @@ export function InlineError({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-/** Something the person should know before going on: neutral, or a warning. */
-export function Notice({ tone = 'info', children }: Readonly<{ tone?: 'info' | 'warning'; children: ReactNode }>) {
-  return (
-    <Alert
-      className={cn(
-        tone === 'warning' &&
-          'border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200',
-      )}
-    >
-      <Info />
-      <AlertDescription className={cn(tone === 'warning' && 'text-amber-800 dark:text-amber-300')}>{children}</AlertDescription>
-    </Alert>
-  );
-}

@@ -2,7 +2,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PackageCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';

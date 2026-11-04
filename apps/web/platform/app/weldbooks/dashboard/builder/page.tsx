@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAccountingDashboard } from '@/hooks/queries/use-accounting-queries';
 import { useDashboardCharts } from '@/hooks/queries/use-weldbooks-dashboard-charts';
 import { useI18n } from '@/lib/i18n/provider';

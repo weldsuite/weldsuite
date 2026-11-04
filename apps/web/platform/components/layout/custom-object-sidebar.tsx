@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { Box, Settings } from 'lucide-react';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import type { ModuleSidebarConfig } from './module-sidebar-configs';
 
 function objectIcon(name?: string): ComponentType<{ className?: string }> {

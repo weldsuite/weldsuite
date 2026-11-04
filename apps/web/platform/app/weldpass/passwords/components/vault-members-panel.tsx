@@ -22,7 +22,7 @@ import type {
   WeldPassVaultMember,
   WeldPassVaultRole,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useAddWeldPassVaultMember,
   useRemoveWeldPassVaultMember,
@@ -30,8 +30,10 @@ import {
   useWeldPassTeammates,
   useWeldPassVaultMembers,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, InlineSpinner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 export const VAULT_ROLES: WeldPassVaultRole[] = ['viewer', 'editor', 'manager'];
 

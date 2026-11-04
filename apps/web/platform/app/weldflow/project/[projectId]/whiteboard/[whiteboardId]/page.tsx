@@ -8,7 +8,7 @@ import { useProjectPermissions } from '@/app/weldflow/contexts/project-permissio
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { WhiteboardView } from '@/components/weldflow/whiteboard/whiteboard-view';
 import { whiteboardApi, type WhiteboardElement } from '@/app/weldflow/lib/api-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 export default function WhiteboardDetailPage() {

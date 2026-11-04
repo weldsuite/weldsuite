@@ -1,5 +1,5 @@
 
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useActionTypes, type ActionType } from '@/hooks/queries/use-automation-queries';
 import { ActionsClient } from './actions-client';
 import { useI18n } from '@/lib/i18n/provider';

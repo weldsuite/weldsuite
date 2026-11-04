@@ -5,7 +5,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { useRouter } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { whiteboardApi } from '@/app/weldflow/lib/api-client';
 import { projectKeys, useProjects } from '@/hooks/queries/use-projects-queries';

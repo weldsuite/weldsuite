@@ -36,8 +36,8 @@ import {
   type WorkflowExecution,
 } from '@/hooks/queries/use-automation-queries';
 import { useEditorWorkspaceMembers } from '@/hooks/use-workflow-editor-data';
-import { PageLoader } from '@/components/page-loader';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { getTriggerLabel } from '../../trigger-labels';
 import {

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function SequenceEditPage() {
   const { id } = useParams<{ id: string }>();

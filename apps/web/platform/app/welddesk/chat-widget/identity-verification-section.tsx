@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { copyText } from '@/lib/clipboard';
 import { useI18n } from '@/lib/i18n/provider';
 import {

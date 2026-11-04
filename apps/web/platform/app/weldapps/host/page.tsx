@@ -4,7 +4,7 @@ import { Puzzle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@weldsuite/ui/lib/utils';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link, useParams, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { userAppRelativePath } from '@/components/layout/user-app-sidebar';

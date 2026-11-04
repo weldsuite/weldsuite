@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useHelpdeskWorkflows, useCreateWorkflow, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { WorkflowsClient } from '@/app/weldconnect/workflows/components/workflows-client';
 import { WorkflowTemplatesDialog } from '@/app/welddesk/workflows/components/workflow-templates-dialog';
@@ -10,7 +10,7 @@ import type { HelpdeskTriggerDef } from '@/app/welddesk/workflows/[id]/edit/help
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 
 /**
  * `/helpdesk-workflows` also returns a display `sortOrder`, which the

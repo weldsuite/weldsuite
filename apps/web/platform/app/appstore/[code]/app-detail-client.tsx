@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@welds
 import { Loader2, Globe, FileText, Mail, CheckCircle, ChevronLeft, TrendingUp, Headphones, MessageSquare, CheckSquare, Server, Calculator, Layers, Info, type LucideIcon } from 'lucide-react';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import { BetaBadge } from '@/components/layout/beta-badge';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';

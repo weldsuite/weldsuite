@@ -6,7 +6,7 @@ import { DialogFooter } from '@weldsuite/ui/components/dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ReachImportReport } from '@weldsuite/app-api-client/schemas/reach';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { ErrorBanner } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type SkipReason = ReachImportReport['skipped'][number]['reason'];
 

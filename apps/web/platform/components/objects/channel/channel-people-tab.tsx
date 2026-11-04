@@ -22,7 +22,7 @@ import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useChatContext } from '@/app/weldchat/components/chat-context';
 import { InviteAgentPicker, useCanInviteAgents } from '@/app/weldchat/components/invite-agent-picker';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {

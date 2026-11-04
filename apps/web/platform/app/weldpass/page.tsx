@@ -29,11 +29,12 @@ import {
   useCreateWeldPassProject,
   useWeldPassProjects,
 } from '@/hooks/queries/use-weldpass-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from './components/page-kit';
-import { ErrorBanner, errorMessage } from './components/shared';
+import { errorMessage } from './components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export default function WeldPassLandingPage() {
   const { can, isLoading } = usePermissions();

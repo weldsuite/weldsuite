@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowNumberChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';

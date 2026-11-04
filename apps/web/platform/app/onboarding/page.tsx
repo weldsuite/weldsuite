@@ -2,7 +2,7 @@
 import { useAuth } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import { useEffect, useMemo } from 'react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { OnboardingPageClient } from './onboarding-page-client';
 import { detectUserCountry } from './types';
 

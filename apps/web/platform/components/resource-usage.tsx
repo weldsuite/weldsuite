@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useState, useEffect } from 'react';
 import { Coins } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import * as ProgressPrimitive from "@radix-ui/react-progress";
+import { Progress } from '@weldsuite/ui/components/progress';
 import {
   Tooltip,
   TooltipContent,
@@ -38,17 +38,11 @@ function UsageProgressBar({ value, thresholds, className }: Readonly<{
   };
 
   return (
-    <ProgressPrimitive.Root
-      className={cn(
-        "bg-secondary relative h-1.5 w-full overflow-hidden rounded-full",
-        className
-      )}
-    >
-      <ProgressPrimitive.Indicator
-        className={cn("h-full w-full flex-1 transition-all", getIndicatorColor(value))}
-        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
-      />
-    </ProgressPrimitive.Root>
+    <Progress
+      value={value}
+      className={cn('bg-secondary h-1.5', className)}
+      indicatorClassName={getIndicatorColor(value)}
+    />
   );
 }
 

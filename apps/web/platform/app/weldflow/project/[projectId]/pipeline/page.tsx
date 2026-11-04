@@ -1,7 +1,7 @@
 ﻿
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   DndContext,
   DragEndEvent,

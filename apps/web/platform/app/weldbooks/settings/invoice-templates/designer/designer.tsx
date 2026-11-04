@@ -15,7 +15,7 @@ import {
 import { Cuboid, Layers2 } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useUpdateAccountingEntity } from '@/hooks/queries/use-accounting-queries';
 import { useUpdateInvoiceTemplate } from '@/hooks/queries/use-invoice-template-queries';
 import type { AccountingEntity, UpdateAccountingEntityInput } from '@/lib/api/domains/weldbooks';

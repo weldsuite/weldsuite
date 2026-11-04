@@ -15,7 +15,7 @@ import { Form } from '@weldsuite/ui/components/form';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollPaymentDetailsMasked, HrPayrollCountry } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { hrPayrollPaymentDetailsSchema, type HrPayrollPaymentDetailsInput } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
-import { ErrorBanner } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { SelectField, TextField } from './form-fields';
 import { FormSection } from './payroll-ui';
 

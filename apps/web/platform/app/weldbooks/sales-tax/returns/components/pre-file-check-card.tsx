@@ -15,10 +15,10 @@ import { usePreFileCheck } from '@/hooks/queries/use-weldbooks-sales-tax-center-
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { PreFileCheck, PreFileFinding, TaxReturnDetail } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { DocumentLink } from '../../shared/document-link';
-import { Notice } from '../../shared/notice';
 import { ErrorState, RowsSkeleton } from '../../shared/query-states';
 import { fill } from '../../shared/text';
 import { parseSkipped } from '../return-model';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 /** The server's per-document reasons we have a translation for. */
 const KNOWN_DOCUMENT_REASONS: Record<string, 'noShipTo' | 'noLedgerRows' | 'incomeDiffers' | 'incomeWithoutTaxData' | 'directEntry'> = {
@@ -119,15 +119,15 @@ export function PreFileCheckResult({ check, filed }: Readonly<PreFileCheckResult
   return (
     <>
       {check.ok ? (
-        <Notice tone="success" title={tp.ok} data-testid="pre-file-ok">
+        <InfoBanner variant="success" title={tp.ok} data-testid="pre-file-ok">
           <p>{tp.okDescription}</p>
-        </Notice>
+        </InfoBanner>
       ) : (
-        <Notice tone="warning" data-testid="pre-file-issues">
+        <InfoBanner variant="warning" data-testid="pre-file-issues">
           <p className="font-medium">
             {check.findings.length === 1 ? tp.issuesOne : fill(tp.issuesMany, { count: check.findings.length })}
           </p>
-        </Notice>
+        </InfoBanner>
       )}
 
       {check.comparison ? (

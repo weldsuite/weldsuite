@@ -71,7 +71,7 @@ import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-s
 import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';

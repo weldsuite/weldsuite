@@ -7,7 +7,7 @@ import { ModuleContent } from '@/components/layout/module-content';
 import { useAvailableApps, useAppCategories, useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import { AppStoreClient } from './app-store-client';
 import { AppStoreNoAccess } from './appstore-no-access';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';
 

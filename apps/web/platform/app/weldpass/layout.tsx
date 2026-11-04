@@ -1,6 +1,6 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';

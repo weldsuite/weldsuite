@@ -8,7 +8,7 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { setWeldbooksEntityId } from '@/lib/api/weldbooks-client';

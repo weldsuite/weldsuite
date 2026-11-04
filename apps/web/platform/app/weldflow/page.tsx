@@ -4,7 +4,7 @@ import { MyTasksClient } from './my-tasks/my-tasks-client';
 import { useInfiniteProjects } from '@/hooks/queries/use-projects-queries';
 import { useInfiniteMyTasks, type MyTasksFilters } from '@/hooks/queries/use-task-queries';
 import { useDebounce } from '@/hooks/use-debounce';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { ListLoadError } from '@/app/weldflow/components/list-load-error';
 import type { ActiveFilter, SortState } from '@/components/entity-list';

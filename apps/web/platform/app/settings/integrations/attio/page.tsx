@@ -11,7 +11,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
 import {
   Table,
@@ -30,7 +30,7 @@ import {
   useConnectAttio,
   useIntegrationSyncLogs,
 } from '@/hooks/queries/use-integration-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 function formatDate(dateStr: string | null, neverLabel: string): string {
   if (!dateStr) return neverLabel;

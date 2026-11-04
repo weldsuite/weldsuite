@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import SlackListClient from './slack-list-client';
-import { ListDetailLayout } from '@/components/list-detail-layout';
+import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
+import { useIsDetailSelected } from '@/hooks/use-is-detail-selected';
 import { useConversations } from '@/hooks/queries/use-helpdesk-queries';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
@@ -23,10 +24,12 @@ export default function SlackInboxLayout({
     });
   }, [getToken]);
 
+  const isDetailSelected = useIsDetailSelected('/welddesk/inbox/slack');
+
   return (
     <ListDetailLayout
       listWidth={420}
-      basePath="/welddesk/inbox/slack"
+      isDetailSelected={isDetailSelected}
       list={
         <SlackListClient
           initialConversations={conversations}

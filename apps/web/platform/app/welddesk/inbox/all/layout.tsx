@@ -2,7 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import ConversationListClient from './conversation-list-client';
-import { ListDetailLayout } from '@/components/list-detail-layout';
+import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
+import { useIsDetailSelected } from '@/hooks/use-is-detail-selected';
 import { useConversations } from '@/hooks/queries/use-helpdesk-queries';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
@@ -23,10 +24,12 @@ export default function AllInboxLayout({
     });
   }, [getToken]);
 
+  const isDetailSelected = useIsDetailSelected('/welddesk/inbox/all');
+
   return (
     <ListDetailLayout
       listWidth={420}
-      basePath="/welddesk/inbox/all"
+      isDetailSelected={isDetailSelected}
       list={
         <ConversationListClient
           initialConversations={conversations}

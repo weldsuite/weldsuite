@@ -4,7 +4,7 @@ import { useUser } from '@/lib/auth';
 import { NotesView } from '@/components/weldcrm/notes/notes-view';
 import { useNotes } from '@/hooks/queries/use-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 type RecordKind = 'company' | 'person';
 

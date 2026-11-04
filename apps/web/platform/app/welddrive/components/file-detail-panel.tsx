@@ -32,7 +32,7 @@ import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, form
 import { DriveFileAccess } from './drive-access-list';
 import { driveSourceKey, driveSourceLabel } from './drive-utils';
 import { CommentsList, DescriptionField, type TaskComment } from '@/components/task-detail/task-detail-content';
-import { AuditTimeline, AuditTimelineSkeleton } from '@/components/audit-timeline';
+import { AuditTimeline, AuditTimelineSkeleton } from '@weldsuite/ui/components/audit-timeline';
 import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';

@@ -5,7 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useUpdateLockDates } from '@/hooks/queries/use-accounting-queries';
 import type { AccountingEntity, UpdateLockDatesInput } from '@/lib/api/domains/weldbooks';
 import { toCalendarDate } from '@/lib/weldbooks/format';

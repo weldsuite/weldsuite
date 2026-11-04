@@ -12,7 +12,7 @@ import {
   GanttTreeView,
 } from '@weldsuite/ui/components/gantt';
 import { CalendarIcon, Check, ChevronDown, EyeIcon, LinkIcon, Milestone, MinusIcon, PencilIcon, PlusIcon, Search, SquarePen, TrashIcon, Trash2 } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
 import { toast } from 'sonner';

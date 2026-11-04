@@ -1,5 +1,5 @@
 import { useCan } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';

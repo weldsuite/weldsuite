@@ -1,7 +1,7 @@
 
 import { useProjectWorkload } from '@/hooks/queries/use-projects-queries';
 import { WorkloadClient } from './workload-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function WorkloadPage() {
   const { data, isLoading, error } = useProjectWorkload();

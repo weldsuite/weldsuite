@@ -5,7 +5,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import type { InstalledApp } from '@/lib/api/apps';
 import { MailLayoutClient } from './components/mail-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { markMailGatePassed } from './lib/open-timing';
 import { cachedWeldmailInstalled, canRenderMailGate } from './lib/mail-gate';

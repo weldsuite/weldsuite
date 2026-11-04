@@ -44,7 +44,7 @@ import { TIMEZONES } from '@/lib/timezones';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useWorkspaceSettings, useUpdateWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { CountrySelect } from '@/components/settings/country-select';

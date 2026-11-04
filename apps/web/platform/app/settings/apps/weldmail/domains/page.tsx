@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { EmptyStateIllustration } from '@/components/entity-list';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useMailAppSettings } from '@/hooks/queries/use-app-settings-queries';
 import { useUpdateMailDomain } from '@/hooks/queries/use-mail-queries';
 import { getTranslations } from '@/lib/i18n';

@@ -7,7 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCustomObjects } from '@/hooks/queries/use-custom-objects-queries';
 import { CreateObjectDialog } from './create-object-dialog';

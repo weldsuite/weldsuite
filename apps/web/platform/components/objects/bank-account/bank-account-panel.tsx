@@ -63,7 +63,7 @@ import {
   type ObjectPanelComponentProps,
 } from '@/components/object-panel';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';

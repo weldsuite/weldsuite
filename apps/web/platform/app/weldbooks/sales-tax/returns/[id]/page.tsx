@@ -8,7 +8,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import {
@@ -28,7 +28,6 @@ import {
   salesTaxCenterApi,
 } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { ReturnStatusBadge } from '../../shared/badges';
-import { Notice } from '../../shared/notice';
 import { EmptyState, ErrorState } from '../../shared/query-states';
 import { SalesTaxGate } from '../../shared/sales-tax-frame';
 import { daysUntil, dueCountdown, dueTone, fill } from '../../shared/text';
@@ -42,6 +41,7 @@ import { PreFileCheckCard } from '../components/pre-file-check-card';
 import { AmendmentsCard, FilingCard, NotesCard } from '../components/return-info-cards';
 import { ReturnStepper } from '../components/return-stepper';
 import { WorksheetCard } from '../components/worksheet-card';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 type ReturnTab = 'worksheet' | 'documents' | 'checks' | 'exceptions';
 
@@ -276,8 +276,7 @@ function ReturnContent({ id }: Readonly<{ id: string }>) {
       </Card>
 
       {openExceptions > 0 ? (
-        <Notice
-          tone="warning"
+        <InfoBanner variant="warning"
           data-testid="exceptions-banner"
           action={
             <Button variant="outline" size="sm" onClick={() => setTab('exceptions')}>
@@ -286,7 +285,7 @@ function ReturnContent({ id }: Readonly<{ id: string }>) {
           }
         >
           <p>{openExceptions === 1 ? tr.exceptions.bannerOne : fill(tr.exceptions.bannerMany, { count: openExceptions })}</p>
-        </Notice>
+        </InfoBanner>
       ) : null}
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as ReturnTab)}>

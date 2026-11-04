@@ -23,7 +23,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-vi.mock('@/components/page-loader', () => ({ PageLoader: () => null }));
+vi.mock('@weldsuite/ui/components/page-loader', () => ({ PageLoader: () => null }));
 
 let rolePermissions: string[] = [];
 let roleApps: string[] = [];

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Sun, Moon, Monitor } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Slider } from '@weldsuite/ui/components/slider';
 import { Separator } from '@weldsuite/ui/components/separator';

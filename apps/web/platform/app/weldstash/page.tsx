@@ -1,5 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { Link } from '@/lib/router';
 import { Package, Truck, Warehouse, Boxes } from 'lucide-react';
 import {
   useWeldstashProducts,
@@ -8,22 +6,7 @@ import {
   useWeldstashStock,
 } from '@/hooks/queries/use-weldstash-queries';
 import { getTranslations } from '@/lib/i18n';
-
-function StatCard({ label, value, icon: Icon, href }: Readonly<{ label: string; value: string | number; icon: typeof Package; href: string }>) {
-  return (
-    <Link href={href}>
-      <Card className="hover:bg-accent/40 transition-colors">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{value}</div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
+import { KpiCardLink } from '@/components/kpi-card-link';
 
 export default function WeldStashDashboard() {
   const t = getTranslations('common');
@@ -35,10 +18,10 @@ export default function WeldStashDashboard() {
   return (
     <div className="container mx-auto max-w-[1600px] p-6 space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard label={t.weldstash.dashboard.statProducts} value={products.data?.pagination.totalCount ?? '—'} icon={Package} href="/weldstash/products" />
-        <StatCard label={t.weldstash.dashboard.statSuppliers} value={suppliers.data?.pagination.totalCount ?? '—'} icon={Truck} href="/weldstash/suppliers" />
-        <StatCard label={t.weldstash.dashboard.statWarehouses} value={warehouses.data?.pagination.totalCount ?? '—'} icon={Warehouse} href="/weldstash/warehouses" />
-        <StatCard label={t.weldstash.dashboard.statLowStock} value={stock.data?.pagination.totalCount ?? '—'} icon={Boxes} href="/weldstash/stock?lowStockOnly=true" />
+        <KpiCardLink label={t.weldstash.dashboard.statProducts} value={products.data?.pagination.totalCount ?? '—'} icon={Package} href="/weldstash/products" />
+        <KpiCardLink label={t.weldstash.dashboard.statSuppliers} value={suppliers.data?.pagination.totalCount ?? '—'} icon={Truck} href="/weldstash/suppliers" />
+        <KpiCardLink label={t.weldstash.dashboard.statWarehouses} value={warehouses.data?.pagination.totalCount ?? '—'} icon={Warehouse} href="/weldstash/warehouses" />
+        <KpiCardLink label={t.weldstash.dashboard.statLowStock} value={stock.data?.pagination.totalCount ?? '—'} icon={Boxes} href="/weldstash/stock?lowStockOnly=true" />
       </div>
 
       {/*

@@ -10,7 +10,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import type { Peer, Presence } from '@weldsuite/sheets-engine';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getApiOriginForPath } from '@/lib/api/public-env';

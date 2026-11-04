@@ -1,3 +1,5 @@
+'use client';
+
 import {
   ArrowRightLeft,
   UserPlus,
@@ -14,6 +16,8 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { Button } from '@weldsuite/ui/components/button';
+import { useUiLabels, type UiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 import { asText } from '@weldsuite/text';
 
 export interface AuditLogEntry {
@@ -51,13 +55,49 @@ const actionColors: Record<string, { icon: string; bg: string }> = {
   updated: DEFAULT_ACTION_COLOR,
 };
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return 'none';
+type AuditValueLabels = UiLabels['auditTimeline'];
+
+function formatValue(value: unknown, labels: AuditValueLabels): string {
+  if (value === null || value === undefined) return labels.none;
   if (typeof value === 'object') return JSON.stringify(value);
   return asText(value);
 }
 
+/** "dueDate" -> "Due date", "assigneeName" -> "Assignee". */
+function formatFieldLabel(key: string): string {
+  const words = key
+    .replace(/(Name|Id)$/, '')
+    .replaceAll('_', ' ')
+    .replaceAll(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
+const ENUM_LIKE_FIELDS = new Set(['status', 'priority', 'type']);
+const ENUM_LABEL_OVERRIDES: Record<string, 'todo'> = { todo: 'todo' };
+
+/** "in_progress" -> "In progress", "todo" -> "To Do" for status-like fields. */
+function formatChangeValue(key: string, value: unknown, labels: AuditValueLabels): string {
+  if (key === 'repeat' && value && typeof value === 'object') {
+    const frequency = (value as { frequency?: unknown }).frequency;
+    if (typeof frequency === 'string') return frequency;
+  }
+  if (typeof value === 'string' && ENUM_LIKE_FIELDS.has(key)) {
+    const override = ENUM_LABEL_OVERRIDES[value];
+    if (override) return labels[override];
+    const words = value.replaceAll('_', ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && /(Date|At)$/.test(key)) {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
+  }
+  return formatValue(value, labels);
+}
+
 function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
+  const labels = useUiLabels().auditTimeline;
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
@@ -65,10 +105,10 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
     <div className="mt-1.5 space-y-0.5">
       {entries.map(([key, { from, to }]) => (
         <div key={key} className="text-[11px] text-muted-foreground">
-          <span className="font-medium">{key}</span>:{' '}
-          <span className="line-through opacity-60">{formatValue(from)}</span>
+          <span className="font-medium">{formatFieldLabel(key)}</span>:{' '}
+          <span className="line-through opacity-60">{formatChangeValue(key, from, labels)}</span>
           {' → '}
-          <span>{formatValue(to)}</span>
+          <span>{formatChangeValue(key, to, labels)}</span>
         </div>
       ))}
     </div>
@@ -78,6 +118,7 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
 const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
 function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
+  const labels = useUiLabels().auditTimeline;
   const entries = Object.entries(data).filter(
     ([key, value]) =>
       !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
@@ -88,7 +129,7 @@ function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
     <div className="mt-1.5 space-y-0.5">
       {entries.map(([key, value]) => (
         <div key={key} className="text-[11px] text-muted-foreground">
-          <span className="font-medium">{key}</span>: <span>{formatValue(value)}</span>
+          <span className="font-medium">{key}</span>: <span>{formatValue(value, labels)}</span>
         </div>
       ))}
     </div>
@@ -98,7 +139,7 @@ function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
 export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }>) {
   return (
     <div className="space-y-0">
-      {Array.from({ length: count }, (_, i) => `skeleton-${i}`).map((rowKey) => (
+      {Array.from({ length: count }, (_, n) => `skeleton-row-${n}`).map((rowKey) => (
         <div key={rowKey} className="flex gap-3 py-2 pl-0 pr-2">
           <Skeleton className="h-5 w-5 shrink-0 rounded-[6px]" />
           <div className="flex-1 space-y-1.5 pt-0.5">
@@ -113,16 +154,25 @@ export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }
 
 export interface AuditTimelineProps {
   logs: AuditLogEntry[];
+  /** Prefix each entry with its entity type (for timelines that mix record types). */
   showEntityType?: boolean;
+  /** Render field changes under each entry instead of behind "Details". */
+  alwaysShowChanges?: boolean;
 }
 
-export function AuditTimeline({ logs, showEntityType }: Readonly<AuditTimelineProps>) {
+/**
+ * A record's activity history: one row per audit event with an action icon,
+ * the description, a relative time and (behind "Details") the field changes.
+ * Its text comes from the `auditTimeline` labels of `UiLabelsProvider`.
+ */
+export function AuditTimeline({ logs, showEntityType, alwaysShowChanges = false }: Readonly<AuditTimelineProps>) {
+  const labels = useUiLabels().auditTimeline;
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {
     return (
       <div className="flex items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground">No activity yet</p>
+        <p className="text-sm text-muted-foreground">{labels.noActivity}</p>
       </div>
     );
   }
@@ -194,19 +244,19 @@ export function AuditTimeline({ logs, showEntityType }: Readonly<AuditTimelinePr
               </div>
 
               {/* Expandable details */}
-              {hasDetails && (
+              {hasChanges && alwaysShowChanges && <ChangeDetails changes={log.changes!} />}
+              {hasDetails && !(hasChanges && alwaysShowChanges) && (
                 <>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="xs"
                     onClick={() => toggleExpanded(log.id)}
+                    aria-expanded={isExpanded}
                     className="flex items-center gap-0.5 mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    {isExpanded ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                    Details
-                  </button>
+                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    {labels.details}
+                  </Button>
                   {isExpanded && hasChanges && <ChangeDetails changes={log.changes!} />}
                   {isExpanded && !hasChanges && hasData && <DataSnapshot data={log.data!} />}
                 </>

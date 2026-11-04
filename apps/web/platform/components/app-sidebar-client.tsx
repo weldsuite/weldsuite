@@ -34,7 +34,7 @@ import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps
 import { applyVisibleOrder, rememberAppCodes, sortByAppOrder } from '@/lib/apps/app-rail-order';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { isModuleOffered } from '@/lib/edition';
 
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are

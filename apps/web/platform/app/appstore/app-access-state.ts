@@ -7,7 +7,7 @@
  * needed" and the normal Install button shows.
  */
 
-import type { SoftTone } from '@/components/shared/soft-badge';
+import type { SoftTone } from '@weldsuite/ui/components/soft-badge';
 import type { AvailableApp } from '@/hooks/queries/use-settings-queries';
 
 export type AppAccessState = 'none' | 'requested' | 'approved' | 'rejected' | 'suspended' | 'revoked';

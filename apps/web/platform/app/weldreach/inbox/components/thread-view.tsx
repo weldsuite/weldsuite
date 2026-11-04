@@ -43,12 +43,7 @@ import {
   replyLabelKey,
 } from '@/app/weldreach/components/engage/badges';
 import { personName, useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  EmptyText,
-  ErrorBanner,
-  InlineSpinner,
-  errorMessage,
-} from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
 import {
   canReplyToThread,
   isHandled,
@@ -58,6 +53,9 @@ import {
 } from '../lib/thread-state';
 import { AddToCrmDialog } from './add-to-crm-dialog';
 import { ReplyComposer } from './reply-composer';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 export function ThreadView({
   threadKey,

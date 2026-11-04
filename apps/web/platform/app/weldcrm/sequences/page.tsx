@@ -1,7 +1,7 @@
 
 import { useSequences } from '@/hooks/queries/use-sequences-queries';
 import { SequencesListClient } from './components/sequences-list-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function SequencesPage() {
   const { data, isLoading } = useSequences();

@@ -10,7 +10,7 @@ import { useMailAccounts ,
   useWeldMailDomain,
   useMailDomains,
 } from '@/hooks/queries/use-mail-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,

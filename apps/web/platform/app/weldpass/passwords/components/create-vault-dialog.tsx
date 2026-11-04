@@ -12,10 +12,11 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { useCreateWeldPassVault } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { VaultAccessPicker, type InitialVaultMember } from './vault-access-picker';
 import { VaultDetailsForm } from './vault-details-form';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function CreateVaultDialog({
   currentUserId,

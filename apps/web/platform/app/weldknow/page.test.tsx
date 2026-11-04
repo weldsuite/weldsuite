@@ -23,7 +23,7 @@ vi.mock('@/hooks/queries/use-knowledge-queries', () => ({
   useKnowledgePageTree: () => ({ data: tree ? { data: tree } : undefined, isFetching: treeFetching }),
 }));
 
-vi.mock('@/components/page-loader', () => ({
+vi.mock('@weldsuite/ui/components/page-loader', () => ({
   PageLoader: () => <div>loading</div>,
 }));
 

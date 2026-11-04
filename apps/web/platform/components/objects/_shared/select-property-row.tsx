@@ -19,7 +19,7 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@/components/shared/picker-menu';
+import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@weldsuite/ui/components/picker-menu';
 
 export interface SelectPropertyOption {
   value: string;

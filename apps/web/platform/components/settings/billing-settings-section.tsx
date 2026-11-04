@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@weldsuite/ui/components/slider';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { cn } from '@/lib/utils';
 import { EnterpriseContactForm } from '@/components/billing/enterprise-contact-form';
 import { Billing } from '@/lib/api/types/apps/billing.types';

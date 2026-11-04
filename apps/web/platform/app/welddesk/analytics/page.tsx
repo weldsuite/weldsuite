@@ -1,7 +1,7 @@
 
 import { useAnalyticsReports } from '@/hooks/queries/use-helpdesk-queries';
 import { AnalyticsListClient } from './_components/analytics-list-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function HelpdeskAnalyticsListPage() {
   const { data, isLoading } = useAnalyticsReports();

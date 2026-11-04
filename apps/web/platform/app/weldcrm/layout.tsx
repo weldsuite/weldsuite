@@ -1,7 +1,7 @@
 
 import { useAppAccess } from '@/hooks/use-app-access';
 import { CrmLayoutClient } from './components/crm-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 export default function CrmLayout({

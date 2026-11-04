@@ -4,7 +4,7 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { RowChip } from '@/components/accounting/weldbooks-row-cells';
 import { NotesIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useDeleteSalesTaxRule, useSalesTaxRules } from '@/hooks/queries/use-weldbooks-sales-tax-setup-queries';
 import type { SalesTaxAgency, SalesTaxRule } from '@/lib/api/domains/weldbooks-sales-tax-setup';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';

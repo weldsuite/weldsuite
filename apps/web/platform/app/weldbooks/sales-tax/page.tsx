@@ -3,7 +3,6 @@ import { AlertTriangle, Landmark } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSalesTaxOverview } from '@/hooks/queries/use-weldbooks-sales-tax-center-queries';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -14,33 +13,7 @@ import { AgenciesLink } from './shared/setup-links';
 import { SalesTaxFrame } from './shared/sales-tax-frame';
 import { fill } from './shared/text';
 import { useOpenReturn } from './shared/use-open-return';
-
-interface StatCardProps {
-  label: string;
-  value: string;
-  hint: string;
-  tone?: 'default' | 'danger' | 'warning';
-}
-
-function StatCard({ label, value, hint, tone = 'default' }: Readonly<StatCardProps>) {
-  return (
-    <Card>
-      <CardContent className="space-y-1 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p
-          className={cn(
-            'text-2xl font-semibold tabular-nums',
-            tone === 'danger' && 'text-destructive',
-            tone === 'warning' && 'text-amber-600 dark:text-amber-400',
-          )}
-        >
-          {value}
-        </p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
-  );
-}
+import { KpiCard } from '@weldsuite/ui/components/kpi-card';
 
 function OverviewContent() {
   const { t } = useI18n();
@@ -97,14 +70,14 @@ function OverviewContent() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label={to.estimatedTaxDue} value={formatMoney(totals.estimatedTaxDue)} hint={to.estimatedTaxDueHint} />
-        <StatCard
+        <KpiCard label={to.estimatedTaxDue} value={formatMoney(totals.estimatedTaxDue)} hint={to.estimatedTaxDueHint} />
+        <KpiCard
           label={to.overduePeriods}
           value={String(totals.overduePeriods)}
           hint={to.overduePeriodsHint}
           tone={totals.overduePeriods > 0 ? 'danger' : 'default'}
         />
-        <StatCard
+        <KpiCard
           label={to.dueSoon}
           value={String(totals.dueWithin14Days)}
           hint={to.dueSoonHint}

@@ -4,7 +4,7 @@ import { GoalsCanvasView } from '@/components/weldflow/goals/goals-canvas-view';
 import { useProject, useProjectGoals, useProjectTasks } from '@/hooks/queries/use-projects-queries';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
 import { useI18n } from '@/lib/i18n/provider';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 
 // `useProjectTasks` returns an untyped `data: any[]` (see the matching note in

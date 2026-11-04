@@ -5,12 +5,13 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import type { SsoConfigView } from '@weldsuite/app-api-client/schemas/sso';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useActivateSso, useDeactivateSso } from '@/hooks/queries/use-sso-queries';
 import { ssoErrorMessage } from './sso-errors';
-import { InlineError, Notice, StepCard } from './sso-parts';
+import { InlineError, StepCard } from './sso-parts';
 import { activationBlock, isPaused } from './sso-view';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 interface SsoActivateStepProps {
   config: SsoConfigView;
@@ -96,7 +97,7 @@ export function SsoActivateStep({ config, canManage }: Readonly<SsoActivateStepP
         </div>
       </div>
 
-      {connection && isPaused(config) && <Notice tone="warning">{copy.paused}</Notice>}
+      {connection && isPaused(config) && <InfoBanner variant="warning">{copy.paused}</InfoBanner>}
       {error !== null && <InlineError>{ssoErrorMessage(error, ts.errors)}</InlineError>}
 
       <ConfirmDialog

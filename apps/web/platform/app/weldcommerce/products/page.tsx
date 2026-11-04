@@ -1,6 +1,6 @@
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInfiniteCommerceProducts, type CommerceProduct } from '@/hooks/queries/use-commerce-queries';
 import { ProductsList } from './components/products-list';
 

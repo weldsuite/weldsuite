@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { getTranslations } from '@/lib/i18n';
 import {
   useAddKnowledgeSpaceMember,

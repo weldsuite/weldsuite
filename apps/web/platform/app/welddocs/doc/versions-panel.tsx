@@ -7,7 +7,7 @@ import type { DocVersion } from '@weldsuite/app-api-client/schemas/docs';
 import { DocModel, isWellFormedSnapshot } from '@weldsuite/docs-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { downloadDocument } from '../editor/download';

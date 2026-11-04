@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { completeSignIn, getAccountUrl, redirectToSignIn } from '@/lib/auth';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';

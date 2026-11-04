@@ -25,6 +25,24 @@ export const Full: Story = {
   args: { value: 100, className: "w-[300px]" },
 };
 
+/** `indicatorClassName` colors the bar, e.g. by how close a usage meter is to its limit. */
+export const UsageColors: Story = {
+  render: () => (
+    <div className="flex flex-col gap-4 w-[300px]">
+      {[40, 82, 95].map((value) => (
+        <div key={value}>
+          <p className="text-sm text-muted-foreground mb-1">{value}% of credits used</p>
+          <Progress
+            value={value}
+            className="bg-secondary h-1.5"
+            indicatorClassName={value >= 90 ? "bg-red-500" : value >= 80 ? "bg-amber-500" : "bg-primary"}
+          />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
 export const AllStates: Story = {
   render: () => (
     <div className="flex flex-col gap-4 w-[300px]">

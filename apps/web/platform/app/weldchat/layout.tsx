@@ -4,7 +4,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { useWeldChatUserEvents } from '@/hooks/weldchat/use-weldchat-realtime';
 import { ChatLayoutClient } from './components/chat-layout-client';
 import { useRememberWeldChatPage } from './hooks/use-last-weldchat-page';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ensureNotificationPermission } from '@/lib/desktop-notifications';
 
 // Eagerly preload the RealtimeKit SDK so it's ready when a call starts.

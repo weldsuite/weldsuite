@@ -2,7 +2,7 @@
 import { useParams } from '@/lib/router';
 import { ProjectWorkloadClient } from './workload-client';
 import { useProjectWorkload } from '@/hooks/queries/use-projects-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function ProjectWorkloadPage() {
   const params = useParams();

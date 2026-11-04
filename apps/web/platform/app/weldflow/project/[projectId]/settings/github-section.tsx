@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -44,7 +44,7 @@ import {
   useUnlinkProject,
   useProjectSync,
 } from '@/hooks/queries/use-github-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { stagesApi } from '@/app/weldflow/lib/api-client';
 import type {
   GithubProjectLink,

@@ -31,11 +31,13 @@ import {
   useUpdateHrSettings,
   useUpdateHrWorkLocation,
 } from '@/hooks/queries/use-weldhr-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
 import { emptyIcon } from '../../components/page-kit';
-import { ErrorBanner, WarningNote, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { GeolocationError, getDevicePosition, type GeolocationFailure } from '../../lib/geolocation';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const DEFAULT_RADIUS_METERS = 100;
 
@@ -130,7 +132,7 @@ export function WorkLocationsTab() {
             aria-label={t('weldhr.settings.workLocations.requireTitle')}
           />
         </div>
-        {requireLocation && locations && !hasActive && <WarningNote>{t('weldhr.settings.workLocations.noActiveWarning')}</WarningNote>}
+        {requireLocation && locations && !hasActive && <InfoBanner variant="warning">{t('weldhr.settings.workLocations.noActiveWarning')}</InfoBanner>}
       </div>
 
       <PanelEntityList<HrWorkLocation>

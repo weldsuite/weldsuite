@@ -19,9 +19,10 @@ import {
   useHrPayrollEmployers,
   useHrPayrollSchedules,
 } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { periodRange } from '../lib/format';
 import { SelectField, TextField } from './form-fields';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof createHrPayRunSchema>;
 type Parsed = z.output<typeof createHrPayRunSchema>;

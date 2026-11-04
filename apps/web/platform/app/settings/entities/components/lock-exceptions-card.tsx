@@ -30,7 +30,7 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useCreateLockException,
   useLockExceptions,

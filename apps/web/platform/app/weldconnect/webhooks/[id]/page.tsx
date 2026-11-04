@@ -1,6 +1,6 @@
 
 import { useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWebhook, useWebhookEvents } from '@/hooks/queries/use-automation-queries';
 import { WebhookDetailClient, type WebhookDetail, type WebhookEvent } from './webhook-detail-client';

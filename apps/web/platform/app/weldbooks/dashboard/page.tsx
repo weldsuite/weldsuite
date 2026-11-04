@@ -1,4 +1,4 @@
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAccountingDashboard } from '@/hooks/queries/use-accounting-queries';
 import { UndepositedFundsCallout } from '@/app/weldbooks/banking/components/undeposited-funds-callout';
 import { useI18n } from '@/lib/i18n/provider';

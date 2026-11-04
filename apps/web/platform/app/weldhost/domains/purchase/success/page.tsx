@@ -11,7 +11,7 @@ import {
   XCircle,
   ExternalLink,
 } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { pollMultipleRegistrationStatuses, type DomainPurchaseStatusResponse } from '@/lib/host/domain-purchase-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';

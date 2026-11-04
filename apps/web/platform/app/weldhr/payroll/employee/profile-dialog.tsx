@@ -20,9 +20,10 @@ import { SUPPORTED_STATES, stateModule } from '@weldsuite/payroll-domain/us/stat
 import type { HrPayrollEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { upsertHrPayrollProfileSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useHrPayrollEmployers, useHrPayrollSchedules, useUpsertHrPayrollProfile } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { NumberField, SelectField, SwitchField, TextField, TriStateField } from '../components/form-fields';
 import { FormSection } from '../components/payroll-ui';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof upsertHrPayrollProfileSchema>;
 type Parsed = z.output<typeof upsertHrPayrollProfileSchema>;

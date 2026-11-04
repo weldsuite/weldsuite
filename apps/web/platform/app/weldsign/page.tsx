@@ -12,7 +12,7 @@ import {
   type SignEnvelopeFolder,
   type SignEnvelopeSummary,
 } from '@weldsuite/app-api-client/schemas/weldsign';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';

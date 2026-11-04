@@ -34,7 +34,7 @@ import {
 } from "@weldsuite/ui/components/popover";
 import { Calendar } from "@weldsuite/ui/components/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar";
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { DeleteProjectDialog } from '../components/delete-project-dialog';
 import {
   Dialog,

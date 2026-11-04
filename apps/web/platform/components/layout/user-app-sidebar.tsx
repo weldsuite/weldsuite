@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Puzzle } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { getAppLogoConfig, getAppLucideIcon } from '@/lib/apps/app-registry';
 import type { ModuleSidebarConfig } from './module-sidebar-configs';
 import type { TranslationsType } from '@/lib/i18n/types';

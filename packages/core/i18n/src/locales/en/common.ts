@@ -40,6 +40,8 @@ export const common = {
       addKey: 'Add key',
       readWrite: 'Read/Write',
       upgrade: 'Upgrade',
+      dismiss: 'Dismiss',
+      retry: 'Try again',
     },
     status: {
       active: 'Active',
@@ -75,6 +77,7 @@ export const common = {
       noData: 'No data available',
       notAvailable: 'N/A',
       loading: 'Loading...',
+      loadError: 'Something went wrong while loading.',
       error: 'Error',
       success: 'Success',
       select: 'Select',

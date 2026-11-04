@@ -23,8 +23,8 @@ import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfi
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { whiteboardApi } from '@/app/weldflow/lib/api-client';
-import { PageLoader } from '@/components/page-loader';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 

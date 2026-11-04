@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useI18n } from '@/lib/i18n/provider';
 import { useStageLabel } from '../../../lib/stage-labels';
 import { toast } from 'sonner';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label as UILabel } from '@weldsuite/ui/components/label';

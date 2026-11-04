@@ -7,7 +7,7 @@
  */
 
 import { useRef } from 'react';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useCallSwitchDialog, type SwitchDialogState } from '@/contexts/active-call-context';
 import { useI18n } from '@/lib/i18n/provider';
 

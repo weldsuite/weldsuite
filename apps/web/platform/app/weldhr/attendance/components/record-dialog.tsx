@@ -20,16 +20,9 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAttendanceRecord, HrAttendanceStatus } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrAttendance, useHrEmployee, useUpdateHrAttendance } from '@/hooks/queries/use-weldhr-queries';
-import {
-  EmployeePicker,
-  ErrorBanner,
-  WarningNote,
-  errorMessage,
-  formatDate,
-  instantAt,
-  minutesAfter,
-  todayIso,
-} from '../../components/shared';
+import { EmployeePicker, errorMessage, formatDate, instantAt, minutesAfter, todayIso } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const STATUSES: HrAttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'remote', 'half_day'];
 
@@ -142,7 +135,7 @@ export function AttendanceRecordDialog({
           </div>
 
           {beforeStart && employee?.startDate && (
-            <WarningNote>{t('weldhr.attendance.records.form.beforeStartDate', { date: formatDate(employee.startDate) })}</WarningNote>
+            <InfoBanner variant="warning">{t('weldhr.attendance.records.form.beforeStartDate', { date: formatDate(employee.startDate) })}</InfoBanner>
           )}
 
           <div className="grid grid-cols-2 gap-3">
