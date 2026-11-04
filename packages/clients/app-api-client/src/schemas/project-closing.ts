@@ -50,9 +50,14 @@ export function dateOfDayNumber(dayNumber: number): Date {
   return new Date(dayNumber * DAY_MS);
 }
 
+/**
+ * The ISO weekdays (1-7) to count. Anything else is dropped, and a calendar left
+ * with no working day falls back to Monday to Friday, so the day walks below
+ * always end (the Rust twin does the same).
+ */
 function workingSet(workingDays: readonly number[] | undefined): ReadonlySet<number> {
-  const days = workingDays && workingDays.length > 0 ? workingDays : DEFAULT_WORKING_DAYS;
-  return new Set(days);
+  const days = (workingDays ?? []).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
+  return new Set(days.length > 0 ? days : DEFAULT_WORKING_DAYS);
 }
 
 /** The first working day on or after the day. */

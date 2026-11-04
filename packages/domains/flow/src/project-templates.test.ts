@@ -32,6 +32,11 @@ describe('working days', () => {
     expect(iso(addWorkingDays(day('2027-01-11'), 19))).toBe('2027-02-05');
   });
 
+  it('falls back to Monday to Friday when no listed day is a weekday', () => {
+    expect(iso(addWorkingDays(day('2027-01-11'), 5, [0, 8]))).toBe('2027-01-18');
+    expect(workingDayOffset(day('2027-01-11'), day('2027-01-18'), [9])).toBe(5);
+  });
+
   it('rolls a start on a weekend to the next working day', () => {
     // Saturday 2027-01-09.
     expect(iso(addWorkingDays(day('2027-01-09'), 0))).toBe('2027-01-11');
