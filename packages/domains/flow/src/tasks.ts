@@ -100,6 +100,7 @@ export async function createTask(
     reporterId: data.reporterId || opts.userId,
     sprintId: data.sprintId,
     milestoneId: data.milestoneId,
+    deliverableId: data.deliverableId,
     parentTaskId: data.parentTaskId,
     startDate: startDate ? new Date(startDate) : undefined,
     dueDate: dueDate ? new Date(dueDate) : undefined,

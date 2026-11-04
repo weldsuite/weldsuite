@@ -18,6 +18,7 @@ import {
   pickListPickResultSchema,
   pickListRowSchema,
   pickListShipResultSchema,
+  purchaseOrderItemRowSchema,
   purchaseOrderRowSchema,
   putawayAssignedSchema,
   putawayCompletedSchema,
@@ -55,6 +56,10 @@ export const STASH_ROUTES: RouteSchema[] = [
   ...crud('/api/wms-suppliers', wmsSupplierRowSchema),
   ...crud('/api/cycle-counts', cycleCountRowSchema),
   ...crud('/api/purchase-orders', purchaseOrderRowSchema),
+  // stash: purchase order lines (FLOW-019)
+  { method: 'GET', route: '/api/purchase-orders/:id/items', envelope: 'list', data: purchaseOrderItemRowSchema },
+  { method: 'POST', route: '/api/purchase-orders/:id/items', envelope: 'single', data: purchaseOrderItemRowSchema },
+  { method: 'PATCH', route: '/api/purchase-orders/:id/items/:itemId', envelope: 'single', data: purchaseOrderItemRowSchema },
   ...crud('/api/inventory-movements', inventoryMovementRowSchema),
   // stash: stock adjustments (append-only)
   { method: 'GET', route: '/api/stock-adjustments', envelope: 'list', data: stockAdjustmentRowSchema },

@@ -16,8 +16,20 @@
 //!   recurring invoices, the day's ECB rates, the US tax reminders and the
 //!   fixed assets' depreciation due, in every workspace that used books
 //!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
+//! - `flow-approval-due` (daily, 03:30 UTC): WeldFlow's approval reminders a day before
+//!   a review is due and overdue notices to the requester
+//!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `flow-benefit-measure` (daily, 03:30 UTC): WeldFlow's monthly measuring of
+//!   benefits from the metric catalogue, in the workspaces the due index lists
+//!   (kind `benefit_measure`, `apps/workers/flow-api/src/cron/benefit-measure.ts`).
+//! - `flow-status-reports` (daily, 03:30 UTC): WeldFlow drafts the status reports whose
+//!   cadence has come due, in the workspaces the `status_report_due` due index lists
+//!   (`apps/workers/flow-api/src/cron/status-report-sweep.ts`).
+//! - `flow-finance-snapshot` (daily, 03:45 UTC): WeldFlow's weekly project finance
+//!   snapshot, for the workspaces the `finance_snapshot` due index lists
+//!   (`apps/workers/flow-api/src/cron/finance-snapshot.ts`).
 //! - `domain-auto-renew` (daily, 04:00 UTC): WeldHost's auto-renew sweep
 //!   (`apps/workers/host-api/src/cron/domain-auto-renew.ts`). It charges
 //!   through Stripe, which stays with Global, so here it does what the
@@ -84,7 +96,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -96,6 +108,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "mail-outbound-ledgers"
         | "calendar-replan"
         | "flow-file-purge"
+        | "flow-approval-due"
+        | "flow-benefit-measure"
+        | "flow-status-reports"
+        | "flow-finance-snapshot"
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
@@ -143,6 +159,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
+            "flow-approval-due" => flow_approval_due(config).await,
+            "flow-benefit-measure" => flow_benefit_measure(config).await,
+            "flow-status-reports" => flow_status_reports(config).await,
+            "flow-finance-snapshot" => flow_finance_snapshot(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
             "books-sweep" => books_sweep(config).await,
             "domain-auto-renew" => {
@@ -412,6 +432,131 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+/// `flow-benefit-measure`: the due workspaces' benefits, measured for the month
+/// that just ended.
+async fn flow_benefit_measure(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants: weldsuite_flow::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let tick = weldsuite_flow::benefit_measure::run_benefit_measure(&master, &tenants, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-benefit-measure",
+            "result": {
+                "due": tick.sweep.due,
+                "processed": tick.sweep.processed,
+                "failed": tick.sweep.failed,
+                "measured": tick.measured,
+            },
+        })
+    );
+    Ok(())
+}
+
+/// `flow-status-reports`: the due workspaces' status report drafts.
+async fn flow_status_reports(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_flow::status_report_sweep::SweepTenants =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let org = tenant.clerk_org_id.clone().unwrap_or(reference);
+                Ok((tenant.db, org))
+            })
+        });
+    let sinks = weldsuite_flow::status_report_sweep::SweepSinks::new(
+        infra.events.clone(),
+        infra.realtime.clone(),
+    );
+    let now = time::OffsetDateTime::now_utc();
+    let result = weldsuite_flow::status_report_sweep::run_status_report_sweep(
+        &master, &tenants, &sinks, now,
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-status-reports",
+            "result": {
+                "due": result.due,
+                "processed": result.processed,
+                "failed": result.failed,
+            },
+        })
+    );
+    tracker.close();
+    Ok(())
+}
+
+/// `flow-finance-snapshot`: the due workspaces' weekly project finance snapshot.
+async fn flow_finance_snapshot(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants: weldsuite_flow::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let (sweep, snapshots) =
+        weldsuite_flow::project_finance::run_finance_snapshots(&master, &tenants, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-finance-snapshot",
+            "result": {
+                "due": sweep.due,
+                "processed": sweep.processed,
+                "failed": sweep.failed,
+                "snapshots": snapshots,
+            },
+        })
+    );
+    Ok(())
+}
+
 /// `books-sweep`: every workspace in the books due index (marked by its
 /// books requests), swept as `sweepTenant` does, then due again tomorrow.
 async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -485,6 +630,59 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     );
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(30), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+/// `flow-approval-due`: the due workspaces' approval reminders and overdue notices.
+async fn flow_approval_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_flow::approvals::sweep::ApprovalTenants =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok(weldsuite_flow::approvals::sweep::ApprovalTenant {
+                    db: tenant.db,
+                    clerk_org_id: tenant.clerk_org_id.unwrap_or(tenant.workspace_id),
+                })
+            })
+        });
+    let services = weldsuite_flow::approvals::sweep::ApprovalSweepServices {
+        events: infra.events.clone(),
+        realtime: infra.realtime.clone(),
+        mail: infra.mail.clone(),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result =
+        weldsuite_flow::approvals::sweep::run_approval_reminders(&master, &tenants, &services, now)
+            .await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "flow-approval-due", "result": result.to_json() })
+    );
+    // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
         .await
         .is_err()
     {

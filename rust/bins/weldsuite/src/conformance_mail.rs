@@ -37,7 +37,7 @@ impl MailTransport for BridgedSendEmail {
         &'a self,
         envelope: &'a Envelope,
         raw: &'a [u8],
-    ) -> BoxFuture<'a, Result<(), TransportFailure>> {
+    ) -> BoxFuture<'a, Result<Option<String>, TransportFailure>> {
         Box::pin(async move {
             let query: String = form_urlencoded::Serializer::new(String::new())
                 .append_pair("from", &envelope.from)
@@ -51,11 +51,14 @@ impl MailTransport for BridgedSendEmail {
                 .send()
                 .await
                 .map_err(|error| TransportFailure::new(None, error.to_string()))?;
-            if response.status().is_success() {
-                return Ok(());
-            }
+            let succeeded = response.status().is_success();
             let text = response.text().await.unwrap_or_default();
             let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if succeeded {
+                // 200 `{ messageId }`: the stub answered like Cloudflare, with
+                // the Message-ID the recipient receives. 204: it kept ours.
+                return Ok(body["messageId"].as_str().map(str::to_owned));
+            }
             Err(TransportFailure::new(
                 body["code"].as_str(),
                 body["message"].as_str().unwrap_or("send failed"),

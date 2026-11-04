@@ -31,10 +31,18 @@ export type DueIndexKind =
   | 'reach_warmup'
   // WeldFlow (flow-api): soft-deleted project files / attachments reaching the end of retention.
   | 'file_purge'
+  // WeldFlow (flow-api): the monthly measuring of benefits, from the metric catalogue (FLOW-014).
+  | 'benefit_measure'
+  // WeldFlow (flow-api): projects whose status report cadence has a draft coming due (ADR FLOW-018).
+  | 'status_report_due'
+  // WeldFlow (flow-api): the weekly project finance snapshot of workspaces with a baselined project (FLOW-019).
+  | 'finance_snapshot'
   // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
-  | 'desk_sla';
+  | 'desk_sla'
+  // WeldFlow (flow-api): approval reminders a day before they are due, and overdue notices to the requester (FLOW-016).
+  | 'approval_due';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

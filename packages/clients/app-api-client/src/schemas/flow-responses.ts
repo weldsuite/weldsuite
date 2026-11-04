@@ -365,7 +365,13 @@ export const flowMessageCreatedSchema = z.object({
 
 /** `PATCH /api/project-messages/:id`: the change, echoed. */
 export const flowMessageUpdatedSchema = z
-  .object({ id: z.string(), message: z.string().optional(), isPinned: z.boolean().optional() })
+  .object({
+    id: z.string(),
+    message: z.string().optional(),
+    isPinned: z.boolean().optional(),
+    /** Shown to the client in the project portal (FLOW-020). */
+    clientVisible: z.boolean().optional(),
+  })
   .strict();
 
 /** `POST /api/project-messages/:id/reactions`. */

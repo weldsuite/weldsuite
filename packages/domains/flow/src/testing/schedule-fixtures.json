@@ -1,0 +1,360 @@
+{
+  "_comment": "Fixtures of computeSchedule and previewMove, run by schedule.test.ts and by rust/crates/flow-domain/src/schedule.rs: both languages must give these answers. 2026-11-02 is a Monday. `expected` lists only the fields a case is about; every listed field must match exactly.",
+  "calendar": { "workingDays": [1, 2, 3, 4, 5], "holidays": [] },
+  "schedule": [
+    {
+      "name": "a finish-to-start chain has no float and all of it is critical",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "in_progress", "startDate": "2026-11-02", "dueDate": "2026-11-04" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-05", "dueDate": "2026-11-06" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-09", "dueDate": "2026-11-09" }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "B", "successorId": "C", "type": "fs", "lagDays": 0 }
+        ],
+        "goLive": "2026-11-13"
+      },
+      "expected": {
+        "finish": "2026-11-09",
+        "goLive": "2026-11-13",
+        "goLiveSlackDays": 4,
+        "criticalPath": ["A", "B", "C"],
+        "conflicts": [],
+        "cyclicTaskIds": [],
+        "tasks": {
+          "A": { "durationDays": 3, "earlyStart": "2026-11-02", "earlyFinish": "2026-11-04", "lateStart": "2026-11-02", "lateFinish": "2026-11-04", "totalFloat": 0, "critical": true, "shiftDays": 0, "linked": true },
+          "B": { "durationDays": 2, "earlyStart": "2026-11-05", "earlyFinish": "2026-11-06", "totalFloat": 0, "critical": true },
+          "C": { "durationDays": 1, "earlyStart": "2026-11-09", "earlyFinish": "2026-11-09", "totalFloat": 0, "critical": true }
+        }
+      }
+    },
+    {
+      "name": "a successor planned too early is pushed and flagged as a conflict",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "in_progress", "startDate": "2026-11-02", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-04", "dueDate": "2026-11-05" }
+        ],
+        "links": [{ "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 }]
+      },
+      "expected": {
+        "finish": "2026-11-10",
+        "goLive": null,
+        "goLiveSlackDays": null,
+        "criticalPath": ["A", "B"],
+        "conflicts": [
+          { "linkId": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0, "requiredStart": "2026-11-09", "plannedStart": "2026-11-04", "shortByDays": 3 }
+        ],
+        "tasks": {
+          "A": { "earlyStart": "2026-11-02", "earlyFinish": "2026-11-06", "lateFinish": "2026-11-06", "totalFloat": 0, "shiftDays": 0 },
+          "B": { "plannedStart": "2026-11-04", "plannedFinish": "2026-11-05", "earlyStart": "2026-11-09", "earlyFinish": "2026-11-10", "totalFloat": 0, "shiftDays": 3, "critical": true }
+        }
+      }
+    },
+    {
+      "name": "the shorter branch of a diamond has float and is not critical",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-02" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-03", "dueDate": "2026-11-06" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-03", "dueDate": "2026-11-04" },
+          { "id": "D", "status": "todo", "startDate": "2026-11-09", "dueDate": "2026-11-09" }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "A", "successorId": "C", "type": "fs", "lagDays": 0 },
+          { "id": "l3", "predecessorId": "B", "successorId": "D", "type": "fs", "lagDays": 0 },
+          { "id": "l4", "predecessorId": "C", "successorId": "D", "type": "fs", "lagDays": 0 }
+        ]
+      },
+      "expected": {
+        "finish": "2026-11-09",
+        "criticalPath": ["A", "B", "D"],
+        "conflicts": [],
+        "tasks": {
+          "B": { "lateStart": "2026-11-03", "lateFinish": "2026-11-06", "totalFloat": 0, "critical": true },
+          "C": { "earlyStart": "2026-11-03", "earlyFinish": "2026-11-04", "lateStart": "2026-11-05", "lateFinish": "2026-11-06", "totalFloat": 2, "critical": false },
+          "D": { "totalFloat": 0, "critical": true }
+        }
+      }
+    },
+    {
+      "name": "start-to-start, finish-to-finish, start-to-finish and lag or lead in working days",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-02" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-04" },
+          { "id": "D", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-02" },
+          { "id": "E", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" },
+          { "id": "F", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-02" }
+        ],
+        "links": [
+          { "id": "ss", "predecessorId": "A", "successorId": "B", "type": "ss", "lagDays": 2 },
+          { "id": "ff", "predecessorId": "A", "successorId": "C", "type": "ff", "lagDays": 0 },
+          { "id": "sf", "predecessorId": "A", "successorId": "D", "type": "sf", "lagDays": 0 },
+          { "id": "lead", "predecessorId": "A", "successorId": "E", "type": "fs", "lagDays": -1 },
+          { "id": "lag", "predecessorId": "A", "successorId": "F", "type": "fs", "lagDays": 2 }
+        ]
+      },
+      "expected": {
+        "finish": "2026-11-11",
+        "criticalPath": ["A", "F"],
+        "conflicts": [
+          { "linkId": "ss", "requiredStart": "2026-11-04", "shortByDays": 2 },
+          { "linkId": "ff", "requiredStart": "2026-11-04", "shortByDays": 2 },
+          { "linkId": "lead", "requiredStart": "2026-11-06", "shortByDays": 4 },
+          { "linkId": "lag", "requiredStart": "2026-11-11", "shortByDays": 7 }
+        ],
+        "tasks": {
+          "A": { "lateStart": "2026-11-02", "lateFinish": "2026-11-06", "totalFloat": 0 },
+          "B": { "earlyStart": "2026-11-04", "earlyFinish": "2026-11-04", "shiftDays": 2 },
+          "C": { "durationDays": 3, "earlyStart": "2026-11-04", "earlyFinish": "2026-11-06", "shiftDays": 2 },
+          "D": { "earlyStart": "2026-11-02", "earlyFinish": "2026-11-02", "shiftDays": 0 },
+          "E": { "earlyStart": "2026-11-06", "earlyFinish": "2026-11-09", "shiftDays": 4 },
+          "F": { "earlyStart": "2026-11-11", "earlyFinish": "2026-11-11", "shiftDays": 7, "totalFloat": 0, "critical": true }
+        }
+      }
+    },
+    {
+      "name": "weekends and holidays are skipped, a weekend start moves to the next working day",
+      "input": {
+        "calendar": { "workingDays": [1, 2, 3, 4, 5], "holidays": ["2026-11-09"] },
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-06", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-06", "dueDate": "2026-11-06" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-06", "dueDate": "2026-11-09" },
+          { "id": "D", "status": "todo", "startDate": "2026-11-07", "dueDate": "2026-11-09" }
+        ],
+        "links": [{ "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 }]
+      },
+      "expected": {
+        "finish": "2026-11-10",
+        "tasks": {
+          "B": { "earlyStart": "2026-11-10", "earlyFinish": "2026-11-10", "shiftDays": 1 },
+          "C": { "durationDays": 1, "plannedStart": "2026-11-06", "plannedFinish": "2026-11-06" },
+          "D": { "durationDays": 1, "plannedStart": "2026-11-10", "plannedFinish": "2026-11-10", "linked": false, "critical": false }
+        }
+      }
+    },
+    {
+      "name": "a six-day week counts Saturday as a working day",
+      "input": {
+        "calendar": { "workingDays": [1, 2, 3, 4, 5, 6], "holidays": [] },
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-06", "dueDate": "2026-11-07" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-06", "dueDate": "2026-11-06" }
+        ],
+        "links": [{ "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 }]
+      },
+      "expected": {
+        "finish": "2026-11-09",
+        "tasks": {
+          "A": { "durationDays": 2, "earlyFinish": "2026-11-07" },
+          "B": { "earlyStart": "2026-11-09", "earlyFinish": "2026-11-09", "shiftDays": 2 }
+        }
+      }
+    },
+    {
+      "name": "done tasks keep their dates, cancelled and undated tasks stay out of the network",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "done", "startDate": "2026-11-02", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-04", "dueDate": "2026-11-05" },
+          { "id": "C", "status": "cancelled", "startDate": "2026-11-02", "dueDate": "2026-11-30" },
+          { "id": "U", "status": "todo", "startDate": null, "dueDate": null }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "C", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l3", "predecessorId": "U", "successorId": "B", "type": "fs", "lagDays": 0 }
+        ]
+      },
+      "expected": {
+        "finish": "2026-11-10",
+        "criticalPath": ["B"],
+        "tasks": {
+          "A": { "scheduled": true, "done": true, "earlyStart": "2026-11-02", "earlyFinish": "2026-11-06", "totalFloat": null, "critical": false, "shiftDays": 0 },
+          "B": { "earlyStart": "2026-11-09", "earlyFinish": "2026-11-10", "shiftDays": 3, "critical": true },
+          "C": { "scheduled": false, "earlyStart": null, "totalFloat": null, "critical": false, "linked": false },
+          "U": { "scheduled": false, "plannedStart": null, "durationDays": null, "linked": false }
+        },
+        "conflicts": [
+          { "linkId": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0, "requiredStart": "2026-11-09", "plannedStart": "2026-11-04", "shortByDays": 3 }
+        ]
+      }
+    },
+    {
+      "name": "a task with one date lasts one day, and an unrelated task is never critical",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": null },
+          { "id": "B", "status": "todo", "startDate": null, "dueDate": "2026-11-04" },
+          { "id": "L", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-13" }
+        ],
+        "links": [{ "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 }]
+      },
+      "expected": {
+        "finish": "2026-11-13",
+        "criticalPath": [],
+        "tasks": {
+          "A": { "durationDays": 1, "plannedStart": "2026-11-02", "plannedFinish": "2026-11-02", "totalFloat": 8 },
+          "B": { "durationDays": 1, "plannedStart": "2026-11-04", "plannedFinish": "2026-11-04", "totalFloat": 7 },
+          "L": { "durationDays": 10, "totalFloat": 0, "linked": false, "critical": false }
+        }
+      }
+    },
+    {
+      "name": "tasks in a dependency cycle keep their planned dates and are listed",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-04", "dueDate": "2026-11-05" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-09", "dueDate": "2026-11-09" }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "B", "successorId": "A", "type": "fs", "lagDays": 0 }
+        ]
+      },
+      "expected": {
+        "cyclicTaskIds": ["A", "B"],
+        "criticalPath": [],
+        "tasks": {
+          "A": { "totalFloat": null, "lateStart": null, "critical": false },
+          "B": { "totalFloat": null, "critical": false },
+          "C": { "totalFloat": 0, "linked": false }
+        }
+      }
+    },
+    {
+      "name": "the project finish after go-live is negative slack",
+      "input": {
+        "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-13" }],
+        "links": [],
+        "goLive": "2026-11-11"
+      },
+      "expected": { "finish": "2026-11-13", "goLiveSlackDays": -2, "tasks": { "A": { "critical": false, "totalFloat": 0 } } }
+    },
+    {
+      "name": "no tasks",
+      "input": { "tasks": [], "links": [], "goLive": "2026-11-11" },
+      "expected": { "finish": null, "goLive": "2026-11-11", "goLiveSlackDays": null, "criticalPath": [], "conflicts": [], "tasks": {} }
+    }
+  ],
+  "moves": [
+    {
+      "name": "moving the first task of a chain pushes every dependent and eats the go-live float",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "in_progress", "startDate": "2026-11-02", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-09", "dueDate": "2026-11-10" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-11", "dueDate": "2026-11-13" },
+          { "id": "X", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "B", "successorId": "C", "type": "fs", "lagDays": 0 }
+        ],
+        "goLive": "2026-11-20"
+      },
+      "move": { "taskId": "A", "startDate": "2026-11-04" },
+      "expected": {
+        "ok": true,
+        "task": { "startDate": "2026-11-04", "dueDate": "2026-11-10" },
+        "moved": [
+          { "taskId": "A", "fromStart": "2026-11-02", "fromFinish": "2026-11-06", "toStart": "2026-11-04", "toFinish": "2026-11-10", "shiftDays": 2 },
+          { "taskId": "B", "fromStart": "2026-11-09", "fromFinish": "2026-11-10", "toStart": "2026-11-11", "toFinish": "2026-11-12", "shiftDays": 2 },
+          { "taskId": "C", "fromStart": "2026-11-11", "fromFinish": "2026-11-13", "toStart": "2026-11-13", "toFinish": "2026-11-17", "shiftDays": 2 }
+        ],
+        "newConflicts": [{ "linkId": "l1", "successorId": "B", "requiredStart": "2026-11-11", "shortByDays": 2 }],
+        "before": { "finish": "2026-11-13", "goLiveSlackDays": 5 },
+        "after": { "finish": "2026-11-17", "goLiveSlackDays": 3 }
+      }
+    },
+    {
+      "name": "moving a task earlier moves nothing else and flags the conflict with its predecessor",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "in_progress", "startDate": "2026-11-02", "dueDate": "2026-11-06" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-09", "dueDate": "2026-11-10" },
+          { "id": "C", "status": "todo", "startDate": "2026-11-11", "dueDate": "2026-11-13" }
+        ],
+        "links": [
+          { "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 },
+          { "id": "l2", "predecessorId": "B", "successorId": "C", "type": "fs", "lagDays": 0 }
+        ]
+      },
+      "move": { "taskId": "C", "dueDate": "2026-11-12" },
+      "expected": {
+        "ok": true,
+        "task": { "startDate": "2026-11-10", "dueDate": "2026-11-12" },
+        "moved": [{ "taskId": "C", "fromStart": "2026-11-11", "fromFinish": "2026-11-13", "toStart": "2026-11-10", "toFinish": "2026-11-12", "shiftDays": -1 }],
+        "newConflicts": [{ "linkId": "l2", "successorId": "C", "requiredStart": "2026-11-11", "plannedStart": "2026-11-10", "shortByDays": 1 }],
+        "before": { "finish": "2026-11-13", "goLiveSlackDays": null },
+        "after": { "finish": "2026-11-12", "goLiveSlackDays": null }
+      }
+    },
+    {
+      "name": "a move that leaves the dependents enough room pushes nobody",
+      "input": {
+        "tasks": [
+          { "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" },
+          { "id": "B", "status": "todo", "startDate": "2026-11-16", "dueDate": "2026-11-17" }
+        ],
+        "links": [{ "id": "l1", "predecessorId": "A", "successorId": "B", "type": "fs", "lagDays": 0 }]
+      },
+      "move": { "taskId": "A", "startDate": "2026-11-09", "dueDate": "2026-11-10" },
+      "expected": {
+        "ok": true,
+        "moved": [{ "taskId": "A", "toStart": "2026-11-09", "toFinish": "2026-11-10", "shiftDays": 5 }],
+        "newConflicts": []
+      }
+    },
+    {
+      "name": "an undated task can be scheduled by a move, one day long",
+      "input": {
+        "tasks": [{ "id": "U", "status": "todo", "startDate": null, "dueDate": null }],
+        "links": []
+      },
+      "move": { "taskId": "U", "dueDate": "2026-11-13" },
+      "expected": {
+        "ok": true,
+        "task": { "startDate": "2026-11-13", "dueDate": "2026-11-13" },
+        "moved": [{ "taskId": "U", "fromStart": null, "fromFinish": null, "toStart": "2026-11-13", "toFinish": "2026-11-13", "shiftDays": 0 }]
+      }
+    },
+    {
+      "name": "a done task cannot be moved",
+      "input": { "tasks": [{ "id": "A", "status": "done", "startDate": "2026-11-02", "dueDate": "2026-11-03" }], "links": [] },
+      "move": { "taskId": "A", "startDate": "2026-11-09" },
+      "expected": { "ok": false, "code": "task_closed", "message": "A done or cancelled task cannot be moved" }
+    },
+    {
+      "name": "an unknown task",
+      "input": { "tasks": [], "links": [] },
+      "move": { "taskId": "Z", "startDate": "2026-11-09" },
+      "expected": { "ok": false, "code": "task_not_found", "message": "Task not found in this schedule" }
+    },
+    {
+      "name": "a move needs a date",
+      "input": { "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" }], "links": [] },
+      "move": { "taskId": "A" },
+      "expected": { "ok": false, "code": "dates_missing", "message": "Give a start date, a due date, or both" }
+    },
+    {
+      "name": "a due date before the start date",
+      "input": { "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" }], "links": [] },
+      "move": { "taskId": "A", "startDate": "2026-11-09", "dueDate": "2026-11-06" },
+      "expected": { "ok": false, "code": "dates_reversed", "message": "The due date cannot be before the start date" }
+    },
+    {
+      "name": "a date that does not exist",
+      "input": { "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-03" }], "links": [] },
+      "move": { "taskId": "A", "startDate": "2026-02-30" },
+      "expected": { "ok": false, "code": "dates_invalid", "message": "Dates must be real dates in the form YYYY-MM-DD" }
+    }
+  ]
+}

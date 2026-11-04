@@ -18,6 +18,7 @@ mod ledger;
 mod pick_lists;
 mod pickers;
 mod picking;
+mod purchase_order_items;
 mod putaway;
 mod rows;
 mod sendcloud;
@@ -88,7 +89,7 @@ where
         .nest("/pickers", pickers::routes(gate))
         .nest(
             "/purchase-orders",
-            crud::routes(&crud::PURCHASE_ORDERS, gate),
+            crud::routes(&crud::PURCHASE_ORDERS, gate).merge(purchase_order_items::routes(gate)),
         )
         .nest("/putaway", putaway::routes(gate))
         .nest(

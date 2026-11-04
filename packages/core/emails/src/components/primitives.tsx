@@ -290,6 +290,11 @@ export function Divider() {
   return <Hr style={{ margin: `${space.block}px 0`, border: 'none', borderTop: `1px solid ${color.border}` }} />;
 }
 
+/** A status word in its traffic-light color (`green`, `amber`, `red`), bold, inside a detail row or a sentence. */
+export function Status({ tone, children }: { tone: keyof typeof theme.status; children: ReactNode }) {
+  return <span style={{ color: theme.status[tone], fontWeight: 600 }}>{children}</span>;
+}
+
 /** Preserves the line breaks of user-written text (descriptions, notes). */
 export function MultilineText({ text }: { text: string }) {
   const lines = text.split(/\r\n|\r|\n/);

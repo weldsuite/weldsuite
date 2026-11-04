@@ -20,6 +20,8 @@
     "./locales": "./src/locales/index.ts",
     "./locales/en": "./src/locales/en/index.ts",
     "./locales/nl": "./src/locales/nl/index.ts",
+    "./locales/en/project-portal": "./src/locales/en/project-portal.ts",
+    "./locales/nl/project-portal": "./src/locales/nl/project-portal.ts",
     "./locales/en/emails": "./src/locales/en/emails.ts",
     "./locales/nl/emails": "./src/locales/nl/emails.ts",
     "./locales/en/weldconnect-templates": "./src/locales/en/weldconnect-templates.ts",

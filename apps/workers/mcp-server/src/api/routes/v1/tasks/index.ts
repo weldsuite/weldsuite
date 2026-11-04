@@ -154,7 +154,7 @@ app.post('/', requireScope('tasks:write'), zValidator('json', createBodySchema),
   let row = created;
   if (hasLinks) {
     // A task whose links cannot be written is taken back out, not left behind.
-    const linkFailure = await linkCreatedTask(db, created.id, { dependsOn, blocks });
+    const linkFailure = await linkCreatedTask(db, created.id, { dependsOn, blocks }, userId);
     if (linkFailure) return error.badRequest(c, linkFailure.message);
     const [linked] = await db.select().from(table).where(eq(table.id, created.id)).limit(1);
     if (linked) row = linked;
@@ -258,7 +258,7 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
   // by stageId first, so a status change alone would leave it in its old column.
   await applyStatusChange(db, existing, body, update);
   if (dependencyPlan) {
-    await commitDependencyUpdate(db, id, dependencyPlan, update);
+    await commitDependencyUpdate(db, id, dependencyPlan, update, c.get('userId'));
   } else {
     await db
       .update(table)

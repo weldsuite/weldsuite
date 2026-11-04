@@ -9,6 +9,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import type { ProjectSettings } from './project-settings';
 
 // Matches existing .NET Project entity exactly
 export const projects = pgTable('projects', {
@@ -74,7 +75,9 @@ export const projects = pgTable('projects', {
   color: varchar('color', { length: 50 }),
   icon: varchar('icon', { length: 255 }),
   coverImage: varchar('cover_image', { length: 500 }),
-  settings: jsonb('settings').$type<Record<string, unknown>>(),
+  // Typed by `ProjectSettings` (./project-settings): change control, schedule calendar,
+  // status-report cadence, communication plan, current phase, sponsor. Merge, never replace.
+  settings: jsonb('settings').$type<ProjectSettings>(),
 
   // JSON data
   whiteboardData: text('whiteboard_data'),

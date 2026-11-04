@@ -1024,6 +1024,51 @@ pub(crate) async fn desk_sla_sweep(
     axum::Json(result.to_json()).into_response()
 }
 
+/// `POST /__conformance/cron/flow-approval-due`: one tick of the WeldFlow
+/// approval reminder sweep against the test's databases, as
+/// `runApprovalReminders(env, now)` runs it there. Every workspace opens the
+/// test's tenant database, with the Clerk org id the test maps it to. The
+/// test's env has no mail or realtime binding, so neither has the sweep here.
+pub(crate) async fn flow_approval_due(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_flow::approvals::sweep::ApprovalTenants =
+        Arc::new(move |workspace_id: String| {
+            let db = db.clone();
+            let orgs = Arc::clone(&orgs);
+            Box::pin(async move {
+                Ok::<_, String>(weldsuite_flow::approvals::sweep::ApprovalTenant {
+                    db,
+                    clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+                })
+            })
+        });
+    let services = weldsuite_flow::approvals::sweep::ApprovalSweepServices {
+        events: state.infra.events.clone(),
+        realtime: None,
+        mail: None,
+    };
+    let result =
+        weldsuite_flow::approvals::sweep::run_approval_reminders(&master, &tenants, &services, now)
+            .await;
+    axum::Json(result.to_json()).into_response()
+}
+
 /// WeldReach's SMTP transport in conformance builds: each submission goes to
 /// the test's `SMTP_SEND` double over the bridge (`smtp-bridge.ts`), which
 /// answers `sendMail`'s result, or 500 when it threw.

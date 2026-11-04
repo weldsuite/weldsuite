@@ -23,6 +23,7 @@ import {
   useUpdateHrDeclaration,
   useUploadHrDeclarationReceipt,
 } from '@/hooks/queries/use-weldhr-queries';
+import { ProjectSelect } from '@/components/weldflow/project-select';
 import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 import { RECEIPT_ACCEPT, parseAmount, receiptProblem } from './receipt-field';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
@@ -53,6 +54,7 @@ export function DeclarationDialog({
   const [amount, setAmount] = useState(declaration ? declaration.amount.toFixed(2) : '');
   const [currency, setCurrency] = useState<Currency>(declaration && isCurrency(declaration.currency) ? declaration.currency : 'EUR');
   const [description, setDescription] = useState(declaration?.description ?? '');
+  const [projectId, setProjectId] = useState<string | null>(declaration?.projectId ?? null);
   const [receipt, setReceipt] = useState<File | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -82,7 +84,8 @@ export function DeclarationDialog({
       return;
     }
     setFailure(null);
-    const fields = { expenseDate, category, amount: parsedAmount, currency, description: description.trim() };
+    // null takes a tag off an edited declaration; a new one without a project sends none.
+    const fields = { expenseDate, category, amount: parsedAmount, currency, description: description.trim(), projectId };
     try {
       if (declaration) {
         await updateDeclaration.mutateAsync({ id: declaration.id, ...fields });
@@ -181,6 +184,11 @@ export function DeclarationDialog({
               maxLength={2000}
               rows={2}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="hr-declaration-project">{t('flowFinance.projectTag.label')}</Label>
+            <ProjectSelect id="hr-declaration-project" value={projectId} onChange={setProjectId} />
           </div>
 
           <div className="space-y-1.5">

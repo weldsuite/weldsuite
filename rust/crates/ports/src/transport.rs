@@ -71,12 +71,18 @@ impl std::error::Error for TransportFailure {}
 
 /// Delivers one RFC 5322 message to one envelope recipient (the
 /// `send_email` binding's `send(EmailMessage)`). Object safe.
+///
+/// `Ok(Some(id))` is the Message-ID the recipient receives when the transport
+/// replaces the message's own: Cloudflare does, with a different
+/// `<id@sender-domain>` for every envelope, and its binding resolves `send()`
+/// with it. `Ok(None)`: the message goes out under the Message-ID it was
+/// built with, as over SMTP.
 pub trait MailTransport: Send + Sync {
     fn send<'a>(
         &'a self,
         envelope: &'a Envelope,
         raw: &'a [u8],
-    ) -> BoxFuture<'a, Result<(), TransportFailure>>;
+    ) -> BoxFuture<'a, Result<Option<String>, TransportFailure>>;
 }
 
 impl<T: MailTransport + ?Sized> MailTransport for Arc<T> {
@@ -84,7 +90,7 @@ impl<T: MailTransport + ?Sized> MailTransport for Arc<T> {
         &'a self,
         envelope: &'a Envelope,
         raw: &'a [u8],
-    ) -> BoxFuture<'a, Result<(), TransportFailure>> {
+    ) -> BoxFuture<'a, Result<Option<String>, TransportFailure>> {
         (**self).send(envelope, raw)
     }
 }
@@ -96,13 +102,29 @@ pub struct SentEnvelope {
     pub raw: Vec<u8>,
 }
 
+/// The Message-ID a [`RecordingMailTransport`] answers with for a recipient.
+type MessageIdFor = Box<dyn Fn(&str) -> String + Send + Sync>;
+
 /// Records instead of sending, for tests. Recipients listed with
 /// [`RecordingMailTransport::refuse`] fail with that code (and are not
-/// recorded), as the binding refuses them.
-#[derive(Debug, Default)]
+/// recorded), as the binding refuses them. With
+/// [`RecordingMailTransport::delivering_ids`] it answers like Cloudflare, with
+/// a Message-ID of its own per envelope.
+#[derive(Default)]
 pub struct RecordingMailTransport {
     sent: Mutex<Vec<SentEnvelope>>,
     refusals: Mutex<Vec<(String, Option<String>)>>,
+    message_id: Option<MessageIdFor>,
+}
+
+impl std::fmt::Debug for RecordingMailTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecordingMailTransport")
+            .field("sent", &self.sent)
+            .field("refusals", &self.refusals)
+            .field("delivers_ids", &self.message_id.is_some())
+            .finish()
+    }
 }
 
 impl RecordingMailTransport {
@@ -114,6 +136,17 @@ impl RecordingMailTransport {
     #[must_use]
     pub fn refuse(self, recipient: &str, code: Option<&str>) -> Self {
         lock(&self.refusals).push((recipient.to_lowercase(), code.map(str::to_owned)));
+        self
+    }
+
+    /// Answer every envelope with the Message-ID `id_for(recipient)`, the way
+    /// Cloudflare replaces the message's own.
+    #[must_use]
+    pub fn delivering_ids(
+        mut self,
+        id_for: impl Fn(&str) -> String + Send + Sync + 'static,
+    ) -> Self {
+        self.message_id = Some(Box::new(id_for));
         self
     }
 
@@ -136,7 +169,7 @@ impl MailTransport for RecordingMailTransport {
         &'a self,
         envelope: &'a Envelope,
         raw: &'a [u8],
-    ) -> BoxFuture<'a, Result<(), TransportFailure>> {
+    ) -> BoxFuture<'a, Result<Option<String>, TransportFailure>> {
         let refusal = lock(&self.refusals)
             .iter()
             .find(|(recipient, _)| *recipient == envelope.to.to_lowercase())
@@ -151,7 +184,7 @@ impl MailTransport for RecordingMailTransport {
                 envelope: envelope.clone(),
                 raw: raw.to_vec(),
             });
-            Ok(())
+            Ok(self.message_id.as_ref().map(|id_for| id_for(&envelope.to)))
         };
         Box::pin(std::future::ready(result))
     }
@@ -187,11 +220,28 @@ mod tests {
             from: "tom@acme.com".to_owned(),
             to: "bad@x.com".to_owned(),
         };
-        transport.send(&ok, b"raw").await.expect("sent");
+        assert_eq!(transport.send(&ok, b"raw").await.expect("sent"), None);
         let refused = transport.send(&bad, b"raw").await.expect_err("refused");
         assert_eq!(refused.code.as_deref(), Some("E_RECIPIENT_SUPPRESSED"));
         assert_eq!(transport.sent().len(), 1);
         transport.clear();
         assert_eq!(transport.sent().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn answers_with_a_message_id_per_envelope_when_asked() {
+        let transport = RecordingMailTransport::new().delivering_ids(|to| format!("<cf.{to}>"));
+        let envelope = Envelope {
+            from: "tom@acme.com".to_owned(),
+            to: "a@x.com".to_owned(),
+        };
+        assert_eq!(
+            transport
+                .send(&envelope, b"raw")
+                .await
+                .expect("sent")
+                .as_deref(),
+            Some("<cf.a@x.com>")
+        );
     }
 }

@@ -42,6 +42,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `weldpass-extension`, WeldPass browser extension (MV3, Chrome/Edge); built and loaded manually, not deployed by CI
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 - `sign-portal`, WeldSign signer portal: TanStack Start on a Cloudflare Worker (port 3023, `sign.weldsuite.org` / `sign-test.weldsuite.org`). Runs the signer side itself on `@weldsuite/sign-domain/portal` against the tenant DB, with no API in between (ADR FE-016)
+- `project-portal`, WeldFlow client project portal: TanStack Start on a Cloudflare Worker (port 3024, `projects.weldsuite.org` / `projects-test.weldsuite.org`). Calls only flow-api's `/public/project-portal/*` over the `FLOW_API` service binding; no database, no secrets (ADR FLOW-020)
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
 - `app-api`, **The core first-party API** (`app-api.weldsuite.org`): workspaces, members, roles, settings, files/drive, search, billing, credits, notifications, App Store / WeldApps, custom objects, `/api/internal`. It also **forwards** every module's paths to that module's worker (below), so clients that call it for anything keep working. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
@@ -475,7 +476,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 (path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
 apps: admin, api-docs, booking-portal, docs, helpdesk-widget, meeting-portal,
 partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
-for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`).
+for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`, `frontend-project-portal`).
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled: false`, so Vercel's Git

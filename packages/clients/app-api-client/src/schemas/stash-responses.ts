@@ -160,6 +160,29 @@ export const purchaseOrderRowSchema = z
   })
   .passthrough();
 
+/** A purchase order line (`/api/purchase-orders/:id/items`); `projectId` is the WeldFlow project its cost belongs to (FLOW-019). */
+export const purchaseOrderItemRowSchema = z
+  .object({
+    id: z.string(),
+    purchaseOrderId: z.string(),
+    name: z.string(),
+    sku: nullableString,
+    quantityOrdered: z.number().int(),
+    quantityReceived: nullableInt,
+    quantityPending: nullableInt,
+    quantityRejected: nullableInt,
+    unitPrice: z.string(),
+    discountPercent: numericText,
+    discountAmount: numericText,
+    taxPercent: numericText,
+    taxAmount: numericText,
+    total: z.string(),
+    projectId: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
 export const cycleCountRowSchema = z
   .object({
     id: z.string(),

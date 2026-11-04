@@ -89,8 +89,9 @@ describe('cfEmail.sendEmail — real transmit wiring', () => {
 
     const raws = envelopes(send).map((e) => e.raw);
 
-    // Identical payload per envelope — same Message-ID, so mail clients treat
-    // the copies as one message rather than three separate ones.
+    // Identical payload per envelope, so every copy names the same group.
+    // (Cloudflare still stamps each envelope with a Message-ID of its own; see
+    // the delivered-id tests below.)
     expect(new Set(raws).size).toBe(1);
 
     // ...and its headers name the whole group, so recipients can reply-all.
@@ -223,5 +224,84 @@ describe('cfEmail.sendEmail — real transmit wiring', () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(result.pendingVerification).toBe(true);
     expect(result.messageId).toBeTruthy();
+  });
+});
+
+describe('cfEmail.sendEmail — the Message-ID Cloudflare delivered', () => {
+  /** A binding that answers like Cloudflare: a fresh `<id@domain>` per envelope. */
+  function cloudflareLikeSend() {
+    let n = 0;
+    return vi.fn(async () => ({ messageId: `<cf${++n}@acme.test>` }));
+  }
+
+  it('reports the id recipients received, not the one the message was built with', async () => {
+    const { env, send } = envWithSpy(cloudflareLikeSend());
+
+    const result = await sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 'Hi', text: 'hi' });
+
+    expect(result.messageId).toBe('<cf1@acme.test>');
+    expect(result.deliveredMessageIds).toEqual({ 'a@x.test': '<cf1@acme.test>' });
+    // The id in the built message is the one Cloudflare throws away.
+    expect(envelopes(send)[0]!.raw).not.toContain('<cf1@acme.test>');
+  });
+
+  it('records every envelope its own id, by lower-cased recipient, the first one as messageId', async () => {
+    const { env } = envWithSpy(cloudflareLikeSend());
+
+    const result = await sendEmail(env, {
+      from: FROM,
+      to: ['A@x.test'],
+      cc: ['c@x.test'],
+      bcc: ['d@x.test'],
+      subject: 'Hi',
+      text: 'hi',
+    });
+
+    expect(result.messageId).toBe('<cf1@acme.test>');
+    expect(result.deliveredMessageIds).toEqual({
+      'a@x.test': '<cf1@acme.test>',
+      'c@x.test': '<cf2@acme.test>',
+      'd@x.test': '<cf3@acme.test>',
+    });
+  });
+
+  it('brackets a bare id and skips a recipient that needed verifying', async () => {
+    const notAllowed = Object.assign(new Error('recipient not allowed'), { code: 'E_RECIPIENT_NOT_ALLOWED' });
+    const send = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.reject(notAllowed))
+      .mockResolvedValue({ messageId: 'bare@acme.test' });
+    const { env } = envWithSpy(send);
+
+    const result = await sendEmail(env, { from: FROM, to: ['blocked@x.test', 'fine@x.test'], subject: 's', text: 'x' });
+
+    expect(result.messageId).toBe('<bare@acme.test>');
+    expect(result.deliveredMessageIds).toEqual({ 'fine@x.test': '<bare@acme.test>' });
+  });
+
+  it('falls back to the built id when the binding reports none', async () => {
+    const { env, send } = envWithSpy();
+
+    const result = await sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 'Hi', text: 'hi' });
+
+    expect(result.deliveredMessageIds).toBeUndefined();
+    expect(envelopes(send)[0]!.raw).toContain(`Message-ID: ${result.messageId}`);
+  });
+
+  it('a failure part-way carries the ids of the envelopes that went out', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ messageId: '<first@acme.test>' })
+      .mockRejectedValueOnce(new Error('550 relay error'));
+    const { env } = envWithSpy(send);
+
+    const err = (await sendEmail(env, { from: FROM, to: ['a@x.test', 'b@x.test'], subject: 's', text: 'x' }).then(
+      () => ({}),
+      (e: unknown) => e,
+    )) as { sentRecipients?: string[]; messageId?: string; deliveredMessageIds?: Record<string, string> };
+
+    expect(err.sentRecipients).toEqual(['a@x.test']);
+    expect(err.messageId).toBe('<first@acme.test>');
+    expect(err.deliveredMessageIds).toEqual({ 'a@x.test': '<first@acme.test>' });
   });
 });

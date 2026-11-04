@@ -34,6 +34,7 @@ pub mod calendar;
 mod catalog;
 mod date;
 mod escape;
+pub mod flow;
 pub mod hr;
 pub mod ics;
 pub mod meet;

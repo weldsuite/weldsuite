@@ -13,7 +13,13 @@ import type {
   NotificationType,
   NotificationSeverity,
 } from '@weldsuite/db/schema/notifications';
-import type { EmailBrand, EmailLocale, NotificationEmailProps, TaskAssignedEmailProps } from '@weldsuite/emails';
+import type {
+  EmailBrand,
+  EmailLocale,
+  FlowStatusReportEmailProps,
+  NotificationEmailProps,
+  TaskAssignedEmailProps,
+} from '@weldsuite/emails';
 import type { SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 import type { ApnsEnv } from './channels/apns';
 
@@ -59,7 +65,8 @@ export interface DeferredEmailWorkflow {
  */
 export type NotificationEmailOverride =
   | { template: 'notification'; props: NotificationEmailProps }
-  | { template: 'task.assigned'; props: TaskAssignedEmailProps };
+  | { template: 'task.assigned'; props: TaskAssignedEmailProps }
+  | { template: 'flow.status-report'; props: FlowStatusReportEmailProps };
 
 /**
  * Payload handed to the deferred-email workflow. Every field must stay

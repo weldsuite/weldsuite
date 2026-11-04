@@ -9,6 +9,8 @@ import workspaceDeletion from './admin/workspace-deletion';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
 import flowDigest from './flow/digest';
+import flowPortalInvitation from './flow/portal-invitation';
+import flowStatusReport from './flow/status-report';
 import hrBankChanged from './hr/bank-changed';
 import hrPayslipReady from './hr/payslip-ready';
 import appAccessRequested from './internal/app-access-requested';
@@ -38,6 +40,8 @@ export const templates = {
   notification,
   'task.assigned': taskAssigned,
   'flow.digest': flowDigest,
+  'flow.status-report': flowStatusReport,
+  'flow.portal-invitation': flowPortalInvitation,
   'portal.sign-in': portalSignIn,
   'hr.payslip-ready': hrPayslipReady,
   'hr.bank-changed': hrBankChanged,
@@ -67,6 +71,8 @@ export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
 export type { DigestTask, FlowDigestEmailProps } from './flow/digest';
+export type { FlowPortalInvitationEmailProps } from './flow/portal-invitation';
+export type { FlowStatusReportEmailProps } from './flow/status-report';
 export type { HrBankChangedEmailProps } from './hr/bank-changed';
 export type { HrPayslipReadyEmailProps } from './hr/payslip-ready';
 export type { AppAccessRequestedEmailProps } from './internal/app-access-requested';

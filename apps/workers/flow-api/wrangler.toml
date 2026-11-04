@@ -47,6 +47,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
@@ -92,6 +94,18 @@ bucket_name = "weldsuite-private-test"
 [[send_email]]
 name = "SEND_EMAIL"
 
+# Client project portal sign-in rate-limit counters (FLOW-020,
+# src/durable-objects/portal-rate-limiter.ts, exported from src/index.ts).
+# Durable Object bindings and migrations are NOT inherited by [env.*], so the
+# test and production blocks repeat them.
+[[durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
+
 # Daily task digest + bulk task import — Cloudflare Workflows hosted in THIS
 # worker (classes re-exported from src/index.ts, @weldsuite/flow-domain). New
 # names (-v3): app-api keeps `send-digest-v2*` / `import-tasks-v2*` while their
@@ -134,6 +148,8 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -174,6 +190,15 @@ bucket_name = "weldsuite-private-test"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Client portal sign-in rate-limit counters (see the top-level block).
+[[env.test.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.test.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [[env.test.workflows]]
 name = "send-digest-v3-test"
@@ -216,6 +241,8 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -256,6 +283,15 @@ bucket_name = "weldsuite-private"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Client portal sign-in rate-limit counters (see the top-level block).
+[[env.production.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.production.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 # Daily task digest — hosted in this worker, no script_name. New name (-v3):
 # app-api's `send-digest-v2` keeps draining.

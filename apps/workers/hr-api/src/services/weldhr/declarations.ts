@@ -9,7 +9,8 @@
  *   pending / approved → cancelled
  *
  * The amount and the receipt can only change while the declaration is still
- * pending, so what was approved is what gets paid.
+ * pending, so what was approved is what gets paid. The WeldFlow project tag
+ * (FLOW-019) moves no money, so HR can also set it on an approved or paid one.
  *
  * The receipt is one private R2 object per declaration. Its key lives under
  * the workspace prefix and is never handed to a client; the routes stream it
@@ -40,6 +41,8 @@ export interface DeclarationFields {
   description: string;
   amount: number;
   currency?: string;
+  /** The WeldFlow project the expense counts toward (FLOW-019); null takes the tag off. Back office only. */
+  projectId?: string | null;
 }
 
 /**
@@ -59,6 +62,21 @@ export type PublicDeclaration = ReturnType<typeof toPublicDeclaration>;
  */
 function assertExpenseDate(expenseDate: string) {
   if (expenseDate > addDays(todayIso(), 1)) throw new HrValidationError('The expense date cannot be in the future');
+}
+
+/**
+ * The project of a declaration (FLOW-019) must be a live WeldFlow project of this
+ * workspace: it belongs to another module, so the column has no foreign key and
+ * this is the only check. A deleted project does not count.
+ */
+async function assertProjectExists(db: Database, projectId: string | null | undefined) {
+  if (!projectId) return;
+  const [project] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), isNull(schema.projects.deletedAt)))
+    .limit(1);
+  if (!project) throw new HrValidationError(`Project ${projectId} does not exist`);
 }
 
 /** A declaration, optionally only when it belongs to `onlyEmployeeId` (self-service: anyone else's is a 404). */
@@ -109,6 +127,7 @@ export async function createDeclaration(
 ) {
   assertExpenseDate(input.expenseDate);
   await requireEmployee(db, input.employeeId);
+  await assertProjectExists(db, input.projectId);
   const [row] = await db
     .insert(dcl)
     .values({
@@ -119,6 +138,7 @@ export async function createDeclaration(
       description: input.description,
       amount: input.amount.toFixed(2),
       currency: input.currency ?? 'EUR',
+      projectId: input.projectId || null,
       status: 'pending',
       submittedBy,
     })
@@ -128,10 +148,20 @@ export async function createDeclaration(
 
 export async function updateDeclaration(db: Database, id: string, input: Partial<DeclarationFields>) {
   const existing = await requireDeclaration(db, id);
-  if (existing.status !== 'pending') {
+  // Only the project tag moves no money: HR can set it until the declaration is rejected or cancelled.
+  const onlyProject =
+    input.projectId !== undefined &&
+    input.expenseDate === undefined &&
+    input.category === undefined &&
+    input.description === undefined &&
+    input.amount === undefined &&
+    input.currency === undefined;
+  const editable = existing.status === 'pending' || (onlyProject && (existing.status === 'approved' || existing.status === 'paid'));
+  if (!editable) {
     throw new HrConflictError(`This declaration is already ${existing.status} and can no longer be changed`);
   }
   if (input.expenseDate) assertExpenseDate(input.expenseDate);
+  await assertProjectExists(db, input.projectId);
   const [row] = await db
     .update(dcl)
     .set({
@@ -140,6 +170,7 @@ export async function updateDeclaration(db: Database, id: string, input: Partial
       ...(input.description !== undefined && { description: input.description }),
       ...(input.amount !== undefined && { amount: input.amount.toFixed(2) }),
       ...(input.currency !== undefined && { currency: input.currency }),
+      ...(input.projectId !== undefined && { projectId: input.projectId || null }),
       updatedAt: new Date(),
     })
     .where(eq(dcl.id, id))

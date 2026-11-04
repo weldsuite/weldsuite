@@ -98,6 +98,16 @@
       "port": 3017
     },
     {
+      "name": "project-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "project-portal",
+        "dev"
+      ],
+      "port": 3024
+    },
+    {
       "name": "sign-portal",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

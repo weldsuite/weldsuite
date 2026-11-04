@@ -551,6 +551,8 @@ export interface HrDeclaration {
   /** Major units, two decimals. */
   amount: number;
   currency: string;
+  /** The WeldFlow project the expense counts toward (FLOW-019); set by HR. */
+  projectId?: string | null;
   status: HrDeclarationStatus;
   hasReceipt: boolean;
   receiptFileName: string | null;

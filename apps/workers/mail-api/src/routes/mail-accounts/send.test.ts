@@ -446,3 +446,55 @@ describe('POST /api/mail-messages/:id/forward', () => {
     expect((await forward('msg_in_1', { to: ['bob@y.com'] }, { SEND_EMAIL: undefined })).status).toBe(503);
   });
 });
+
+describe('the Message-ID Cloudflare delivers', () => {
+  // Cloudflare replaces the Message-ID of every message it sends, a different
+  // one per envelope, and resolves `send()` with it. A stub that answers the
+  // same way, with ids that depend only on the recipient so both conformance
+  // runs see the same ones.
+  const delivered = (to: string) => `<cf.${to.toLowerCase().replace('@', '.')}@acme.com>`;
+  const cloudflare = createSendEmailStub({}, { messageId: (e) => delivered(e.to) });
+
+  it('keeps the ids recipients received on the SENT copy, the self-copy as its external id', async () => {
+    const res = await compose(
+      'acc_shared',
+      { to: ['tom@acme.com', 'friend.one@x.com'], subject: 'Note to self and a friend', body: 'Hi' },
+      { SEND_EMAIL: cloudflare },
+    );
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { messageId: string; smtpMessageId: string } };
+    expect(data.smtpMessageId).toBe(delivered('friend.one@x.com'));
+
+    const [copy] = await tenantDb.select().from(mailMessages).where(eq(mailMessages.id, data.messageId));
+    expect(copy).toMatchObject({
+      messageId: delivered('friend.one@x.com'),
+      externalMessageId: delivered('tom@acme.com'),
+      threadId: delivered('friend.one@x.com'),
+    });
+  });
+
+  it('removes a self-copy the inbound path stored before the SENT row', async () => {
+    await tenantDb.insert(mailMessages).values({
+      id: 'msg_early_self_copy',
+      accountId: 'acc_shared',
+      messageId: delivered('tom@acme.com'),
+      threadId: delivered('tom@acme.com'),
+      from: { email: 'tom@acme.com' },
+      to: [{ email: 'tom@acme.com' }, { email: 'friend.two@x.com' }],
+      subject: 'Early self-copy',
+      sentDate: new Date('2026-10-22T09:00:00Z'),
+      source: 'inbound',
+      labels: ['INBOX'],
+    });
+
+    const res = await compose(
+      'acc_shared',
+      { to: ['friend.two@x.com'], cc: ['tom@acme.com'], subject: 'Early self-copy', body: 'Hi' },
+      { SEND_EMAIL: cloudflare },
+    );
+    expect(res.status).toBe(200);
+
+    const [early] = await tenantDb.select().from(mailMessages).where(eq(mailMessages.id, 'msg_early_self_copy'));
+    expect(early!.deletedAt).not.toBeNull();
+  });
+});

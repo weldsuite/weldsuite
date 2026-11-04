@@ -123,6 +123,11 @@ export interface ResolveInboundResult {
  * duplicate of one already stored (by RFC Message-ID, within this account).
  * Ported verbatim from `resolveTenantThread` + `isTenantDuplicate`
  * (`MailboxStore.resolveInbound`).
+ *
+ * The duplicate check also looks at `externalMessageId`: a SENT copy keeps
+ * there the Message-ID Cloudflare gave the copy it delivered back to this
+ * mailbox (`sentCopyMessageIds` in ../../send.ts), so mail an account sent to
+ * itself is recognised as the message it already has.
  */
 export async function resolveInbound(
   db: Database,
@@ -133,7 +138,12 @@ export async function resolveInbound(
     const [existing] = await db
       .select({ id: mailMessages.id, threadId: mailMessages.threadId })
       .from(mailMessages)
-      .where(and(eq(mailMessages.accountId, accountId), eq(mailMessages.messageId, q.rfcMessageId)))
+      .where(
+        and(
+          eq(mailMessages.accountId, accountId),
+          or(eq(mailMessages.messageId, q.rfcMessageId), eq(mailMessages.externalMessageId, q.rfcMessageId))!,
+        ),
+      )
       .limit(1);
     if (existing) {
       return { duplicate: true, threadId: existing.threadId ?? existing.id, isExistingHamThread: false };

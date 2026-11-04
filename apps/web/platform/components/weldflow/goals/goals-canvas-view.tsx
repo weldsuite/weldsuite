@@ -44,6 +44,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskDetailPanel } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
+import type { GoalTarget } from '@weldsuite/app-api-client/domains/project-governance';
+import { governanceKeys } from '@/hooks/queries/use-project-governance-queries';
+import { GoalTargetsButton, GoalTargetsDialog, progressFromTargets, useGoalTargetProgress } from './goal-targets';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 
 // Fixed zoom stops. Module scope so the array identity is stable across renders.
@@ -92,6 +95,8 @@ interface GoalCardType {
   attachments?: number;
   priority?: 'low' | 'medium' | 'high' | 'critical';
   linkedTaskId?: string;
+  /** Measurable targets: a benefit or a set of tasks; their progress is computed (project governance). */
+  targets?: GoalTarget[];
 }
 
 interface GoalsData {
@@ -130,6 +135,8 @@ interface GoalCard {
   attachments?: number;
   priority?: 'low' | 'medium' | 'high' | 'critical';
   linkedTaskId?: string;
+  /** Measurable targets: a benefit or a set of tasks; their progress is computed (project governance). */
+  targets?: GoalTarget[];
 }
 
 interface MissionCard {
@@ -328,6 +335,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const { canWrite } = useProjectPermissions();
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
+  const targetProgress = useGoalTargetProgress(projectId);
+  const [targetsGoalId, setTargetsGoalId] = useState<string | null>(null);
   const { user } = useUser();
   const defaultOwner = useMemo(() => {
     const name = user?.fullName || user?.primaryEmailAddress?.emailAddress || '';
@@ -578,6 +587,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       // Keep the cached copy in step so re-opening the tab never seeds the canvas
       // (and therefore the next autosave) with stale pre-edit data.
       queryClient.setQueryData(projectKeys.goals(projectId), { data: goalsToSave });
+      // Targets are computed from the saved card, so their progress is read again.
+      void queryClient.invalidateQueries({ queryKey: governanceKeys.goalTargets(projectId) });
       // Silent success - no toast for auto-saves
     } catch (error) {
       console.error('Failed to save goals:', error);
@@ -1526,6 +1537,11 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
             </div>
 
             <div className="flex items-center gap-1">
+              <GoalTargetsButton
+                count={goal.targets?.length ?? 0}
+                visible={canWrite && hoveredGoal === goal.id}
+                onOpen={() => setTargetsGoalId(goal.id)}
+              />
               {/* More Options Menu */}
               {canWrite && (
                 <DropdownMenu>
@@ -1583,11 +1599,11 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                   goal.status === 'not-started' && "bg-gray-400",
                   goal.status === 'completed' && "bg-blue-500"
                 )}
-                style={{ width: `${goal.progress}%` }}
+                style={{ width: `${progressFromTargets(targetProgress.get(goal.id)) ?? goal.progress}%` }}
               />
             </div>
             <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground tabular-nums">
-              {goal.progress}%
+              {progressFromTargets(targetProgress.get(goal.id)) ?? goal.progress}%
             </span>
           </div>
         </div>
@@ -2265,6 +2281,21 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       })()}
 
       {/* Add Child Goal Modal */}
+      {(() => {
+        const goalForTargets = targetsGoalId ? goals.find(g => g.id === targetsGoalId) : null;
+        return goalForTargets ? (
+          <GoalTargetsDialog
+            projectId={projectId}
+            goalTitle={goalForTargets.title}
+            targets={goalForTargets.targets ?? []}
+            progress={targetProgress.get(goalForTargets.id) ?? []}
+            canEdit={canWrite}
+            onChange={(targets) => setGoals(prev => prev.map(g => (g.id === goalForTargets.id ? { ...g, targets } : g)))}
+            onClose={() => setTargetsGoalId(null)}
+          />
+        ) : null;
+      })()}
+
       <Dialog open={showAddChildModal} onOpenChange={setShowAddChildModal}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>

@@ -52,6 +52,25 @@ const personKeys = {
   detail: (id: string) => [...personKeys.all, 'detail', id] as const,
 };
 
+// WeldFlow RAID log — mirrors raidKeys in hooks/queries/use-project-control-queries.ts.
+// Lists, the matrix and every open detail sit under this root.
+const raidKeys = { all: ['project-raid'] as const };
+// WeldFlow approvals: mirrors flowApprovalKeys in hooks/queries/use-flow-approvals-queries.ts.
+const flowApprovalKeys = { all: ['flow-approvals'] as const };
+
+// WeldFlow portfolio — mirrors portfolioKeys in hooks/queries/use-flow-portfolio-queries.ts.
+const portfolioKeys = { all: ['flow-portfolio'] as const };
+
+// WeldFlow schedule: mirrors scheduleKeys in hooks/queries/use-project-schedule-queries.ts.
+const scheduleKeys = { all: ['project-schedule'] as const };
+
+// WeldFlow governance (decisions, deliverables, scope, benefits) — mirrors governanceKeys in
+// hooks/queries/use-project-governance-queries.ts.
+const governanceKeys = { all: ['project-governance'] as const };
+// WeldFlow reporting — mirrors reportKeys and stakeholderKeys in hooks/queries/use-project-reporting-queries.ts.
+const reportKeys = { all: ['project-status-reports'] as const };
+const stakeholderKeys = { all: ['project-stakeholders'] as const };
+
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
 const pipelineKeys = { all: ['crm', 'pipelines'] as const };
@@ -150,12 +169,18 @@ export const platformSyncMap: EntitySyncMap = {
   project_goal: { invalidate: [projectKeys.all] },
   project_message: { invalidate: [projectKeys.all] },
   project_whiteboard: { invalidate: [projectKeys.all] },
-  project_milestone: inv(projectKeys.all), // replaces the stale 'milestone' topic
+  // A milestone's name and status show on the RAID items linked to it.
+  project_milestone: inv(projectKeys.all, raidKeys.all), // replaces the stale 'milestone' topic
+  // RAID log (project control): items, the matrix and the links between items,
+  // tasks and milestones all live under the RAID query root.
+  project_raid_item: inv(raidKeys.all),
+  project_control_link: inv(raidKeys.all),
   project_sprint: inv(projectKeys.all),
   // Project-scoped tasks publish as `project_task` (not `task`). Invalidate
   // My Tasks (`['task']`) as well as project boards + the object panel so
-  // cross-screen sync covers every task surface.
-  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel']),
+  // cross-screen sync covers every task surface. The RAID root too: an item's
+  // mitigation progress and its linked tasks come from the task's status.
+  project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel'], raidKeys.all, scheduleKeys.all, governanceKeys.all),
   project_time_entry: inv(projectKeys.all),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),
@@ -171,6 +196,46 @@ export const platformSyncMap: EntitySyncMap = {
   task_comment: inv(['app-api', 'task-panel', 'comments']),
   task_project: inv(['task', 'projects']),
   task_tag: inv(['task', 'tags']),
+
+  // =========================================================================
+  // WeldFlow — project control and delivery
+  // =========================================================================
+  // Every type below invalidates the project root as a placeholder. Each slice
+  // repoints its own group to the query keys of its tab when that tab lands,
+  // and keeps `projectKeys.all` only where an open project page shows the
+  // object. One group per slice, a blank line between groups, so slices merge
+  // without touching each other's lines. Finance publishes no events
+  // (FLOW-019) and the client portal has no platform page.
+
+  // Approvals and My reviews (`flow_approval`).
+  flow_approval: inv(flowApprovalKeys.all, projectKeys.all),
+
+  // Governance: decisions, change requests, deliverables, scope, baselines, benefits.
+  project_decision: inv(governanceKeys.all),
+  project_change_request: inv(flowApprovalKeys.all, projectKeys.all, governanceKeys.all),
+  project_deliverable: inv(governanceKeys.all),
+  project_scope: inv(governanceKeys.all),
+  project_baseline: inv(flowApprovalKeys.all, projectKeys.all, governanceKeys.all),
+  project_benefit: inv(governanceKeys.all),
+
+  // Schedule: dependencies, phases and gates.
+  task_dependency: inv(projectKeys.all, scheduleKeys.all),
+  project_phase: inv(projectKeys.all, scheduleKeys.all),
+
+  // Reporting: status reports and stakeholders.
+  project_status_report: inv(projectKeys.all, reportKeys.all),
+  project_stakeholder: inv(stakeholderKeys.all, reportKeys.all),
+
+  // Closing: lessons and templates, and the close checklist (use-project-closing-queries.ts).
+  project_lesson: inv(['project-closing']),
+  project_template: inv(['project-closing']),
+
+  // Portfolio: capacity, intake and the workspace settings behind them.
+  resource_booking: inv(portfolioKeys.all),
+  resource_request: inv(portfolioKeys.all),
+  project_request: inv(projectKeys.all, portfolioKeys.all),
+  flow_member_profile: inv(portfolioKeys.all),
+  flow_workspace_settings: inv(portfolioKeys.all),
 
   // =========================================================================
   // WeldCRM

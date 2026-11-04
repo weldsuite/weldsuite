@@ -47,6 +47,8 @@ export interface ProjectGoalCard {
   attachments?: number;
   priority?: 'low' | 'medium' | 'high' | 'critical';
   linkedTaskId?: string;
+  /** Measurable targets (a benefit or a set of tasks), see components/weldflow/goals/goal-targets.tsx. */
+  targets?: Array<{ benefitId: string } | { label: string; taskFilter: Record<string, string> }>;
 }
 
 export interface ProjectGoals {

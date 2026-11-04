@@ -92,3 +92,24 @@ export function formatWhen(opts: {
   }
   return `${formatDateTime(start, locale, timeZone)} – ${formatDateTime(end, locale, timeZone)}`;
 }
+
+/** Month names of `periodLabel`, fixed tables so every backend writes the same text. */
+const MONTH_NAMES: Record<EmailLocale, readonly string[]> = {
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+  nl: ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'],
+};
+
+/**
+ * A report period as a person reads it: the ISO week `2026-W45` is "Week 45,
+ * 2026", the month `2026-11` is "November 2026" / "november 2026". Any other
+ * text is returned as it is. The Rust backend mirrors it (`period_label` in
+ * `weldsuite-emails`); month names come from fixed tables, not `Intl`, so the
+ * two cannot differ.
+ */
+export function periodLabel(locale: EmailLocale, period: string): string {
+  const week = /^(\d{4})-W(0[1-9]|[1-4]\d|5[0-3])$/.exec(period);
+  if (week) return `Week ${Number(week[2])}, ${week[1]}`;
+  const month = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  if (month) return `${MONTH_NAMES[locale][Number(month[2]) - 1]} ${month[1]}`;
+  return period;
+}

@@ -43,6 +43,9 @@ export const projectMessages = pgTable('project_messages', {
   // Reactions (emoji -> userIds)
   reactions: jsonb('reactions').$type<Record<string, string[]>>(),
 
+  // Shown to the project's clients in the client portal (FLOW-020).
+  clientVisible: boolean('client_visible').notNull().default(false),
+
   // Metadata
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 }, (table) => [

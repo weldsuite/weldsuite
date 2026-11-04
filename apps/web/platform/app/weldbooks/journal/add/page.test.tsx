@@ -17,6 +17,10 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   }),
   useDimensionValues: () => ({ data: env.dimensions }),
 }));
+vi.mock('@/hooks/queries/use-projects-queries', () => ({
+  useProjects: () => ({ data: { data: [{ id: 'proj_1', name: 'Portal' }] }, isLoading: false, isError: false }),
+  useProject: () => ({ data: undefined }),
+}));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string) => `$${Number(value).toFixed(2)}`,
@@ -52,7 +56,7 @@ describe('AddJournalEntryPage: dimensions', { timeout: 30_000 }, () => {
     expect(screen.getAllByRole('combobox', { name: 'Class' })).toHaveLength(2);
     expect(screen.getAllByRole('combobox', { name: 'Location' })).toHaveLength(2);
 
-    const accountPickers = screen.getAllByRole('combobox').filter((el) => !/Class|Location/.test(el.getAttribute('aria-label') ?? ''));
+    const accountPickers = screen.getAllByRole('combobox').filter((el) => !/Class|Location|Project/.test(el.getAttribute('aria-label') ?? ''));
     await user.click(accountPickers[0]);
     await user.click(await screen.findByRole('option', { name: /Cash/ }));
     await user.click(accountPickers[1]);
@@ -65,14 +69,16 @@ describe('AddJournalEntryPage: dimensions', { timeout: 30_000 }, () => {
     await user.click(await screen.findByRole('option', { name: 'Retail' }));
     await user.click(screen.getAllByRole('combobox', { name: 'Location' })[1]);
     await user.click(await screen.findByRole('option', { name: 'Austin' }));
+    await user.click(screen.getAllByRole('combobox', { name: 'Project' })[1]);
+    await user.click(await screen.findByRole('option', { name: 'Portal' }));
 
     await user.click(screen.getByRole('button', { name: /Create/ }));
 
     await waitFor(() => expect(env.create).toHaveBeenCalledTimes(1));
     const payload = env.create.mock.calls[0][0];
     expect(payload.lines).toEqual([
-      expect.objectContaining({ accountId: 'acc_cash', debit: '100', credit: '0', classId: null, locationId: null }),
-      expect.objectContaining({ accountId: 'acc_sales', debit: '0', credit: '100', classId: 'dim_c1', locationId: 'dim_l1' }),
+      expect.objectContaining({ accountId: 'acc_cash', debit: '100', credit: '0', classId: null, locationId: null, projectId: null }),
+      expect.objectContaining({ accountId: 'acc_sales', debit: '0', credit: '100', classId: 'dim_c1', locationId: 'dim_l1', projectId: 'proj_1' }),
     ]);
   });
 });

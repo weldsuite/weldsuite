@@ -10,11 +10,11 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, patch, post, put};
 use http::HeaderMap;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
-use weldsuite_catalogs::entity_events::{DOC_CREATED, DOC_UPDATED, FILE_CREATED};
+use weldsuite_catalogs::entity_events::{DOC_CREATED, DOC_UPDATED, FILE_CREATED, FILE_UPDATED};
 use weldsuite_core_domain::drive_access::{
     DriveFileRef, DriveGeneralAccess, can_edit, container_role, file_role,
     load_drive_access_for_user,
@@ -95,6 +95,10 @@ where
         .route(
             "/{project_id}",
             post(create_project_document).route_layer(need("projects:update")),
+        )
+        .route(
+            "/{project_id}/{file_id}",
+            patch(share_project_document).route_layer(need("projects:update")),
         )
         .with_state(state)
 }
@@ -528,6 +532,72 @@ async fn create_project_document(
         )
         .await,
         "Failed to create project document",
+    )
+}
+
+// ── PATCH /api/project-documents/:projectId/:fileId ─────────────────────────
+
+/// Show or hide a document in the client portal (FLOW-020): `files.client_visible`.
+async fn share_project_document(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path((project_id, file_id)): Path<(String, String)>,
+    body: Bytes,
+) -> Response {
+    reply(
+        async {
+            let existing: Option<String> = sqlx::query_scalar(
+                "select id from files
+                 where id = $1 and entity_type = 'project' and entity_id = $2
+                   and file_type = 'document' and deleted_at is null limit 1",
+            )
+            .bind(&file_id)
+            .bind(&project_id)
+            .fetch_optional(&caller.db)
+            .await?;
+            if existing.is_none() {
+                return Err(Refusal::not_found("Project document", &file_id));
+            }
+            if !caller.can_write(&project_id).await? {
+                return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
+            }
+            // `z.object({ clientVisible: z.boolean() }).strict()`.
+            let visible = serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|value| match value {
+                    Value::Object(fields) if fields.len() == 1 => {
+                        fields.get("clientVisible").and_then(Value::as_bool)
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| Refusal::bad_request("Invalid request body"))?;
+            let row: Value = sqlx::query_scalar(
+                "update files set client_visible = $2, updated_at = $3::timestamp
+                 where id = $1 returning to_jsonb(files)",
+            )
+            .bind(&file_id)
+            .bind(visible)
+            .bind(now())
+            .fetch_one(&caller.db)
+            .await?;
+            let row = js_row(row);
+            caller.publish(
+                &state,
+                FILE_UPDATED,
+                &file_id,
+                &json!({
+                    "id": row["id"],
+                    "name": row["fileName"],
+                    "folderId": row["folderId"],
+                    "fileType": row["fileType"],
+                    "fileSize": row["fileSize"],
+                    "mimeType": row["mimeType"],
+                }),
+            );
+            Ok(Data(row).into_response())
+        }
+        .await,
+        "Failed to update project document",
     )
 }
 

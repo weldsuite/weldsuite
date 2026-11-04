@@ -15,6 +15,8 @@ export const createProjectFileSchema = z.object({
   parentId: parentIdSchema,
   isFolder: z.boolean().optional(),
   fileType: z.string().max(50).optional(),
+  /** Shown to the client in the project portal (FLOW-020). */
+  clientVisible: z.boolean().optional(),
 }).passthrough();
 
 export const updateProjectFileSchema = createProjectFileSchema.partial().extend({
