@@ -14,6 +14,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { runDigestSweep } from './cron/digest-sweep';
+import { isFinanceSnapshotCron, runFinanceSnapshots } from './cron/finance-snapshot';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
 import { approvalsRoutes } from './routes/approvals';
 import { capacityRoutes } from './routes/capacity';
@@ -139,6 +140,15 @@ export default {
       ctx.waitUntil(
         runDeletedFilesPurge(env).catch((err) => {
           console.error('[FilePurge] Failed:', err);
+        }),
+      );
+    }
+    // Daily: the weekly project finance snapshot, for the workspaces the
+    // `finance_snapshot` due index lists (FLOW-019).
+    if (isFinanceSnapshotCron(event.cron)) {
+      ctx.waitUntil(
+        runFinanceSnapshots(env).catch((err) => {
+          console.error('[FinanceSnapshot] Failed:', err);
         }),
       );
     }
