@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use weldsuite_db::{PgPool, js_row, js_timestamp};
+use weldsuite_flow_domain::benefits::benefit_code;
+use weldsuite_flow_domain::decisions::decision_code;
+use weldsuite_flow_domain::deliverables::deliverable_code;
 use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::raid::{
     LinkEnd, PROGRESS_RELATIONS, RaidKind, present_control_link, raid_code,
@@ -189,10 +192,10 @@ async fn resolve_ends(
                     "raid_item" => kind
                         .zip(number)
                         .map(|(kind, number)| raid_code(kind, i64::from(number))),
-                    "decision" => number.map(|number| format!("DEC-{number}")),
+                    "decision" => number.map(|number| decision_code(i64::from(number))),
                     "change_request" => number.map(|number| format!("CR-{number}")),
-                    "deliverable" => number.map(|number| format!("D{number}")),
-                    "benefit" => number.map(|number| format!("B-{number}")),
+                    "deliverable" => number.map(|number| deliverable_code(i64::from(number))),
+                    "benefit" => number.map(|number| benefit_code(i64::from(number))),
                     _ => None,
                 },
                 owner_id,
