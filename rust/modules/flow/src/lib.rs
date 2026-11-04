@@ -51,7 +51,7 @@ mod whiteboards;
 // Project control and delivery (designs weldflow-project-control.md and
 // weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
 // their slices fill them in.
-mod approvals;
+pub mod approvals;
 mod capacity;
 mod project_baselines;
 mod project_benefits;

@@ -3,9 +3,13 @@
 //! sheets-api, connect-api and workflow-worker import them in TypeScript.
 //! Route-only code stays in `rust/modules/flow`.
 
+pub mod acceptance;
 pub mod access;
 pub mod analytics;
+pub mod approval_views;
 pub mod approvals;
+pub mod baselines;
+pub mod changes;
 pub mod day_bounds;
 pub mod js;
 pub mod numbering;

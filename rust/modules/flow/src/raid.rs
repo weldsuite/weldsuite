@@ -13,6 +13,7 @@
 //! POST   /:id/assess      reassess a risk
 //! POST   /:id/convert     assumption -> risk, risk -> issue
 //! POST   /:id/tasks       create a mitigation (risk) or resolution (issue) task
+//! POST   /:id/request-acceptance  ask the sponsor to accept a risk (strategy accept, score 9 or more)
 //! ```
 //!
 //! The checks run in TypeScript's order: permission, then the item (404),
@@ -20,6 +21,8 @@
 //! A body that fails its schema answers `Invalid request body` with Zod's
 //! issues as `details` (`{ path, message }`), a query `Invalid query
 //! parameters`.
+
+mod acceptance;
 
 use std::sync::Arc;
 
@@ -65,6 +68,8 @@ use crate::{
     Caller, FlowState, Refusal, Reply, access_scope, keyset_cursor, outside, page, paged, reply,
 };
 
+pub(crate) use acceptance::register as register_subject;
+
 pub(crate) const PROJECT_DENIED: &str = "You are not a member of this project";
 pub(crate) const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
 const ITEM_LABEL: &str = "RAID item";
@@ -89,6 +94,10 @@ where
         .route(
             "/{id}/convert",
             post(convert).route_layer(need("projects:update")),
+        )
+        .route(
+            "/{id}/request-acceptance",
+            post(acceptance::request_acceptance).route_layer(need("projects:update")),
         )
         // `requirePermission('projects:update'), requirePermission('tasks:create')`:
         // the last layer added runs first.
@@ -379,7 +388,7 @@ fn update_item(
 }
 
 /// An assessment of a risk.
-struct Assessment<'a> {
+pub(super) struct Assessment<'a> {
     id: String,
     item_id: &'a str,
     project_id: &'a str,
@@ -392,7 +401,7 @@ struct Assessment<'a> {
     assessed_at: String,
 }
 
-fn insert_assessment(
+pub(super) fn insert_assessment(
     row: &Assessment<'_>,
 ) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
     sqlx::query(
@@ -457,7 +466,13 @@ pub(crate) fn insert_link(
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
-fn publish_raid(state: &FlowState, caller: &Caller, event: EventName, row: &Value, extra: Value) {
+pub(super) fn publish_raid(
+    state: &FlowState,
+    caller: &Caller,
+    event: EventName,
+    row: &Value,
+    extra: Value,
+) {
     let mut data = raid_event_data(row);
     if let (Value::Object(data), Value::Object(extra)) = (&mut data, extra) {
         data.extend(extra);
@@ -490,7 +505,7 @@ async fn party_project_error(
 }
 
 /// `presentOne(c, row)`: the item with its task progress.
-async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+pub(super) async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
     let id = row["id"].as_str().unwrap_or_default().to_owned();
     let progress = task_progress_for(&caller.db, std::slice::from_ref(&id)).await?;
     let (done, total) = progress_of(&progress, &id);
@@ -508,7 +523,7 @@ async fn item_or_404(caller: &Caller, id: &str) -> Result<(Value, RaidKind), Ref
 
 /// The item, writable by the caller: the 404 and 403 checks every write
 /// runs before its body.
-async fn writable_item(caller: &Caller, id: &str) -> Result<(Value, RaidKind), Refusal> {
+pub(super) async fn writable_item(caller: &Caller, id: &str) -> Result<(Value, RaidKind), Refusal> {
     let (row, kind) = item_or_404(caller, id).await?;
     let project = row["projectId"].as_str().unwrap_or_default();
     if !caller.can_write(project).await? {

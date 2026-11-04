@@ -1579,6 +1579,39 @@
       ]
     },
     {
+      "name": "flow: approvals and changes",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/approvals/integration.test.ts",
+        "src/routes/project-changes/integration.test.ts",
+        "src/routes/project-baselines/integration.test.ts",
+        "src/routes/project-raid/acceptance.integration.test.ts",
+        "src/cron/approval-reminders.test.ts"
+      ],
+      "coverage": [
+        "/api/approvals",
+        "/api/project-changes",
+        "/api/project-baselines"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/approvals/",
+        "apps/workers/flow-api/src/routes/project-changes/",
+        "apps/workers/flow-api/src/routes/project-baselines/",
+        "apps/workers/flow-api/src/routes/project-raid/",
+        "apps/workers/flow-api/src/routes/time-entries/",
+        "apps/workers/flow-api/src/cron/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-approvals.ts",
+        "packages/core/worker-kit/src/due-index.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/bins/weldsuite/src/cron.rs"
+      ]
+    },
+    {
       "name": "core: dashboard",
       "module": "core",
       "workspace": "apps/workers/app-api",

@@ -56,7 +56,7 @@ commands:
   consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
              workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep,
+             calendar-replan, flow-file-purge, flow-approval-due, books-sweep, domain-auto-renew, desk-sla-sweep,
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
