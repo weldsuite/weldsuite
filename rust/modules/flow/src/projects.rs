@@ -130,6 +130,7 @@ pub(crate) fn normalize_project_status(value: &str) -> String {
         "onhold" => "On Hold".to_owned(),
         "completed" => "Completed".to_owned(),
         "cancelled" | "canceled" => "Cancelled".to_owned(),
+        "closed" => "Closed".to_owned(),
         _ => value.to_owned(),
     }
 }

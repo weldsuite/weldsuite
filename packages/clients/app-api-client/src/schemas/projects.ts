@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-/** Canonical project statuses, as stored in `projects.status`. */
-export const PROJECT_STATUSES = ['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'] as const;
+/**
+ * Canonical project statuses, as stored in `projects.status`. `Closed` is set
+ * only by the sponsor's close sign-off (`/api/project-close`, FLOW-016).
+ */
+export const PROJECT_STATUSES = ['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled', 'Closed'] as const;
 export type CanonicalProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 const PROJECT_STATUS_BY_KEY: Record<string, CanonicalProjectStatus> = {
@@ -11,6 +14,7 @@ const PROJECT_STATUS_BY_KEY: Record<string, CanonicalProjectStatus> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
   canceled: 'Cancelled',
+  closed: 'Closed',
 };
 
 /**
