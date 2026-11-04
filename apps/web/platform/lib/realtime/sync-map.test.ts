@@ -14,10 +14,20 @@ import {
 } from '@weldsuite/entity-events/hub-topics';
 import { platformSyncMap } from './sync-map';
 import { raidKeys } from '@/hooks/queries/use-project-control-queries';
+import { portfolioKeys } from '@/hooks/queries/use-flow-portfolio-queries';
 import {
   PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
   PLATFORM_SYNC_MAP_PERSONAL_ONLY,
 } from './intentional-omits';
+
+describe('platformSyncMap — WeldFlow portfolio', () => {
+  it('invalidates the portfolio queries for capacity and intake events', () => {
+    for (const topic of ['resource_booking', 'resource_request', 'flow_member_profile', 'flow_workspace_settings']) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([portfolioKeys.all]);
+    }
+    expect(platformSyncMap.project_request?.invalidate).toEqual([['projects'], portfolioKeys.all]);
+  });
+});
 
 describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
   it('project_task invalidates projects, my-tasks, and task-panel', () => {

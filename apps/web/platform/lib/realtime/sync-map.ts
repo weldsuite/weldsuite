@@ -56,6 +56,9 @@ const personKeys = {
 // Lists, the matrix and every open detail sit under this root.
 const raidKeys = { all: ['project-raid'] as const };
 
+// WeldFlow portfolio — mirrors portfolioKeys in hooks/queries/use-flow-portfolio-queries.ts.
+const portfolioKeys = { all: ['flow-portfolio'] as const };
+
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
 const pipelineKeys = { all: ['crm', 'pipelines'] as const };
@@ -216,11 +219,11 @@ export const platformSyncMap: EntitySyncMap = {
   project_template: inv(projectKeys.all),
 
   // Portfolio: capacity, intake and the workspace settings behind them.
-  resource_booking: inv(projectKeys.all),
-  resource_request: inv(projectKeys.all),
-  project_request: inv(projectKeys.all),
-  flow_member_profile: inv(projectKeys.all),
-  flow_workspace_settings: inv(projectKeys.all),
+  resource_booking: inv(portfolioKeys.all),
+  resource_request: inv(portfolioKeys.all),
+  project_request: inv(projectKeys.all, portfolioKeys.all),
+  flow_member_profile: inv(portfolioKeys.all),
+  flow_workspace_settings: inv(portfolioKeys.all),
 
   // =========================================================================
   // WeldCRM
