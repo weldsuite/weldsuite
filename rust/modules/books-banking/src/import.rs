@@ -219,28 +219,6 @@ fn sum_amounts<'a>(amounts: impl Iterator<Item = Option<&'a Value>>) -> f64 {
     cents / 100.0
 }
 
-/// `adjustAccountBalance(db, bankAccountId, delta)`: move a bank account's
-/// balance by `delta` (positive or negative).
-pub(crate) async fn adjust_account_balance(
-    db: &PgPool,
-    bank_account_id: &str,
-    delta: f64,
-) -> Result<(), sqlx::Error> {
-    if delta == 0.0 {
-        return Ok(());
-    }
-    sqlx::query(
-        "update bank_accounts set current_balance = (coalesce(current_balance, 0)::numeric + $2::numeric), \
-         updated_at = $3::timestamp where id = $1",
-    )
-    .bind(bank_account_id)
-    .bind(to_fixed(delta, 2))
-    .bind(now())
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 /// `lineDeleteBlocker(line)`: why a line can't be deleted. Only lines that
 /// were never booked (unreconciled or excluded) go; a bank feed's would come
 /// back on the next sync, so they are excluded instead.
@@ -262,49 +240,84 @@ pub(crate) fn line_delete_blocker(line: &Value) -> Option<&'static str> {
     None
 }
 
-/// `deleteBankLines(db, lines)`: soft-delete the deletable lines among
-/// `lines` and take their amounts back out of their accounts' balances. The
-/// deleted lines, and how many were left in place (reconciled, or from a
-/// bank feed).
+/// Which lines [`delete_lines`] removes (`DeleteLinesScope`): one line, or
+/// every line of an import batch, whose status then follows.
+pub(crate) enum DeleteScope<'a> {
+    Line(&'a str),
+    ImportBatch(&'a str),
+}
+
+/// The statement of [`delete_lines`], scoped by `$where` with `$batch` (a
+/// CTE or nothing) after the balance update. `$1` is the scope id, `$2` now.
+macro_rules! delete_lines_sql {
+    ($where:literal, $batch:literal) => {
+        concat!(
+            "with gone as (
+               update bank_transactions set deleted_at = $2::timestamp, updated_at = $2::timestamp
+               where ", $where, " and deleted_at is null
+                 and status in ('unreconciled', 'excluded')
+                 and coalesce(source, 'import') in ('import', 'manual')
+               returning id, bank_account_id, amount
+             ), balances as (
+               update bank_accounts a
+               set current_balance = coalesce(a.current_balance, 0)::numeric - g.total, updated_at = $2::timestamp
+               from (select bank_account_id, sum(amount) as total from gone group by bank_account_id) g
+               where a.id = g.bank_account_id and g.total <> 0
+             )", $batch, "
+             select id from gone"
+        )
+    };
+}
+
+/// `deleteBankLines(db, lines, scope)`: soft-delete the deletable lines in
+/// `scope` and take their amounts back out of their accounts' balances;
+/// undoing an import also marks the batch undone. One statement does all of
+/// it, and the deletable check runs in its WHERE, so a request that loses a
+/// race with another delete or a reconcile deletes nothing. `lines` is the
+/// caller's read of the scope. The deleted lines, and how many were left in
+/// place (reconciled, or from a bank feed).
 pub(crate) async fn delete_lines(
     db: &PgPool,
     lines: Vec<Value>,
+    scope: DeleteScope<'_>,
 ) -> Result<(Vec<Value>, usize), sqlx::Error> {
-    let total = lines.len();
-    let deleted: Vec<Value> = lines
+    let (query, id) = match scope {
+        DeleteScope::Line(id) => (delete_lines_sql!("id = $1", ""), id),
+        DeleteScope::ImportBatch(id) => (
+            delete_lines_sql!(
+                "import_batch_id = $1",
+                ", batch as (
+                   update bank_import_batches
+                   set status = case when exists (
+                         select 1 from bank_transactions
+                         where import_batch_id = $1 and deleted_at is null
+                           and id not in (select id from gone)
+                       ) then 'partly_undone' else 'undone' end,
+                       updated_at = $2::timestamp
+                   where id = $1
+                 )"
+            ),
+            id,
+        ),
+    };
+    let gone: HashSet<String> = sqlx::query_scalar(query)
+        .bind(id)
+        .bind(now())
+        .fetch_all(db)
+        .await?
         .into_iter()
-        .filter(|line| line_delete_blocker(line).is_none())
         .collect();
-    let stamp = now();
-    let ids: Vec<String> = deleted
+    let kept = lines
         .iter()
-        .filter_map(|line| line.get("id").and_then(Value::as_str).map(str::to_owned))
+        .filter(|line| line_delete_blocker(line).is_some())
+        .count();
+    let deleted = lines
+        .into_iter()
+        .filter(|line| {
+            line.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| gone.contains(id))
+        })
         .collect();
-    for chunk in ids.chunks(LOOKUP_CHUNK) {
-        sqlx::query(
-            "update bank_transactions set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-             where id = any($1)",
-        )
-        .bind(chunk)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
-    }
-    let mut accounts: Vec<(&str, Vec<&Value>)> = Vec::new();
-    for line in &deleted {
-        let account = line
-            .get("bankAccountId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        match accounts.iter_mut().find(|(id, _)| *id == account) {
-            Some((_, lines)) => lines.push(line),
-            None => accounts.push((account, vec![line])),
-        }
-    }
-    for (account, lines) in accounts {
-        let net = sum_amounts(lines.iter().map(|line| line.get("amount")));
-        adjust_account_balance(db, account, -net).await?;
-    }
-    let kept = total - deleted.len();
     Ok((deleted, kept))
 }

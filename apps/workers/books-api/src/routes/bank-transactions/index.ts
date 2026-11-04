@@ -1063,11 +1063,7 @@ app.delete('/import-batches/:batchId', requirePermission('banking:delete'), asyn
 
     const lines = await db.select().from(bankTransactions)
       .where(and(eq(bankTransactions.importBatchId, batchId), isNull(bankTransactions.deletedAt)));
-    const { deleted, kept } = await deleteBankLines(db, lines);
-
-    await db.update(bankImportBatches)
-      .set({ status: kept > 0 ? 'partly_undone' : 'undone', updatedAt: new Date() })
-      .where(eq(bankImportBatches.id, batchId));
+    const { deleted, kept } = await deleteBankLines(db, lines, { importBatchId: batchId });
     await writeAccountingAudit(c, db, {
       accountingEntityId: batch.entityId,
       entityType: 'bank_import_batch',
@@ -1111,8 +1107,12 @@ app.delete('/:id', requirePermission('banking:delete'), async (c) => {
       return error.conflict(c, 'This transaction came from a bank feed and would come back on the next sync. Exclude it instead.');
     }
 
-    await deleteBankLines(db, [txn]);
-    await recordLinesDeleted(c, db, [txn]);
+    const { deleted } = await deleteBankLines(db, [txn], { lineId: txn.id });
+    // Another request deleted or reconciled it after the read above.
+    if (deleted.length === 0) {
+      return error.conflict(c, 'This transaction was changed in the meantime. Reload it and try again.');
+    }
+    await recordLinesDeleted(c, db, deleted);
     return noContent(c);
   } catch (err) {
     console.error('[books-api/bank-transactions] delete failed:', err);

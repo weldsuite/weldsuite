@@ -144,7 +144,7 @@ function MarginCards({
   const cards: MarginCard[] = threads.map((th) => ({ id: th.root.id, want: textTop(th.at), height: heights.of(th.root.id) ?? CARD_GUESS }));
   if (draft && sel) cards.push({ id: DRAFT, want: textTop({ story: sel.story, from: Math.min(sel.anchor, sel.head) }), height: heights.of(DRAFT) ?? CARD_GUESS });
   // In the order of the pages; those with no place in the text last (the sort keeps text order for ties).
-  cards.sort((a, b) => (a.want === null ? (b.want === null ? 0 : 1) : b.want === null ? -1 : a.want - b.want));
+  cards.sort((a, b) => (a.want ?? Infinity) - (b.want ?? Infinity) || 0);
   const placed = stackCards(cards, draft ? DRAFT : active);
   const last = cards.reduce((max, c) => Math.max(max, placed.get(c.id)! + c.height), 0);
 

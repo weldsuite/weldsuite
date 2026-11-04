@@ -2849,6 +2849,7 @@ export const accounting = {
       groupProcessed: 'Processed',
       groupLinked: 'Linked',
       groupRejected: 'Rejected',
+      groupFailed: 'Failed',
       groupOther: 'Other',
       ocrSupplier: 'Supplier',
       ocrMatched: 'Matched',
@@ -2891,6 +2892,15 @@ export const accounting = {
       viewOcrResult: 'View OCR result',
       acceptedFormatsLabel: 'JPG, PNG, WEBP',
       ocrVatLine: 'VAT {rate}% over {amount}',
+      retryProcessing: 'Retry scan',
+      openFile: 'Open file',
+      enterManually: 'Enter manually',
+      deleteDocument: 'Delete document',
+      deleteConfirmTitle: 'Delete this document?',
+      deleteConfirmDescription: '{name} is removed from the inbox. A bill created from it keeps its data.',
+      deleting: 'Deleting…',
+      failedHint: 'This document could not be scanned. Retry the scan, or enter the bill by hand.',
+      insufficientCredits: 'Not enough AI credits to scan this document. Top up credits and retry, or enter it manually.',
     },
 
     // Entities page

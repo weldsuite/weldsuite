@@ -11,6 +11,16 @@ name: CI
 # permanently pending and blocks every PR.
 #
 # Every job in this file now blocks. There are no informational jobs left.
+#
+# On a pull request most jobs run only when the PR touches what they check:
+# the "changes" job maps the changed files onto areas (api, platform, desktop,
+# packages, rust, conformance, workers; see .github/scripts/ci-changes.mjs) and
+# each job skips when its area is "false". A job skipped by its `if:` counts as
+# passed for branch protection, and the aggregating jobs accept "skipped" too.
+# Never gate this workflow with `on.pull_request.paths`: a workflow that does
+# not start leaves its required checks pending forever.
+# Gated jobs run when the area is anything but "false", so if "changes" itself
+# fails they all run. Pushes to main/develop run everything.
 
 on:
   workflow_dispatch:
@@ -26,6 +36,34 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.areas.outputs.api }}
+      platform: ${{ steps.areas.outputs.platform }}
+      desktop: ${{ steps.areas.outputs.desktop }}
+      packages: ${{ steps.areas.outputs.packages }}
+      rust: ${{ steps.areas.outputs.rust }}
+      conformance: ${{ steps.areas.outputs.conformance }}
+      workers: ${{ steps.areas.outputs.workers }}
+    steps:
+      # Full history without file contents, so the diff against the base
+      # branch works and the checkout stays small.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Areas this change touches
+        id: areas
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node .github/scripts/ci-changes.mjs --base "origin/${{ github.base_ref }}"
+          else
+            node .github/scripts/ci-changes.mjs --all
+          fi
+
   # ────────────────────────────────────────────
   # Lint and platform type-check were informational while pre-existing failures
   # were worked down (ESLint v9 migration in @weldsuite/db; the platform type
@@ -81,6 +119,8 @@ jobs:
   # require in branch protection; the jobs under it can change freely.
   rust-checks:
     name: Rust · checks
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -160,6 +200,8 @@ jobs:
   # minutes for amd64 and again for the arm64 cross-build.
   rust-image:
     name: Rust · image and chart
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -243,6 +285,8 @@ jobs:
   # its values. No cloud account involved.
   rust-deploy:
     name: Rust · deploy config
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -273,6 +317,8 @@ jobs:
   # to the matrix length.
   rust-conformance-shards:
     name: Rust · conformance (${{ matrix.shard }}/8)
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.conformance != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -313,7 +359,8 @@ jobs:
   # shard's suites until wave 3's five workers took it past 45 minutes.
   rust-conformance-coverage:
     name: Rust · conformance coverage
-    if: github.event_name == 'pull_request'
+    needs: [changes]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.workers != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -338,13 +385,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # "skipped": the change touches nothing they check (ci-changes.mjs).
       - name: Require every conformance shard, and coverage on a PR
         run: |
           set -euo pipefail
           shards="${{ needs.rust-conformance-shards.result }}"
           coverage="${{ needs.rust-conformance-coverage.result }}"
           echo "shards: $shards, coverage: $coverage"
-          test "$shards" = "success"
+          test "$shards" = "success" || test "$shards" = "skipped"
           test "$coverage" = "success" || test "$coverage" = "skipped"
 
   rust-all:
@@ -354,17 +402,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # "skipped": the change touches nothing they check (ci-changes.mjs).
       - name: Require every Rust job
         run: |
           set -euo pipefail
-          echo "checks: ${{ needs.rust-checks.result }}"
-          echo "image and chart: ${{ needs.rust-image.result }}"
-          echo "deploy config: ${{ needs.rust-deploy.result }}"
-          echo "conformance: ${{ needs.rust-conformance.result }}"
-          test "${{ needs.rust-checks.result }}" = "success"
-          test "${{ needs.rust-image.result }}" = "success"
-          test "${{ needs.rust-deploy.result }}" = "success"
-          test "${{ needs.rust-conformance.result }}" = "success"
+          ok() { echo "$1: $2"; test "$2" = "success" || test "$2" = "skipped"; }
+          ok "checks" "${{ needs.rust-checks.result }}"
+          ok "image and chart" "${{ needs.rust-image.result }}"
+          ok "deploy config" "${{ needs.rust-deploy.result }}"
+          ok "conformance" "${{ needs.rust-conformance.result }}"
 
   # app-api plus every module worker and domain is ~17 minutes of tsc.
   # Four-wide on one runner is already at that machine's CPU limit (~5 min).
@@ -373,6 +419,8 @@ jobs:
   # Keep --shards equal to the matrix length.
   type-check-api-shards:
     name: Type Check · app-api (${{ matrix.shard }}/4)
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -430,10 +478,12 @@ jobs:
           set -euo pipefail
           result="${{ needs.type-check-api-shards.result }}"
           echo "shards: $result"
-          test "$result" = "success"
+          test "$result" = "success" || test "$result" = "skipped"
 
   type-check-platform:
     name: Type Check · platform
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.platform != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -464,6 +514,8 @@ jobs:
   # ────────────────────────────────────────────
   desktop:
     name: Type Check + Build · desktop
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.desktop != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -485,12 +537,15 @@ jobs:
   # Module-worker Vitest stays one package per process: several start
   # pglite (WASM Postgres), which crashes (ERRORDATA_STACK_SIZE) when many
   # instances boot on the same machine. Shards are separate runners, so
-  # they can run at once. Round-robin (--shard) spreads the slow workers.
+  # they can run at once. --shard balances by measured test time
+  # (TEST_SECONDS in module-workers.mjs), so the slow workers spread out.
   # "Unit · app-api" is the required status check. It does not run tests
   # itself; it fails unless the core job and every shard succeeded.
   # Keep --shards equal to the matrix length.
   unit-api-modules:
     name: Unit · module APIs (${{ matrix.shard }}/6)
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -510,6 +565,8 @@ jobs:
 
   unit-api-core:
     name: Unit · app-api core
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -540,11 +597,13 @@ jobs:
           modules="${{ needs.unit-api-modules.result }}"
           echo "app-api + packages: $core"
           echo "module API workers: $modules"
-          test "$core" = "success"
-          test "$modules" = "success"
+          test "$core" = "success" || test "$core" = "skipped"
+          test "$modules" = "success" || test "$modules" = "skipped"
 
   unit-personal-api:
     name: Unit · personal-api
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -559,6 +618,8 @@ jobs:
   # at once); the two run one after the other on this runner.
   unit-public-api:
     name: Unit · external-api + mcp-server
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -579,6 +640,8 @@ jobs:
   # the three packages run one after the other on this runner.
   unit-workspace-lifecycle:
     name: Unit · workspace-worker + neon-provisioning + audit-log-worker
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -596,6 +659,8 @@ jobs:
 
   unit-platform:
     name: Unit · platform
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.platform != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -612,6 +677,8 @@ jobs:
   # is per job id, so a later run skips packages whose inputs did not change.
   build-platform:
     name: Build · platform
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.platform != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -624,6 +691,8 @@ jobs:
 
   build-rest:
     name: Build · packages
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.packages != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -648,5 +717,5 @@ jobs:
           rest="${{ needs.build-rest.result }}"
           echo "platform: $platform"
           echo "packages: $rest"
-          test "$platform" = "success"
-          test "$rest" = "success"
+          test "$platform" = "success" || test "$platform" = "skipped"
+          test "$rest" = "success" || test "$rest" = "skipped"

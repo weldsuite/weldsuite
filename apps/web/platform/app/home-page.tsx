@@ -8,7 +8,7 @@ import { AgentChatInput, AgentSuggestions } from '@/components/weldagent/agent-c
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
-import { HOME_WIDGETS, emptySlots, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
+import { HOME_WIDGETS, emptySlots, isWidgetEnabled, type NullableSlot } from '@/lib/home-widgets/registry';
 import type { HomeWidgetSlot, WidgetId } from '@/lib/home-widgets/types';
 import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 
@@ -18,8 +18,9 @@ function resolveHomeSlots(prefs: ReturnType<typeof useUserPreferences>['data']):
   return persisted.map((slot) => {
     if (!slot) return null;
     const def = HOME_WIDGETS[slot.widgetId as WidgetId];
-    // Edition flags (4.F3): a widget whose module this deployment doesn't serve stays empty.
-    if (!def || !isWidgetOffered(def)) return null;
+    // Edition flags (4.F3): a widget whose module this deployment doesn't serve stays empty,
+    // and so does a coming-soon widget that was saved before it was disabled.
+    if (!def || !isWidgetEnabled(def.id)) return null;
     const parsed = def.schema.safeParse(slot.settings);
     return {
       widgetId: slot.widgetId as WidgetId,

@@ -498,7 +498,6 @@ export const partner = {
 
   createWorkspace: {
     country: 'Country',
-    countryHint: 'Where your company is based. It decides who provides WeldSuite to you.',
     countryPlaceholder: 'Select a country',
   },
 

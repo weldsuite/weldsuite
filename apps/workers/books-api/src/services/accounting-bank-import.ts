@@ -142,18 +142,6 @@ function sumAmounts(rows: Array<{ amount: string | number }>): number {
   return cents / 100;
 }
 
-/** Move a bank account's balance by `delta` (positive or negative). */
-export async function adjustAccountBalance(db: Database, bankAccountId: string, delta: number): Promise<void> {
-  if (delta === 0) return;
-  await db
-    .update(schema.bankAccounts)
-    .set({
-      currentBalance: sql`(coalesce(${schema.bankAccounts.currentBalance}, 0)::numeric + ${delta.toFixed(2)}::numeric)`,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.bankAccounts.id, bankAccountId));
-}
-
 type BankLine = typeof schema.bankTransactions.$inferSelect;
 
 /** Lines that were never booked, so removing them leaves the ledger alone. */
@@ -174,26 +162,56 @@ export interface DeleteLinesResult {
   kept: number;
 }
 
+/** Which lines to delete: one line, or every line of an import batch (whose status follows). */
+export type DeleteLinesScope = { lineId: string } | { importBatchId: string };
+
 /**
- * Soft-delete the deletable lines among `lines` and take their amounts back
- * out of their accounts' balances. The others are left alone and counted.
+ * Soft-delete the deletable lines in `scope` and take their amounts back out
+ * of their accounts' balances; undoing an import also marks the batch undone.
+ * The others are left alone and counted.
+ *
+ * One statement does all of it, so it commits as a whole, and the deletable
+ * check runs in its WHERE: a request that loses a race with another delete or a
+ * reconcile finds no row to delete and takes nothing off the balance. `lines`
+ * is the caller's read of the scope, for the rows returned.
  */
-export async function deleteBankLines(db: Database, lines: BankLine[]): Promise<DeleteLinesResult> {
-  const deleted = lines.filter((line) => lineDeleteBlocker(line) === null);
-  const now = new Date();
-  const ids = deleted.map((line) => line.id);
-  for (let i = 0; i < ids.length; i += LOOKUP_CHUNK) {
-    await db
-      .update(schema.bankTransactions)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(inArray(schema.bankTransactions.id, ids.slice(i, i + LOOKUP_CHUNK)));
-  }
-  const byAccount = new Map<string, BankLine[]>();
-  for (const line of deleted) {
-    byAccount.set(line.bankAccountId, [...(byAccount.get(line.bankAccountId) ?? []), line]);
-  }
-  for (const [bankAccountId, accountLines] of byAccount) {
-    await adjustAccountBalance(db, bankAccountId, -sumAmounts(accountLines));
-  }
-  return { deleted, kept: lines.length - deleted.length };
+export async function deleteBankLines(
+  db: Database,
+  lines: BankLine[],
+  scope: DeleteLinesScope,
+): Promise<DeleteLinesResult> {
+  const now = new Date().toISOString();
+  const inScope = 'lineId' in scope ? sql`id = ${scope.lineId}` : sql`import_batch_id = ${scope.importBatchId}`;
+  const batch = 'importBatchId' in scope
+    ? sql`, batch as (
+        update bank_import_batches
+        set status = case when exists (
+              select 1 from bank_transactions
+              where import_batch_id = ${scope.importBatchId} and deleted_at is null
+                and id not in (select id from gone)
+            ) then 'partly_undone' else 'undone' end,
+            updated_at = ${now}::timestamp
+        where id = ${scope.importBatchId}
+      )`
+    : sql``;
+  const result = await db.execute<{ id: string }>(sql`
+    with gone as (
+      update bank_transactions
+      set deleted_at = ${now}::timestamp, updated_at = ${now}::timestamp
+      where ${inScope} and deleted_at is null
+        and status in ('unreconciled', 'excluded')
+        and coalesce(source, 'import') in ('import', 'manual')
+      returning id, bank_account_id, amount
+    ), balances as (
+      update bank_accounts a
+      set current_balance = coalesce(a.current_balance, 0)::numeric - g.total, updated_at = ${now}::timestamp
+      from (select bank_account_id, sum(amount) as total from gone group by bank_account_id) g
+      where a.id = g.bank_account_id and g.total <> 0
+    )${batch}
+    select id from gone
+  `);
+  const rows = (result as unknown as { rows?: Array<{ id: string }> }).rows ?? (result as unknown as Array<{ id: string }>);
+  const goneIds = new Set(rows.map((row) => row.id));
+  const deleted = lines.filter((line) => goneIds.has(line.id));
+  return { deleted, kept: lines.filter((line) => lineDeleteBlocker(line) !== null).length };
 }

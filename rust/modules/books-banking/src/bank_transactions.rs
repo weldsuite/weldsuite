@@ -44,7 +44,9 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
-use crate::import::{count_duplicates, delete_lines, import_transactions, line_delete_blocker};
+use crate::import::{
+    DeleteScope, count_duplicates, delete_lines, import_transactions, line_delete_blocker,
+};
 use crate::parsers::{CsvFormatRequired, ParseOptions, ParseResult, parse_bank_file};
 
 const FILE_FORMATS: [&str; 7] = ["mt940", "camt053", "csv", "ofx", "qfx", "qbo", "bai2"];
@@ -1576,14 +1578,11 @@ async fn undo_import(
         .bind(&batch_id)
         .fetch_all(&caller.db)
         .await?;
-        let (deleted, kept) = delete_lines(&caller.db, BANK_TRANSACTIONS.js_rows(lines)).await?;
-        sqlx::query(
-            "update bank_import_batches set status = $2, updated_at = $3::timestamp where id = $1",
+        let (deleted, kept) = delete_lines(
+            &caller.db,
+            BANK_TRANSACTIONS.js_rows(lines),
+            DeleteScope::ImportBatch(&batch_id),
         )
-        .bind(&batch_id)
-        .bind(if kept > 0 { "partly_undone" } else { "undone" })
-        .bind(now())
-        .execute(&caller.db)
         .await?;
         write_accounting_audit(
             &caller,
@@ -1641,7 +1640,13 @@ async fn remove(
             }
             None => {}
         }
-        let (deleted, _) = delete_lines(&caller.db, vec![txn]).await?;
+        let (deleted, _) = delete_lines(&caller.db, vec![txn], DeleteScope::Line(&id)).await?;
+        // Another request deleted or reconciled it after the read above.
+        if deleted.is_empty() {
+            return Err(Refusal::conflict(
+                "This transaction was changed in the meantime. Reload it and try again.",
+            ));
+        }
         record_lines_deleted(&caller, &state, &deleted, None).await;
         Ok(no_content())
     }

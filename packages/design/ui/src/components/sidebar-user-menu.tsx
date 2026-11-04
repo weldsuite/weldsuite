@@ -166,7 +166,7 @@ export function SidebarUserMenu({
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
           <span className="flex size-4 items-center justify-center">
-            <StatusDot status={myStatus?.status} size="sm" />
+            <StatusDot status={myStatus?.status} size="sm" className="border-0" />
           </span>
           <span>{labelFor(myStatus?.status)}</span>
         </DropdownMenuSubTrigger>
@@ -181,7 +181,7 @@ export function SidebarUserMenu({
                 className="gap-2"
               >
                 <span className="flex size-4 items-center justify-center">
-                  <StatusDot status={status} size="sm" />
+                  <StatusDot status={status} size="sm" className="border-0" />
                 </span>
                 <span className="flex-1">{labelFor(status)}</span>
                 {myStatus?.status === status && <Check className="h-4 w-4" />}
@@ -333,15 +333,8 @@ export function SidebarUserMenu({
                         key={workspace.id}
                         onClick={() => onWorkspaceSwitch?.(workspace.id)}
                       >
-                        <Check
-                          className={cn(
-                            "h-4 w-4",
-                            currentWorkspace?.id === workspace.id
-                              ? "opacity-100"
-                              : "opacity-0"
-                          )}
-                        />
-                        {workspace.name}
+                        <span className="flex-1 truncate">{workspace.name}</span>
+                        {currentWorkspace?.id === workspace.id && <Check className="h-4 w-4" />}
                       </DropdownMenuItem>
                     ))}
                     {workspaces.length > 0 && onWorkspaceCreate && <DropdownMenuSeparator />}
@@ -517,15 +510,8 @@ export function SidebarUserMenu({
                       key={workspace.id}
                       onClick={() => onWorkspaceSwitch?.(workspace.id)}
                     >
-                      <Check
-                        className={cn(
-                          "h-4 w-4",
-                          currentWorkspace?.id === workspace.id
-                            ? "opacity-100"
-                            : "opacity-0"
-                        )}
-                      />
-                      {workspace.name}
+                      <span className="flex-1 truncate">{workspace.name}</span>
+                      {currentWorkspace?.id === workspace.id && <Check className="h-4 w-4" />}
                     </DropdownMenuItem>
                   ))}
                   {workspaces.length > 0 && onWorkspaceCreate && <DropdownMenuSeparator />}

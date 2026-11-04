@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -25,7 +26,6 @@ import {
   Trash2,
   Edit,
   Search,
-  Filter,
   AtSign,
   MessageCircle,
   AlertCircle,
@@ -279,10 +279,7 @@ export function MessagesClient({ projectId, initialMessages, error }: Readonly<M
                     className="pl-8 h-8 w-64"
                   />
                 </div>
-                <Button variant="outline" size="sm">
-                  <Filter className="h-4 w-4 mr-0.5" />
-                  {t.projects.messages.filterBtn}
-                </Button>
+                <FilterButton>{t.projects.messages.filterBtn}</FilterButton>
               </div>
             </div>
           </CardContent>
