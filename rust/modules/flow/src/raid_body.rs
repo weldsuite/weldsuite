@@ -25,11 +25,11 @@ use crate::{Query, Refusal};
 pub(crate) type Body = Map<String, Value>;
 
 /// `identifier`: `z.string().min(1).max(255)`.
-const IDENTIFIER: Text = Text::length(Some(1), Some(255));
+pub(crate) const IDENTIFIER: Text = Text::length(Some(1), Some(255));
 /// `title`: `z.string().trim().min(1).max(255)`.
-const TITLE: Text = Text::trimmed(Some(1), Some(255));
+pub(crate) const TITLE: Text = Text::trimmed(Some(1), Some(255));
 /// `z.string().max(10_000)`.
-const LONG_TEXT: Text = Text::length(None, Some(10_000));
+pub(crate) const LONG_TEXT: Text = Text::length(None, Some(10_000));
 /// `z.string().trim().max(100)`.
 const CATEGORY: Text = Text::trimmed(None, Some(100));
 /// `rating`: `z.number().int().min(1).max(5)`.
@@ -37,7 +37,7 @@ const RATING: Number = whole(1.0, 5.0);
 const QUERY_BOOLEAN: [&str; 4] = ["true", "false", "1", "0"];
 
 /// `z.number().int().min(min).max(max)`.
-const fn whole(min: f64, max: f64) -> Number {
+pub(crate) const fn whole(min: f64, max: f64) -> Number {
     Number {
         coerce: false,
         int: true,
@@ -47,7 +47,7 @@ const fn whole(min: f64, max: f64) -> Number {
 }
 
 /// `isoDateTime`: `z.string().datetime({ offset: true })`.
-fn iso_date_time() -> Text {
+pub(crate) fn iso_date_time() -> Text {
     Text {
         format: Some(Format::DatetimeOffset),
         ..Text::default()
@@ -57,20 +57,20 @@ fn iso_date_time() -> Text {
 /// Reads one object into its Zod output, remembering the keys its schema
 /// knows for `.strict()`.
 pub(crate) struct Reader<'a> {
-    issues: &'a mut Issues,
-    fields: &'a Map<String, Value>,
-    known: Vec<&'static str>,
-    out: Body,
+    pub(crate) issues: &'a mut Issues,
+    pub(crate) fields: &'a Map<String, Value>,
+    pub(crate) known: Vec<&'static str>,
+    pub(crate) out: Body,
 }
 
 impl<'a> Reader<'a> {
     /// The body as an object (`z.object(...)`), or the issue and `None`.
-    fn of(issues: &'a mut Issues, body: &'a Value) -> Option<Self> {
+    pub(crate) fn of(issues: &'a mut Issues, body: &'a Value) -> Option<Self> {
         let fields = issues.object(body)?;
         Some(Self::over(issues, fields))
     }
 
-    fn over(issues: &'a mut Issues, fields: &'a Map<String, Value>) -> Self {
+    pub(crate) fn over(issues: &'a mut Issues, fields: &'a Map<String, Value>) -> Self {
         Self {
             issues,
             fields,
@@ -80,7 +80,7 @@ impl<'a> Reader<'a> {
     }
 
     /// Keep a read field, as Zod's object does (absent stays out).
-    fn keep<T: Into<Value>>(
+    pub(crate) fn keep<T: Into<Value>>(
         &mut self,
         key: &'static str,
         field: weldsuite_kit::validation::Field<T>,
@@ -98,32 +98,47 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn text(&mut self, key: &'static str, presence: Presence, rules: Text) -> &mut Self {
+    pub(crate) fn text(&mut self, key: &'static str, presence: Presence, rules: Text) -> &mut Self {
         let field = self.issues.text_with(self.fields, key, presence, rules);
         self.keep(key, field);
         self
     }
 
-    fn choice(&mut self, key: &'static str, presence: Presence, options: &[&str]) -> &mut Self {
+    pub(crate) fn choice(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        options: &[&str],
+    ) -> &mut Self {
         let field = self.issues.choice(self.fields, key, presence, options);
         self.keep(key, field);
         self
     }
 
-    fn whole(&mut self, key: &'static str, presence: Presence, rules: Number) -> &mut Self {
+    pub(crate) fn whole(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        rules: Number,
+    ) -> &mut Self {
         let field = self.issues.whole_number(self.fields, key, presence, rules);
         self.keep(key, field);
         self
     }
 
-    fn number(&mut self, key: &'static str, presence: Presence, rules: Number) -> &mut Self {
+    pub(crate) fn number(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        rules: Number,
+    ) -> &mut Self {
         let field = self.issues.number(self.fields, key, presence, rules);
         self.keep(key, field);
         self
     }
 
     /// `z.record(z.unknown())`.
-    fn record(&mut self, key: &'static str, presence: Presence) -> &mut Self {
+    pub(crate) fn record(&mut self, key: &'static str, presence: Presence) -> &mut Self {
         let field = self.issues.nested(self.fields, key, presence, |_, map| {
             Value::Object(map.clone())
         });
@@ -133,7 +148,7 @@ impl<'a> Reader<'a> {
 
     /// The output, after `.strict()`'s one `unrecognized_keys` issue at the
     /// object's own path for the keys no field read.
-    fn strict(self) -> Body {
+    pub(crate) fn strict(self) -> Body {
         let extra: Vec<&String> = self
             .fields
             .keys()
@@ -157,7 +172,7 @@ impl<'a> Reader<'a> {
 
 /// `error.badRequest(c, message, details)` with Zod's issues as
 /// `{ path: issue.path.join('.'), message }`.
-fn invalid(message: &str, invalid: &Invalid) -> Refusal {
+pub(crate) fn invalid(message: &str, invalid: &Invalid) -> Refusal {
     let details: Vec<Value> = invalid
         .issues()
         .iter()
@@ -200,7 +215,7 @@ pub(crate) fn parse_body<T>(
 
 /// `readQuery(c, schema)`: the query string without empty values (`?x=` is
 /// no filter), then the schema; `Invalid query parameters` with the issues.
-fn read_query<T>(
+pub(crate) fn read_query<T>(
     raw: Option<&str>,
     read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
 ) -> Result<T, Refusal> {

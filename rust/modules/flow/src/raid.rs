@@ -121,7 +121,7 @@ fn num(body: &Body, key: &str) -> Option<i64> {
 
 /// `toDate(value)`: an ISO timestamp from a body as `new Date(value)`
 /// stores it, or null.
-fn to_date(value: Option<&Value>) -> Value {
+pub(crate) fn to_date(value: Option<&Value>) -> Value {
     match value {
         Some(Value::String(raw)) if !raw.is_empty() => {
             Value::String(js_date(raw).unwrap_or_else(|| raw.clone()))
@@ -153,11 +153,11 @@ fn js_json(value: Value) -> Value {
 }
 
 /// `value ?? null`.
-fn or_null(body: &Body, key: &str) -> Value {
+pub(crate) fn or_null(body: &Body, key: &str) -> Value {
     body.get(key).cloned().unwrap_or(Value::Null)
 }
 
-fn iso_ms(millis: i64) -> String {
+pub(crate) fn iso_ms(millis: i64) -> String {
     iso_from_millis(millis).unwrap_or_default()
 }
 
@@ -175,7 +175,7 @@ fn column(key: &str) -> String {
     out
 }
 
-fn columns_of(values: &Body) -> Value {
+pub(crate) fn columns_of(values: &Body) -> Value {
     Value::Object(
         values
             .iter()
@@ -521,7 +521,7 @@ async fn writable_item(caller: &Caller, id: &str) -> Result<(Value, RaidKind), R
 
 /// `parseLimit(raw, fallback, max)`: a missing, non-numeric or non-positive
 /// value is the fallback.
-fn parse_limit(raw: Option<&str>, fallback: i64, max: i64) -> i64 {
+pub(crate) fn parse_limit(raw: Option<&str>, fallback: i64, max: i64) -> i64 {
     match raw.and_then(parse_int) {
         Some(parsed) if parsed >= 1 => parsed.min(max),
         _ => fallback,
