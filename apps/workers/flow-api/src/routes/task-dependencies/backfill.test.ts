@@ -1,6 +1,6 @@
 /**
  * The backfill of `task_dependencies` from `tasks.depends_on` (FLOW-015),
- * packages/core/db/drizzle/pending/task-dependencies-backfill.sql, run on pglite:
+ * tenant migration 0239_task_dependencies_backfill.sql, run again on pglite:
  * one fs / lag 0 row per entry, skipping deleted tasks, tasks of another
  * project and projects that do not exist, and safe to run twice.
  */
@@ -13,7 +13,10 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const BACKFILL = readFileSync(
-  path.resolve(__dirname, '../../../../../../packages/core/db/drizzle/pending/task-dependencies-backfill.sql'),
+  path.resolve(
+    __dirname,
+    '../../../../../../packages/core/db/drizzle/tenant-migrations/0239_task_dependencies_backfill.sql',
+  ),
   'utf8',
 );
 

@@ -10,10 +10,6 @@ export default defineConfig({
     reporters: ['default', 'junit'],
     outputFile: { junit: './test-results/vitest-junit.xml' },
     pool: 'forks',
-    // The `project_id` cost tag on purchase_order_items (FLOW-019) has no
-    // migration yet: pglite diffs the schema in memory against the last snapshot.
-    // Empty once the migration exists; remove then (worker-kit testing/pglite.ts).
-    env: { PGLITE_SCHEMA_DELTA: '1' },
   },
   resolve: {
     alias: {

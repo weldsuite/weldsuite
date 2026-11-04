@@ -1,8 +1,4 @@
--- WeldFlow FLOW-015, slice C (schedule): backfill of `task_dependencies` from `tasks.depends_on`.
---
--- NOT a migration yet. The integrator turns this into a custom migration
--- (`pnpm --filter @weldsuite/db db:generate --custom`) that runs AFTER the one
--- that creates `task_dependencies`, in the same release. Do not apply it by hand.
+-- WeldFlow FLOW-015, backfill of `task_dependencies` from `tasks.depends_on`.
 --
 -- One `fs` / lag 0 row per entry of every live task's `depends_on` array:
 --   - the task and the task it depends on are both live (not soft-deleted),
