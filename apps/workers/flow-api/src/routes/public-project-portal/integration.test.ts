@@ -269,6 +269,19 @@ describe('session', () => {
     expect(res.status).toBe(401);
     expect((await json<{ error: { message: string } }>(res)).error.message).toBe('Access revoked');
   });
+
+  it('is revoked when the contact email changes after sign-in', async () => {
+    await seedContact('pe_moved', 'moved@client.test', 'Moved');
+    await seedProject('prj_moved', 'Moved project');
+    await stakeholder('prj_moved', 'pe_moved');
+    const p = portal();
+    const token = await signIn(p, 'moved@client.test');
+    expect((await p.send('GET', '/projects', undefined, token)).status).toBe(200);
+    await db.update(schema.people).set({ email: 'someone-else@client.test' }).where(eq(schema.people.id, 'pe_moved'));
+    const res = await p.send('GET', '/projects', undefined, token);
+    expect(res.status).toBe(401);
+    expect((await json<{ error: { message: string } }>(res)).error.message).toBe('Access revoked');
+  });
 });
 
 describe('projects', () => {

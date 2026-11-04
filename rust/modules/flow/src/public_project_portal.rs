@@ -314,7 +314,7 @@ impl FromRequestParts<App> for Session {
         };
 
         // Revocation: the access is read from the tenant database on every request.
-        let rows = portal_project_rows(&db, &record.contact_ids)
+        let rows = portal_project_rows(&db, &record.contact_ids, &record.email)
             .await
             .map_err(|e| internal("Internal server error", &e))?;
         if rows.is_empty() {

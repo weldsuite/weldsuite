@@ -94,10 +94,13 @@ pub(crate) async fn contacts_of_session(
 /// `portalProjectRows(db, contactIds)`: the projects the contacts may see
 /// (stakeholder with `portal_access` on a live project, for a live contact),
 /// read on every request, which is what makes a revoked `portal_access` take
-/// effect at once. A project two contacts hold counts once, for the first.
+/// effect at once. A project two contacts hold counts once, for the first. The
+/// contact's address must still be the session's `email` (normalised), so a
+/// session does not follow a contact whose email changed after sign-in.
 pub(crate) async fn portal_project_rows(
     db: &PgPool,
     contact_ids: &[String],
+    email: &str,
 ) -> Result<Vec<Value>, sqlx::Error> {
     if contact_ids.is_empty() {
         return Ok(Vec::new());
@@ -114,9 +117,11 @@ pub(crate) async fn portal_project_rows(
          inner join people p on p.id = s.crm_contact_id
          where s.crm_contact_id = any($1) and s.portal_access = true and s.deleted_at is null
            and pr.deleted_at is null and p.deleted_at is null
+           and lower(p.email) = $2
          order by pr.name asc, pr.id asc, s.crm_contact_id asc",
     )
     .bind(contact_ids)
+    .bind(email)
     .fetch_all(db)
     .await?;
     let mut seen = HashSet::new();

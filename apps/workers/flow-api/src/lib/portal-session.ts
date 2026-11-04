@@ -148,7 +148,7 @@ export const portalSession = createMiddleware<{ Bindings: Env; Variables: Portal
   }
 
   // Revocation: the access is read from the tenant database on every request.
-  const projects = await portalProjectRows(c.get('tenantDb'), session.contactIds);
+  const projects = await portalProjectRows(c.get('tenantDb'), session.contactIds, session.email);
   if (projects.length === 0) return error.unauthorized(c, PORTAL_MESSAGES.accessRevoked);
 
   const now = new Date();

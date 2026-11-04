@@ -140,7 +140,7 @@ function listOf<T>(c: PortalContext, result: Page<T>) {
 /** The projects the session's contacts may see (read on every call), and the contact ids. */
 async function accessOf(c: PortalContext) {
   const session = c.get('portalSession');
-  const rows = await portalProjectRows(c.get('tenantDb'), session.contactIds);
+  const rows = await portalProjectRows(c.get('tenantDb'), session.contactIds, session.email);
   return { session, rows, byId: new Map(rows.map((row) => [row.id, row])) };
 }
 

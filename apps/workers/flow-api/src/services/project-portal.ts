@@ -108,8 +108,16 @@ export interface PortalProjectRow {
  * The projects the contacts may see: stakeholder with `portal_access` on a live
  * project, for a live contact. Read on every request, which is what makes a
  * revoked `portal_access` take effect at once.
+ *
+ * The contact's address must still be the one the session signed in with
+ * (`email`, normalised): a session minted for an address does not follow a
+ * contact whose email was changed afterwards.
  */
-export async function portalProjectRows(db: Database, contactIds: readonly string[]): Promise<PortalProjectRow[]> {
+export async function portalProjectRows(
+  db: Database,
+  contactIds: readonly string[],
+  email: string,
+): Promise<PortalProjectRow[]> {
   if (contactIds.length === 0) return [];
   const rows = await db
     .select({
@@ -135,6 +143,7 @@ export async function portalProjectRows(db: Database, contactIds: readonly strin
         isNull(stakeholders.deletedAt),
         isNull(projects.deletedAt),
         isNull(people.deletedAt),
+        sql`lower(${people.email}) = ${email}`,
       ),
     )
     .orderBy(asc(projects.name), asc(projects.id), asc(stakeholders.crmContactId));
