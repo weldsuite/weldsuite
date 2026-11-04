@@ -188,7 +188,7 @@ app.get('/:id/items', requirePermission('orders:read'), async (c) => {
   }
 });
 
-app.post('/:id/items', requirePermission('orders:create'), zValidator('json', createPurchaseOrderItemSchema), async (c) => {
+app.post('/:id/items', requirePermission('orders:update'), zValidator('json', createPurchaseOrderItemSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json');
@@ -295,7 +295,7 @@ app.patch('/:id/items/:itemId', requirePermission('orders:update'), zValidator('
   }
 });
 
-app.delete('/:id/items/:itemId', requirePermission('orders:delete'), async (c) => {
+app.delete('/:id/items/:itemId', requirePermission('orders:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const itemId = c.req.param('itemId');

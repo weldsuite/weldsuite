@@ -83,7 +83,7 @@ describe('purchase order lines', () => {
   let lineId = '';
 
   it('creates a line with its amounts and the project tag', async () => {
-    const res = await send(['orders:create'], `/${PO}/items`, json('POST', {
+    const res = await send(['orders:update'], `/${PO}/items`, json('POST', {
       name: 'Translation, batch 1',
       sku: 'TR-1',
       quantityOrdered: 3,
@@ -114,7 +114,7 @@ describe('purchase order lines', () => {
   });
 
   it('defaults to one unit, no discount, no tax and no project', async () => {
-    const res = await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'Courier', unitPrice: 12.5 }));
+    const res = await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'Courier', unitPrice: 12.5 }));
     expect(res.status).toBe(201);
     expect(res.data).toMatchObject({
       quantityOrdered: 1,
@@ -127,7 +127,7 @@ describe('purchase order lines', () => {
       total: '12.50',
       projectId: null,
     });
-    const nulled = await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'Parcel', unitPrice: 1, projectId: null }));
+    const nulled = await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'Parcel', unitPrice: 1, projectId: null }));
     expect(nulled.data).toMatchObject({ projectId: null });
   });
 
@@ -169,10 +169,10 @@ describe('purchase order lines', () => {
   });
 
   it('refuses a project that does not exist or is deleted', async () => {
-    const unknown = await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: 'proj_nope' }));
+    const unknown = await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: 'proj_nope' }));
     expect(unknown.status).toBe(400);
     expect(unknown.error?.message).toBe('Project proj_nope does not exist');
-    const deleted = await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: DELETED_PROJECT }));
+    const deleted = await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: DELETED_PROJECT }));
     expect(deleted.status).toBe(400);
     expect(deleted.error?.message).toBe(`Project ${DELETED_PROJECT} does not exist`);
     const patched = await send(['orders:update'], `/${PO}/items/${lineId}`, json('PATCH', { projectId: 'proj_nope' }));
@@ -182,29 +182,29 @@ describe('purchase order lines', () => {
 
   it('refuses an invalid body', async () => {
     for (const body of [{ unitPrice: 5 }, { name: 'X' }, { name: 'X', unitPrice: -1 }, { name: 'X', unitPrice: 1.005 }, { name: 'X', unitPrice: 1, quantityOrdered: 0 }, { name: 'X', unitPrice: 1, taxPercent: 101 }, { name: 'X', unitPrice: 1, projectId: 7 }]) {
-      expect((await send(['orders:create'], `/${PO}/items`, json('POST', body))).status).toBe(400);
+      expect((await send(['orders:update'], `/${PO}/items`, json('POST', body))).status).toBe(400);
     }
     expect((await send(['orders:update'], `/${PO}/items/${lineId}`, json('PATCH', { name: '' }))).status).toBe(400);
-    const malformed = await send(['orders:create'], `/${PO}/items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"oops' });
+    const malformed = await send(['orders:update'], `/${PO}/items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"oops' });
     expect(malformed.status).toBe(400);
   });
 
   it('is a 404 for an unknown or deleted purchase order, and for a line of another one', async () => {
     expect((await send(['orders:read'], '/po_nope/items')).status).toBe(404);
-    expect((await send(['orders:create'], '/po_items_gone/items', json('POST', { name: 'X', unitPrice: 1 }))).status).toBe(404);
+    expect((await send(['orders:update'], '/po_items_gone/items', json('POST', { name: 'X', unitPrice: 1 }))).status).toBe(404);
     const missing = await send(['orders:update'], `/${PO}/items/poi_nope`, json('PATCH', { notes: 'x' }));
     expect(missing.status).toBe(404);
     expect(missing.error?.message).toBe("Purchase order line with ID 'poi_nope' not found");
     expect((await send(['orders:update'], `/po_items_other/items/${lineId}`, json('PATCH', { notes: 'x' }))).status).toBe(404);
-    expect((await send(['orders:delete'], `/po_items_other/items/${lineId}`, { method: 'DELETE' })).status).toBe(404);
+    expect((await send(['orders:update'], `/po_items_other/items/${lineId}`, { method: 'DELETE' })).status).toBe(404);
   });
 
   it('publishes purchase_order updated for each line change, and none for a refusal', async () => {
     published.mockClear();
-    const created = await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'Event line', unitPrice: 2 }));
+    const created = await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'Event line', unitPrice: 2 }));
     await send(['orders:update'], `/${PO}/items/${created.data!.id}`, json('PATCH', { notes: 'n' }));
-    await send(['orders:delete'], `/${PO}/items/${created.data!.id}`, { method: 'DELETE' });
-    await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: 'proj_nope' }));
+    await send(['orders:update'], `/${PO}/items/${created.data!.id}`, { method: 'DELETE' });
+    await send(['orders:update'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1, projectId: 'proj_nope' }));
     const expected = { entityType: 'purchase_order', action: 'updated', entityId: PO, data: { id: PO, poNumber: 'PO-2026-114', status: 'ordered', supplierId: 'sup_1' } };
     expect(events()).toEqual([expected, expected, expected]);
   });
@@ -216,10 +216,17 @@ describe('purchase order lines', () => {
     expect((await send(['orders:read'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(403);
   });
 
+  it('changes lines of an existing order with orders:update, not create or delete', async () => {
+    // A line changes the order it is on, like the header update does.
+    expect((await send(['orders:create'], `/${PO}/items`, json('POST', { name: 'X', unitPrice: 1 }))).status).toBe(403);
+    expect((await send(['orders:delete'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(403);
+    expect((await send(['orders:create', 'orders:delete'], `/${PO}/items/${lineId}`, json('PATCH', { notes: 'x' }))).status).toBe(403);
+  });
+
   it('deletes a line', async () => {
-    expect((await send(['orders:delete'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await send(['orders:update'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(204);
     const rows = await db.select().from(schema.purchaseOrderItems).where(eq(schema.purchaseOrderItems.id, lineId));
     expect(rows).toEqual([]);
-    expect((await send(['orders:delete'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(404);
+    expect((await send(['orders:update'], `/${PO}/items/${lineId}`, { method: 'DELETE' })).status).toBe(404);
   });
 });

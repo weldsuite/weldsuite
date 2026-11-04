@@ -47,7 +47,7 @@ where
         .route("/{id}/items", get(list).route_layer(need("orders:read")))
         .route(
             "/{id}/items",
-            post(create).route_layer(need("orders:create")),
+            post(create).route_layer(need("orders:update")),
         )
         .route(
             "/{id}/items/{item_id}",
@@ -55,7 +55,7 @@ where
         )
         .route(
             "/{id}/items/{item_id}",
-            delete(remove).route_layer(need("orders:delete")),
+            delete(remove).route_layer(need("orders:update")),
         )
 }
 
