@@ -213,7 +213,7 @@ export const platformSyncMap: EntitySyncMap = {
   // Governance: decisions, change requests, deliverables, scope, baselines, benefits.
   project_decision: inv(governanceKeys.all),
   project_change_request: inv(flowApprovalKeys.all, projectKeys.all, governanceKeys.all),
-  project_deliverable: inv(governanceKeys.all, flowApprovalKeys.all),
+  project_deliverable: inv(governanceKeys.all),
   project_scope: inv(governanceKeys.all),
   project_baseline: inv(flowApprovalKeys.all, projectKeys.all, governanceKeys.all),
   project_benefit: inv(governanceKeys.all),
