@@ -14,6 +14,7 @@ import {
 } from '@weldsuite/entity-events/hub-topics';
 import { platformSyncMap } from './sync-map';
 import { raidKeys } from '@/hooks/queries/use-project-control-queries';
+import { scheduleKeys } from '@/hooks/queries/use-project-schedule-queries';
 import {
   PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
   PLATFORM_SYNC_MAP_PERSONAL_ONLY,
@@ -43,6 +44,17 @@ describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
       const serialized = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
       expect(serialized, topic).toContain(JSON.stringify(['project-raid']));
       expect(serialized, topic).toContain(JSON.stringify(['projects']));
+    }
+  });
+
+  it('dependencies, phases and task moves invalidate the schedule query root', () => {
+    expect(scheduleKeys.all).toEqual(['project-schedule']);
+    for (const topic of ['task_dependency', 'project_phase', 'project_task'] as const) {
+      const serialized = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
+      expect(serialized, topic).toContain(JSON.stringify([...scheduleKeys.all]));
+    }
+    for (const key of [scheduleKeys.schedule('p1'), scheduleKeys.phaseList('p1'), scheduleKeys.phaseCheck('x')]) {
+      expect(key.slice(0, scheduleKeys.all.length)).toEqual([...scheduleKeys.all]);
     }
   });
 
