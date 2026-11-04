@@ -109,6 +109,22 @@ function duplicate(keys: readonly string[]): string | null {
  * dependencies do not run in a circle. Returns the 400 message, or null.
  */
 export function blueprintIntegrityError(blueprint: Blueprint): string | null {
+  const keys = {
+    roles: new Set(blueprint.roles.map((entry) => entry.key)),
+    milestones: new Set(blueprint.milestones.map((entry) => entry.key)),
+    deliverables: new Set(blueprint.deliverables.map((entry) => entry.key)),
+    tasks: new Set(blueprint.tasks.map((entry) => entry.key)),
+  };
+  return (
+    duplicateKeyError(blueprint) ??
+    ownerRoleError(blueprint, keys.roles) ??
+    taskReferenceError(blueprint, keys) ??
+    ancestorError(blueprint) ??
+    dependencyError(blueprint, keys.tasks)
+  );
+}
+
+function duplicateKeyError(blueprint: Blueprint): string | null {
   const lists: Array<[string, readonly string[]]> = [
     ['role', blueprint.roles.map((entry) => entry.key)],
     ['stage', blueprint.stages.map((entry) => entry.key)],
@@ -121,12 +137,11 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
     const repeated = duplicate(keys);
     if (repeated !== null) return `Duplicate ${label} key: ${repeated}`;
   }
+  return null;
+}
 
-  const roles = new Set(blueprint.roles.map((entry) => entry.key));
-  const milestones = new Set(blueprint.milestones.map((entry) => entry.key));
-  const deliverables = new Set(blueprint.deliverables.map((entry) => entry.key));
-  const tasks = new Set(blueprint.tasks.map((entry) => entry.key));
-
+/** The refusal for an owner role (milestone, deliverable, register item, change board) the blueprint does not have. */
+function ownerRoleError(blueprint: Blueprint, roles: ReadonlySet<string>): string | null {
   const unknownRole = (role: string | null | undefined) => (role && !roles.has(role) ? role : null);
   for (const milestone of blueprint.milestones) {
     const bad = unknownRole(milestone.ownerRole);
@@ -143,19 +158,28 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
   for (const role of blueprint.settings.changeControl?.boardRoles ?? []) {
     if (!roles.has(role)) return `The change board refers to an unknown role: ${role}`;
   }
+  return null;
+}
 
+function taskReferenceError(
+  blueprint: Blueprint,
+  keys: { roles: ReadonlySet<string>; milestones: ReadonlySet<string>; deliverables: ReadonlySet<string>; tasks: ReadonlySet<string> },
+): string | null {
   for (const task of blueprint.tasks) {
-    if (task.parentKey && !tasks.has(task.parentKey)) return `Task ${task.key} refers to an unknown parent: ${task.parentKey}`;
-    if (task.milestoneKey && !milestones.has(task.milestoneKey)) {
+    if (task.parentKey && !keys.tasks.has(task.parentKey)) return `Task ${task.key} refers to an unknown parent: ${task.parentKey}`;
+    if (task.milestoneKey && !keys.milestones.has(task.milestoneKey)) {
       return `Task ${task.key} refers to an unknown milestone: ${task.milestoneKey}`;
     }
-    if (task.deliverableKey && !deliverables.has(task.deliverableKey)) {
+    if (task.deliverableKey && !keys.deliverables.has(task.deliverableKey)) {
       return `Task ${task.key} refers to an unknown deliverable: ${task.deliverableKey}`;
     }
-    for (const role of task.assigneeRoles) if (!roles.has(role)) return `Task ${task.key} refers to an unknown role: ${role}`;
+    for (const role of task.assigneeRoles) if (!keys.roles.has(role)) return `Task ${task.key} refers to an unknown role: ${role}`;
   }
+  return null;
+}
 
-  // A task must not be its own ancestor.
+/** A task must not be its own ancestor. */
+function ancestorError(blueprint: Blueprint): string | null {
   const parentOf = new Map(blueprint.tasks.map((task) => [task.key, task.parentKey ?? null]));
   for (const task of blueprint.tasks) {
     const seen = new Set<string>([task.key]);
@@ -166,7 +190,11 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
       current = parentOf.get(current) ?? null;
     }
   }
+  return null;
+}
 
+/** The refusal for a dependency that names an unknown task, repeats or loops, or null. */
+function dependencyError(blueprint: Blueprint, tasks: ReadonlySet<string>): string | null {
   const pairs = new Set<string>();
   const successors = new Map<string, string[]>();
   for (const dependency of blueprint.dependencies) {
@@ -179,7 +207,12 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
     pairs.add(pair);
     successors.set(dependency.predecessor, [...(successors.get(dependency.predecessor) ?? []), dependency.successor]);
   }
-  // Dependencies must not run in a circle (depth-first, 0 new, 1 on the path, 2 done).
+  const looping = loopingTask(blueprint.tasks.map((task) => task.key), successors);
+  return looping === null ? null : `The dependencies of task ${looping} run in a circle`;
+}
+
+/** The first task found on a dependency circle (depth-first, 0 new, 1 on the path, 2 done), or null. */
+function loopingTask(taskKeys: readonly string[], successors: ReadonlyMap<string, string[]>): string | null {
   const state = new Map<string, 1 | 2>();
   const visit = (key: string): string | null => {
     state.set(key, 1);
@@ -194,10 +227,10 @@ export function blueprintIntegrityError(blueprint: Blueprint): string | null {
     state.set(key, 2);
     return null;
   };
-  for (const task of blueprint.tasks) {
-    if (state.has(task.key)) continue;
-    const found = visit(task.key);
-    if (found) return `The dependencies of task ${found} run in a circle`;
+  for (const key of taskKeys) {
+    if (state.has(key)) continue;
+    const found = visit(key);
+    if (found) return found;
   }
   return null;
 }
@@ -274,31 +307,55 @@ function memberRoleOf(role: string | null | undefined): BlueprintMemberRole {
   return (MEMBER_ROLES as readonly string[]).includes(lowered) ? (lowered as BlueprintMemberRole) : 'member';
 }
 
-/**
- * Turn a project into a blueprint: dates become offsets in working days from
- * the project start, people become roles (the project manager, the sponsor,
- * then everyone else in the order they first appear), ids become local keys.
- * Names, comments, time entries and files are not copied; tasks are copied
- * without their progress, and the register only with its open items.
- * `roleLabels` names the roles by key.
- */
-export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Record<string, string>> = {}): Blueprint {
-  const { project } = source;
-  const settings: ProjectSettings = project.settings ?? {};
-  const workingDays = settings.schedule?.workingDays ?? [...DEFAULT_WORKING_DAYS];
+interface BlueprintParts {
+  tasks: TaskRow[];
+  milestones: MilestoneRow[];
+  deliverables: DeliverableRow[];
+  phases: PhaseRow[];
+  stages: StageRow[];
+  raidItems: RaidRow[];
+}
 
-  const tasks = source.tasks
-    .filter((task) => task.status !== 'cancelled')
-    .sort(compareBy<TaskRow>((task) => task.position, (task) => task.id));
-  const milestones = [...source.milestones].sort(compareBy<MilestoneRow>((row) => row.dueDate.getTime(), (row) => row.id));
-  const deliverables = [...source.deliverables].sort(compareBy<DeliverableRow>((row) => row.position, (row) => row.number));
-  const phases = [...source.phases].sort(compareBy<PhaseRow>((row) => row.position, (row) => row.id));
-  const stages = [...source.stages].sort(compareBy<StageRow>((row) => row.position, (row) => row.id));
-  const raidItems = source.raidItems
-    .filter((item) => item.closedAt === null)
-    .sort(compareBy<RaidRow>((row) => RAID_KIND_ORDER.indexOf(row.kind), (row) => row.number));
+/** The rows of a project in the order a blueprint lists them. */
+function sortedParts(source: BlueprintSource): BlueprintParts {
+  return {
+    tasks: source.tasks
+      .filter((task) => task.status !== 'cancelled')
+      .sort(compareBy<TaskRow>((task) => task.position, (task) => task.id)),
+    milestones: [...source.milestones].sort(compareBy<MilestoneRow>((row) => row.dueDate.getTime(), (row) => row.id)),
+    deliverables: [...source.deliverables].sort(compareBy<DeliverableRow>((row) => row.position, (row) => row.number)),
+    phases: [...source.phases].sort(compareBy<PhaseRow>((row) => row.position, (row) => row.id)),
+    stages: [...source.stages].sort(compareBy<StageRow>((row) => row.position, (row) => row.id)),
+    raidItems: source.raidItems
+      .filter((item) => item.closedAt === null)
+      .sort(compareBy<RaidRow>((row) => RAID_KIND_ORDER.indexOf(row.kind), (row) => row.number)),
+  };
+}
 
-  // ── Roles ──
+/** The role a member holds on the project, null for someone who is not a member. */
+function projectRoleOf(membership: ReadonlyMap<string, string | null | undefined>, userId: string): BlueprintMemberRole | null {
+  return membership.has(userId) ? memberRoleOf(membership.get(userId)) : null;
+}
+
+/** The people a blueprint turns into roles, after the project manager and the sponsor, in the order they first appear. */
+function otherPeople(source: BlueprintSource, settings: ProjectSettings, parts: BlueprintParts): Array<string | null | undefined> {
+  const people: Array<string | null | undefined> = [];
+  for (const member of [...source.members].sort(compareBy<MemberRow>((row) => row.joinedAt.getTime(), (row) => row.id))) {
+    people.push(member.userId);
+  }
+  people.push(...(settings.changeControl?.boardMemberIds ?? []));
+  for (const task of parts.tasks) people.push(...assigneesOf(task));
+  for (const row of [...parts.milestones, ...parts.deliverables, ...parts.raidItems]) people.push(row.ownerId);
+  return people;
+}
+
+/** The roles of a blueprint: the project manager, the sponsor, then everyone else; `roleOf` maps a user to the role key. */
+function assignRoles(
+  source: BlueprintSource,
+  settings: ProjectSettings,
+  parts: BlueprintParts,
+  roleLabels: Readonly<Record<string, string>>,
+): { roles: Blueprint['roles']; roleOf: (userId: string | null | undefined) => string | null } {
   const roles: Blueprint['roles'] = [];
   const roleByUser = new Map<string, string>();
   const membership = new Map(source.members.map((member) => [member.userId, member.role]));
@@ -308,61 +365,45 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
     roleByUser.set(userId, key);
     roles.push({ key, label: label(key, fallback), projectRole });
   };
-  addRole(project.projectManagerId, PROJECT_MANAGER_ROLE, 'Project manager', 'owner');
+  addRole(source.project.projectManagerId, PROJECT_MANAGER_ROLE, 'Project manager', 'owner');
   const sponsorId = settings.sponsorId ?? null;
-  addRole(sponsorId, SPONSOR_ROLE, 'Sponsor', membership.has(sponsorId ?? '') ? memberRoleOf(membership.get(sponsorId ?? '')) : null);
+  addRole(sponsorId, SPONSOR_ROLE, 'Sponsor', projectRoleOf(membership, sponsorId ?? ''));
   let others = 0;
-  const addOther = (userId: string | null | undefined) => {
-    if (!userId || roleByUser.has(userId)) return;
+  for (const userId of otherPeople(source, settings, parts)) {
+    if (!userId || roleByUser.has(userId)) continue;
     others += 1;
-    addRole(userId, `member_${others}`, `Team member ${others}`, membership.has(userId) ? memberRoleOf(membership.get(userId)) : null);
-  };
-  for (const member of [...source.members].sort(compareBy<MemberRow>((row) => row.joinedAt.getTime(), (row) => row.id))) {
-    addOther(member.userId);
+    addRole(userId, `member_${others}`, `Team member ${others}`, projectRoleOf(membership, userId));
   }
-  for (const id of settings.changeControl?.boardMemberIds ?? []) addOther(id);
-  for (const task of tasks) for (const id of assigneesOf(task)) addOther(id);
-  for (const row of milestones) addOther(row.ownerId);
-  for (const row of deliverables) addOther(row.ownerId);
-  for (const row of raidItems) addOther(row.ownerId);
   const roleOf = (userId: string | null | undefined): string | null => (userId ? (roleByUser.get(userId) ?? null) : null);
+  return { roles, roleOf };
+}
 
-  // ── Dates ──
+/** The earliest date any task, milestone, phase or deliverable has, or null. */
+function earliestDate(parts: BlueprintParts): Date | null {
   const dated: Date[] = [];
-  for (const task of tasks) for (const date of [task.startDate, task.dueDate]) if (date) dated.push(date);
-  for (const row of milestones) dated.push(row.dueDate);
-  for (const row of phases) for (const date of [row.plannedStart, row.plannedEnd]) if (date) dated.push(date);
-  for (const row of deliverables) for (const date of [row.plannedStart, row.plannedEnd]) if (date) dated.push(date);
-  const earliest = dated.length === 0 ? null : new Date(Math.min(...dated.map((date) => date.getTime())));
-  const start = project.startDate ?? earliest;
-  const offsetOf = (date: Date | null | undefined): number | null => (start && date ? workingDayOffset(start, date, workingDays) : null);
+  for (const task of parts.tasks) dated.push(...presentDates(task.startDate, task.dueDate));
+  for (const row of parts.milestones) dated.push(row.dueDate);
+  for (const row of parts.phases) dated.push(...presentDates(row.plannedStart, row.plannedEnd));
+  for (const row of parts.deliverables) dated.push(...presentDates(row.plannedStart, row.plannedEnd));
+  return dated.length === 0 ? null : new Date(Math.min(...dated.map((date) => date.getTime())));
+}
 
-  // ── Local keys ──
-  const milestoneKeys = new Map(milestones.map((row, index) => [row.id, `m${index + 1}`]));
-  const deliverableKeys = new Map(deliverables.map((row, index) => [row.id, `d${index + 1}`]));
-  const taskKeys = new Map(tasks.map((row, index) => [row.id, `t${index + 1}`]));
+function presentDates(...dates: Array<Date | null | undefined>): Date[] {
+  return dates.filter((date): date is Date => Boolean(date));
+}
 
-  const blueprintTasks: Blueprint['tasks'] = tasks.map((task) => ({
-    key: taskKeys.get(task.id) ?? '',
-    parentKey: (task.parentTaskId && taskKeys.get(task.parentTaskId)) || null,
-    title: task.title,
-    description: task.description ?? null,
-    priority: asPriority(task.priority),
-    type: task.type ?? 'task',
-    status: task.status === 'backlog' ? 'backlog' : 'todo',
-    assigneeRoles: [...new Set(assigneesOf(task).map(roleOf).filter((role): role is string => role !== null))],
-    startOffset: offsetOf(task.startDate),
-    dueOffset: offsetOf(task.dueDate),
-    estimatedHours: task.estimatedHours ?? null,
-    storyPoints: task.storyPoints ?? null,
-    milestoneKey: (task.milestoneId && milestoneKeys.get(task.milestoneId)) || null,
-    deliverableKey: (task.deliverableId && deliverableKeys.get(task.deliverableId)) || null,
-    labels: task.labels ?? null,
-    tags: task.tags ?? null,
-    isBillable: task.isBillable,
-  }));
+/** A gate criterion as a blueprint stores it. */
+function blueprintCriterion(criterion: PhaseRow['gateCriteria'][number]): Blueprint['phases'][number]['gateCriteria'][number] {
+  if ('manual' in criterion) return { manual: criterion.manual };
+  return criterion.params ? { key: criterion.key, params: criterion.params } : { key: criterion.key };
+}
 
-  // ── Dependencies: both the typed rows and the legacy arrays ──
+/** The dependencies between tasks, as local keys: both the typed rows and the legacy arrays, without circles. */
+function blueprintDependenciesOf(
+  source: BlueprintSource,
+  tasks: readonly TaskRow[],
+  taskKeys: ReadonlyMap<string, string>,
+): Blueprint['dependencies'] {
   const dependencies = new Map<string, Blueprint['dependencies'][number]>();
   const addDependency = (predecessorId: string, successorId: string, type: DependencyRow['type'], lagDays: number) => {
     const predecessor = taskKeys.get(predecessorId);
@@ -379,19 +420,12 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
     for (const predecessorId of task.dependsOn ?? []) addDependency(predecessorId, task.id, 'fs', 0);
     for (const successorId of task.blocks ?? []) addDependency(task.id, successorId, 'fs', 0);
   }
-  const blueprintDependencies = [...dependencies.values()];
   // A circle in the source (the old arrays allowed no cycles, but be safe) would make an unusable template: drop the offending pairs.
-  const safeDependencies = withoutCycles(blueprintDependencies);
+  return withoutCycles([...dependencies.values()]);
+}
 
-  const lastOffset = Math.max(
-    0,
-    ...blueprintTasks.flatMap((task) => [task.startOffset ?? 0, task.dueOffset ?? 0]),
-    ...milestones.map((row) => offsetOf(row.dueDate) ?? 0),
-    ...phases.flatMap((row) => [offsetOf(row.plannedStart) ?? 0, offsetOf(row.plannedEnd) ?? 0]),
-    ...deliverables.flatMap((row) => [offsetOf(row.plannedStart) ?? 0, offsetOf(row.plannedEnd) ?? 0]),
-  );
-  const durationDays = Math.max(0, offsetOf(project.endDate) ?? lastOffset);
-
+/** The settings a blueprint carries over; board members become roles. */
+function blueprintSettingsOf(settings: ProjectSettings, roleOf: (userId: string | null | undefined) => string | null): Blueprint['settings'] {
   const blueprintSettings: Blueprint['settings'] = {};
   if (settings.schedule) {
     blueprintSettings.schedule = { workingDays: [...settings.schedule.workingDays], autoSchedule: settings.schedule.autoSchedule };
@@ -420,6 +454,85 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
     }));
   }
   if (typeof settings.riskAppetite === 'number') blueprintSettings.riskAppetite = settings.riskAppetite;
+  return blueprintSettings;
+}
+
+function blueprintRaidItem(item: RaidRow, roleOf: (userId: string | null | undefined) => string | null): Blueprint['raid'][number] {
+  return {
+    kind: item.kind,
+    title: item.title,
+    description: item.description ?? null,
+    category: item.category ?? null,
+    ownerRole: roleOf(item.ownerId),
+    probability: item.probability ?? null,
+    impact: item.impact ?? null,
+    strategy: item.strategy ?? null,
+    trigger: item.trigger ?? null,
+    costImpact: item.costImpact ?? null,
+    scheduleImpactDays: item.scheduleImpactDays ?? null,
+    reviewIntervalDays: item.reviewIntervalDays ?? null,
+    confidence: item.confidence ?? null,
+    ifWrong: item.ifWrong ?? null,
+    severity: item.severity ?? null,
+    direction: item.direction ?? null,
+    partyType: item.partyType ?? null,
+    partyName: item.partyName ?? null,
+  };
+}
+
+/**
+ * Turn a project into a blueprint: dates become offsets in working days from
+ * the project start, people become roles (the project manager, the sponsor,
+ * then everyone else in the order they first appear), ids become local keys.
+ * Names, comments, time entries and files are not copied; tasks are copied
+ * without their progress, and the register only with its open items.
+ * `roleLabels` names the roles by key.
+ */
+export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Record<string, string>> = {}): Blueprint {
+  const { project } = source;
+  const settings: ProjectSettings = project.settings ?? {};
+  const workingDays = settings.schedule?.workingDays ?? [...DEFAULT_WORKING_DAYS];
+
+  const parts = sortedParts(source);
+  const { tasks, milestones, deliverables, phases, stages, raidItems } = parts;
+  const { roles, roleOf } = assignRoles(source, settings, parts, roleLabels);
+
+  const start = project.startDate ?? earliestDate(parts);
+  const offsetOf = (date: Date | null | undefined): number | null => (start && date ? workingDayOffset(start, date, workingDays) : null);
+
+  // ── Local keys ──
+  const milestoneKeys = new Map(milestones.map((row, index) => [row.id, `m${index + 1}`]));
+  const deliverableKeys = new Map(deliverables.map((row, index) => [row.id, `d${index + 1}`]));
+  const taskKeys = new Map(tasks.map((row, index) => [row.id, `t${index + 1}`]));
+
+  const blueprintTasks: Blueprint['tasks'] = tasks.map((task) => ({
+    key: taskKeys.get(task.id) ?? '',
+    parentKey: (task.parentTaskId && taskKeys.get(task.parentTaskId)) || null,
+    title: task.title,
+    description: task.description ?? null,
+    priority: asPriority(task.priority),
+    type: task.type ?? 'task',
+    status: task.status === 'backlog' ? 'backlog' : 'todo',
+    assigneeRoles: [...new Set(assigneesOf(task).map(roleOf).filter((role): role is string => role !== null))],
+    startOffset: offsetOf(task.startDate),
+    dueOffset: offsetOf(task.dueDate),
+    estimatedHours: task.estimatedHours ?? null,
+    storyPoints: task.storyPoints ?? null,
+    milestoneKey: (task.milestoneId && milestoneKeys.get(task.milestoneId)) || null,
+    deliverableKey: (task.deliverableId && deliverableKeys.get(task.deliverableId)) || null,
+    labels: task.labels ?? null,
+    tags: task.tags ?? null,
+    isBillable: task.isBillable,
+  }));
+
+  const lastOffset = Math.max(
+    0,
+    ...blueprintTasks.flatMap((task) => [task.startOffset ?? 0, task.dueOffset ?? 0]),
+    ...milestones.map((row) => offsetOf(row.dueDate) ?? 0),
+    ...phases.flatMap((row) => [offsetOf(row.plannedStart) ?? 0, offsetOf(row.plannedEnd) ?? 0]),
+    ...deliverables.flatMap((row) => [offsetOf(row.plannedStart) ?? 0, offsetOf(row.plannedEnd) ?? 0]),
+  );
+  const durationDays = Math.max(0, offsetOf(project.endDate) ?? lastOffset);
 
   return {
     version: 1,
@@ -448,9 +561,7 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
       name: phase.name,
       startOffset: offsetOf(phase.plannedStart),
       endOffset: offsetOf(phase.plannedEnd),
-      gateCriteria: phase.gateCriteria.map((criterion) =>
-        'manual' in criterion ? { manual: criterion.manual } : criterion.params ? { key: criterion.key, params: criterion.params } : { key: criterion.key },
-      ),
+      gateCriteria: phase.gateCriteria.map(blueprintCriterion),
     })),
     milestones: milestones.map((row) => ({
       key: milestoneKeys.get(row.id) ?? '',
@@ -471,28 +582,9 @@ export function buildBlueprint(source: BlueprintSource, roleLabels: Readonly<Rec
       clientVisible: row.clientVisible,
     })),
     tasks: blueprintTasks,
-    dependencies: safeDependencies,
-    raid: raidItems.map((item) => ({
-      kind: item.kind,
-      title: item.title,
-      description: item.description ?? null,
-      category: item.category ?? null,
-      ownerRole: roleOf(item.ownerId),
-      probability: item.probability ?? null,
-      impact: item.impact ?? null,
-      strategy: item.strategy ?? null,
-      trigger: item.trigger ?? null,
-      costImpact: item.costImpact ?? null,
-      scheduleImpactDays: item.scheduleImpactDays ?? null,
-      reviewIntervalDays: item.reviewIntervalDays ?? null,
-      confidence: item.confidence ?? null,
-      ifWrong: item.ifWrong ?? null,
-      severity: item.severity ?? null,
-      direction: item.direction ?? null,
-      partyType: item.partyType ?? null,
-      partyName: item.partyName ?? null,
-    })),
-    settings: blueprintSettings,
+    dependencies: blueprintDependenciesOf(source, tasks, taskKeys),
+    raid: raidItems.map((item) => blueprintRaidItem(item, roleOf)),
+    settings: blueprintSettingsOf(settings, roleOf),
   };
 }
 
@@ -613,253 +705,293 @@ export interface InstantiatePlan {
 
 const MEMBER_RANK: Record<BlueprintMemberRole, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
 
-/**
- * Every row of the new project. Dates are counted in working days from the
- * start on the template's calendar; people come from `roles`; ids are made
- * with `newId`; numbers are the ones allocated for the plan. Rows the copy
- * options leave out are not made, and references to them are left empty.
- */
-export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext): InstantiatePlan {
-  const { copy, now, userId } = ctx;
-  const calendar = blueprint.settings.schedule?.workingDays ?? [...DEFAULT_WORKING_DAYS];
-  const at = (offset: number | null | undefined): Date | null =>
-    offset === null || offset === undefined ? null : addWorkingDays(ctx.start, offset, calendar);
-  const endDate = addWorkingDays(ctx.start, blueprint.durationDays, calendar);
-  const personOf = (role: string | null | undefined): string | null => (role ? (ctx.roles[role] ?? null) : null);
-  const { projectId } = ctx;
+/** What every part of a plan shares: the request, the template's calendar and the date and person lookups. */
+interface PlanScope {
+  ctx: InstantiateContext;
+  calendar: number[];
+  at: (offset: number | null | undefined) => Date | null;
+  personOf: (role: string | null | undefined) => string | null;
+}
 
-  // ── Members: the creator owns the project; each role with a person joins as the template says ──
-  const memberRoles = new Map<string, BlueprintMemberRole>([[userId, 'owner']]);
+/** The creator owns the project; each role with a person joins as the template says. */
+function planMembers(blueprint: Blueprint, scope: PlanScope): NewMemberRow[] {
+  const { ctx } = scope;
+  const memberRoles = new Map<string, BlueprintMemberRole>([[ctx.userId, 'owner']]);
   for (const role of blueprint.roles) {
-    const person = personOf(role.key);
+    const person = scope.personOf(role.key);
     if (!person || !role.projectRole) continue;
     const current = memberRoles.get(person);
     if (!current || MEMBER_RANK[role.projectRole] > MEMBER_RANK[current]) memberRoles.set(person, role.projectRole);
   }
-  const members: NewMemberRow[] = [...memberRoles].map(([memberId, role]) => ({
+  return [...memberRoles].map(([memberId, role]) => ({
     id: ctx.newId('pmem'),
-    projectId,
+    projectId: ctx.projectId,
     userId: memberId,
     role,
     isActive: true,
-    joinedAt: now,
-    createdAt: now,
-    updatedAt: now,
+    joinedAt: ctx.now,
+    createdAt: ctx.now,
+    updatedAt: ctx.now,
   }));
+}
 
-  // ── Stages ──
-  const stages: NewStageRow[] = copy.stages
-    ? blueprint.stages.map((stage, index) => ({
-        id: ctx.newId('stg'),
-        projectId,
-        name: stage.name,
-        color: stage.color,
-        position: index,
-        systemStatus: stage.systemStatus,
-        createdAt: now,
-        updatedAt: now,
-      }))
-    : [];
-  /** The column a new task of this status lands in: its own, else the neighbour, else the first. */
-  const stageFor = (status: 'backlog' | 'todo'): string | null => {
-    const byStatus = (wanted: string) => stages.find((stage) => stage.systemStatus === wanted)?.id ?? null;
-    return (status === 'backlog' ? (byStatus('backlog') ?? byStatus('todo')) : (byStatus('todo') ?? byStatus('backlog'))) ?? stages[0]?.id ?? null;
-  };
+function planStages(blueprint: Blueprint, { ctx }: PlanScope): NewStageRow[] {
+  if (!ctx.copy.stages) return [];
+  return blueprint.stages.map((stage, index) => ({
+    id: ctx.newId('stg'),
+    projectId: ctx.projectId,
+    name: stage.name,
+    color: stage.color,
+    position: index,
+    systemStatus: stage.systemStatus,
+    createdAt: ctx.now,
+    updatedAt: ctx.now,
+  }));
+}
 
-  // ── Phases ──
-  const phases: NewPhaseRow[] = copy.phases
-    ? blueprint.phases.map((phase, index) => ({
-        id: ctx.newId('phs'),
-        projectId,
-        position: index,
-        name: phase.name,
-        plannedStart: at(phase.startOffset),
-        plannedEnd: at(phase.endOffset),
-        // The project starts in its first phase.
-        status: index === 0 ? ('active' as const) : ('upcoming' as const),
-        gateCriteria: phase.gateCriteria.map((criterion) =>
-          'manual' in criterion ? { manual: criterion.manual, met: false, metAt: null } : criterion,
-        ),
-        createdBy: userId,
-        createdAt: now,
-        updatedAt: now,
-      }))
-    : [];
+/** The column a new task of this status lands in: its own, else the neighbour, else the first. */
+function stageFor(stages: readonly NewStageRow[], status: 'backlog' | 'todo'): string | null {
+  const byStatus = (wanted: string) => stages.find((stage) => stage.systemStatus === wanted)?.id ?? null;
+  return (status === 'backlog' ? (byStatus('backlog') ?? byStatus('todo')) : (byStatus('todo') ?? byStatus('backlog'))) ?? stages[0]?.id ?? null;
+}
 
-  // ── Milestones ──
-  const milestoneIds = new Map<string, string>();
-  const milestones: NewMilestoneRow[] = copy.milestones
-    ? blueprint.milestones.map((milestone) => {
-        const id = ctx.newId('ms');
-        milestoneIds.set(milestone.key, id);
-        return {
-          id,
-          projectId,
-          name: milestone.name,
-          description: milestone.description,
-          dueDate: addWorkingDays(ctx.start, milestone.offset, calendar),
-          status: 'pending',
-          progress: '0',
-          ownerId: personOf(milestone.ownerRole),
-          isKeyMilestone: milestone.isKey,
-          createdAt: now,
-          updatedAt: now,
-        };
-      })
-    : [];
+function planPhases(blueprint: Blueprint, scope: PlanScope): NewPhaseRow[] {
+  const { ctx } = scope;
+  if (!ctx.copy.phases) return [];
+  return blueprint.phases.map((phase, index) => ({
+    id: ctx.newId('phs'),
+    projectId: ctx.projectId,
+    position: index,
+    name: phase.name,
+    plannedStart: scope.at(phase.startOffset),
+    plannedEnd: scope.at(phase.endOffset),
+    // The project starts in its first phase.
+    status: index === 0 ? ('active' as const) : ('upcoming' as const),
+    gateCriteria: phase.gateCriteria.map((criterion) =>
+      'manual' in criterion ? { manual: criterion.manual, met: false, metAt: null } : criterion,
+    ),
+    createdBy: ctx.userId,
+    createdAt: ctx.now,
+    updatedAt: ctx.now,
+  }));
+}
 
-  // ── Deliverables ──
-  const deliverableIds = new Map<string, string>();
-  const deliverables: NewDeliverableRow[] = copy.deliverables
-    ? blueprint.deliverables.map((deliverable, index) => {
-        const id = ctx.newId('dlv');
-        deliverableIds.set(deliverable.key, id);
-        return {
-          id,
-          projectId,
-          number: index + 1,
-          title: deliverable.title,
-          description: deliverable.description,
-          ownerId: personOf(deliverable.ownerRole),
-          status: 'not_started' as const,
-          plannedStart: at(deliverable.startOffset),
-          plannedEnd: at(deliverable.endOffset),
-          acceptanceCriteria: deliverable.acceptanceCriteria.map((text) => ({ text, met: false, metAt: null })),
-          position: index,
-          clientVisible: deliverable.clientVisible,
-          createdBy: userId,
-          createdAt: now,
-          updatedAt: now,
-        };
-      })
-    : [];
+function planMilestones(blueprint: Blueprint, scope: PlanScope): { rows: NewMilestoneRow[]; ids: Map<string, string> } {
+  const { ctx } = scope;
+  const ids = new Map<string, string>();
+  if (!ctx.copy.milestones) return { rows: [], ids };
+  const rows: NewMilestoneRow[] = blueprint.milestones.map((milestone) => {
+    const id = ctx.newId('ms');
+    ids.set(milestone.key, id);
+    return {
+      id,
+      projectId: ctx.projectId,
+      name: milestone.name,
+      description: milestone.description,
+      dueDate: addWorkingDays(ctx.start, milestone.offset, scope.calendar),
+      status: 'pending',
+      progress: '0',
+      ownerId: scope.personOf(milestone.ownerRole),
+      isKeyMilestone: milestone.isKey,
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    };
+  });
+  return { rows, ids };
+}
 
-  // ── Tasks and their dependencies ──
-  const taskIds = new Map<string, string>();
-  if (copy.tasks) for (const task of blueprint.tasks) taskIds.set(task.key, ctx.newId('task'));
+function planDeliverables(blueprint: Blueprint, scope: PlanScope): { rows: NewDeliverableRow[]; ids: Map<string, string> } {
+  const { ctx } = scope;
+  const ids = new Map<string, string>();
+  if (!ctx.copy.deliverables) return { rows: [], ids };
+  const rows: NewDeliverableRow[] = blueprint.deliverables.map((deliverable, index) => {
+    const id = ctx.newId('dlv');
+    ids.set(deliverable.key, id);
+    return {
+      id,
+      projectId: ctx.projectId,
+      number: index + 1,
+      title: deliverable.title,
+      description: deliverable.description,
+      ownerId: scope.personOf(deliverable.ownerRole),
+      status: 'not_started' as const,
+      plannedStart: scope.at(deliverable.startOffset),
+      plannedEnd: scope.at(deliverable.endOffset),
+      acceptanceCriteria: deliverable.acceptanceCriteria.map((text) => ({ text, met: false, metAt: null })),
+      position: index,
+      clientVisible: deliverable.clientVisible,
+      createdBy: ctx.userId,
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    };
+  });
+  return { rows, ids };
+}
+
+/** The typed dependency rows between the new tasks, and each task's legacy `dependsOn` and `blocks` arrays. */
+function planDependencies(
+  blueprint: Blueprint,
+  { ctx }: PlanScope,
+  taskIds: ReadonlyMap<string, string>,
+): { rows: NewDependencyRow[]; dependsOn: Map<string, string[]>; blocks: Map<string, string[]> } {
   const dependsOn = new Map<string, string[]>();
   const blocks = new Map<string, string[]>();
-  const dependencies: NewDependencyRow[] = [];
-  if (copy.tasks) {
-    for (const dependency of blueprint.dependencies) {
-      const predecessorId = taskIds.get(dependency.predecessor);
-      const successorId = taskIds.get(dependency.successor);
-      if (!predecessorId || !successorId) continue;
-      dependencies.push({
-        id: ctx.newId('tdp'),
-        projectId,
-        predecessorId,
-        successorId,
-        type: dependency.type,
-        lagDays: dependency.lagDays,
-        createdBy: userId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      dependsOn.set(successorId, [...(dependsOn.get(successorId) ?? []), predecessorId]);
-      blocks.set(predecessorId, [...(blocks.get(predecessorId) ?? []), successorId]);
-    }
+  const rows: NewDependencyRow[] = [];
+  if (!ctx.copy.tasks) return { rows, dependsOn, blocks };
+  for (const dependency of blueprint.dependencies) {
+    const predecessorId = taskIds.get(dependency.predecessor);
+    const successorId = taskIds.get(dependency.successor);
+    if (!predecessorId || !successorId) continue;
+    rows.push({
+      id: ctx.newId('tdp'),
+      projectId: ctx.projectId,
+      predecessorId,
+      successorId,
+      type: dependency.type,
+      lagDays: dependency.lagDays,
+      createdBy: ctx.userId,
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    });
+    dependsOn.set(successorId, [...(dependsOn.get(successorId) ?? []), predecessorId]);
+    blocks.set(predecessorId, [...(blocks.get(predecessorId) ?? []), successorId]);
   }
-  const tasks: NewTaskRow[] = copy.tasks
-    ? blueprint.tasks.map((task, index) => {
-        const id = taskIds.get(task.key) as string;
-        const assignees = [...new Set(task.assigneeRoles.map(personOf).filter((person): person is string => person !== null))];
-        return {
-          id,
-          number: ctx.taskNumbers[index] as number,
-          projectId,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          stageId: stageFor(task.status),
-          priority: task.priority,
-          type: task.type,
-          assigneeId: assignees[0] ?? null,
-          assigneeIds: assignees.length > 0 ? assignees : null,
-          reporterId: userId,
-          parentTaskId: task.parentKey ? (taskIds.get(task.parentKey) ?? null) : null,
-          milestoneId: task.milestoneKey ? (milestoneIds.get(task.milestoneKey) ?? null) : null,
-          deliverableId: task.deliverableKey ? (deliverableIds.get(task.deliverableKey) ?? null) : null,
-          startDate: at(task.startOffset),
-          dueDate: at(task.dueOffset),
-          estimatedHours: task.estimatedHours,
-          storyPoints: task.storyPoints,
-          labels: task.labels,
-          tags: task.tags,
-          isBillable: task.isBillable,
-          dependsOn: dependsOn.get(id) ?? null,
-          blocks: blocks.get(id) ?? null,
-          position: index + 1,
-          progress: '0',
-          createdAt: now,
-          updatedAt: now,
-        };
-      })
-    : [];
+  return { rows, dependsOn, blocks };
+}
 
-  // ── The register's starting items ──
+/** What the new tasks refer to. */
+interface TaskRefs {
+  taskIds: ReadonlyMap<string, string>;
+  milestoneIds: ReadonlyMap<string, string>;
+  deliverableIds: ReadonlyMap<string, string>;
+  stages: readonly NewStageRow[];
+  dependsOn: ReadonlyMap<string, string[]>;
+  blocks: ReadonlyMap<string, string[]>;
+}
+
+function planTasks(blueprint: Blueprint, scope: PlanScope, refs: TaskRefs): NewTaskRow[] {
+  const { ctx } = scope;
+  if (!ctx.copy.tasks) return [];
+  return blueprint.tasks.map((task, index) => {
+    const id = refs.taskIds.get(task.key) as string;
+    const assignees = [...new Set(task.assigneeRoles.map(scope.personOf).filter((person): person is string => person !== null))];
+    return {
+      id,
+      number: ctx.taskNumbers[index] as number,
+      projectId: ctx.projectId,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      stageId: stageFor(refs.stages, task.status),
+      priority: task.priority,
+      type: task.type,
+      assigneeId: assignees[0] ?? null,
+      assigneeIds: assignees.length > 0 ? assignees : null,
+      reporterId: ctx.userId,
+      parentTaskId: task.parentKey ? (refs.taskIds.get(task.parentKey) ?? null) : null,
+      milestoneId: task.milestoneKey ? (refs.milestoneIds.get(task.milestoneKey) ?? null) : null,
+      deliverableId: task.deliverableKey ? (refs.deliverableIds.get(task.deliverableKey) ?? null) : null,
+      startDate: scope.at(task.startOffset),
+      dueDate: scope.at(task.dueOffset),
+      estimatedHours: task.estimatedHours,
+      storyPoints: task.storyPoints,
+      labels: task.labels,
+      tags: task.tags,
+      isBillable: task.isBillable,
+      dependsOn: refs.dependsOn.get(id) ?? null,
+      blocks: refs.blocks.get(id) ?? null,
+      position: index + 1,
+      progress: '0',
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    };
+  });
+}
+
+type RaidTemplateItem = Blueprint['raid'][number];
+
+function raidBase(item: RaidTemplateItem, number: number, id: string, scope: PlanScope) {
+  const { ctx } = scope;
+  return {
+    id,
+    projectId: ctx.projectId,
+    kind: item.kind,
+    number,
+    title: item.title,
+    description: item.description,
+    status: initialRaidStatus(item.kind),
+    category: item.category,
+    ownerId: scope.personOf(item.ownerRole),
+    closedAt: null,
+    customFields: null,
+    createdBy: ctx.userId,
+    createdAt: ctx.now,
+    updatedAt: ctx.now,
+  } satisfies NewRaidRow;
+}
+
+/** The row of an assumption, issue or dependency (a risk without a score has none). */
+function plainRaidRow(item: RaidTemplateItem, base: ReturnType<typeof raidBase>): NewRaidRow | null {
+  switch (item.kind) {
+    case 'assumption':
+      return { ...base, confidence: item.confidence, ifWrong: item.ifWrong };
+    case 'issue':
+      return { ...base, severity: item.severity ?? 'medium' };
+    case 'dependency':
+      return { ...base, direction: item.direction, partyType: item.partyType, partyName: item.partyName };
+    default:
+      return null;
+  }
+}
+
+/** The register's starting items, and a first assessment for each scored risk (the start of its trend). */
+function planRaid(blueprint: Blueprint, scope: PlanScope): { raidItems: NewRaidRow[]; assessments: NewAssessmentRow[] } {
+  const { ctx } = scope;
   const raidItems: NewRaidRow[] = [];
   const assessments: NewAssessmentRow[] = [];
-  if (copy.raid) {
-    const used: Record<RaidKind, number> = { risk: 0, assumption: 0, issue: 0, dependency: 0 };
-    for (const item of blueprint.raid) {
-      used[item.kind] += 1;
-      const number = used[item.kind];
-      const id = ctx.newId('raid');
-      const base = {
-        id,
-        projectId,
-        kind: item.kind,
-        number,
-        title: item.title,
-        description: item.description,
-        status: initialRaidStatus(item.kind),
-        category: item.category,
-        ownerId: personOf(item.ownerRole),
-        closedAt: null,
-        customFields: null,
-        createdBy: userId,
-        createdAt: now,
-        updatedAt: now,
-      } satisfies NewRaidRow;
-      if (item.kind === 'risk' && item.probability !== null && item.impact !== null) {
-        const band = riskBand(riskScore(item.probability, item.impact));
-        raidItems.push({
-          ...base,
-          dueAt: nextReviewAt(now, band, item.reviewIntervalDays),
-          probability: item.probability,
-          impact: item.impact,
-          strategy: item.strategy,
-          trigger: item.trigger,
-          costImpact: item.costImpact,
-          scheduleImpactDays: item.scheduleImpactDays,
-          reviewIntervalDays: item.reviewIntervalDays,
-        });
-        // A risk's first assessment is its creation: the start of the trend.
-        assessments.push({
-          id: ctx.newId('rasm'),
-          itemId: id,
-          projectId,
-          probability: item.probability,
-          impact: item.impact,
-          residualProbability: null,
-          residualImpact: null,
-          note: null,
-          assessedBy: userId,
-          assessedAt: now,
-        });
-      } else if (item.kind === 'assumption') {
-        raidItems.push({ ...base, confidence: item.confidence, ifWrong: item.ifWrong });
-      } else if (item.kind === 'issue') {
-        raidItems.push({ ...base, severity: item.severity ?? 'medium' });
-      } else if (item.kind === 'dependency') {
-        raidItems.push({ ...base, direction: item.direction, partyType: item.partyType, partyName: item.partyName });
-      }
+  if (!ctx.copy.raid) return { raidItems, assessments };
+  const used: Record<RaidKind, number> = { risk: 0, assumption: 0, issue: 0, dependency: 0 };
+  for (const item of blueprint.raid) {
+    used[item.kind] += 1;
+    const id = ctx.newId('raid');
+    const base = raidBase(item, used[item.kind], id, scope);
+    if (item.kind === 'risk' && item.probability !== null && item.impact !== null) {
+      const band = riskBand(riskScore(item.probability, item.impact));
+      raidItems.push({
+        ...base,
+        dueAt: nextReviewAt(ctx.now, band, item.reviewIntervalDays),
+        probability: item.probability,
+        impact: item.impact,
+        strategy: item.strategy,
+        trigger: item.trigger,
+        costImpact: item.costImpact,
+        scheduleImpactDays: item.scheduleImpactDays,
+        reviewIntervalDays: item.reviewIntervalDays,
+      });
+      assessments.push({
+        id: ctx.newId('rasm'),
+        itemId: id,
+        projectId: ctx.projectId,
+        probability: item.probability,
+        impact: item.impact,
+        residualProbability: null,
+        residualImpact: null,
+        note: null,
+        assessedBy: ctx.userId,
+        assessedAt: ctx.now,
+      });
+      continue;
     }
+    const row = plainRaidRow(item, base);
+    if (row) raidItems.push(row);
   }
+  return { raidItems, assessments };
+}
 
-  // ── The project row and its settings ──
-  const settings: ProjectSettings = { templateId: ctx.templateId };
+/** The project's settings: what the template carries over, with its roles turned into the people of the request. */
+function planSettings(blueprint: Blueprint, scope: PlanScope, phases: readonly NewPhaseRow[]): ProjectSettings {
+  const { copy, templateId } = scope.ctx;
+  const settings: ProjectSettings = { templateId };
   if (blueprint.settings.schedule) {
     settings.schedule = {
       workingDays: [...blueprint.settings.schedule.workingDays],
@@ -868,7 +1000,7 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
     };
   }
   if (copy.changeControl && blueprint.settings.changeControl) {
-    const board = blueprint.settings.changeControl.boardRoles.map(personOf).filter((person): person is string => person !== null);
+    const board = blueprint.settings.changeControl.boardRoles.map(scope.personOf).filter((person): person is string => person !== null);
     settings.changeControl = {
       costLimit: blueprint.settings.changeControl.costLimit,
       scheduleLimitDays: blueprint.settings.changeControl.scheduleLimitDays,
@@ -883,9 +1015,66 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
     }
   }
   if (typeof blueprint.settings.riskAppetite === 'number') settings.riskAppetite = blueprint.settings.riskAppetite;
-  const sponsor = personOf(SPONSOR_ROLE);
+  const sponsor = scope.personOf(SPONSOR_ROLE);
   if (sponsor) settings.sponsorId = sponsor;
   if (phases.length > 0 && phases[0]) settings.currentPhaseId = phases[0].id;
+  return settings;
+}
+
+/** The new project's own counters (deliverables, register items), set to the next free number. */
+function planSequences(
+  { ctx }: PlanScope,
+  deliverableCount: number,
+  raidItems: readonly NewRaidRow[],
+): NewSequenceRow[] {
+  const sequences: NewSequenceRow[] = [];
+  const addSequence = (sequence: NumberSequence, used: number) => {
+    if (used > 0) {
+      sequences.push({ id: ctx.newId('seq'), scope: sequence.scope, prefix: sequence.prefix, nextValue: used + 1, createdAt: ctx.now, updatedAt: ctx.now });
+    }
+  };
+  addSequence(deliverableSequence(ctx.projectId), deliverableCount);
+  for (const kind of RAID_KIND_ORDER) {
+    addSequence(raidSequence(kind, ctx.projectId), raidItems.filter((item) => item.kind === kind).length);
+  }
+  return sequences;
+}
+
+/**
+ * Every row of the new project. Dates are counted in working days from the
+ * start on the template's calendar; people come from `roles`; ids are made
+ * with `newId`; numbers are the ones allocated for the plan. Rows the copy
+ * options leave out are not made, and references to them are left empty.
+ */
+export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext): InstantiatePlan {
+  const { now, projectId } = ctx;
+  const calendar = blueprint.settings.schedule?.workingDays ?? [...DEFAULT_WORKING_DAYS];
+  const scope: PlanScope = {
+    ctx,
+    calendar,
+    at: (offset) => (offset === null || offset === undefined ? null : addWorkingDays(ctx.start, offset, calendar)),
+    personOf: (role) => (role ? (ctx.roles[role] ?? null) : null),
+  };
+  const endDate = addWorkingDays(ctx.start, blueprint.durationDays, calendar);
+
+  const members = planMembers(blueprint, scope);
+  const stages = planStages(blueprint, scope);
+  const phases = planPhases(blueprint, scope);
+  const milestones = planMilestones(blueprint, scope);
+  const deliverables = planDeliverables(blueprint, scope);
+
+  const taskIds = new Map<string, string>();
+  if (ctx.copy.tasks) for (const task of blueprint.tasks) taskIds.set(task.key, ctx.newId('task'));
+  const dependencies = planDependencies(blueprint, scope, taskIds);
+  const tasks = planTasks(blueprint, scope, {
+    taskIds,
+    milestoneIds: milestones.ids,
+    deliverableIds: deliverables.ids,
+    stages,
+    dependsOn: dependencies.dependsOn,
+    blocks: dependencies.blocks,
+  });
+  const { raidItems, assessments } = planRaid(blueprint, scope);
 
   const attributes = blueprint.project;
   const project: NewProjectRow = {
@@ -893,7 +1082,7 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
     name: ctx.name,
     status: 'Planning',
     customerId: ctx.clientId,
-    projectManagerId: personOf(PROJECT_MANAGER_ROLE) ?? userId,
+    projectManagerId: scope.personOf(PROJECT_MANAGER_ROLE) ?? ctx.userId,
     startDate: ctx.start,
     endDate,
     type: attributes.type,
@@ -906,21 +1095,10 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
     billingMethod: attributes.billingMethod,
     isBillable: attributes.isBillable,
     trackTime: attributes.trackTime,
-    settings,
+    settings: planSettings(blueprint, scope, phases),
     createdAt: now,
     updatedAt: now,
   };
-
-  const sequences: NewSequenceRow[] = [];
-  const addSequence = (sequence: NumberSequence, used: number) => {
-    if (used > 0) {
-      sequences.push({ id: ctx.newId('seq'), scope: sequence.scope, prefix: sequence.prefix, nextValue: used + 1, createdAt: now, updatedAt: now });
-    }
-  };
-  addSequence(deliverableSequence(projectId), deliverables.length);
-  for (const kind of RAID_KIND_ORDER) {
-    addSequence(raidSequence(kind, projectId), raidItems.filter((item) => item.kind === kind).length);
-  }
 
   return {
     projectId,
@@ -929,21 +1107,21 @@ export function planInstantiation(blueprint: Blueprint, ctx: InstantiateContext)
     members,
     stages,
     phases,
-    milestones,
-    deliverables,
+    milestones: milestones.rows,
+    deliverables: deliverables.rows,
     tasks,
-    dependencies,
+    dependencies: dependencies.rows,
     raidItems,
     assessments,
-    sequences,
+    sequences: planSequences(scope, deliverables.rows.length, raidItems),
     counts: {
       members: members.length,
       stages: stages.length,
       phases: phases.length,
-      milestones: milestones.length,
-      deliverables: deliverables.length,
+      milestones: milestones.rows.length,
+      deliverables: deliverables.rows.length,
       tasks: tasks.length,
-      dependencies: dependencies.length,
+      dependencies: dependencies.rows.length,
       raidItems: raidItems.length,
     },
   };

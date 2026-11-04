@@ -172,6 +172,40 @@ const AFFECTED_TYPES: readonly ControlLinkType[] = ['task', 'milestone', 'delive
 /** What a task or deliverable can implement. */
 const IMPLEMENTED_TYPES: readonly ControlLinkType[] = ['decision', 'change_request', 'benefit'];
 
+interface LinkShape {
+  fits: (from: LinkRef, to: LinkRef) => boolean;
+  message: string;
+}
+
+const taskToRegisterItem = (from: LinkRef, to: LinkRef): boolean => from.type === 'task' && to.type === 'raid_item';
+const registerItemToAffected = (from: LinkRef, to: LinkRef): boolean =>
+  from.type === 'raid_item' && AFFECTED_TYPES.includes(to.type);
+
+const LINK_SHAPES: Record<ControlLinkRelation, LinkShape> = {
+  mitigates: { fits: taskToRegisterItem, message: "The 'mitigates' relation goes from a task to a register item" },
+  resolves: { fits: taskToRegisterItem, message: "The 'resolves' relation goes from a task to a register item" },
+  raised_from: {
+    fits: (from, to) => from.type === 'raid_item' && to.type === 'raid_item',
+    message: "The 'raised_from' relation goes from a register item to the register item it was raised from",
+  },
+  affects: {
+    fits: registerItemToAffected,
+    message: "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit",
+  },
+  threatens: {
+    fits: registerItemToAffected,
+    message: "The 'threatens' relation goes from a register item to a task, milestone, deliverable or benefit",
+  },
+  implements: {
+    fits: (from, to) => (from.type === 'task' || from.type === 'deliverable') && IMPLEMENTED_TYPES.includes(to.type),
+    message: "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit",
+  },
+  decided_by: {
+    fits: (from, to) => from.type !== 'decision' && to.type === 'decision',
+    message: "The 'decided_by' relation goes from an object to the decision that settled it",
+  },
+};
+
 /**
  * The shape rules of a link, before either end is looked up: two different
  * objects, and the relation going the right way between the right types.
@@ -187,30 +221,8 @@ const IMPLEMENTED_TYPES: readonly ControlLinkType[] = ['decision', 'change_reque
 export function linkShapeError(input: { from: LinkRef; to: LinkRef; relation: ControlLinkRelation }): string | null {
   const { from, to, relation } = input;
   if (from.type === to.type && from.id === to.id) return 'A link needs two different objects';
-  switch (relation) {
-    case 'mitigates':
-    case 'resolves':
-      return from.type === 'task' && to.type === 'raid_item'
-        ? null
-        : `The '${relation}' relation goes from a task to a register item`;
-    case 'raised_from':
-      return from.type === 'raid_item' && to.type === 'raid_item'
-        ? null
-        : "The 'raised_from' relation goes from a register item to the register item it was raised from";
-    case 'affects':
-    case 'threatens':
-      return from.type === 'raid_item' && AFFECTED_TYPES.includes(to.type)
-        ? null
-        : `The '${relation}' relation goes from a register item to a task, milestone, deliverable or benefit`;
-    case 'implements':
-      return (from.type === 'task' || from.type === 'deliverable') && IMPLEMENTED_TYPES.includes(to.type)
-        ? null
-        : "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit";
-    case 'decided_by':
-      return from.type !== 'decision' && to.type === 'decision'
-        ? null
-        : "The 'decided_by' relation goes from an object to the decision that settled it";
-  }
+  const shape = LINK_SHAPES[relation];
+  return shape.fits(from, to) ? null : shape.message;
 }
 
 /**

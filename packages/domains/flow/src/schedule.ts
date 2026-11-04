@@ -34,6 +34,8 @@
  *   schedule reports how many working days the project finish lies before it.
  */
 
+import { compareText } from './compare';
+
 export type DependencyKind = 'fs' | 'ss' | 'ff' | 'sf';
 
 export interface ScheduleCalendar {
@@ -364,15 +366,10 @@ function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   else map.set(key, [value]);
 }
 
-export function computeSchedule(input: ScheduleInput): ScheduleResult {
-  const cal = new WorkingCalendar(input.calendar);
-  const pinned = new Set(input.pinnedTaskIds ?? []);
-  const nodes = input.tasks.map((task, index) => planNode(cal, task, index, pinned));
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-
-  // Links between two tasks of the network; the rest are ignored.
+/** Links between two scheduled tasks of the network; the rest are ignored. */
+function networkEdges(byId: ReadonlyMap<string, Node>, links: readonly ScheduleLinkInput[]): Edge[] {
   const edges: Edge[] = [];
-  for (const link of input.links) {
+  for (const link of links) {
     const from = byId.get(link.predecessorId);
     const to = byId.get(link.successorId);
     if (!from || !to || from === to || !from.scheduled || !to.scheduled) continue;
@@ -380,20 +377,22 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
     from.linked = true;
     to.linked = true;
   }
-  const incomingOf = new Map<number, Edge[]>();
-  const outgoingOf = new Map<number, Edge[]>();
-  for (const edge of edges) {
-    pushTo(incomingOf, edge.to, edge);
-    pushTo(outgoingOf, edge.from, edge);
-  }
+  return edges;
+}
 
-  const { order, cyclic } = orderNodes(nodes, edges);
-  for (const index of cyclic) nodes[index].cyclic = true;
-
-  // Forward pass. A task in a cycle is placed after the rest, from the
-  // predecessors that are already placed.
+/**
+ * Forward pass. A task in a cycle is placed after the rest, from the
+ * predecessors that are already placed.
+ */
+function forwardPass(
+  cal: WorkingCalendar,
+  nodes: Node[],
+  incomingOf: ReadonlyMap<number, Edge[]>,
+  sequence: readonly number[],
+): void {
   const placed = new Set<number>();
-  const forward = (node: Node) => {
+  for (const index of sequence) {
+    const node = nodes[index];
     if (!node.done && !node.pinned) {
       let start = node.plannedStart;
       for (const edge of incomingOf.get(node.index) ?? []) {
@@ -405,62 +404,65 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       node.earlyFinish = cal.add(node.earlyStart, node.duration - 1);
     }
     placed.add(node.index);
-  };
-  for (const index of order) forward(nodes[index]);
-  for (const index of cyclic) forward(nodes[index]);
-
-  const scheduledNodes = nodes.filter((node) => node.scheduled);
-  const finish = scheduledNodes.length > 0 ? Math.max(...scheduledNodes.map((node) => node.earlyFinish)) : null;
-
-  // Backward pass over the acyclic part, from the project finish.
-  if (finish !== null) {
-    for (const index of [...order].reverse()) {
-      const node = nodes[index];
-      if (node.done) {
-        node.lateStart = node.earlyStart;
-        node.lateFinish = node.earlyFinish;
-        continue;
-      }
-      let lateFinish = finish;
-      for (const edge of outgoingOf.get(index) ?? []) {
-        const to = nodes[edge.to];
-        if (to.cyclic) continue;
-        lateFinish = Math.min(lateFinish, latestFinish(cal, edge.link, to.lateStart, to.lateFinish, node.duration));
-      }
-      node.lateFinish = lateFinish;
-      node.lateStart = cal.add(lateFinish, -(node.duration - 1));
-    }
   }
+}
 
-  const tasks: ScheduledTask[] = nodes.map((node) => {
-    if (!node.scheduled) {
-      return {
-        id: node.id, scheduled: false, done: node.done, plannedStart: null, plannedFinish: null, durationDays: null,
-        earlyStart: null, earlyFinish: null, lateStart: null, lateFinish: null, totalFloat: null, critical: false,
-        shiftDays: 0, linked: false,
-      };
+/** Backward pass over the acyclic part, from the project finish. */
+function backwardPass(
+  cal: WorkingCalendar,
+  nodes: Node[],
+  outgoingOf: ReadonlyMap<number, Edge[]>,
+  order: readonly number[],
+  finish: number,
+): void {
+  for (const index of [...order].reverse()) {
+    const node = nodes[index];
+    if (node.done) {
+      node.lateStart = node.earlyStart;
+      node.lateFinish = node.earlyFinish;
+      continue;
     }
-    const hasFloat = !node.done && !node.cyclic;
-    const totalFloat = hasFloat ? cal.diff(node.earlyStart, node.lateStart) : null;
-    return {
-      id: node.id,
-      scheduled: true,
-      done: node.done,
-      plannedStart: isoDate(node.plannedStart),
-      plannedFinish: isoDate(node.plannedFinish),
-      durationDays: node.duration,
-      earlyStart: isoDate(node.earlyStart),
-      earlyFinish: isoDate(node.earlyFinish),
-      lateStart: node.cyclic ? null : isoDate(node.lateStart),
-      lateFinish: node.cyclic ? null : isoDate(node.lateFinish),
-      totalFloat,
-      critical: hasFloat && totalFloat === 0 && node.linked,
-      shiftDays: node.done ? 0 : cal.diff(node.plannedStart, node.earlyStart),
-      linked: node.linked,
-    };
-  });
+    let lateFinish = finish;
+    for (const edge of outgoingOf.get(index) ?? []) {
+      const to = nodes[edge.to];
+      if (to.cyclic) continue;
+      lateFinish = Math.min(lateFinish, latestFinish(cal, edge.link, to.lateStart, to.lateFinish, node.duration));
+    }
+    node.lateFinish = lateFinish;
+    node.lateStart = cal.add(lateFinish, -(node.duration - 1));
+  }
+}
 
-  const criticalPath = tasks
+function scheduledTaskOf(cal: WorkingCalendar, node: Node): ScheduledTask {
+  if (!node.scheduled) {
+    return {
+      id: node.id, scheduled: false, done: node.done, plannedStart: null, plannedFinish: null, durationDays: null,
+      earlyStart: null, earlyFinish: null, lateStart: null, lateFinish: null, totalFloat: null, critical: false,
+      shiftDays: 0, linked: false,
+    };
+  }
+  const hasFloat = !node.done && !node.cyclic;
+  const totalFloat = hasFloat ? cal.diff(node.earlyStart, node.lateStart) : null;
+  return {
+    id: node.id,
+    scheduled: true,
+    done: node.done,
+    plannedStart: isoDate(node.plannedStart),
+    plannedFinish: isoDate(node.plannedFinish),
+    durationDays: node.duration,
+    earlyStart: isoDate(node.earlyStart),
+    earlyFinish: isoDate(node.earlyFinish),
+    lateStart: node.cyclic ? null : isoDate(node.lateStart),
+    lateFinish: node.cyclic ? null : isoDate(node.lateFinish),
+    totalFloat,
+    critical: hasFloat && totalFloat === 0 && node.linked,
+    shiftDays: node.done ? 0 : cal.diff(node.plannedStart, node.earlyStart),
+    linked: node.linked,
+  };
+}
+
+function criticalPathOf(tasks: readonly ScheduledTask[]): string[] {
+  return tasks
     .map((task, index) => ({ task, index }))
     .filter(({ task }) => task.critical)
     .sort((a, b) => {
@@ -470,8 +472,10 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       return byFinish !== 0 ? byFinish : a.index - b.index;
     })
     .map(({ task }) => task.id);
+}
 
-  // Conflicts against the planned dates, link by link.
+/** Conflicts against the planned dates, link by link. */
+function plannedConflicts(cal: WorkingCalendar, nodes: readonly Node[], edges: readonly Edge[]): ScheduleConflict[] {
   const conflicts: ScheduleConflict[] = [];
   for (const edge of edges) {
     const from = nodes[edge.from];
@@ -491,12 +495,38 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       });
     }
   }
+  return conflicts;
+}
 
+export function computeSchedule(input: ScheduleInput): ScheduleResult {
+  const cal = new WorkingCalendar(input.calendar);
+  const pinned = new Set(input.pinnedTaskIds ?? []);
+  const nodes = input.tasks.map((task, index) => planNode(cal, task, index, pinned));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+
+  const edges = networkEdges(byId, input.links);
+  const incomingOf = new Map<number, Edge[]>();
+  const outgoingOf = new Map<number, Edge[]>();
+  for (const edge of edges) {
+    pushTo(incomingOf, edge.to, edge);
+    pushTo(outgoingOf, edge.from, edge);
+  }
+
+  const { order, cyclic } = orderNodes(nodes, edges);
+  for (const index of cyclic) nodes[index].cyclic = true;
+
+  forwardPass(cal, nodes, incomingOf, [...order, ...cyclic]);
+
+  const scheduledNodes = nodes.filter((node) => node.scheduled);
+  const finish = scheduledNodes.length > 0 ? Math.max(...scheduledNodes.map((node) => node.earlyFinish)) : null;
+  if (finish !== null) backwardPass(cal, nodes, outgoingOf, order, finish);
+
+  const tasks = nodes.map((node) => scheduledTaskOf(cal, node));
   const goLiveDay = dayNumber(input.goLive ?? null);
   return {
     tasks,
-    conflicts,
-    criticalPath,
+    conflicts: plannedConflicts(cal, nodes, edges),
+    criticalPath: criticalPathOf(tasks),
     finish: finish === null ? null : isoDate(finish),
     goLive: goLiveDay === null ? null : isoDate(goLiveDay),
     goLiveSlackDays: goLiveDay !== null && finish !== null ? cal.diff(finish, goLiveDay) : null,
@@ -504,10 +534,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
   };
 }
 
-/** Byte order, as Rust compares strings (locale-independent). */
-export function compareText(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
+export { compareText };
 
 // ── Moving a task ───────────────────────────────────────────────────────────
 
@@ -561,6 +588,34 @@ export const MOVE_MESSAGES = {
   datesInvalid: 'Dates must be real dates in the form YYYY-MM-DD',
 } as const;
 
+function moveFailure(code: MoveFailureCode, message: string): MoveFailure {
+  return { ok: false, code, message };
+}
+
+/** The first refusal for a move of `target`, or the day numbers asked for (null for a date not given). */
+function checkMove(target: ScheduleTaskInput | undefined, move: MoveRequest): MoveFailure | { startDay: number | null; dueDay: number | null } {
+  if (!target) return moveFailure('task_not_found', MOVE_MESSAGES.taskNotFound);
+  if (target.status === 'done' || target.status === 'cancelled') return moveFailure('task_closed', MOVE_MESSAGES.taskClosed);
+  const startGiven = move.startDate ?? null;
+  const dueGiven = move.dueDate ?? null;
+  if (startGiven === null && dueGiven === null) return moveFailure('dates_missing', MOVE_MESSAGES.datesMissing);
+  const startDay = startGiven === null ? null : dayNumber(startGiven);
+  const dueDay = dueGiven === null ? null : dayNumber(dueGiven);
+  if ((startGiven !== null && startDay === null) || (dueGiven !== null && dueDay === null)) {
+    return moveFailure('dates_invalid', MOVE_MESSAGES.datesInvalid);
+  }
+  if (startDay !== null && dueDay !== null && dueDay < startDay) return moveFailure('dates_reversed', MOVE_MESSAGES.datesReversed);
+  return { startDay, dueDay };
+}
+
+/** The new start and due day: with one date given the other follows, keeping `duration`. */
+function movedDays(cal: WorkingCalendar, startDay: number | null, dueDay: number | null, duration: number): { newStart: number; newDue: number } {
+  if (startDay !== null && dueDay !== null) return { newStart: startDay, newDue: dueDay };
+  if (startDay !== null) return { newStart: startDay, newDue: cal.add(cal.nextWorking(startDay), duration - 1) };
+  const newDue = dueDay as number;
+  return { newStart: cal.add(cal.nextWorking(newDue), -(duration - 1)), newDue };
+}
+
 /**
  * What moving one task does: its new dates, which dependents get pushed and by
  * how much, the conflicts that appear when only the task moves, and the effect
@@ -570,38 +625,13 @@ export const MOVE_MESSAGES = {
 export function previewMove(input: ScheduleInput, move: MoveRequest): MovePreview | MoveFailure {
   const cal = new WorkingCalendar(input.calendar);
   const targetIndex = input.tasks.findIndex((task) => task.id === move.taskId);
-  if (targetIndex < 0) return { ok: false, code: 'task_not_found', message: MOVE_MESSAGES.taskNotFound };
-  const target = input.tasks[targetIndex];
-  if (target.status === 'done' || target.status === 'cancelled') {
-    return { ok: false, code: 'task_closed', message: MOVE_MESSAGES.taskClosed };
-  }
-  const startGiven = move.startDate ?? null;
-  const dueGiven = move.dueDate ?? null;
-  if (startGiven === null && dueGiven === null) return { ok: false, code: 'dates_missing', message: MOVE_MESSAGES.datesMissing };
-  const startDay = startGiven === null ? null : dayNumber(startGiven);
-  const dueDay = dueGiven === null ? null : dayNumber(dueGiven);
-  if ((startGiven !== null && startDay === null) || (dueGiven !== null && dueDay === null)) {
-    return { ok: false, code: 'dates_invalid', message: MOVE_MESSAGES.datesInvalid };
-  }
-  if (startDay !== null && dueDay !== null && dueDay < startDay) {
-    return { ok: false, code: 'dates_reversed', message: MOVE_MESSAGES.datesReversed };
-  }
+  const checked = checkMove(input.tasks[targetIndex], move);
+  if ('ok' in checked) return checked;
+  const { startDay, dueDay } = checked;
 
   const before = computeSchedule(input);
   const current = before.tasks[targetIndex];
-  const duration = current.durationDays ?? 1;
-  let newStart: number;
-  let newDue: number;
-  if (startDay !== null && dueDay !== null) {
-    newStart = startDay;
-    newDue = dueDay;
-  } else if (startDay !== null) {
-    newStart = startDay;
-    newDue = cal.add(cal.nextWorking(startDay), duration - 1);
-  } else {
-    newDue = dueDay as number;
-    newStart = cal.add(cal.nextWorking(newDue), -(duration - 1));
-  }
+  const { newStart, newDue } = movedDays(cal, startDay, dueDay, current.durationDays ?? 1);
   const task = { startDate: isoDate(newStart), dueDate: isoDate(newDue) };
 
   // Only the moved task changes dates; it keeps them even when its own

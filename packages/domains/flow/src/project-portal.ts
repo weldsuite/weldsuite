@@ -29,6 +29,7 @@ import type {
   PortalStatusColour,
 } from '@weldsuite/app-api-client/schemas/project-portal';
 import { PORTAL_APPROVAL_SUBJECTS, PORTAL_STATUS_COLOURS } from '@weldsuite/app-api-client/schemas/project-portal';
+import { compareText } from './compare';
 
 // ── Sign-in ─────────────────────────────────────────────────────────────────
 
@@ -207,7 +208,7 @@ export function presentMilestone(row: PortalMilestoneRow): PortalMilestone {
 export function nextMilestoneOf(rows: readonly PortalMilestoneRow[]): PortalNextMilestone | null {
   const open = rows
     .filter((row) => row.status !== MILESTONE_COMPLETED_STATUS)
-    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || compareText(a.id, b.id));
   const next = open[0];
   return next ? { id: next.id, name: next.name, description: next.description, dueDate: next.dueDate.toISOString() } : null;
 }

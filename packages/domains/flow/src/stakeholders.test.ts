@@ -90,6 +90,8 @@ describe('portal address', () => {
   it('joins the base, the workspace and the project', () => {
     expect(projectPortalUrl('https://projects.weldsuite.org', 'ws_1', 'prj_1')).toBe('https://projects.weldsuite.org/ws_1/projects/prj_1');
     expect(projectPortalUrl('https://projects-test.weldsuite.org/', 'ws_1', 'prj 1')).toBe('https://projects-test.weldsuite.org/ws_1/projects/prj%201');
+    expect(projectPortalUrl('https://projects.weldsuite.org///', 'ws_1', 'prj_1')).toBe('https://projects.weldsuite.org/ws_1/projects/prj_1');
+    expect(projectPortalUrl('/', 'ws_1', 'prj_1')).toBe('/ws_1/projects/prj_1');
   });
 });
 

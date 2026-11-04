@@ -188,13 +188,18 @@ export function forecastAtCompletion(args: {
   manual: number | null;
 }): Forecast {
   if (args.manual !== null) return { amount: args.manual, source: 'manual' };
-  if (args.budget === null || !(args.budget > 0)) return { amount: null, source: null };
+  if (!isPositive(args.budget)) return { amount: null, source: null };
   if (args.cpi !== null && args.cpi > 0) return { amount: args.budget / args.cpi, source: 'cpi' };
   return { amount: Math.max(args.budget, args.actual + args.committed), source: 'budget' };
 }
 
+/** Whether `value` is a number above zero (not null, not NaN). */
+function isPositive(value: number | null): value is number {
+  return value !== null && value > 0;
+}
+
 /** `part` as a percentage of `whole` with one decimal; null without a positive whole. */
 export function percentOf(part: number, whole: number | null): number | null {
-  if (whole === null || !(whole > 0)) return null;
+  if (!isPositive(whole)) return null;
   return Math.round((part / whole) * 1000) / 10;
 }

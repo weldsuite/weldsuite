@@ -32,6 +32,7 @@ import {
 import type { schema } from '@weldsuite/worker-kit/db';
 import { CAPACITY_MESSAGES, parseDate, round2 } from './capacity';
 import type { NumberSequence } from './task-numbering';
+import { compareText } from './compare';
 
 export { PROJECT_REQUEST_STATUSES };
 export type { ProjectRequestStatus };
@@ -212,9 +213,9 @@ export function sortRoadmapItems(items: readonly RoadmapItem[]): RoadmapItem[] {
   const rank = (item: RoadmapItem) => (item.type === 'project' ? 0 : 1);
   return [...items].sort(
     (a, b) =>
-      (a.startsOn < b.startsOn ? -1 : a.startsOn > b.startsOn ? 1 : 0) ||
+      compareText(a.startsOn, b.startsOn) ||
       rank(a) - rank(b) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      compareText(a.id, b.id),
   );
 }
 

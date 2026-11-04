@@ -15,6 +15,7 @@ import type { GateCriterion, ProjectPhase } from '@weldsuite/db/schema/project-d
 import type { Phase } from '@weldsuite/app-api-client/schemas/project-schedule';
 import { RISK_BAND_RANGES } from './risk';
 import type { RiskBand } from './risk';
+import { compareText } from './compare';
 
 export type { GateCriterion };
 
@@ -306,7 +307,7 @@ function evaluate(criterion: GateCriterion, facts: GateFacts): Evaluation {
       const floor = RISK_BAND_RANGES[band]?.min ?? RISK_BAND_RANGES.critical.min;
       const over = facts.risks
         .filter((risk) => risk.score >= floor)
-        .sort((a, b) => b.score - a.score || a.number - b.number || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        .sort((a, b) => b.score - a.score || a.number - b.number || compareText(a.id, b.id));
       const top = over[0] ?? null;
       return {
         met: over.length === 0,
@@ -421,13 +422,13 @@ export function phaseToActivate(phases: readonly PhaseLike[]): string | null {
   if (phases.some((phase) => phase.status === 'active')) return null;
   const upcoming = phases
     .filter((phase) => phase.status === 'upcoming')
-    .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .sort((a, b) => a.position - b.position || compareText(a.id, b.id));
   return upcoming[0]?.id ?? null;
 }
 
 /** The phase after `phaseId` that is still to come (by position, then id), or null. */
 export function nextUpcomingPhase(phases: readonly PhaseLike[], phaseId: string): string | null {
-  const ordered = [...phases].sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const ordered = [...phases].sort((a, b) => a.position - b.position || compareText(a.id, b.id));
   const at = ordered.findIndex((phase) => phase.id === phaseId);
   if (at < 0) return null;
   return ordered.slice(at + 1).find((phase) => phase.status === 'upcoming')?.id ?? null;
@@ -444,7 +445,7 @@ export function reorderError(phases: readonly PhaseLike[], ids: readonly string[
   }
   const passed = [...phases]
     .filter((phase) => phase.status === 'passed')
-    .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .sort((a, b) => a.position - b.position || compareText(a.id, b.id))
     .map((phase) => phase.id);
   const byId = new Map(phases.map((phase) => [phase.id, phase]));
   const leading = ids.slice(0, passed.length);

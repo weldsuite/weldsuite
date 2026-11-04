@@ -101,13 +101,19 @@ export function changedStakeholders(before: readonly RaciAssignment[], after: re
 
 // ── Portal ──────────────────────────────────────────────────────────────────
 
+function trimTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '/') end -= 1;
+  return text.slice(0, end);
+}
+
 /**
  * Where a contact opens a project in the client portal:
  * `<PROJECT_PORTAL_URL>/<workspace>/projects/<project>`. The portal asks for
  * the contact's email and sends the one-time code (FLOW-020).
  */
 export function projectPortalUrl(base: string, workspaceId: string, projectId: string): string {
-  return `${base.replace(/\/+$/, '')}/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`;
+  return `${trimTrailingSlashes(base)}/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`;
 }
 
 // ── Wire shapes ─────────────────────────────────────────────────────────────

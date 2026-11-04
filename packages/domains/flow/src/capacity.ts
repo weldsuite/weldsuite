@@ -52,6 +52,7 @@ import {
   type SkillFit,
 } from '@weldsuite/app-api-client/schemas/flow-portfolio';
 import type { schema } from '@weldsuite/worker-kit/db';
+import { compareText } from './compare';
 
 export { CAPACITY_BANDS, DEFAULT_WEEKLY_HOURS, MAX_CAPACITY_WEEKS };
 export type { CapacityBand };
@@ -301,7 +302,8 @@ export interface CapacityProfileInput {
 /** The people on a task: `assigneeIds`, else the one `assigneeId`; each once, in order. */
 export function taskAssignees(task: Pick<CapacityTask, 'assigneeId' | 'assigneeIds'>): string[] {
   const listed = (task.assigneeIds ?? []).filter((id) => id.length > 0);
-  const ids = listed.length > 0 ? listed : task.assigneeId ? [task.assigneeId] : [];
+  const single = task.assigneeId ? [task.assigneeId] : [];
+  const ids = listed.length > 0 ? listed : single;
   return [...new Set(ids)];
 }
 
@@ -331,7 +333,7 @@ export function collectMembers(input: {
       byId.set(id, { memberId: id, weeklyHours: DEFAULT_WEEKLY_HOURS, skills: [], hasProfile: false });
     }
   }
-  return [...byId.values()].sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0));
+  return [...byId.values()].sort((a, b) => compareText(a.memberId, b.memberId));
 }
 
 /** A skill as it is compared: trimmed, lower case. */
@@ -430,6 +432,128 @@ interface Accumulator {
   tentative: number[];
 }
 
+type TaskShare = { task: CapacityTask; share: number };
+
+function bookingsByMember(bookings: readonly CapacityBooking[], includeTentative: boolean): Map<string, CapacityBooking[]> {
+  const byMember = new Map<string, CapacityBooking[]>();
+  for (const booking of bookings) {
+    if (booking.tentative && !includeTentative) continue;
+    const list = byMember.get(booking.memberId);
+    if (list) list.push(booking);
+    else byMember.set(booking.memberId, [booking]);
+  }
+  return byMember;
+}
+
+function tasksByMember(tasks: readonly CapacityTask[]): Map<string, TaskShare[]> {
+  const byMember = new Map<string, TaskShare[]>();
+  for (const task of tasks) {
+    const assignees = taskAssignees(task);
+    for (const id of assignees) {
+      const entry = { task, share: task.estimatedHours / assignees.length };
+      const list = byMember.get(id);
+      if (list) list.push(entry);
+      else byMember.set(id, [entry]);
+    }
+  }
+  return byMember;
+}
+
+/** Hours of a task in the week of `monday`; a window without a working day lands whole in the week of its first day. */
+function taskHoursInWeek(share: number, workingDays: number, lo: number, hi: number, monday: number): number {
+  if (workingDays !== 0) return (share / workingDays) * workingDaysInWeek(lo, hi, monday);
+  return lo >= monday && lo <= monday + 6 ? share : 0;
+}
+
+function accumulateBooking(
+  starts: readonly number[],
+  booking: CapacityBooking,
+  row: (projectId: string | null, requestId: string | null) => Accumulator,
+  covered: Set<string>,
+): void {
+  const from = parseDate(booking.startsOn);
+  const to = parseDate(booking.endsOn);
+  if (from === null || to === null) return;
+  starts.forEach((monday, i) => {
+    const days = workingDaysInWeek(from, to, monday);
+    if (days === 0) return;
+    const acc = row(booking.projectId, booking.requestId);
+    const hours = (booking.hoursPerWeek * days) / 5;
+    acc.hours[i] += hours;
+    if (booking.tentative) acc.tentative[i] += hours;
+    if (booking.projectId) covered.add(`${booking.projectId}:${i}`);
+  });
+}
+
+function accumulateTask(
+  starts: readonly number[],
+  { task, share }: TaskShare,
+  row: (projectId: string | null, requestId: string | null) => Accumulator,
+  covered: ReadonlySet<string>,
+): void {
+  const a = task.startsOn === null ? null : parseDate(task.startsOn);
+  const b = task.dueOn === null ? null : parseDate(task.dueOn);
+  const first = a ?? b;
+  const last = b ?? a;
+  if (first === null || last === null) return;
+  const lo = Math.min(first, last);
+  const hi = Math.max(first, last);
+  const workingDays = workingDaysBetween(lo, hi);
+  starts.forEach((monday, i) => {
+    if (covered.has(`${task.projectId}:${i}`)) return;
+    const hours = taskHoursInWeek(share, workingDays, lo, hi, monday);
+    if (hours > 0) row(task.projectId, null).hours[i] += hours;
+  });
+}
+
+/** One member's hours per project or request, in key order. */
+function accumulateMemberHours(
+  starts: readonly number[],
+  bookings: readonly CapacityBooking[],
+  tasks: readonly TaskShare[],
+): Accumulator[] {
+  const rows = new Map<string, Accumulator>();
+  const row = (projectId: string | null, requestId: string | null): Accumulator => {
+    const key = rowKey(projectId, requestId);
+    let found = rows.get(key);
+    if (!found) {
+      found = { projectId, requestId, hours: starts.map(() => 0), tentative: starts.map(() => 0) };
+      rows.set(key, found);
+    }
+    return found;
+  };
+  const covered = new Set<string>();
+  for (const booking of bookings) accumulateBooking(starts, booking, row, covered);
+  for (const task of tasks) accumulateTask(starts, task, row, covered);
+  return [...rows.entries()].sort(([a], [b]) => compareText(a, b)).map(([, acc]) => acc);
+}
+
+function isOverbooked(cell: CapacityCell): boolean {
+  return cell.percent === null ? cell.hours > 0 : cell.percent > 100;
+}
+
+function memberCells(
+  starts: readonly number[],
+  accumulators: readonly Accumulator[],
+  member: CapacityMember,
+  totals: CapacityTotals[],
+): CapacityCell[] {
+  return starts.map((_, i) => {
+    let sum = 0;
+    let tentativeSum = 0;
+    for (const acc of accumulators) {
+      sum += acc.hours[i];
+      tentativeSum += acc.tentative[i];
+    }
+    const hours = round2(sum);
+    const percent = loadPercent(hours, member.weeklyHours);
+    const band = capacityBand(hours, percent);
+    totals[i].bookedHours += hours;
+    totals[i].capacityHours += member.weeklyHours;
+    return { hours, tentativeHours: round2(tentativeSum), percent, band };
+  });
+}
+
 /**
  * Load per member per week, with the projects behind it. Members are listed
  * as given (only those with `skill`, when it is set); the order of bookings
@@ -446,93 +570,20 @@ export function computeCapacity(input: CapacityInput): CapacityLoad {
   }));
   const members = input.skill === undefined ? input.members : input.members.filter((m) => hasSkill(m, input.skill ?? ''));
 
-  const bookingsOf = new Map<string, CapacityBooking[]>();
-  for (const booking of input.bookings) {
-    if (booking.tentative && !input.includeTentative) continue;
-    const list = bookingsOf.get(booking.memberId);
-    if (list) list.push(booking);
-    else bookingsOf.set(booking.memberId, [booking]);
-  }
-  const tasksOf = new Map<string, Array<{ task: CapacityTask; share: number }>>();
-  for (const task of input.tasks) {
-    const assignees = taskAssignees(task);
-    for (const id of assignees) {
-      const entry = { task, share: task.estimatedHours / assignees.length };
-      const list = tasksOf.get(id);
-      if (list) list.push(entry);
-      else tasksOf.set(id, [entry]);
-    }
-  }
+  const bookingsOf = bookingsByMember(input.bookings, input.includeTentative);
+  const tasksOf = tasksByMember(input.tasks);
 
   const loads: MemberLoad[] = [];
   const totals: CapacityTotals[] = starts.map(() => ({ bookedHours: 0, capacityHours: 0 }));
   let overbooked = 0;
   for (const member of members) {
-    const rows = new Map<string, Accumulator>();
-    const row = (projectId: string | null, requestId: string | null): Accumulator => {
-      const key = rowKey(projectId, requestId);
-      let found = rows.get(key);
-      if (!found) {
-        found = { projectId, requestId, hours: starts.map(() => 0), tentative: starts.map(() => 0) };
-        rows.set(key, found);
-      }
-      return found;
-    };
-    const covered = new Set<string>();
-
-    for (const booking of bookingsOf.get(member.memberId) ?? []) {
-      const from = parseDate(booking.startsOn);
-      const to = parseDate(booking.endsOn);
-      if (from === null || to === null) continue;
-      starts.forEach((monday, i) => {
-        const days = workingDaysInWeek(from, to, monday);
-        if (days === 0) return;
-        const acc = row(booking.projectId, booking.requestId);
-        const hours = (booking.hoursPerWeek * days) / 5;
-        acc.hours[i] += hours;
-        if (booking.tentative) acc.tentative[i] += hours;
-        if (booking.projectId) covered.add(`${booking.projectId}:${i}`);
-      });
-    }
-
-    for (const { task, share } of tasksOf.get(member.memberId) ?? []) {
-      const a = task.startsOn === null ? null : parseDate(task.startsOn);
-      const b = task.dueOn === null ? null : parseDate(task.dueOn);
-      const first = a ?? b;
-      const last = b ?? a;
-      if (first === null || last === null) continue;
-      const lo = Math.min(first, last);
-      const hi = Math.max(first, last);
-      const workingDays = workingDaysBetween(lo, hi);
-      starts.forEach((monday, i) => {
-        if (covered.has(`${task.projectId}:${i}`)) return;
-        // A window without a working day lands whole in the week of its first day.
-        const hours =
-          workingDays === 0
-            ? lo >= monday && lo <= monday + 6
-              ? share
-              : 0
-            : (share / workingDays) * workingDaysInWeek(lo, hi, monday);
-        if (hours > 0) row(task.projectId, null).hours[i] += hours;
-      });
-    }
-
-    const accumulators = [...rows.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, acc]) => acc);
-    const cells: CapacityCell[] = starts.map((_, i) => {
-      let sum = 0;
-      let tentativeSum = 0;
-      for (const acc of accumulators) {
-        sum += acc.hours[i];
-        tentativeSum += acc.tentative[i];
-      }
-      const hours = round2(sum);
-      const percent = loadPercent(hours, member.weeklyHours);
-      const band = capacityBand(hours, percent);
-      if (percent === null ? hours > 0 : percent > 100) overbooked += 1;
-      totals[i].bookedHours += hours;
-      totals[i].capacityHours += member.weeklyHours;
-      return { hours, tentativeHours: round2(tentativeSum), percent, band };
-    });
+    const accumulators = accumulateMemberHours(
+      starts,
+      bookingsOf.get(member.memberId) ?? [],
+      tasksOf.get(member.memberId) ?? [],
+    );
+    const cells = memberCells(starts, accumulators, member, totals);
+    overbooked += cells.filter(isOverbooked).length;
     loads.push({
       memberId: member.memberId,
       weeklyHours: member.weeklyHours,
@@ -613,7 +664,7 @@ export function suggestMembers(
     (a, b) =>
       Number(b.coversRequest) - Number(a.coversRequest) ||
       b.freeHoursPerWeek - a.freeHoursPerWeek ||
-      (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0),
+      compareText(a.memberId, b.memberId),
   );
 }
 
@@ -740,7 +791,8 @@ export function presentResourceRequest(row: RequestRow, projectName: string): Re
 
 /** The entity-event payload of a resource request (no project name: that depends on who asks). */
 export function resourceRequestEventData(row: RequestRow): Record<string, unknown> {
-  const { projectName: _name, ...data } = presentResourceRequest(row, '');
+  const data: Record<string, unknown> = { ...presentResourceRequest(row, '') };
+  delete data.projectName;
   return data;
 }
 

@@ -80,5 +80,6 @@ export function acceptanceAssessmentNote(rows: readonly ApprovalRow[]): string {
   const answer = rows.find((row) => row.decision === 'approved' || row.decision === 'approved_with_conditions');
   const text = answer?.note?.trim();
   const conditional = answer?.decision === 'approved_with_conditions';
-  return `Accepted by the sponsor${conditional ? ' with conditions' : ''}${text ? `: ${text}` : ''}`;
+  const words = text ? `: ${text}` : '';
+  return `Accepted by the sponsor${conditional ? ' with conditions' : ''}${words}`;
 }

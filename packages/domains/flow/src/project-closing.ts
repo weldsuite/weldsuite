@@ -19,6 +19,7 @@ import {
   type LessonCategory,
   type LessonPageLocale,
 } from '@weldsuite/app-api-client/schemas/project-closing';
+import { compareText } from './compare';
 
 export { LESSON_CATEGORIES };
 export type { LessonCategory, LessonPageLocale };
@@ -110,7 +111,7 @@ export function compareLessons(a: LessonRow, b: LessonRow): number {
   if (byVotes !== 0) return byVotes;
   const byTime = a.createdAt.getTime() - b.createdAt.getTime();
   if (byTime !== 0) return byTime;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return compareText(a.id, b.id);
 }
 
 export type LessonBlock = Record<string, unknown>;
@@ -162,12 +163,17 @@ export interface CloseCounts {
 /** The checks that have to be done before sign-off can be requested. */
 const BLOCKING: ReadonlySet<CloseCheckKey> = new Set(['deliverables', 'changes', 'raid', 'benefits', 'time']);
 
+function checkState(done: boolean, waiting: boolean): CloseCheck['state'] {
+  if (done) return 'done';
+  return waiting ? 'waiting' : 'open';
+}
+
 function check(key: CloseCheckKey, total: number, satisfied: number, done: boolean, waiting = false): CloseCheck {
   return {
     key,
     blocking: BLOCKING.has(key),
     done,
-    state: done ? 'done' : waiting ? 'waiting' : 'open',
+    state: checkState(done, waiting),
     total,
     satisfied,
   };

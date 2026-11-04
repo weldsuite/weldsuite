@@ -44,6 +44,7 @@ import {
   type PlanState,
 } from './baselines';
 import { allocateNumber, allocateNumbers, type NumberSequence } from './task-numbering';
+import { compareText } from './compare';
 
 export type ChangeRequestRow = ProjectChangeRequest;
 export type { ChangePlanChanges, ChangeRequestStatus, ChangeRoute, ChangeScopeChanges };
@@ -175,13 +176,14 @@ export function routeChange(input: {
   const toBoard = overLimit && board.length > 0;
   const noBoard = overLimit && board.length === 0;
   const manager = input.projectManagerId || null;
+  const managerIds = manager ? [manager] : [];
   return {
     route: toBoard ? 'board' : 'manager',
     overLimit,
     noBoard,
     costLimit: control.costLimit,
     scheduleLimitDays: control.scheduleLimitDays,
-    approverIds: toBoard ? board : manager ? [manager] : [],
+    approverIds: toBoard ? board : managerIds,
     ruleCode: toBoard ? 'change_board_over_limit' : 'change_manager',
     params: {
       costDelta,
@@ -222,22 +224,47 @@ export function changeImpactError(
 ): string | null {
   const plan = impact.planChanges ?? {};
   const scope = impact.scopeChanges ?? {};
+  const moved = new Set<string>();
+  const moveError = planMoveError(plan, known, moved);
+  if (moveError) return moveError;
+  const removeError = scopeRemoveError(scope, known, moved);
+  if (removeError) return removeError;
+  return plannedDatesError(plan, scope);
+}
+
+/** The milestone and deliverable moves of a plan change, or the first refusal; `movedDeliverables` collects the moved ids. */
+function planMoveError(
+  plan: ChangePlanChanges,
+  known: { milestoneIds: ReadonlySet<string>; deliverableIds: ReadonlySet<string> },
+  movedDeliverables: Set<string>,
+): string | null {
   const movedMilestones = new Set<string>();
   for (const move of plan.milestones ?? []) {
     if (!known.milestoneIds.has(move.milestoneId)) return unknownMilestoneMessage(move.milestoneId);
     if (movedMilestones.has(move.milestoneId)) return CHANGE_MESSAGES.twiceMilestone;
     movedMilestones.add(move.milestoneId);
   }
-  const movedDeliverables = new Set<string>();
   for (const move of plan.deliverables ?? []) {
     if (!known.deliverableIds.has(move.deliverableId)) return unknownDeliverableMessage(move.deliverableId);
     if (movedDeliverables.has(move.deliverableId)) return CHANGE_MESSAGES.twiceDeliverable;
     movedDeliverables.add(move.deliverableId);
   }
+  return null;
+}
+
+function scopeRemoveError(
+  scope: ChangeScopeChanges,
+  known: { deliverableIds: ReadonlySet<string> },
+  movedDeliverables: ReadonlySet<string>,
+): string | null {
   for (const id of scope.remove ?? []) {
     if (!known.deliverableIds.has(id)) return unknownDeliverableMessage(id);
     if (movedDeliverables.has(id)) return CHANGE_MESSAGES.movedAndRemoved;
   }
+  return null;
+}
+
+function plannedDatesError(plan: ChangePlanChanges, scope: ChangeScopeChanges): string | null {
   const ranges = [
     ...(plan.deliverables ?? []).map((move) => [move.plannedStart, move.plannedEnd] as const),
     ...(scope.add ?? []).map((added) => [added.plannedStart, added.plannedEnd] as const),
@@ -266,6 +293,12 @@ export interface ChangeEffects {
   budget: { currency: string | null; from: string | null; to: string | null; delta: string } | null;
 }
 
+/** A date a change moves to: left as it is when the change says nothing, cleared when it says null. */
+function movedDate(moved: string | Date | null | undefined, current: Date | null): Date | null {
+  if (moved === undefined) return current;
+  return moved ? new Date(moved) : null;
+}
+
 function isoOf(value: string | Date | null | undefined): string | null {
   if (!value) return null;
   return new Date(value).toISOString();
@@ -284,26 +317,8 @@ export function computeEffects(
 ): ChangeEffects {
   const planChanges = change.planChanges ?? {};
   const scopeChanges = change.scopeChanges ?? {};
-  const milestones: ChangeEffects['milestones'] = [];
-  for (const move of planChanges.milestones ?? []) {
-    const current = plan.milestones.find((m) => m.id === move.milestoneId);
-    if (!current) continue;
-    const from = applied ? null : current.dueDate.toISOString();
-    const to = isoOf(move.to) as string;
-    milestones.push({ id: current.id, name: current.name, from, to, deltaDays: dayDelta(from, to) });
-  }
-  const moved: ChangeEffects['deliverables']['moved'] = [];
-  for (const move of planChanges.deliverables ?? []) {
-    const current = plan.deliverables.find((d) => d.id === move.deliverableId);
-    if (!current) continue;
-    moved.push({
-      id: current.id,
-      code: deliverableCode(current.number),
-      title: current.title,
-      plannedStart: move.plannedStart !== undefined ? isoOf(move.plannedStart) : isoOf(current.plannedStart),
-      plannedEnd: move.plannedEnd !== undefined ? isoOf(move.plannedEnd) : isoOf(current.plannedEnd),
-    });
-  }
+  const milestones = milestoneEffects(planChanges, plan, applied);
+  const moved = movedDeliverableEffects(planChanges, plan);
   const added = (scopeChanges.add ?? []).map((item) => ({
     title: item.title,
     plannedStart: isoOf(item.plannedStart),
@@ -316,19 +331,48 @@ export function computeEffects(
   }
   const goLiveTo = planChanges.goLive ? isoOf(planChanges.goLive) : null;
   const goLiveFrom = applied ? null : isoOf(plan.goLive);
-  const delta = amountOf(change.costDelta);
-  const live = decimal(plan.budgetedAmount);
   return {
     goLive: goLiveTo ? { from: goLiveFrom, to: goLiveTo, deltaDays: dayDelta(goLiveFrom, goLiveTo) } : null,
     milestones,
     deliverables: { moved, added, removed },
-    budget:
-      delta === null || delta === 0
-        ? null
-        : applied
-          ? { currency: plan.budgetCurrency, from: decimalSum(live, -delta), to: live, delta: decimal(delta) as string }
-          : { currency: plan.budgetCurrency, from: live, to: decimalSum(live, delta), delta: decimal(delta) as string },
+    budget: budgetEffect(amountOf(change.costDelta), plan, applied),
   };
+}
+
+function milestoneEffects(planChanges: ChangePlanChanges, plan: PlanState, applied: boolean): ChangeEffects['milestones'] {
+  const milestones: ChangeEffects['milestones'] = [];
+  for (const move of planChanges.milestones ?? []) {
+    const current = plan.milestones.find((m) => m.id === move.milestoneId);
+    if (!current) continue;
+    const from = applied ? null : current.dueDate.toISOString();
+    const to = isoOf(move.to) as string;
+    milestones.push({ id: current.id, name: current.name, from, to, deltaDays: dayDelta(from, to) });
+  }
+  return milestones;
+}
+
+function movedDeliverableEffects(planChanges: ChangePlanChanges, plan: PlanState): ChangeEffects['deliverables']['moved'] {
+  const moved: ChangeEffects['deliverables']['moved'] = [];
+  for (const move of planChanges.deliverables ?? []) {
+    const current = plan.deliverables.find((d) => d.id === move.deliverableId);
+    if (!current) continue;
+    moved.push({
+      id: current.id,
+      code: deliverableCode(current.number),
+      title: current.title,
+      plannedStart: move.plannedStart !== undefined ? isoOf(move.plannedStart) : isoOf(current.plannedStart),
+      plannedEnd: move.plannedEnd !== undefined ? isoOf(move.plannedEnd) : isoOf(current.plannedEnd),
+    });
+  }
+  return moved;
+}
+
+function budgetEffect(delta: number | null, plan: PlanState, applied: boolean): ChangeEffects['budget'] {
+  if (delta === null || delta === 0) return null;
+  const live = decimal(plan.budgetedAmount);
+  const currency = plan.budgetCurrency;
+  if (applied) return { currency, from: decimalSum(live, -delta), to: live, delta: decimal(delta) as string };
+  return { currency, from: live, to: decimalSum(live, delta), delta: decimal(delta) as string };
 }
 
 /** The date (`2026-11-24`) of an ISO timestamp, for the lines of a decision's consequences. */
@@ -347,7 +391,8 @@ export function consequenceLines(effects: ChangeEffects): string[] {
   if (effects.budget) {
     const raised = effects.budget.delta.startsWith('-') ? 'falls' : 'rises';
     const amount = effects.budget.delta.replace(/^-/, '');
-    lines.push(`The budget ${raised} by ${amount}${effects.budget.currency ? ` ${effects.budget.currency}` : ''}`);
+    const unit = effects.budget.currency ? ` ${effects.budget.currency}` : '';
+    lines.push(`The budget ${raised} by ${amount}${unit}`);
   }
   return lines;
 }
@@ -509,8 +554,8 @@ export async function applyApprovedChange(
           if (!move) return d;
           return {
             ...d,
-            plannedStart: move.plannedStart !== undefined ? (move.plannedStart ? new Date(move.plannedStart) : null) : d.plannedStart,
-            plannedEnd: move.plannedEnd !== undefined ? (move.plannedEnd ? new Date(move.plannedEnd) : null) : d.plannedEnd,
+            plannedStart: movedDate(move.plannedStart, d.plannedStart),
+            plannedEnd: movedDate(move.plannedEnd, d.plannedEnd),
           };
         }),
       ...addedRows.map(({ id, number, item }) => ({
@@ -704,8 +749,9 @@ function stableJson(value: unknown): string {
   if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(',')}}`;
+      .sort(([a], [b]) => compareText(a, b));
+    const members = entries.map(([k, v]) => JSON.stringify(k) + ':' + stableJson(v));
+    return `{${members.join(',')}}`;
   }
   return JSON.stringify(value ?? null);
 }

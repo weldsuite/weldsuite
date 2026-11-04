@@ -44,6 +44,7 @@ import {
 import type { ProjectSettings } from '@weldsuite/db/schema/project-settings';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { compareText } from './compare';
 
 export {
   APPROVAL_DECISIONS,
@@ -198,7 +199,7 @@ export function activeDelegation<T extends Pick<ApprovalDelegationRow, 'id' | 'm
   const active = delegations.filter(
     (row) => !row.deletedAt && row.memberId === memberId && row.startsAt <= now && now < row.endsAt,
   );
-  active.sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  active.sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime() || compareText(a.id, b.id));
   return active[0] ?? null;
 }
 
@@ -226,7 +227,7 @@ export function compareReviews(
   if (aDue !== bDue) return aDue < bDue ? -1 : 1;
   const created = a.createdAt.getTime() - b.createdAt.getTime();
   if (created !== 0) return created;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return compareText(a.id, b.id);
 }
 
 /**

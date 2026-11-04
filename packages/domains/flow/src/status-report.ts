@@ -583,6 +583,11 @@ export function presentStatusReportSummary(row: StatusReportRow, supersededById:
   };
 }
 
+function presentRecipients(recipients: StatusReportRow['recipients']): StatusReport['recipients'] {
+  if (recipients?.stakeholderIds) return { stakeholderIds: recipients.stakeholderIds };
+  return recipients ? {} : null;
+}
+
 export function presentStatusReport(
   row: StatusReportRow,
   supersededById: string | null,
@@ -593,7 +598,7 @@ export function presentStatusReport(
     done: row.done.map(presentItem),
     next: row.next.map(presentItem),
     snapshot: (row.snapshot ?? null) as StatusReportSnapshot | null,
-    recipients: row.recipients?.stakeholderIds ? { stakeholderIds: row.recipients.stakeholderIds } : row.recipients ? {} : null,
+    recipients: presentRecipients(row.recipients),
     resolvedRecipients,
   };
 }

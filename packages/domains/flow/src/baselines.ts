@@ -19,6 +19,7 @@
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import type { BaselineSnapshot, ProjectBaseline } from '@weldsuite/db/schema/project-control';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { compareText } from './compare';
 
 export type { BaselineSnapshot };
 export type BaselineRow = ProjectBaseline;
@@ -66,7 +67,7 @@ export function decimal(value: string | number | null | undefined): string | nul
 /** `12.5` or `'12.50'` as whole hundredths, or null when it is not a number. */
 export function toCents(value: string | number): bigint | null {
   const text = typeof value === 'number' ? value.toFixed(2) : value.trim();
-  const match = /^(-)?(\d+)(?:\.(\d{1,}))?$/.exec(text);
+  const match = /^(-)?(\d+)(?:\.(\d+))?$/.exec(text);
   if (!match) return null;
   const whole = BigInt(match[2] as string);
   const fraction = BigInt(((match[3] ?? '') + '00').slice(0, 2));
@@ -100,9 +101,9 @@ export function decimalSum(current: string | null, delta: string | number): stri
  */
 export function buildSnapshot(plan: PlanState): BaselineSnapshot {
   const milestones = [...plan.milestones].sort(
-    (a, b) => a.dueDate.getTime() - b.dueDate.getTime() || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    (a, b) => a.dueDate.getTime() - b.dueDate.getTime() || a.name.localeCompare(b.name) || compareText(a.id, b.id),
   );
-  const deliverables = [...plan.deliverables].sort((a, b) => a.number - b.number || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const deliverables = [...plan.deliverables].sort((a, b) => a.number - b.number || compareText(a.id, b.id));
   return {
     goLive: isoOrNull(plan.goLive),
     milestones: milestones.map((m) => ({ id: m.id, name: m.name, dueDate: m.dueDate.toISOString() })),
@@ -176,6 +177,16 @@ export interface BaselineDiff {
  * old date), deliverables in number order.
  */
 export function compareSnapshots(from: BaselineSnapshot, to: BaselineSnapshot): BaselineDiff {
+  return {
+    goLive: variance(from.goLive, to.goLive),
+    milestones: diffMilestones(from, to),
+    deliverables: diffDeliverables(from, to),
+    budget: { from: from.budgetedAmount, to: to.budgetedAmount, delta: decimalDelta(from.budgetedAmount, to.budgetedAmount) },
+    hours: { from: from.budgetedHours, to: to.budgetedHours, delta: decimalDelta(from.budgetedHours, to.budgetedHours) },
+  };
+}
+
+function diffMilestones(from: BaselineSnapshot, to: BaselineSnapshot): BaselineDiff['milestones'] {
   const toMilestones = new Map(to.milestones.map((m) => [m.id, m]));
   const fromMilestones = new Map(from.milestones.map((m) => [m.id, m]));
   const milestones: BaselineDiff['milestones'] = [];
@@ -200,9 +211,12 @@ export function compareSnapshots(from: BaselineSnapshot, to: BaselineSnapshot): 
   milestones.sort((a, b) => {
     const at = new Date(a.to ?? a.from ?? 0).getTime();
     const bt = new Date(b.to ?? b.from ?? 0).getTime();
-    return at - bt || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return at - bt || a.name.localeCompare(b.name) || compareText(a.id, b.id);
   });
+  return milestones;
+}
 
+function diffDeliverables(from: BaselineSnapshot, to: BaselineSnapshot): BaselineDiff['deliverables'] {
   const toDeliverables = new Map(to.deliverables.map((d) => [d.id, d]));
   const fromDeliverables = new Map(from.deliverables.map((d) => [d.id, d]));
   const deliverables: BaselineDiff['deliverables'] = [];
@@ -241,15 +255,8 @@ export function compareSnapshots(from: BaselineSnapshot, to: BaselineSnapshot): 
       });
     }
   }
-  deliverables.sort((a, b) => a.number - b.number || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-
-  return {
-    goLive: variance(from.goLive, to.goLive),
-    milestones,
-    deliverables,
-    budget: { from: from.budgetedAmount, to: to.budgetedAmount, delta: decimalDelta(from.budgetedAmount, to.budgetedAmount) },
-    hours: { from: from.budgetedHours, to: to.budgetedHours, delta: decimalDelta(from.budgetedHours, to.budgetedHours) },
-  };
+  deliverables.sort((a, b) => a.number - b.number || compareText(a.id, b.id));
+  return deliverables;
 }
 
 // ── Database ────────────────────────────────────────────────────────────────
