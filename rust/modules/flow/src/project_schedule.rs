@@ -25,13 +25,13 @@ use weldsuite_db::js_row;
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::schedule::{
-    DependencyKind, MoveFailure, MoveFailureCode, MovePreview, MoveRequest, ScheduleCalendar,
-    ScheduleInput, ScheduleLinkInput, ScheduleResult, ScheduleTaskInput, compute_schedule,
-    date_of, day_number, normalize_calendar, preview_move, project_deliverables,
-    with_time_of_day, working_days_between,
+    DependencyKind, MoveFailure, MoveFailureCode, MovePreview, MoveRequest, MovedTask,
+    ScheduleCalendar, ScheduleConflict, ScheduleInput, ScheduleLinkInput, ScheduleResult,
+    ScheduleTaskInput, compute_schedule, date_of, day_number, normalize_calendar, preview_move,
+    project_deliverables, with_time_of_day, working_days_between,
 };
-use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::Data;
+use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
@@ -343,7 +343,7 @@ fn present_schedule(data: &ScheduleData, result: &ScheduleResult) -> Value {
         "scheduleLimitDays": data.limit_days,
         "tasks": tasks,
         "dependencies": data.links.iter().map(present_dependency).collect::<Vec<_>>(),
-        "conflicts": result.conflicts.iter().map(|c| c.to_json()).collect::<Vec<_>>(),
+        "conflicts": result.conflicts.iter().map(ScheduleConflict::to_json).collect::<Vec<_>>(),
         "criticalPath": result.critical_path,
         "cyclicTaskIds": result.cyclic_task_ids,
         "deliverables": deliverable_ends(data, result),
@@ -359,7 +359,11 @@ fn present_schedule(data: &ScheduleData, result: &ScheduleResult) -> Value {
     })
 }
 
-fn present_move_impact(data: &ScheduleData, before: &ScheduleResult, preview: &MovePreview) -> Value {
+fn present_move_impact(
+    data: &ScheduleData,
+    before: &ScheduleResult,
+    preview: &MovePreview,
+) -> Value {
     let was = deliverable_ends(data, before);
     let now = deliverable_ends(data, &preview.schedule);
     let mut deliverables = Vec::new();
@@ -388,8 +392,8 @@ fn present_move_impact(data: &ScheduleData, before: &ScheduleResult, preview: &M
     json!({
         "taskId": preview.task_id,
         "task": { "startDate": preview.start_date, "dueDate": preview.due_date },
-        "moved": preview.moved.iter().map(|m| m.to_json()).collect::<Vec<_>>(),
-        "newConflicts": preview.new_conflicts.iter().map(|c| c.to_json()).collect::<Vec<_>>(),
+        "moved": preview.moved.iter().map(MovedTask::to_json).collect::<Vec<_>>(),
+        "newConflicts": preview.new_conflicts.iter().map(ScheduleConflict::to_json).collect::<Vec<_>>(),
         "before": preview.before.to_json(),
         "after": preview.after.to_json(),
         "deliverables": deliverables,
@@ -454,11 +458,9 @@ fn read_settings(issues: &mut Issues, body: &Value) -> Option<Body> {
         }
     }
     if let Some(value) = fields.get("holidays") {
-        let valid = value
-            .as_array()
-            .is_some_and(|days| {
-                days.len() <= 1000 && days.iter().all(|d| d.as_str().is_some_and(is_date))
-            });
+        let valid = value.as_array().is_some_and(|days| {
+            days.len() <= 1000 && days.iter().all(|d| d.as_str().is_some_and(is_date))
+        });
         if valid {
             out.insert("holidays".to_owned(), value.clone());
         } else {
@@ -494,7 +496,10 @@ fn read_settings(issues: &mut Issues, body: &Value) -> Option<Body> {
 // ── Settings ────────────────────────────────────────────────────────────────
 
 async fn get_settings(caller: Caller, Path(project_id): Path<String>) -> Response {
-    reply(settings_of(&caller, &project_id).await, "Failed to load the schedule settings")
+    reply(
+        settings_of(&caller, &project_id).await,
+        "Failed to load the schedule settings",
+    )
 }
 
 async fn settings_of(caller: &Caller, project_id: &str) -> Reply {
@@ -554,7 +559,9 @@ async fn write_settings(
 ) -> Reply {
     let (current, current_auto) = schedule_settings_of(project);
     let calendar = normalize_calendar(
-        input.get("workingDays").or(Some(&json!(current.working_days))),
+        input
+            .get("workingDays")
+            .or(Some(&json!(current.working_days))),
         input.get("holidays").or(Some(&json!(current.holidays))),
     );
     let auto = input
@@ -588,7 +595,10 @@ async fn write_settings(
 // ── The schedule ────────────────────────────────────────────────────────────
 
 async fn get_schedule(caller: Caller, Path(project_id): Path<String>) -> Response {
-    reply(schedule_of(&caller, &project_id).await, "Failed to compute the schedule")
+    reply(
+        schedule_of(&caller, &project_id).await,
+        "Failed to compute the schedule",
+    )
 }
 
 async fn schedule_of(caller: &Caller, project_id: &str) -> Reply {
@@ -612,16 +622,18 @@ fn move_request(input: &Body) -> MoveRequest {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
-        start_date: input.get("startDate").and_then(Value::as_str).map(str::to_owned),
-        due_date: input.get("dueDate").and_then(Value::as_str).map(str::to_owned),
+        start_date: input
+            .get("startDate")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        due_date: input
+            .get("dueDate")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     }
 }
 
-async fn preview(
-    caller: Caller,
-    Path(project_id): Path<String>,
-    body: Bytes,
-) -> Response {
+async fn preview(caller: Caller, Path(project_id): Path<String>, body: Bytes) -> Response {
     let checked = async {
         let Some(project) = find_live_project(&caller.db, &project_id).await? else {
             return Err(Refusal::not_found("Project", &project_id));

@@ -8,6 +8,14 @@
 //! is a catalogue key with parameters, or a manual criterion (free text the
 //! project manager ticks); criteria are handled as the JSON they are stored
 //! as, so what is stored is what was written.
+#![allow(
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::cast_possible_truncation,
+    clippy::unnecessary_wraps,
+    clippy::similar_names
+)]
 
 use std::collections::HashSet;
 
@@ -151,7 +159,7 @@ pub fn normalize_criterion(criterion: &Value) -> Value {
         Parsed::Manual { text, met, met_at } => json!({
             "manual": js_trim(text),
             "met": met,
-            "metAt": if met { met_at.map(Value::from).unwrap_or(Value::Null) } else { Value::Null },
+            "metAt": if met { met_at.map_or(Value::Null, Value::from) } else { Value::Null },
         }),
         Parsed::Key { key, params } => match params.filter(|params| !params.is_empty()) {
             Some(params) => json!({ "key": key, "params": params }),
@@ -1171,6 +1179,9 @@ mod tests {
             vec!["sponsor"]
         );
         assert_eq!(gate_approver_ids(Some("sponsor"), &[]), vec!["sponsor"]);
-        assert!(gate_approver_ids(None, &board(&["board"])).is_empty());
+        assert_eq!(
+            gate_approver_ids(None, &board(&["board"])),
+            Vec::<String>::new()
+        );
     }
 }

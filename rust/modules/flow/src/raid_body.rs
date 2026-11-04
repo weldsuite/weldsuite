@@ -113,19 +113,34 @@ impl<'a> Reader<'a> {
         self
     }
 
-    pub(crate) fn choice(&mut self, key: &'static str, presence: Presence, options: &[&str]) -> &mut Self {
+    pub(crate) fn choice(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        options: &[&str],
+    ) -> &mut Self {
         let field = self.issues.choice(self.fields, key, presence, options);
         self.keep(key, field);
         self
     }
 
-    pub(crate) fn whole(&mut self, key: &'static str, presence: Presence, rules: Number) -> &mut Self {
+    pub(crate) fn whole(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        rules: Number,
+    ) -> &mut Self {
         let field = self.issues.whole_number(self.fields, key, presence, rules);
         self.keep(key, field);
         self
     }
 
-    pub(crate) fn number(&mut self, key: &'static str, presence: Presence, rules: Number) -> &mut Self {
+    pub(crate) fn number(
+        &mut self,
+        key: &'static str,
+        presence: Presence,
+        rules: Number,
+    ) -> &mut Self {
         let field = self.issues.number(self.fields, key, presence, rules);
         self.keep(key, field);
         self

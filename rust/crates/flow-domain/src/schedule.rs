@@ -17,6 +17,14 @@
 //! finish; total float is late start minus early start; the critical path is
 //! the linked, unfinished tasks with no float. Conflicts are checked against
 //! the planned dates, link by link.
+#![allow(
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::cast_possible_truncation,
+    clippy::unnecessary_wraps,
+    clippy::similar_names
+)]
 
 use std::collections::{HashMap, HashSet};
 
@@ -253,7 +261,7 @@ pub fn normalize_calendar(
             .iter()
             .filter_map(|item| {
                 let number = item.as_f64()?;
-                (number.fract() == 0.0 && (1.0..=7.0).contains(&number)).then(|| number as i64)
+                (number.fract() == 0.0 && (1.0..=7.0).contains(&number)).then_some(number as i64)
             })
             .collect(),
         _ => Vec::new(),
@@ -1243,9 +1251,12 @@ mod tests {
             assert_eq!(day_number(bad), None, "{bad}");
         }
         assert!(day_number("2028-02-29").is_some());
-        assert_eq!(iso_date(day_number("2026-11-02").unwrap()), "2026-11-02");
-        assert_eq!(iso_weekday(day_number("2026-11-02").unwrap()), 1);
-        assert_eq!(iso_weekday(day_number("2026-11-08").unwrap()), 7);
+        assert_eq!(
+            iso_date(day_number("2026-11-02").expect("a date")),
+            "2026-11-02"
+        );
+        assert_eq!(iso_weekday(day_number("2026-11-02").expect("a date")), 1);
+        assert_eq!(iso_weekday(day_number("2026-11-08").expect("a date")), 7);
         assert_eq!(iso_weekday(0), 4);
         assert_eq!(iso_weekday(-1), 3);
     }

@@ -35,7 +35,9 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, read_query, whole};
-use crate::{Caller, FlowState, Refusal, Reply, keyset_cursor, now_ms, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, keyset_cursor, now_ms, outside, page, paged, reply,
+};
 
 const LABEL: &str = "Dependency";
 const DEPENDENCY_TYPES: [&str; 4] = ["fs", "ss", "ff", "sf"];
@@ -65,15 +67,15 @@ where
 
 // ── Rows ────────────────────────────────────────────────────────────────────
 
-
 pub(crate) async fn find_dependency(
     db: &weldsuite_db::PgPool,
     id: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(d) from task_dependencies d where d.id = $1 limit 1")
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(d) from task_dependencies d where d.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
     Ok(row.map(js_row))
 }
 

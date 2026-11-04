@@ -398,6 +398,7 @@ pub async fn check_new_task_links(
 /// `planDependencyUpdate(db, id, input)`: the new lists and the
 /// reciprocal rows, once the added links pass (existence, access,
 /// cycles). Writes nothing.
+#[allow(clippy::too_many_lines)]
 pub async fn plan_dependency_update(
     db: &PgPool,
     id: &str,

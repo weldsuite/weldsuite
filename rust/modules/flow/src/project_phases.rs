@@ -41,11 +41,11 @@ use weldsuite_flow_domain::approvals::{
     register_approval_subject, request_approvals, sponsor_of,
 };
 use weldsuite_flow_domain::gates::{
-    GateChangeFact, GateDecisionFact, GateDeliverableFact, GateFacts, GateRiskFact, GateSpendFact,
-    GateWaiver, PhaseLike, SPEND_TIME_ENTRY_STATUSES, check_gate, criteria_error,
-    gate_approver_ids, gate_facts_needed, gate_request_block, gate_result_of, is_manual_criterion,
-    messages, next_upcoming_phase, normalize_criterion, phase_event_data, phase_to_activate,
-    present_phase, reorder_error,
+    GateChangeFact, GateDecisionFact, GateDeliverableFact, GateFacts, GateRequestBlock,
+    GateRiskFact, GateSpendFact, GateWaiver, PhaseLike, SPEND_TIME_ENTRY_STATUSES, check_gate,
+    criteria_error, gate_approver_ids, gate_facts_needed, gate_request_block, gate_result_of,
+    is_manual_criterion, messages, next_upcoming_phase, normalize_criterion, phase_event_data,
+    phase_to_activate, present_phase, reorder_error,
 };
 use weldsuite_flow_domain::js::{iso_from_millis, js_date, millis_of, to_fixed};
 use weldsuite_kit::validation::{Issues, Presence, Text};
@@ -90,7 +90,10 @@ where
             "/{id}/criteria/{index}",
             patch(tick).route_layer(need("projects:update")),
         )
-        .route("/{id}/waive", post(waive).route_layer(need("projects:update")))
+        .route(
+            "/{id}/waive",
+            post(waive).route_layer(need("projects:update")),
+        )
         .route(
             "/{id}/request-approval",
             post(request_approval).route_layer(need("projects:update")),
@@ -136,7 +139,10 @@ fn text<'a>(row: &'a Value, key: &str) -> &'a str {
 }
 
 fn criteria_of(phase: &Value) -> Vec<Value> {
-    phase["gateCriteria"].as_array().cloned().unwrap_or_default()
+    phase["gateCriteria"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn waivers_of(phase: &Value) -> Vec<GateWaiver> {
@@ -157,6 +163,7 @@ fn two_decimals(value: Option<&str>) -> String {
     to_fixed(parsed, 2)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn load_gate_facts(
     db: &PgPool,
     project_id: &str,
@@ -186,7 +193,9 @@ async fn load_gate_facts(
         facts.deliverables = rows
             .into_iter()
             .map(|(id, number, title, status)| {
-                let found = counts.iter().find(|(d, _, _)| d.as_deref() == Some(id.as_str()));
+                let found = counts
+                    .iter()
+                    .find(|(d, _, _)| d.as_deref() == Some(id.as_str()));
                 GateDeliverableFact {
                     tasks_done: found.map_or(0, |c| c.2),
                     tasks_total: found.map_or(0, |c| c.1),
@@ -334,7 +343,10 @@ async fn gate_number_of(db: &PgPool, row: &Value) -> Result<usize, sqlx::Error> 
 }
 
 fn gate_approvers(project: &Value) -> Vec<String> {
-    let sponsor = sponsor_of(project.get("settings"), project["projectManagerId"].as_str());
+    let sponsor = sponsor_of(
+        project.get("settings"),
+        project["projectManagerId"].as_str(),
+    );
     let board: Vec<String> = project["settings"]["changeControl"]["boardMemberIds"]
         .as_array()
         .map(|ids| {
@@ -348,7 +360,10 @@ fn gate_approvers(project: &Value) -> Vec<String> {
 
 async fn phase_gate(db: &PgPool, row: &Value, project: &Value) -> Result<Value, sqlx::Error> {
     let number = gate_number_of(db, row).await?;
-    let (mut out, check) = (phase_summary(db, row, number).await?, check_phase(db, row).await?);
+    let (mut out, check) = (
+        phase_summary(db, row, number).await?,
+        check_phase(db, row).await?,
+    );
     let approver_ids = gate_approvers(project);
     let block = gate_request_block(
         text(row, "status"),
@@ -358,7 +373,7 @@ async fn phase_gate(db: &PgPool, row: &Value, project: &Value) -> Result<Value, 
     );
     out["check"] = check.to_json();
     out["approverIds"] = json!(approver_ids);
-    out["requestBlockedReason"] = json!(block.map(|b| b.as_str()));
+    out["requestBlockedReason"] = json!(block.map(GateRequestBlock::as_str));
     Ok(out)
 }
 
@@ -402,12 +417,10 @@ fn set_status(
     status: &str,
     now: &str,
 ) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query(
-        "update project_phases set status = $2, updated_at = $3::timestamptz where id = $1",
-    )
-    .bind(id.to_owned())
-    .bind(status.to_owned())
-    .bind(now.to_owned())
+    sqlx::query("update project_phases set status = $2, updated_at = $3::timestamptz where id = $1")
+        .bind(id.to_owned())
+        .bind(status.to_owned())
+        .bind(now.to_owned())
 }
 
 // ── The gate subject handler ────────────────────────────────────────────────
@@ -574,13 +587,25 @@ fn read_criteria(issues: &mut Issues, body: &Body) -> Option<Vec<Value>> {
     Some(out)
 }
 
-fn read_phase_fields(issues: &mut Issues, body: &Value, create: bool) -> Option<(Body, Option<Vec<Value>>)> {
+fn read_phase_fields(
+    issues: &mut Issues,
+    body: &Value,
+    create: bool,
+) -> Option<(Body, Option<Vec<Value>>)> {
     let mut r = Reader::of(issues, body)?;
     if create {
         r.text("projectId", Presence::Required, IDENTIFIER);
-        r.text("name", Presence::Required, Text::trimmed(Some(1), Some(255)));
+        r.text(
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(255)),
+        );
     } else {
-        r.text("name", Presence::Optional, Text::trimmed(Some(1), Some(255)));
+        r.text(
+            "name",
+            Presence::Optional,
+            Text::trimmed(Some(1), Some(255)),
+        );
     }
     r.text("plannedStart", Presence::Nullish, iso_date_time())
         .text("plannedEnd", Presence::Nullish, iso_date_time())
@@ -592,7 +617,8 @@ fn read_phase_fields(issues: &mut Issues, body: &Value, create: bool) -> Option<
 
 fn read_reorder(issues: &mut Issues, body: &Value) -> Option<(String, Vec<String>)> {
     let mut r = Reader::of(issues, body)?;
-    r.text("projectId", Presence::Required, IDENTIFIER).raw("ids");
+    r.text("projectId", Presence::Required, IDENTIFIER)
+        .raw("ids");
     let out = r.strict();
     let ids = match out.get("ids").and_then(Value::as_array) {
         Some(items)
@@ -616,13 +642,20 @@ fn read_reorder(issues: &mut Issues, body: &Value) -> Option<(String, Vec<String
 }
 
 fn text_of(body: &Body, key: &str) -> String {
-    body.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
+    body.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn read_waive(issues: &mut Issues, body: &Value) -> Option<Body> {
     let mut r = Reader::of(issues, body)?;
     r.whole("criterionIndex", Presence::Required, whole(0.0, 1000.0))
-        .text("note", Presence::Required, Text::trimmed(Some(1), Some(2000)));
+        .text(
+            "note",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(2000)),
+        );
     Some(r.strict())
 }
 
@@ -630,19 +663,22 @@ fn read_tick(issues: &mut Issues, body: &Value) -> Option<bool> {
     let mut r = Reader::of(issues, body)?;
     r.raw("met");
     let out = r.strict();
-    match out.get("met").and_then(Value::as_bool) {
-        Some(met) => Some(met),
-        None => {
-            issues.custom("met", "Expected boolean");
-            None
-        }
+    let met = out.get("met").and_then(Value::as_bool);
+    if met.is_none() {
+        issues.custom("met", "Expected boolean");
     }
+    met
 }
 
 fn read_project_query(raw: Option<&str>) -> Result<String, Refusal> {
     read_query(raw, |issues, f| {
         issues
-            .text_with(f, "projectId", Presence::Required, Text::length(Some(1), None))
+            .text_with(
+                f,
+                "projectId",
+                Presence::Required,
+                Text::length(Some(1), None),
+            )
             .into_option()
             .unwrap_or_default()
     })
@@ -707,7 +743,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(id) => id,
         Err(refused) => return outside(Err(refused)),
     };
-    reply(list_lifecycle(&caller, &project_id).await, "Failed to list phases")
+    reply(
+        list_lifecycle(&caller, &project_id).await,
+        "Failed to list phases",
+    )
 }
 
 async fn list_lifecycle(caller: &Caller, project_id: &str) -> Reply {
@@ -736,7 +775,10 @@ async fn read_phase(caller: &Caller, id: &str) -> Reply {
 }
 
 async fn check(caller: Caller, Path(id): Path<String>) -> Response {
-    reply(check_gate_of(&caller, &id).await, "Failed to check the gate")
+    reply(
+        check_gate_of(&caller, &id).await,
+        "Failed to check the gate",
+    )
 }
 
 async fn check_gate_of(caller: &Caller, id: &str) -> Reply {
@@ -1033,7 +1075,10 @@ async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    reply(remove_phase(&state, &caller, &id).await, "Failed to delete phase")
+    reply(
+        remove_phase(&state, &caller, &id).await,
+        "Failed to delete phase",
+    )
 }
 
 async fn remove_phase(state: &FlowState, caller: &Caller, id: &str) -> Reply {
@@ -1067,7 +1112,11 @@ async fn remove_phase(state: &FlowState, caller: &Caller, id: &str) -> Reply {
         statements.push(set_status(next, "active", &now_text));
     }
     if text(&existing, "status") == "active" {
-        statements.push(current_phase_update(&project_id, activate.as_deref(), &now_text));
+        statements.push(current_phase_update(
+            &project_id,
+            activate.as_deref(),
+            &now_text,
+        ));
     }
     weldsuite_db::atomically(db, statements).await?;
     // Nobody is asked about a gate that no longer exists.
@@ -1191,7 +1240,10 @@ async fn waive(
             return Err(Refusal::not_found("Project", &project_id));
         };
         // The sponsor's call, and only theirs (the project manager when no sponsor is named).
-        let sponsor = sponsor_of(project.get("settings"), project["projectManagerId"].as_str());
+        let sponsor = sponsor_of(
+            project.get("settings"),
+            project["projectManagerId"].as_str(),
+        );
         if sponsor.as_deref() != Some(caller.user_id.as_str()) {
             return Err(Refusal::forbidden(messages::NOT_SPONSOR));
         }
@@ -1252,7 +1304,12 @@ async fn waive_criterion(
         at: now.clone(),
     });
     let facts = load_gate_facts(db, text(phase, "projectId"), &criteria).await?;
-    let result = gate_result_of(&check_gate(&criteria, &facts, &next), &criteria, &next, &now);
+    let result = gate_result_of(
+        &check_gate(&criteria, &facts, &next),
+        &criteria,
+        &next,
+        &now,
+    );
     sqlx::query(
         "update project_phases set gate_result = $2, updated_at = $3::timestamptz
          where id = $1 and deleted_at is null",
@@ -1328,12 +1385,18 @@ async fn ask_for_approval(
     // A gate asked for before and turned down starts its approvals over.
     let now_millis = now_ms();
     cancel_pending_approvals(db, "gate", id, true, now_millis).await?;
-    let sponsor = sponsor_of(project.get("settings"), project["projectManagerId"].as_str());
+    let sponsor = sponsor_of(
+        project.get("settings"),
+        project["projectManagerId"].as_str(),
+    );
     let rows: Vec<ApprovalRowInput> = approver_ids
         .iter()
         .map(|approver| {
             ApprovalRowInput::member(approver.clone(), "gate")
-                .with_rule("gate", &json!({ "phaseId": id, "phaseName": phase["name"] }))
+                .with_rule(
+                    "gate",
+                    &json!({ "phaseId": id, "phaseName": phase["name"] }),
+                )
                 .with_step(1)
                 .with_role_label(if Some(approver) == sponsor.as_ref() {
                     "Sponsor"
@@ -1405,4 +1468,3 @@ async fn ask_for_approval(
     });
     Ok(Created(result).into_response())
 }
-
