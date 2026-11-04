@@ -12,6 +12,8 @@
     "./baselines": "./src/baselines.ts",
     "./changes": "./src/changes.ts",
     "./project-access": "./src/project-access.ts",
+    "./project-closing": "./src/project-closing.ts",
+    "./project-templates": "./src/project-templates.ts",
     "./day-boundaries": "./src/day-boundaries.ts",
     "./project-stats": "./src/project-stats.ts",
     "./raid": "./src/raid.ts",

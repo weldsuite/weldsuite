@@ -64,6 +64,16 @@ export interface CommunicationPlanEntry {
   channel: string;
 }
 
+/**
+ * `closing` (slice F): what the close page recorded. Each hand-over names the
+ * person who took an open RAID item over, keyed by the item's id, so the
+ * checklist can tell an item that was handed over from one that merely has an
+ * owner. Merge-written by `POST /api/project-close/:projectId/handover`.
+ */
+export interface ProjectClosingSettings {
+  handovers: Record<string, { ownerId: string; by: string; at: string }>;
+}
+
 export interface ProjectSettings {
   changeControl?: ProjectChangeControlSettings;
   schedule?: ProjectScheduleSettings;
@@ -84,6 +94,10 @@ export interface ProjectSettings {
    * move to workspace level).
    */
   riskAppetite?: number;
+  /** slice F: hand-overs recorded on the close page. */
+  closing?: ProjectClosingSettings;
+  /** slice F: the project template this project was created from (`POST /api/project-templates/:id/instantiate`). */
+  templateId?: string;
   /** Other features' keys. */
   [key: string]: unknown;
 }

@@ -213,9 +213,9 @@ export const platformSyncMap: EntitySyncMap = {
   project_status_report: inv(projectKeys.all),
   project_stakeholder: inv(projectKeys.all),
 
-  // Closing: lessons and templates.
-  project_lesson: inv(projectKeys.all),
-  project_template: inv(projectKeys.all),
+  // Closing: lessons and templates, and the close checklist (use-project-closing-queries.ts).
+  project_lesson: inv(['project-closing']),
+  project_template: inv(['project-closing']),
 
   // Portfolio: capacity, intake and the workspace settings behind them.
   resource_booking: inv(projectKeys.all),

@@ -52,7 +52,10 @@ mod whiteboards;
 // weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
 // their slices fill them in.
 pub mod approvals;
+mod approvals_adapter;
 mod capacity;
+mod closing_body;
+mod closing_store;
 mod project_baselines;
 mod project_benefits;
 mod project_changes;
@@ -70,6 +73,7 @@ mod project_status_reports;
 mod project_templates;
 mod public_project_portal;
 mod task_dependencies;
+mod templates_store;
 
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
 

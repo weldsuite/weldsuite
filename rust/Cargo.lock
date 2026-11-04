@@ -5011,6 +5011,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-flow-domain",
  "weldsuite-kit",
+ "weldsuite-know-domain",
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-pipeline",

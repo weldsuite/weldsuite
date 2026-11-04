@@ -3325,6 +3325,34 @@
         "rust/modules/integrations/",
         "rust/crates/connect-domain/src/webhooks.rs"
       ]
+    },
+    {
+      "name": "flow: closing and templates",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-lessons/integration.test.ts",
+        "src/routes/project-close/integration.test.ts",
+        "src/routes/project-templates/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-lessons",
+        "/api/project-close",
+        "/api/project-templates"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-lessons/",
+        "apps/workers/flow-api/src/routes/project-close/",
+        "apps/workers/flow-api/src/routes/project-templates/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/domains/know/src/",
+        "packages/clients/app-api-client/src/schemas/project-closing.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/crates/know-domain/"
+      ]
     }
   ]
 }
