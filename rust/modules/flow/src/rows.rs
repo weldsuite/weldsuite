@@ -96,6 +96,34 @@ macro_rules! raid_json {
     };
 }
 
+/// A `project_benefits` row.
+macro_rules! benefit_json {
+    ($a:literal) => {
+        concat!(
+            "(to_jsonb(",
+            $a,
+            ") || jsonb_build_object('baseline_value', ",
+            $a,
+            ".baseline_value::text, 'target_value', ",
+            $a,
+            ".target_value::text))"
+        )
+    };
+}
+
+/// A `project_benefit_measurements` row.
+macro_rules! measurement_json {
+    ($a:literal) => {
+        concat!(
+            "(to_jsonb(",
+            $a,
+            ") || jsonb_build_object('value', ",
+            $a,
+            ".value::text))"
+        )
+    };
+}
+
 /// A `time_entries` row.
 #[allow(unused_macros)]
 macro_rules! time_entry_json {

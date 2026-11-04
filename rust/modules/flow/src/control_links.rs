@@ -57,6 +57,10 @@ fn label(link_type: &str) -> &'static str {
     match link_type {
         "raid_item" => "RAID item",
         "task" => "Task",
+        "decision" => "Decision",
+        "change_request" => "Change request",
+        "deliverable" => "Deliverable",
+        "benefit" => "Benefit",
         _ => "Milestone",
     }
 }

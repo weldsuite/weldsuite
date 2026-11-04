@@ -883,6 +883,7 @@ const PATCHABLE_TASK_COLUMNS = [
   'stageId',
   'sprintId',
   'milestoneId',
+  'deliverableId',
   'parentTaskId',
   'assigneeId',
   'customerId',
@@ -930,10 +931,11 @@ async function validateTaskRelations(
   }
   // Sprint / milestone / stage must belong to the task's own project (a stage
   // also drives the status, so another project's would leak its systemStatus).
-  const { sprintId, milestoneId, stageId } = changedTaskReferences(existing, data);
+  const { sprintId, milestoneId, deliverableId, stageId } = changedTaskReferences(existing, data);
   const referenceError = await findInvalidTaskReference(db, currentProjectId, {
     sprintId,
     milestoneId,
+    deliverableId,
     stageId,
   });
   if (referenceError) return referenceError;
@@ -2415,6 +2417,7 @@ app.post(
               ...(taskId === id && { parentTaskId: null }),
               sprintId: null,
               milestoneId: null,
+              deliverableId: null,
               stageId: resetStageId,
               status: resetStatus,
               key: null,

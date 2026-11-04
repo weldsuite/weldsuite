@@ -203,8 +203,8 @@ describe('POST /', () => {
     await refuse(link('raid_item', ids.risk, 'task', ids.task1, 'mitigates'), "The 'mitigates' relation goes from a task to a register item");
     await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'resolves'), "The 'resolves' relation goes from a task to a register item");
     await refuse(link('task', ids.task1, 'raid_item', ids.risk, 'raised_from'), "The 'raised_from' relation goes from a register item to the register item it was raised from");
-    await refuse(link('raid_item', ids.risk, 'raid_item', ids.issue, 'affects'), "The 'affects' relation goes from a register item to a task or milestone");
-    await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'threatens'), "The 'threatens' relation goes from a register item to a task or milestone");
+    await refuse(link('raid_item', ids.risk, 'raid_item', ids.issue, 'affects'), "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit");
+    await refuse(link('task', ids.task1, 'milestone', 'ms_link_1', 'threatens'), "The 'threatens' relation goes from a register item to a task, milestone, deliverable or benefit");
     // A task mitigates a risk and resolves an issue, nothing else.
     await refuse(link('task', ids.task3, 'raid_item', ids.issue, 'mitigates'), 'A task can only mitigate a risk');
     await refuse(link('task', ids.task3, 'raid_item', ids.risk2, 'resolves'), 'A task can only resolve an issue');
@@ -338,7 +338,7 @@ describe('GET /', () => {
     expect(await message('')).toEqual([400, 'Give fromType and fromId, or toType and toId']);
     expect(await message('?fromType=task')).toEqual([400, 'fromType and fromId must be given together']);
     expect(await message(`?toId=${ids.risk}`)).toEqual([400, 'toType and toId must be given together']);
-    expect((await send('GET', `/project-control-links?fromType=decision&fromId=x`)).status).toBe(400);
+    expect((await send('GET', `/project-control-links?fromType=banana&fromId=x`)).status).toBe(400);
     expect((await send('GET', `/project-control-links?fromType=task&fromId=x&extra=1`)).status).toBe(400);
     const missing = await send('GET', '/project-control-links?fromType=task&fromId=task_nope');
     expect([missing.status, (await errorOf(missing)).message]).toEqual([404, "Task with ID 'task_nope' not found"]);
@@ -423,5 +423,59 @@ describe('links follow their objects', () => {
     expect((await send('DELETE', `/project-raid/${made.id}`)).status).toBe(204);
     const rows = await db.select().from(schema.projectControlLinks).where(eq(schema.projectControlLinks.fromId, made.id));
     expect(rows).toEqual([]);
+  });
+});
+
+describe('governance objects', () => {
+  const seedGovernance = async () => {
+    const at = new Date('2026-11-01T08:00:00.000Z');
+    await db.insert(schema.projectDecisions).values({ id: 'dec_link_1', projectId: P1, number: 7, title: 'Keep legacy read-only', status: 'decided', createdBy: MANAGER, createdAt: at, updatedAt: at });
+    await db.insert(schema.projectChangeRequests).values({ id: 'cr_link_1', projectId: P1, number: 6, title: 'Hosting', status: 'approved', createdBy: MANAGER, createdAt: at, updatedAt: at });
+    await db.insert(schema.projectDeliverables).values({ id: 'del_link_1', projectId: P1, number: 6, title: 'Read-only mode', createdBy: MANAGER, createdAt: at, updatedAt: at });
+    await db.insert(schema.projectBenefits).values({ id: 'ben_link_1', projectId: P1, number: 3, title: 'Licence cost removed', createdBy: MANAGER, createdAt: at, updatedAt: at });
+  };
+
+  it('links decisions, change requests, deliverables and benefits with implements, decided_by, affects and threatens', async () => {
+    await seedGovernance();
+    const send = manager();
+    const make = async (body: ReturnType<typeof link>) => {
+      const res = await send('POST', '/project-control-links', body);
+      expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
+      return data<{ id: string }>(res);
+    };
+    await make(link('change_request', 'cr_link_1', 'decision', 'dec_link_1', 'decided_by'));
+    await make(link('benefit', 'ben_link_1', 'decision', 'dec_link_1', 'decided_by'));
+    await make(link('deliverable', 'del_link_1', 'decision', 'dec_link_1', 'decided_by'));
+    await make(link('raid_item', ids.risk, 'decision', 'dec_link_1', 'decided_by'));
+    await make(link('task', ids.task1, 'change_request', 'cr_link_1', 'implements'));
+    await make(link('deliverable', 'del_link_1', 'benefit', 'ben_link_1', 'implements'));
+    await make(link('raid_item', ids.risk, 'deliverable', 'del_link_1', 'affects'));
+    await make(link('raid_item', ids.risk, 'benefit', 'ben_link_1', 'threatens'));
+
+    const res = await send('GET', '/project-control-links?toType=decision&toId=dec_link_1');
+    const linked = await data<Linked[]>(res);
+    expect(linked.map((l) => [l.relation, l.direction, l.target.type, l.target.code])).toEqual([
+      ['decided_by', 'incoming', 'change_request', 'CR-6'],
+      ['decided_by', 'incoming', 'benefit', 'B-3'],
+      ['decided_by', 'incoming', 'deliverable', 'D6'],
+      ['decided_by', 'incoming', 'raid_item', 'RSK-1'],
+    ]);
+    const fromDecision = await data<Linked[]>(await send('GET', '/project-control-links?toType=benefit&toId=ben_link_1'));
+    expect(fromDecision.map((l) => [l.relation, l.target.code])).toEqual([['implements', 'D6'], ['threatens', 'RSK-1']]);
+  });
+
+  it('keeps the shape of the new relations and answers 404 for a missing object', async () => {
+    await seedGovernance().catch(() => undefined);
+    const send = manager();
+    const refuse = async (body: ReturnType<typeof link>, status: number, message: string) => {
+      const res = await send('POST', '/project-control-links', body);
+      expect([res.status, (await errorOf(res)).message]).toEqual([status, message]);
+    };
+    await refuse(link('decision', 'dec_link_1', 'decision', 'dec_link_1', 'decided_by'), 400, 'A link needs two different objects');
+    await refuse(link('benefit', 'ben_link_1', 'task', ids.task1, 'implements'), 400, "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit");
+    await refuse(link('decision', 'dec_link_1', 'raid_item', ids.risk, 'decided_by'), 400, "The 'decided_by' relation goes from an object to the decision that settled it");
+    await refuse(link('raid_item', ids.risk, 'decision', 'dec_link_1', 'affects'), 400, "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit");
+    await refuse(link('task', ids.task2, 'decision', 'dec_nope', 'decided_by'), 404, "Decision with ID 'dec_nope' not found");
+    await refuse(link('deliverable', 'del_nope', 'benefit', 'ben_link_1', 'implements'), 404, "Deliverable with ID 'del_nope' not found");
   });
 });

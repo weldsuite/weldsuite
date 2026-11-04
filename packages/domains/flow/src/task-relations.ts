@@ -1,6 +1,6 @@
 /**
- * Project-scoped references on a task: sprint, milestone, pipeline stage and
- * parent task. Each must belong to the task's own project, otherwise a task ends
+ * Project-scoped references on a task: sprint, milestone, deliverable, pipeline
+ * stage and parent task. Each must belong to the task's own project, otherwise a task ends
  * up on another project's board, in its sprint, or leaks that project's stage
  * `systemStatus` into its own status.
  *
@@ -15,11 +15,12 @@ export interface TaskReferences {
   parentTaskId?: string | null;
   sprintId?: string | null;
   milestoneId?: string | null;
+  deliverableId?: string | null;
   stageId?: string | null;
 }
 
 /** The reference fields a request body may carry. */
-const REFERENCE_FIELDS = ['sprintId', 'milestoneId', 'stageId', 'parentTaskId'] as const;
+const REFERENCE_FIELDS = ['sprintId', 'milestoneId', 'deliverableId', 'stageId', 'parentTaskId'] as const;
 
 async function sprintError(db: Database, projectId: string | null, sprintId: string | null | undefined) {
   if (!sprintId) return null;
@@ -53,6 +54,23 @@ async function milestoneError(db: Database, projectId: string | null, milestoneI
     )
     .limit(1);
   return milestone ? null : `Milestone ${milestoneId} not found in this project`;
+}
+
+async function deliverableError(db: Database, projectId: string | null, deliverableId: string | null | undefined) {
+  if (!deliverableId) return null;
+  if (!projectId) return 'A task without a project cannot count toward a deliverable';
+  const [deliverable] = await db
+    .select({ id: schema.projectDeliverables.id })
+    .from(schema.projectDeliverables)
+    .where(
+      and(
+        eq(schema.projectDeliverables.id, deliverableId),
+        eq(schema.projectDeliverables.projectId, projectId),
+        isNull(schema.projectDeliverables.deletedAt),
+      ),
+    )
+    .limit(1);
+  return deliverable ? null : `Deliverable ${deliverableId} not found in this project`;
 }
 
 async function stageError(db: Database, projectId: string | null, stageId: string | null | undefined) {
@@ -97,6 +115,7 @@ export async function findInvalidTaskReference(
   return (
     (await sprintError(db, projectId, refs.sprintId)) ??
     (await milestoneError(db, projectId, refs.milestoneId)) ??
+    (await deliverableError(db, projectId, refs.deliverableId)) ??
     (await stageError(db, projectId, refs.stageId)) ??
     (await parentTaskError(db, projectId, refs.parentTaskId))
   );

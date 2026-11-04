@@ -43,11 +43,27 @@ export const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 export const DEPENDENCY_DIRECTIONS = ['inbound', 'outbound'] as const;
 export const DEPENDENCY_PARTY_TYPES = ['project', 'supplier', 'team', 'customer'] as const;
 
-/** What a control link can join in this phase. */
-export const CONTROL_LINK_TYPES = ['raid_item', 'task', 'milestone'] as const;
+/** What a control link can join. */
+export const CONTROL_LINK_TYPES = [
+  'raid_item',
+  'task',
+  'milestone',
+  'decision',
+  'change_request',
+  'deliverable',
+  'benefit',
+] as const;
 export type ControlLinkType = (typeof CONTROL_LINK_TYPES)[number];
 
-export const CONTROL_LINK_RELATIONS = ['mitigates', 'resolves', 'raised_from', 'affects', 'threatens'] as const;
+export const CONTROL_LINK_RELATIONS = [
+  'mitigates',
+  'resolves',
+  'raised_from',
+  'affects',
+  'threatens',
+  'implements',
+  'decided_by',
+] as const;
 export type ControlLinkRelation = (typeof CONTROL_LINK_RELATIONS)[number];
 
 /** Task priorities a mitigation task can be created with. */
@@ -380,7 +396,7 @@ export const controlLinkTargetSchema = z.object({
   projectId: z.string(),
   title: z.string(),
   status: z.string(),
-  /** `RSK-4` and so on for a register item, null for a task or milestone. */
+  /** `RSK-4`, `DEC-7`, `CR-8`, `D3` or `B-1` for a register item, decision, change request, deliverable or benefit; null for a task or milestone. */
   code: nullableString,
   /** Task: its assignee. Register item: its owner. Milestone: its owner. */
   ownerId: nullableString,

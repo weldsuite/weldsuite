@@ -259,12 +259,27 @@ export type NewProjectRaidAssessment = typeof projectRaidAssessments.$inferInser
 
 // ── Links ───────────────────────────────────────────────────────────────────
 
-/** The kinds of object a control link can join. Later phases add decision, change_request, deliverable and benefit. */
-export const CONTROL_LINK_TYPES = ['raid_item', 'task', 'milestone'] as const;
+/** The kinds of object a control link can join. */
+export const CONTROL_LINK_TYPES = [
+  'raid_item',
+  'task',
+  'milestone',
+  'decision',
+  'change_request',
+  'deliverable',
+  'benefit',
+] as const;
 export type ControlLinkType = (typeof CONTROL_LINK_TYPES)[number];
 
-/** Later phases add implements and decided_by. */
-export const CONTROL_LINK_RELATIONS = ['mitigates', 'resolves', 'raised_from', 'affects', 'threatens'] as const;
+export const CONTROL_LINK_RELATIONS = [
+  'mitigates',
+  'resolves',
+  'raised_from',
+  'affects',
+  'threatens',
+  'implements',
+  'decided_by',
+] as const;
 export type ControlLinkRelation = (typeof CONTROL_LINK_RELATIONS)[number];
 
 /**

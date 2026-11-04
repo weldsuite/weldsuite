@@ -21,6 +21,9 @@
 //!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `flow-benefit-measure` (daily, 03:30 UTC): WeldFlow's monthly measuring of
+//!   benefits from the metric catalogue, in the workspaces the due index lists
+//!   (kind `benefit_measure`, `apps/workers/flow-api/src/cron/benefit-measure.ts`).
 //! - `domain-auto-renew` (daily, 04:00 UTC): WeldHost's auto-renew sweep
 //!   (`apps/workers/host-api/src/cron/domain-auto-renew.ts`). It charges
 //!   through Stripe, which stays with Global, so here it does what the
@@ -87,7 +90,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -100,6 +103,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "calendar-replan"
         | "flow-file-purge"
         | "flow-approval-due"
+        | "flow-benefit-measure"
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
@@ -148,6 +152,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
             "flow-approval-due" => flow_approval_due(config).await,
+            "flow-benefit-measure" => flow_benefit_measure(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
             "books-sweep" => books_sweep(config).await,
             "domain-auto-renew" => {
@@ -414,6 +419,43 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
         })
     );
     tracker.close();
+    Ok(())
+}
+
+/// `flow-benefit-measure`: the due workspaces' benefits, measured for the month
+/// that just ended.
+async fn flow_benefit_measure(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants: weldsuite_flow::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let tick = weldsuite_flow::benefit_measure::run_benefit_measure(&master, &tenants, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-benefit-measure",
+            "result": {
+                "due": tick.sweep.due,
+                "processed": tick.sweep.processed,
+                "failed": tick.sweep.failed,
+                "measured": tick.measured,
+            },
+        })
+    );
     Ok(())
 }
 

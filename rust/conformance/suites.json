@@ -3433,6 +3433,37 @@
         "rust/modules/external-api/",
         "rust/crates/flow-domain/"
       ]
+    },
+    {
+      "name": "flow: governance registers",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-decisions/integration.test.ts",
+        "src/routes/project-deliverables/integration.test.ts",
+        "src/routes/project-scope/integration.test.ts",
+        "src/routes/project-benefits/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-decisions",
+        "/api/project-deliverables",
+        "/api/project-scope",
+        "/api/project-benefits"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-decisions/",
+        "apps/workers/flow-api/src/routes/project-deliverables/",
+        "apps/workers/flow-api/src/routes/project-scope/",
+        "apps/workers/flow-api/src/routes/project-benefits/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-control.ts",
+        "packages/clients/app-api-client/src/schemas/project-governance.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
     }
   ]
 }

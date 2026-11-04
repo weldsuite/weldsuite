@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
+  CONTROL_LINK_RELATIONS,
+  CONTROL_LINK_TYPES,
   RAID_CLOSED_STATUSES as SCHEMA_CLOSED,
   RAID_KINDS as SCHEMA_KINDS,
   RAID_STATUSES as SCHEMA_STATUSES,
@@ -78,7 +80,26 @@ describe('statuses', () => {
     expect([...schema.RAID_KINDS]).toEqual([...SCHEMA_KINDS]);
     expect(schema.RAID_STATUSES).toEqual(SCHEMA_STATUSES);
     expect(schema.RAID_CLOSED_STATUSES).toEqual(SCHEMA_CLOSED);
-    expect([...schema.CONTROL_LINK_TYPES]).toEqual(['raid_item', 'task', 'milestone']);
+    expect([...schema.CONTROL_LINK_TYPES]).toEqual([...CONTROL_LINK_TYPES]);
+    expect([...schema.CONTROL_LINK_RELATIONS]).toEqual([...CONTROL_LINK_RELATIONS]);
+    expect([...CONTROL_LINK_TYPES]).toEqual([
+      'raid_item',
+      'task',
+      'milestone',
+      'decision',
+      'change_request',
+      'deliverable',
+      'benefit',
+    ]);
+    expect([...CONTROL_LINK_RELATIONS]).toEqual([
+      'mitigates',
+      'resolves',
+      'raised_from',
+      'affects',
+      'threatens',
+      'implements',
+      'decided_by',
+    ]);
   });
 
   it('gives an issue the severity of the risk band it came from', () => {
@@ -152,8 +173,43 @@ describe('links', () => {
     expect(linkShapeError({ from: item, to: milestone, relation: 'threatens' })).toBeNull();
     expect(linkShapeError({ from: item, to: task, relation: 'affects' })).toBeNull();
     expect(linkShapeError({ from: item, to: other, relation: 'affects' })).toBe(
-      "The 'affects' relation goes from a register item to a task or milestone",
+      "The 'affects' relation goes from a register item to a task, milestone, deliverable or benefit",
     );
+  });
+
+  it('sends affects and threatens on to a deliverable or benefit as well', () => {
+    const deliverable = { type: 'deliverable', id: 'd1' } as const;
+    const benefit = { type: 'benefit', id: 'b1' } as const;
+    const decision = { type: 'decision', id: 'dec1' } as const;
+    expect(linkShapeError({ from: item, to: deliverable, relation: 'affects' })).toBeNull();
+    expect(linkShapeError({ from: item, to: benefit, relation: 'threatens' })).toBeNull();
+    expect(linkShapeError({ from: item, to: decision, relation: 'threatens' })).toBe(
+      "The 'threatens' relation goes from a register item to a task, milestone, deliverable or benefit",
+    );
+  });
+
+  it('sends implements from a task or deliverable to a decision, change request or benefit', () => {
+    const deliverable = { type: 'deliverable', id: 'd1' } as const;
+    const benefit = { type: 'benefit', id: 'b1' } as const;
+    const decision = { type: 'decision', id: 'dec1' } as const;
+    const change = { type: 'change_request', id: 'cr1' } as const;
+    const message = "The 'implements' relation goes from a task or deliverable to a decision, change request or benefit";
+    expect(linkShapeError({ from: task, to: change, relation: 'implements' })).toBeNull();
+    expect(linkShapeError({ from: deliverable, to: benefit, relation: 'implements' })).toBeNull();
+    expect(linkShapeError({ from: deliverable, to: decision, relation: 'implements' })).toBeNull();
+    expect(linkShapeError({ from: item, to: benefit, relation: 'implements' })).toBe(message);
+    expect(linkShapeError({ from: task, to: milestone, relation: 'implements' })).toBe(message);
+  });
+
+  it('sends decided_by from anything but a decision to a decision', () => {
+    const decision = { type: 'decision', id: 'dec1' } as const;
+    const change = { type: 'change_request', id: 'cr1' } as const;
+    const message = "The 'decided_by' relation goes from an object to the decision that settled it";
+    expect(linkShapeError({ from: change, to: decision, relation: 'decided_by' })).toBeNull();
+    expect(linkShapeError({ from: item, to: decision, relation: 'decided_by' })).toBeNull();
+    expect(linkShapeError({ from: milestone, to: decision, relation: 'decided_by' })).toBeNull();
+    expect(linkShapeError({ from: decision, to: { type: 'decision', id: 'dec2' }, relation: 'decided_by' })).toBe(message);
+    expect(linkShapeError({ from: item, to: change, relation: 'decided_by' })).toBe(message);
   });
 
   it('lets a task mitigate only a risk and resolve only an issue', () => {

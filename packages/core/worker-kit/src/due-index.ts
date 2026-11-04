@@ -31,6 +31,8 @@ export type DueIndexKind =
   | 'reach_warmup'
   // WeldFlow (flow-api): soft-deleted project files / attachments reaching the end of retention.
   | 'file_purge'
+  // WeldFlow (flow-api): the monthly measuring of benefits, from the metric catalogue (FLOW-014).
+  | 'benefit_measure'
   // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.

@@ -855,6 +855,7 @@ async function planTaskTransfer(db: Variables['tenantDb'], sourceId: string, des
     projectId: destId,
     sprintId: null,
     milestoneId: null,
+    deliverableId: null,
     key: null,
     boardPosition: null,
     position: sql`${tasks.position} + ${offset}`,

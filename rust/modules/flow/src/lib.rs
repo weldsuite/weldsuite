@@ -15,12 +15,16 @@
 mod rows;
 pub mod github_outbound;
 
+pub mod benefit_measure;
 pub mod calendar;
 mod control_links;
 mod custom_values;
 mod digest_settings;
 mod documents;
 mod goals;
+mod governance_approvals;
+mod governance_body;
+mod governance_store;
 mod import_jobs;
 mod import_tasks;
 mod js;
