@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   useTeamTimesheet,

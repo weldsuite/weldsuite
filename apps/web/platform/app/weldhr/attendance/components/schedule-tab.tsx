@@ -16,13 +16,14 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { HEADER_HEIGHT, TODAY_BG_CLASS, TODAY_BLUE } from '@/app/weldcalendar/components/calendar-shared';
 import { formatClockRange, useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useDeleteHrShift, useHrEmployees, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
-import { EmployeeAvatar, ErrorBanner, errorMessage, shiftIsoDate, todayIso } from '../../components/shared';
+import { EmployeeAvatar, errorMessage, shiftIsoDate, todayIso } from '../../components/shared';
 import { ShiftDialog } from './shift-dialog';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /** Width of the leading employee column. */
 const EMPLOYEE_COLUMN_WIDTH = 200;

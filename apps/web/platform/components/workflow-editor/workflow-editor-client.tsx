@@ -86,7 +86,7 @@ import {
 } from '@/hooks/queries/use-automation-queries';
 import { ActionConfigForm } from './components/action-config-form';
 import { GenerateWithAiDialog } from './components/generate-with-ai-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { isFeatureAvailable } from '@/lib/edition';
 import {
   WorkflowCanvas,

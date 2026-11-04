@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AddressFields } from '@/components/address/address-fields';
 import { cleanPostalAddress, toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
 import {

@@ -16,7 +16,7 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@/components/shared/picker-menu';
+import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@weldsuite/ui/components/picker-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';

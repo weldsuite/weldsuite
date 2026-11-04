@@ -20,7 +20,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { isFeatureAvailable } from '@/lib/edition';
 import {
   useReachBilling,
@@ -28,7 +28,7 @@ import {
   useReachMailboxes,
   useReachSettings,
 } from '@/hooks/queries/use-reach-queries';
-import { DashboardPage, ErrorPanel, useReachBreadcrumbs } from '../components/page-kit';
+import { useReachBreadcrumbs } from '../components/page-kit';
 import { warmupCopyParams } from '../lib/warmup';
 import { useBillingReturn } from '../components/use-payment-method-setup';
 import { DomainsStep } from './domains-step';
@@ -38,6 +38,8 @@ import { MailboxesStep } from './mailboxes-step';
 import { PaymentStep } from './payment-step';
 import { Stepper } from './setup-shell';
 import { parseSetupStep, setupSteps, type SetupStep } from './steps';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
 export default function ReachSetupPage() {
   const t = useTranslations();
@@ -94,7 +96,7 @@ export default function ReachSetupPage() {
   if (loadError) {
     return (
       <DashboardPage title={t('reach.setup.title')}>
-        <ErrorPanel
+        <ErrorState
           onRetry={() => {
             void settings.refetch();
             void billing.refetch();

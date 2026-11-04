@@ -15,7 +15,7 @@ import {
 } from '@weldsuite/weldmeet-ui';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
-import { SoftBadge } from '@/components/shared/soft-badge';
+import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import {
   DIAL_PAD_DIGITS,
   formatPhoneDisplay,

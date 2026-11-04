@@ -6,14 +6,15 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import type { SsoBillingView } from '@weldsuite/app-api-client/schemas/sso';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCancelSso, useResumeSso, useSsoBilling, useSubscribeSso } from '@/hooks/queries/use-sso-queries';
 import { formatBillingAmount } from '@/app/settings/billing/billing-details';
-import { InlineError, Notice } from './sso-parts';
+import { InlineError } from './sso-parts';
 import { isPaymentMethodRequired, ssoErrorMessage } from './sso-errors';
 import { formatSsoDate, ssoAddonState, type SsoAddonState } from './sso-view';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 type Dialog = 'add' | 'cancel' | null;
 
@@ -259,18 +260,18 @@ function SubscribedAddon({
   return (
     <div className="space-y-3">
       <Summary title={price} badge={<SubscriptionBadge state={state} />} lines={lines} actions={actions} />
-      {state.unpaid && <Notice tone="warning">{copy.unpaidDescription}</Notice>}
+      {state.unpaid && <InfoBanner variant="warning">{copy.unpaidDescription}</InfoBanner>}
       {state.pastDue && (
-        <Notice tone="warning">
+        <InfoBanner variant="warning">
           {copy.pastDueDescription}{' '}
           {canManageBilling && (
             <Link href="/settings/billing" className="font-medium underline underline-offset-4">
               {copy.addPaymentMethod}
             </Link>
           )}
-        </Notice>
+        </InfoBanner>
       )}
-      {state.includedInPlan && <Notice>{copy.includedInPlanNow}</Notice>}
+      {state.includedInPlan && <InfoBanner variant="neutral">{copy.includedInPlanNow}</InfoBanner>}
     </div>
   );
 }

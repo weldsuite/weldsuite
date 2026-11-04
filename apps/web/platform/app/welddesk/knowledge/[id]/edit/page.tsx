@@ -3,7 +3,7 @@ import { useParams } from '@/lib/router';
 import { useArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { ArticleEditor } from "../article-editor";
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useRedirectWhenMissing } from '@/hooks/use-redirect-when-missing';
 
 export default function ArticleEditPage() {

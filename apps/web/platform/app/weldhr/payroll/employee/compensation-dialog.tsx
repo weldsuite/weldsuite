@@ -12,8 +12,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrCompensationSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useCreateHrCompensation } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { NumberField, SelectField, SwitchField, TextField } from '../components/form-fields';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof createHrCompensationSchema>;
 type Parsed = z.output<typeof createHrCompensationSchema>;

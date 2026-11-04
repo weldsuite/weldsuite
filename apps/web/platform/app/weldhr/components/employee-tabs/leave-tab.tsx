@@ -10,8 +10,10 @@ import type { HrLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrEmployee, useHrLeaveBalances, useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
 import { LeaveRequestDialog } from '../../leave/components/request-dialog';
 import { LeaveReviewDialog } from '../../leave/components/review-dialog';
-import { EmptyText, SectionCard } from '../page-kit';
-import { ErrorBanner, StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate, todayIso } from '../shared';
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 

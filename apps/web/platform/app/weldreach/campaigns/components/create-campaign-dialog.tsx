@@ -21,7 +21,8 @@ import {
   type CreateReachCampaignInput,
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useCreateReachCampaign } from '@/hooks/queries/use-reach-campaign-queries';
-import { ErrorBanner, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function CreateCampaignDialog({
   onClose,

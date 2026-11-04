@@ -40,12 +40,7 @@ import {
   useReachProspectLists,
 } from '@/hooks/queries/use-reach-prospect-queries';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  ErrorBanner,
-  Notice,
-  errorMessage,
-  withoutTrailingPeriod,
-} from '@/app/weldreach/components/engage/kit';
+import { errorMessage, withoutTrailingPeriod } from '@/app/weldreach/components/engage/kit';
 import { parseCsv, type ParsedCsv } from '../../lib/csv';
 import {
   CUSTOM_FIELDS_MAX,
@@ -60,6 +55,8 @@ import {
   type ProspectField,
 } from '../../lib/import-mapping';
 import { ImportReportView } from './import-report';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_ROWS = 50_000;
@@ -286,7 +283,7 @@ export function CsvImport({
             }}
           />
         </label>
-        <Notice>{t('reachEngage.import.b2bNote')}</Notice>
+        <InfoBanner variant="neutral">{t('reachEngage.import.b2bNote')}</InfoBanner>
       </div>
     );
   }
@@ -392,16 +389,16 @@ export function CsvImport({
           )}
         </ul>
         {stats.consumer > 0 && (
-          <Notice tone="warning">
+          <InfoBanner variant="warning">
             {t('reachEngage.import.csv.checkConsumer', { count: format.number(stats.consumer) })}
-          </Notice>
+          </InfoBanner>
         )}
         {stats.role > 0 && (
-          <Notice tone="warning">
+          <InfoBanner variant="warning">
             {t('reachEngage.import.csv.checkRole', { count: format.number(stats.role) })}
-          </Notice>
+          </InfoBanner>
         )}
-        <Notice>{t('reachEngage.import.b2bNote')}</Notice>
+        <InfoBanner variant="neutral">{t('reachEngage.import.b2bNote')}</InfoBanner>
 
         {previewRows.length > 0 && (
           <div className="overflow-x-auto rounded-md border">

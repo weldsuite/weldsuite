@@ -17,7 +17,8 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrEmployeeSensitive } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrEmployeeSensitive, useUpdateHrEmployeeSensitive } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
+import { errorMessage, formatDate } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();

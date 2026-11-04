@@ -2,8 +2,8 @@
 import * as React from 'react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
-import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
-import { isKnownLucideIcon, LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { WeldAgentIcon } from '@weldsuite/ui/components/weldagent-icon';
+import { isKnownLucideIcon, LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { getTranslations } from '@/lib/i18n';
 import { useCan } from '@weldsuite/permissions/react';
 

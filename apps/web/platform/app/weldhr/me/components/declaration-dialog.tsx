@@ -16,8 +16,9 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { HR_DECLARATION_CURRENCIES, hrDeclarationCategorySchema } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useMyHrCreateDeclaration } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { RECEIPT_ACCEPT, parseAmount, receiptProblem } from '../../declarations/components/receipt-field';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildSchema(t: (path: string) => string) {
   return z.object({

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Home, MessageSquare, Plus, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { RenameDialog } from '@/app/weldcrm/components/rename-dialog';
 import { useSearchParams, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';

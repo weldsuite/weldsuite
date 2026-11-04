@@ -15,8 +15,8 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import type { MailSubscription } from '@weldsuite/app-api-client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { interpolate, useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';

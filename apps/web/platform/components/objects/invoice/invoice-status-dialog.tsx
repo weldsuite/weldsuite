@@ -1,4 +1,4 @@
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import type { InvoiceStatusDialog } from './use-invoice-workflow';

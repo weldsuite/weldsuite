@@ -3,7 +3,7 @@ import React from 'react';
 import { useParams, useRouter } from '@/lib/router';
 import ConversationDetailClient from '../../all/[conversationId]/conversation-detail-client';
 import { useConversation, useConversationMessages } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function SlackConversationPage() {
   const params = useParams();

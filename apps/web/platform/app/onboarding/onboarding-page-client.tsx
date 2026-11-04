@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth, useUser, useOrganizationList } from '@/lib/auth';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { track } from '@/lib/analytics';
 import { workspacePath } from '@/lib/workspace-url';
 import {

@@ -30,7 +30,7 @@ vi.mock('@/lib/router', () => ({
   ),
 }));
 
-vi.mock('@/components/page-loader', () => ({ PageLoader: () => <div data-testid="page-loader" /> }));
+vi.mock('@weldsuite/ui/components/page-loader', () => ({ PageLoader: () => <div data-testid="page-loader" /> }));
 vi.mock('@/components/entity-list', () => ({
   EmptyStateIllustration: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));

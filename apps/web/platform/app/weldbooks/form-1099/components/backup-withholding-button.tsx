@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useUpdateAccountingCustomer } from '@/hooks/queries/use-accounting-queries';
 import { invalidateForm1099Review } from '@/hooks/queries/use-weldbooks-1099-queries';
 import { useI18n } from '@/lib/i18n/provider';

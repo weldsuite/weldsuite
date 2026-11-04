@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { FieldDefinitionDialog } from '@/app/settings/custom-fields/field-definition-dialog';

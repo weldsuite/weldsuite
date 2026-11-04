@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { useSetHrPayrollPaymentDetails } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { SectionCard } from '../../components/page-kit';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { errorMessage } from '../../components/shared';
 import { PaymentDetailsForm } from '../components/payment-details-form';
 import { PaymentDetailsView } from '../components/payment-details-view';

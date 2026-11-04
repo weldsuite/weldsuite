@@ -243,6 +243,8 @@ export function TreeExpander({ hasChildren = false, className }: Readonly<TreeEx
 
   return (
     <button
+      type="button"
+      aria-expanded={isExpanded}
       onClick={(e) => {
         e.stopPropagation();
         treeContext.toggleExpanded(nodeId);

@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {

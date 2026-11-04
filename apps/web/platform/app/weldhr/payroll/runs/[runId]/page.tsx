@@ -13,8 +13,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrPayRunDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useApproveHrPayRun,
   useCalculateHrPayRun,
@@ -27,8 +27,8 @@ import {
   usePostHrPayRunJournal,
   useSetHrPayRunEmployee,
 } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { DetailHeader, DetailPage, KpiCard, KpiGrid, SectionCard, useHrBreadcrumbs } from '../../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate, formatDateTime } from '../../../components/shared';
+import { useHrBreadcrumbs } from '../../../components/page-kit';
+import { errorMessage, formatDate, formatDateTime } from '../../../components/shared';
 import { EditRunDialog, MarkPaidDialog } from '../../components/run-dialogs';
 import { RunEmployeesTable } from '../../components/run-employees-table';
 import { RunInputsSheet } from '../../components/run-inputs-sheet';
@@ -36,6 +36,10 @@ import { RunStepper } from '../../components/run-stepper';
 import { PayslipSheet } from '../../components/payslip-sheet';
 import { InfoLine, IssueList, PayrollGate, RunStatusBadge } from '../../components/payroll-ui';
 import { formatCents, periodRange } from '../../lib/format';
+import { DetailHeader, DetailPage } from '@weldsuite/ui/components/page-layout';
+import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export default function WeldHrPayrollRunPage() {
   return (

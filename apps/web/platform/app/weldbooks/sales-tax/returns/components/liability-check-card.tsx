@@ -15,9 +15,9 @@ import { useLiabilityCheck } from '@/hooks/queries/use-weldbooks-sales-tax-cente
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { LiabilityCheck, TaxReturnDetail } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { DocumentLink } from '../../shared/document-link';
-import { Notice } from '../../shared/notice';
 import { ErrorState, RowsSkeleton } from '../../shared/query-states';
 import { fill, toCents } from '../../shared/text';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 /** What the liability check found: the ledger balance against what the tax ledger says is owed. */
 export function LiabilityCheckResult({ check }: Readonly<{ check: LiabilityCheck }>) {
@@ -38,18 +38,18 @@ export function LiabilityCheckResult({ check }: Readonly<{ check: LiabilityCheck
   return (
     <>
       {tied ? (
-        <Notice tone="success" data-testid="liability-tied">
+        <InfoBanner variant="success" data-testid="liability-tied">
           <p>{tl.tied}</p>
-        </Notice>
+        </InfoBanner>
       ) : (
-        <Notice tone="warning" data-testid="liability-differs">
+        <InfoBanner variant="warning" data-testid="liability-differs">
           <p>{fill(tl.differs, { amount: formatMoney(Math.abs(check.difference)) })}</p>
-        </Notice>
+        </InfoBanner>
       )}
       {check.sharedAccount ? (
-        <Notice tone="info">
+        <InfoBanner>
           <p>{tl.sharedAccount}</p>
-        </Notice>
+        </InfoBanner>
       ) : null}
 
       <dl className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">

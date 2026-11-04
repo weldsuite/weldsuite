@@ -15,7 +15,7 @@ import {
 } from '@/hooks/queries/use-notes-queries';
 import { toast } from 'sonner';
 import { RecordSelectionModal, type SelectableRecord, type RecordKind } from '@/components/objects/_shared/record-selection-modal';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useUser } from '@/lib/auth';

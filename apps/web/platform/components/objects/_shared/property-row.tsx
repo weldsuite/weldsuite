@@ -43,7 +43,7 @@ import {
 } from '@weldsuite/ui/components/command';
 import { MemberSelect } from '@/components/team/member-select';
 import { useObjectPanel } from '@/components/object-panel';
-import { PickerCheck } from '@/components/shared/picker-menu';
+import { PickerCheck } from '@weldsuite/ui/components/picker-menu';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import { buildTagOptions, type CreateTagOption, type TagOption } from './known-tags';
 

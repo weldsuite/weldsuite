@@ -23,8 +23,9 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfLeave } from '@weldsuite/app-api-client/domains/weldhr';
 import { useMyHrRequestLeave } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { ColorDot } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildSchema(t: (path: string) => string) {
   const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, t('weldhr.me.leave.form.errors.date'));

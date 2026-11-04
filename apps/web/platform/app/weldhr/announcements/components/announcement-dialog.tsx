@@ -22,7 +22,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { createHrAnnouncementSchema, type CreateHrAnnouncementInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { HrAnnouncement } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrAnnouncement, useHrDepartments, useUpdateHrAnnouncement } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function AnnouncementDialog({ announcement, onClose }: Readonly<{ announcement?: HrAnnouncement; onClose: () => void }>) {
   const t = useTranslations();

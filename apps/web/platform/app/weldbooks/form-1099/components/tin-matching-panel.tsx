@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weld
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useApplyTinMatchingResults, useTinMatchingFile } from '@/hooks/queries/use-weldbooks-1099-queries';
 import type { TinMatchingFileResult, TinMatchingResultsSummary } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';

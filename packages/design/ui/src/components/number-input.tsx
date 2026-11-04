@@ -1,7 +1,7 @@
 import { forwardRef, type ComponentProps } from 'react';
 import { Input } from '@weldsuite/ui/components/input';
 
-interface NumberInputProps extends Omit<ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'> {
+export interface NumberInputProps extends Omit<ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'> {
   value: number | undefined;
   /** `undefined` while the field is empty, so a form can report it as missing instead of 0 or NaN. */
   onValueChange: (value: number | undefined) => void;

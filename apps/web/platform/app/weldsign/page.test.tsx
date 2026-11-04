@@ -21,7 +21,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.canCreate }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: state.push }) }));
-vi.mock('@/components/confirm-dialog', () => ({ ConfirmDialog: () => null }));
+vi.mock('@weldsuite/ui/components/confirm-dialog', () => ({ ConfirmDialog: () => null }));
 vi.mock('@/hooks/queries/use-weldsign-queries', () => ({
   useSignEnvelopes: (folder: string) => {
     state.folders.push(folder);

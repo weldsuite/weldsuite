@@ -17,7 +17,8 @@ import { PayslipsCard } from '../../payroll/employee/payslips-card';
 import { ProfileCard } from '../../payroll/employee/profile-card';
 import { ProfileDialog } from '../../payroll/employee/profile-dialog';
 import { emptyIcon } from '../page-kit';
-import { ErrorBanner, errorMessage } from '../shared';
+import { errorMessage } from '../shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function EmployeePayrollTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();

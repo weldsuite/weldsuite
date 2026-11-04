@@ -17,8 +17,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayDateRule, HrPayFrequency, HrPaySchedule, HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrPayScheduleSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useCreateHrPaySchedule, useUpdateHrPaySchedule } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { NumberField, SelectField, SwitchField, TextField } from './form-fields';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /** The create schema plus `isActive`, which only the edit form uses (the update schema has it, the create schema does not). */
 const scheduleFormSchema = createHrPayScheduleSchema.extend({ isActive: z.boolean().optional() });

@@ -20,15 +20,16 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { componentDef, componentsFor } from '@weldsuite/payroll-domain/components';
 import type { HrPayRunDetail, HrPayRunInput } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrPayRunInputSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useCreateHrPayRunInput,
   useDeleteHrPayRunInput,
   useHrPayRunInputs,
   useUpdateHrPayRunInput,
 } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { EmptyText } from '../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { errorMessage, formatDate } from '../../components/shared';
 import { formatDecimal, formatQuantity } from '../lib/format';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
 import { NumberField, SelectField, TextField } from './form-fields';

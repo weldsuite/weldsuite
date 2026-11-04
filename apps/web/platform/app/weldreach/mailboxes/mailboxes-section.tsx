@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { ReachMailbox } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDeleteReachMailbox,
   usePauseReachMailbox,
@@ -26,7 +26,9 @@ import {
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { useReachFormat } from '@/lib/reach/format';
 import { MailboxStatusBadge, WarmupSummary } from '../components/status';
-import { EmptyPanel, ErrorPanel, SectionCard } from '../components/page-kit';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { warmupCopyParams } from '../lib/warmup';
 import { CreateMailboxDialog, EditMailboxDialog } from './mailbox-dialogs';
 
@@ -97,9 +99,9 @@ export function MailboxesSection() {
           {t('reach.common.loading')}
         </div>
       )}
-      {mailboxes.isError && <ErrorPanel onRetry={() => void mailboxes.refetch()} />}
+      {mailboxes.isError && <ErrorState onRetry={() => void mailboxes.refetch()} />}
       {mailboxes.data && visible.length === 0 && (
-        <EmptyPanel
+        <EmptyState
           icon={Mailbox}
           title={t('reach.mailboxes.list.empty')}
           description={hasConnectedDomain ? t('reach.mailboxes.list.emptyHint') : t('reach.mailboxes.list.emptyNoDomain')}

@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
 import { useCan } from '@weldsuite/permissions/react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { getTranslations } from '@/lib/i18n';
 import { usePathname, useRouter } from '@/lib/router';
 import {

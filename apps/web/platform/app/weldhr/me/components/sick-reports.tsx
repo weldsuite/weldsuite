@@ -11,8 +11,10 @@ import { useMyHrAbsences } from '@/hooks/queries/use-weldhr-queries';
 import { AbsenceDialog } from '../../absenteeism/components/absence-dialog';
 import { RecoverDialog } from '../../absenteeism/components/recover-dialog';
 import { formatDays } from '../../absenteeism/components/shared';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { TabLoading } from './shared';
 
 /** Whether you are reported sick right now, with the button to report sick or recovered. */

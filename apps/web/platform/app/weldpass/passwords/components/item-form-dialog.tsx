@@ -42,7 +42,7 @@ import {
   useUpdateWeldPassItem,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { cn } from '@/lib/utils';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import {
   createItemFormSchema,
   emptyItemForm,
@@ -53,6 +53,7 @@ import {
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { ItemTypeIcon } from './item-type-icon';
 import { PasswordGenerator, StrengthMeter } from './password-generator';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const TYPES: WeldPassItemType[] = ['login', 'note', 'card'];
 

@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useRunDepreciation } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { DepreciationRunResult } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';

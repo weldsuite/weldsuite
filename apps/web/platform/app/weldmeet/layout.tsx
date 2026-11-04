@@ -1,6 +1,6 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { WeldMeetLayoutClient } from './components/weldmeet-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
 export default function WeldMeetLayout({ children }: Readonly<{ children: React.ReactNode }>) {

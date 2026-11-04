@@ -11,11 +11,12 @@ import type {
   HrPayrollIssue,
   HrPayslipStatus,
 } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { cn } from '@/lib/utils';
-import { DetailPage, emptyIcon } from '../../components/page-kit';
-import { ErrorBanner } from '../../components/shared';
+import { emptyIcon } from '../../components/page-kit';
+import { DetailPage } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
 
 // ---------------------------------------------------------------------------

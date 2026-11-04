@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { useCompleteWeldAdsFacebookOAuth } from '@/hooks/queries/use-weldads-queries';
 

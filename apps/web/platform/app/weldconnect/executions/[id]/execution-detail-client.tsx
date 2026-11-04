@@ -52,7 +52,7 @@ import {
 } from '../execution-utils';
 import { useNow } from '../use-now';
 import { ApprovalPanel } from './approval-panel';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 
 export interface ExecutionStepView {
   id: string;

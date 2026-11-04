@@ -3,7 +3,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { Landmark } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';

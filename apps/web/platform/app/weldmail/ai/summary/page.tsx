@@ -1,7 +1,7 @@
 
 import { useEffect } from 'react';
 import { SummaryClient } from './summary-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInboxSummary } from '@/hooks/queries/use-mail-queries';
 
 const categoryColors: Record<string, string> = {

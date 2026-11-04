@@ -4,7 +4,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter, useParams } from '@/lib/router';
 import { useBlocker } from '@tanstack/react-router';
 import { Loader2, ChevronLeft } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';

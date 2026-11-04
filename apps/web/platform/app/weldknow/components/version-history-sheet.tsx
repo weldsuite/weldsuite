@@ -12,7 +12,7 @@ import {
   SheetTitle,
 } from '@weldsuite/ui/components/sheet';
 import { getTranslations } from '@/lib/i18n';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useCreateKnowledgePageVersion,
   useKnowledgePageVersions,

@@ -11,7 +11,8 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { reachReplySchema } from '@weldsuite/app-api-client/schemas/reach';
 import { useReplyToReachThread } from '@/hooks/queries/use-reach-inbox-queries';
-import { ErrorBanner, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type ReplyValues = z.infer<typeof reachReplySchema>;
 

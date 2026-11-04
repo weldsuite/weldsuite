@@ -15,7 +15,7 @@ import type {
   WeldPassPasswordIssue,
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   PanelEntityList,
   type ColumnDef,
@@ -26,10 +26,11 @@ import {
   useWeldPassVaults,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { formatDateTime } from '@/lib/utils';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { emptyIcon, usePassBreadcrumbs } from '../../components/page-kit';
 import { PasswordsGate } from '../components/passwords-gate';
 import { usePasswordsT } from '../lib/use-passwords-t';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const ISSUE_VARIANT: Record<WeldPassPasswordIssue, 'destructive' | 'warning' | 'secondary'> = {
   weak: 'destructive',

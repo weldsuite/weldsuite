@@ -15,7 +15,7 @@ import {
   type ReachMailboxStatus,
   type ReachWarmupBlocker,
 } from '@weldsuite/app-api-client/schemas/reach';
-import { SoftBadge, type SoftTone } from '@/components/shared/soft-badge';
+import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { useReachFormat } from '@/lib/reach/format';
 import { cn } from '@/lib/utils';
 import {

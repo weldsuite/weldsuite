@@ -32,7 +32,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TabListRow } from '@/components/objects/_shared/tab-list-row';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   EntityList,

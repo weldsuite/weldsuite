@@ -11,8 +11,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayRunDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { markHrPayRunPaidSchema, updateHrPayRunSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useMarkHrPayRunPaid, useUpdateHrPayRun } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { TextField } from './form-fields';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type EditValues = z.input<typeof updateHrPayRunSchema>;
 type PaidValues = z.input<typeof markHrPayRunPaidSchema>;

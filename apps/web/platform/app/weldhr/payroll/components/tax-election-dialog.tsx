@@ -26,11 +26,12 @@ import {
   hrUsW4ElectionSchema,
   type CreateHrTaxElectionInput,
 } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { currentYear } from '../lib/format';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
 import { NumberField, SelectField, SwitchField, TextField } from './form-fields';
 import { InfoLine } from './payroll-ui';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 const signature = z.string().trim().min(1, 'Required').max(255);

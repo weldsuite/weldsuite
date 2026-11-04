@@ -7,7 +7,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type { MailSignatureRow } from '@weldsuite/app-api-client/domains/mail-signatures';
 import { EmptyStateIllustration } from '@/components/entity-list';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useDeleteMailSignature,
   useMailAccounts,

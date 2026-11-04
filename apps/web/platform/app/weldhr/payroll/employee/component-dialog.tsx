@@ -17,9 +17,10 @@ import { componentDef, componentsFor, type ComponentParamDef } from '@weldsuite/
 import type { HrPayComponent, HrPayrollCountry } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrPayComponentSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useCreateHrPayComponent, useUpdateHrPayComponent } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { errorMessage, todayIso } from '../../components/shared';
 import { NumberField, SelectField, SwitchField, TextField } from '../components/form-fields';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof createHrPayComponentSchema>;
 type Parsed = z.output<typeof createHrPayComponentSchema>;

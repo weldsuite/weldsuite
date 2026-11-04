@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client';
 import { useParams, useRouter } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { LiveSheet } from '@/app/weldsheets/sheet/live-sheet';

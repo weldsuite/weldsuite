@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ProfileSection, type ProfileData } from '@/components/settings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';

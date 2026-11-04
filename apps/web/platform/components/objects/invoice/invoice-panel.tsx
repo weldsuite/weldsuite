@@ -22,7 +22,7 @@ import {
   useObjectPanelShell,
   type ObjectPanelComponentProps,
 } from '@/components/object-panel';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';

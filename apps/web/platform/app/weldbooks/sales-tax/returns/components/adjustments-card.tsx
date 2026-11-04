@@ -23,7 +23,6 @@ import {
   type ReturnAdjustment,
   type TaxReturnDetail,
 } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { Notice } from '../../shared/notice';
 import { fill } from '../../shared/text';
 import {
   draftsFromAdjustments,
@@ -37,6 +36,7 @@ import {
   unusualSign,
   type AdjustmentDraft,
 } from '../return-model';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const DEFAULT_ACCOUNT = 'default';
 
@@ -312,12 +312,12 @@ export function AdjustmentsCard({ ret, canEdit }: Readonly<AdjustmentsCardProps>
                 ))}
               </ul>
             )}
-            {ret.status === 'filed' || ret.status === 'paid' ? <Notice tone="info">{ta.locked}</Notice> : null}
+            {ret.status === 'filed' || ret.status === 'paid' ? <InfoBanner>{ta.locked}</InfoBanner> : null}
           </>
         )}
 
         <TotalsPanel {...totals} />
-        {totals.totalDue < 0 ? <Notice tone="warning">{ta.creditNotice}</Notice> : null}
+        {totals.totalDue < 0 ? <InfoBanner variant="warning">{ta.creditNotice}</InfoBanner> : null}
       </CardContent>
     </Card>
   );

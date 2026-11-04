@@ -51,7 +51,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from './task-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { CrmTasksPipeline } from './crm-tasks-pipeline';
 import { useTranslations } from '@weldsuite/i18n/client';

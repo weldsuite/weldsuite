@@ -6,7 +6,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Loader2, Lock, CheckCircle, KeyRound, ChevronLeft } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { getClerkErrorMessage } from '../utils';
 import { ClerkOnly } from '@/lib/auth';

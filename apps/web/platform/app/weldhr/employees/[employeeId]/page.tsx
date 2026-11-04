@@ -13,8 +13,8 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useDeleteHrEmployee, useHrEmployee, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
@@ -22,11 +22,16 @@ import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { EmployeeAttendanceTab } from '../../components/employee-tabs/attendance-tab';
 import { EmployeeLeaveTab } from '../../components/employee-tabs/leave-tab';
 import { EmployeePayrollTab } from '../../components/employee-tabs/payroll-tab';
-import { DetailHeader, DetailPage, DetailTabs, FieldGrid, SectionCard, EmptyText, useHrBreadcrumbs } from '../../components/page-kit';
-import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
+import { DetailTabs, useHrBreadcrumbs } from '../../components/page-kit';
+import { EmployeeAvatar, StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { EditEmployeeDialog } from '../components/edit-employee-dialog';
 import { SensitivePanel } from '../components/sensitive-panel';
 import { EmployeeWorkspaceMemberCard } from '../components/workspace-member-card';
+import { DetailHeader, DetailPage } from '@weldsuite/ui/components/page-layout';
+import { FieldGrid } from '@weldsuite/ui/components/field-grid';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type TabId = 'overview' | 'personal' | 'attendance' | 'leave' | 'payroll';
 

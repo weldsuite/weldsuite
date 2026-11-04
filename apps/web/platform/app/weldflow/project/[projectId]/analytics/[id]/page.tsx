@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { ProjectReportViewClient } from './_components/project-report-view-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function ProjectAnalyticsReportPage() {

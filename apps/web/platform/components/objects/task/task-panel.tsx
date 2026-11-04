@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useAuth } from '@/lib/auth';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';

@@ -18,13 +18,13 @@ import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { AppAccessStatus, ReachAccessSummary } from '@weldsuite/app-api-client/schemas/reach';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link } from '@/lib/router';
 import { useAppAccessRequest } from '@/hooks/queries/use-app-access-queries';
 import { reachKeys, useReachAccess } from '@/hooks/queries/use-reach-queries';
 import { appAccessRequiredStatus, isAppAccessRequiredError } from '@/lib/reach/errors';
 import { useReachFormat } from '@/lib/reach/format';
-import { ErrorPanel } from './page-kit';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
 export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode }>) {
   const t = useTranslations();
@@ -53,7 +53,7 @@ export function ReachAccessBoundary({ children }: Readonly<{ children: ReactNode
   if (!access.data) {
     return (
       <div className="p-6">
-        <ErrorPanel message={t('reach.shell.accessError.description')} onRetry={() => void access.refetch()} />
+        <ErrorState message={t('reach.shell.accessError.description')} onRetry={() => void access.refetch()} />
       </div>
     );
   }

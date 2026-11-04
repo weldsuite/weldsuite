@@ -9,9 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import { componentDef } from '@weldsuite/payroll-domain/components';
 import type { HrPayComponent, HrPayrollEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useDeleteHrCompensation, useDeleteHrPayComponent } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { errorMessage, formatDate } from '../../components/shared';
 import { formatDecimal, formatPercent } from '../lib/format';
 import { usePayrollLabels } from '../lib/use-payroll-labels';

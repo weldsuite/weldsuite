@@ -9,8 +9,8 @@ import {
 } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { SlackSettingsClient } from './slack-settings-client';
 import { Globe, FileText } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';

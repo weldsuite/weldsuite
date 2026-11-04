@@ -69,7 +69,7 @@ vi.mock('../components/create-list-dialog', () => ({
     return null;
   },
 }));
-vi.mock('@/components/confirm-dialog', () => ({
+vi.mock('@weldsuite/ui/components/confirm-dialog', () => ({
   ConfirmDialog: ({
     open,
     description,

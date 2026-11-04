@@ -3,7 +3,7 @@ import { useSearchParams } from '@/lib/router';
 import { useHelpdeskContacts, type Customer } from '@/hooks/queries/use-helpdesk-queries';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { CustomersGrid } from './customers-grid';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 function toCustomer(contact: Helpdesk.Api.Contact): Customer {
   return {

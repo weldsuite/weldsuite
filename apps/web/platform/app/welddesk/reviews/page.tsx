@@ -2,7 +2,7 @@
 import { useSearchParams } from '@/lib/router';
 import { ReviewsClient } from './reviews-client';
 import { useHelpdeskReviews, type Review, type ApiReviewItem } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 const REVIEW_SOURCES: Review['source'][] = ['email', 'chat', 'website', 'social'];
 const REVIEW_STATUSES: Review['status'][] = ['pending', 'responded', 'resolved'];

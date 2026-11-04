@@ -4,6 +4,7 @@
  * lets the bundler ship icons one chunk at a time instead of pulling the
  * full ~1500-icon set whenever someone does `import * as LucideIcons`.
  */
+import type { ReactNode } from 'react';
 import { DynamicIcon as LucideDynamic } from 'lucide-react/dynamic';
 import dynamicIconImports from 'lucide-react/dynamicIconImports';
 import { Hash } from 'lucide-react';
@@ -15,16 +16,30 @@ function toKebab(name: string): string {
     .toLowerCase();
 }
 
+function lucideKey(name: string): string {
+  return (name.includes('-') ? name : toKebab(name)).toLowerCase();
+}
+
+/** True when `name` is a real Lucide icon (PascalCase or kebab-case). */
+export function isKnownLucideIcon(name: string): boolean {
+  return Object.hasOwn(dynamicIconImports, lucideKey(name));
+}
+
 export interface LucideDynamicIconProps {
+  /** A Lucide icon name, kebab-case (`shopping-cart`) or PascalCase (`ShoppingCart`). */
   name: string;
   className?: string;
   size?: number;
+  /** Rendered for an unknown icon name. Defaults to a `Hash` icon. */
+  fallback?: ReactNode;
 }
 
-export function LucideDynamicIcon({ name, className, size }: Readonly<LucideDynamicIconProps>) {
-  const kebab = name.includes('-') ? name : toKebab(name);
+export function LucideDynamicIcon({ name, className, size, fallback }: Readonly<LucideDynamicIconProps>) {
+  const kebab = lucideKey(name);
   // lucide's DynamicIcon logs an error for an unknown name, so an unknown name
-  // never reaches it: a Hash icon renders instead.
-  if (!Object.hasOwn(dynamicIconImports, kebab)) return <Hash className={className} />;
+  // never reaches it: the fallback (a Hash by default) renders instead.
+  if (!Object.hasOwn(dynamicIconImports, kebab)) {
+    return <>{fallback ?? <Hash className={className} />}</>;
+  }
   return <LucideDynamic name={kebab as never} className={className} size={size} />;
 }

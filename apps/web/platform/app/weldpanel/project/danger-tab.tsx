@@ -9,7 +9,7 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDeleteWeldPanelProject,
   useRotateWeldPanelToken,

@@ -5,8 +5,10 @@ import { Check, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfPerformance } from '@weldsuite/app-api-client/domains/weldhr';
 import { useMyHrPerformance } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatKpiValue } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate, formatKpiValue } from '../../components/shared';
 import { Meta, TabLoading } from './shared';
 
 type Kpi = HrSelfPerformance['kpis'][number];

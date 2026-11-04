@@ -1,7 +1,7 @@
 
 import { useAppAccess } from '@/hooks/use-app-access';
 import { ConnectLayoutClient } from './components/connect-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function ConnectLayout({

@@ -5,7 +5,7 @@ import { Download, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { downloadBlob } from '@/lib/weldbooks/download';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';

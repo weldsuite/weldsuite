@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import { useDeskWidget, useDeskWidgets, useCreateDeskWidget } from '@/hooks/queries/use-desk-queries';
 import { ChatWidgetClient, type ChatWidgetClientHandle } from './client-page';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';

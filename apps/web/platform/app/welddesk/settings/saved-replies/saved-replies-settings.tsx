@@ -23,7 +23,7 @@ import {
   useUpdateCannedResponse,
   useDeleteCannedResponse,
 } from '@/hooks/queries/use-helpdesk-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { SavedReplyEditor } from './saved-reply-editor';
 
 interface CannedResponseItem {

@@ -101,7 +101,7 @@ import type { GroupSettingsTarget } from '../components/group-settings-dialog';
 // Not lazy: ConfirmDialog is a thin wrapper over the shared Dialog primitives
 // that are already in this chunk, and a Suspense gap between "user clicks
 // Delete" and "confirmation appears" is exactly where a mis-click lands.
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useChatSections } from './use-chat-sections';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';

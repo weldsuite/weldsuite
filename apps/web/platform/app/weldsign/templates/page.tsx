@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import type { SignTemplateSummary } from '@weldsuite/app-api-client/schemas/weldsign';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';

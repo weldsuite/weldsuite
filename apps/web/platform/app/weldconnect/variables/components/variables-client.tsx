@@ -21,7 +21,7 @@ import {
   type FilterConfig,
   type ActiveFilter,
 } from '@/components/entity-list';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { VariableDialog } from './variable-dialog';
 import {
   ConnectListRow,

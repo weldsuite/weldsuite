@@ -11,7 +11,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/reach';
 import { validationKeys } from '@/app/weldreach/components/engage/badges';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import { FilterSelect, type FilterSelectOption } from '@/app/weldreach/components/engage/kit';
+import { FilterSelect, type FilterSelectOption } from '@weldsuite/ui/components/filter-select';
 
 const VALIDATIONS = reachProspectValidationSchema.options;
 

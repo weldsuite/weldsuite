@@ -33,7 +33,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import type { TranslationNamespaces } from '@/lib/i18n';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { UserAppConsentDialog } from '@/components/weldapps/user-app-consent-dialog';
 import {
   useUserApp,

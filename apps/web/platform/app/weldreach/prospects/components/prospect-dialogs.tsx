@@ -3,7 +3,7 @@
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ReachProspect, ReachProspectList } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDeleteReachList,
   useDeleteReachProspect,

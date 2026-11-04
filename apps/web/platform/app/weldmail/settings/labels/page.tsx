@@ -1,7 +1,7 @@
 
 import { LabelsClient } from './labels-client';
 import { useMailAccounts, useMailLabels } from '@/hooks/queries/use-mail-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
 import { isSystemLabel } from '../../lib/label-config';

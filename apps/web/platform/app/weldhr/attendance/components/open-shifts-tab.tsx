@@ -13,7 +13,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrOpenShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { formatClockRange, useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { useCancelHrOpenShift, useHrOpenShifts } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';

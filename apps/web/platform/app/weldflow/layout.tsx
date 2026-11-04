@@ -2,7 +2,7 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { ProjectsLayoutClient } from './components/projects-layout-client';
 import { WorkspaceProvider } from '@/contexts/workspace-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function ProjectsLayout({

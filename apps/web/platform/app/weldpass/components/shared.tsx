@@ -1,60 +1,10 @@
 /** Small pieces shared across the WeldPass pages. */
 
-import type { ReactNode } from 'react';
-import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { WeldPassAutoSyncOutcome } from '@weldsuite/app-api-client/domains/weldpass';
-
-export function ErrorBanner({
-  error,
-  onDismiss,
-}: Readonly<{
-  error: string | null;
-  onDismiss?: () => void;
-}>) {
-  const t = useTranslations();
-  if (!error) return null;
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span className="flex-1 break-words">{error}</span>
-      {onDismiss && (
-        <button onClick={onDismiss} aria-label={t('weldpass.dismiss')} className="shrink-0">
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-export function InlineSpinner() {
-  return (
-    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-    </div>
-  );
-}
-
-export function EmptyState({
-  title,
-  description,
-  action,
-}: Readonly<{
-  title: string;
-  description?: string;
-  action?: ReactNode;
-}>) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      {description && <p className="max-w-md text-sm text-muted-foreground">{description}</p>}
-      {action && <div className="pt-2">{action}</div>}
-    </div>
-  );
-}
 
 export function statusTone(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'success') return 'default';

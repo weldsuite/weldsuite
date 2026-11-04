@@ -24,8 +24,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import type { ReachCampaignDetail } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import {
   useLaunchReachCampaign,
@@ -35,20 +35,15 @@ import {
 } from '@/hooks/queries/use-reach-campaign-queries';
 import { CampaignStatusBadge } from '@/app/weldreach/components/engage/badges';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  DetailHeader,
-  DetailTabs,
-  ErrorBanner,
-  Notice,
-  TabBody,
-  errorMessage,
-  useReachBreadcrumbs,
-} from '@/app/weldreach/components/engage/kit';
+import { DetailTabs, errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
 import { MailboxesTab } from './components/mailboxes-tab';
 import { ProspectsTab } from './components/prospects-tab';
 import { SequenceTab } from './components/sequence-tab';
 import { SettingsTab } from './components/settings-tab';
 import { StatsTab } from './components/stats-tab';
+import { DetailHeader, TabBody } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const TAB_IDS = ['sequence', 'prospects', 'mailboxes', 'settings', 'stats'] as const;
 type TabId = (typeof TAB_IDS)[number];
@@ -198,6 +193,7 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DetailHeader
+        className="px-6 pt-6"
         title={campaign.name}
         badges={<CampaignStatusBadge status={campaign.status} />}
         subtitle={t('reachEngage.campaign.summary', {
@@ -213,11 +209,11 @@ function CampaignDetail({ campaign }: Readonly<{ campaign: ReachCampaignDetail }
         <div className="space-y-2 px-6 pt-4">
           <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
           {showPausedReason && (
-            <Notice tone="warning" title={t('reachEngage.campaign.pausedTitle')}>
+            <InfoBanner variant="warning" title={t('reachEngage.campaign.pausedTitle')}>
               {pausedReasonKey
                 ? t(pausedReasonKey)
                 : t('reachEngage.campaign.pausedOther', { reason: campaign.pausedReason ?? '' })}
-            </Notice>
+            </InfoBanner>
           )}
         </div>
       )}

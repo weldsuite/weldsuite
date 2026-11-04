@@ -4,7 +4,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { usePayrollConnections } from '@/hooks/queries/use-weldbooks-assets-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { GustoConnectForm } from '../components/gusto-connect-form';

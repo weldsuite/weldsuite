@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { readTextFile } from '@/lib/read-text-file';

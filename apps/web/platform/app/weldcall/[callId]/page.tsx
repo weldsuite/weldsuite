@@ -1,5 +1,5 @@
 import { useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useVoipCall, useVoipCallTranscription } from '@/hooks/queries/use-voip-calls-queries';
 import { CallDetailClient } from './call-detail-client';
 import { AlertTriangle } from 'lucide-react';

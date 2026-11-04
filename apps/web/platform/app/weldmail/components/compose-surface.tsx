@@ -69,7 +69,7 @@ import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
-import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
+import { WeldAgentIcon } from '@weldsuite/ui/components/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/app/weldmail/components/compose-recipients';
 import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';

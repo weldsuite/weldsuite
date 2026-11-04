@@ -6,7 +6,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Plus, Trash2, Building2 } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   Dialog,
   DialogContent,

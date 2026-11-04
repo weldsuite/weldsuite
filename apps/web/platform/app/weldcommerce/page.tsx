@@ -1,5 +1,3 @@
-import { Link } from '@/lib/router';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Package, FolderTree, ShoppingCart, Building2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -9,6 +7,7 @@ import {
 } from '@/hooks/queries/use-commerce-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { usePeople } from '@/components/objects/person/use-person-data';
+import { KpiCardLink } from '@/components/kpi-card-link';
 
 /**
  * Counts come from each list endpoint's `pagination.totalCount` — the
@@ -47,36 +46,6 @@ function useCounts() {
   };
 }
 
-function StatCard({
-  href,
-  label,
-  count,
-  isLoading,
-  icon: Icon,
-}: Readonly<{
-  href: string;
-  label: string;
-  count: number | undefined;
-  isLoading: boolean;
-  icon: typeof Package;
-}>) {
-  return (
-    <Link href={href} className="block">
-      <Card className="transition-colors hover:border-primary/50">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-semibold">
-            {isLoading ? <span className="text-muted-foreground">—</span> : count ?? 0}
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
 export default function WeldCommerceOverviewPage() {
   const t = getTranslations('commerce').module;
   const counts = useCounts();
@@ -89,32 +58,32 @@ export default function WeldCommerceOverviewPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
+        <KpiCardLink
           href="/weldcommerce/products"
           label={t.tabs.products}
-          count={counts.products}
-          isLoading={counts.isLoading}
+          value={counts.products ?? 0}
+          loading={counts.isLoading}
           icon={Package}
         />
-        <StatCard
+        <KpiCardLink
           href="/weldcommerce/categories"
           label={t.tabs.categories}
-          count={counts.categories}
-          isLoading={counts.isLoading}
+          value={counts.categories ?? 0}
+          loading={counts.isLoading}
           icon={FolderTree}
         />
-        <StatCard
+        <KpiCardLink
           href="/weldcommerce/orders"
           label={t.tabs.orders}
-          count={counts.orders}
-          isLoading={counts.isLoading}
+          value={counts.orders ?? 0}
+          loading={counts.isLoading}
           icon={ShoppingCart}
         />
-        <StatCard
+        <KpiCardLink
           href="/weldcommerce/customers"
           label={t.tabs.customers}
-          count={counts.customers}
-          isLoading={counts.isLoading}
+          value={counts.customers ?? 0}
+          loading={counts.isLoading}
           icon={Building2}
         />
       </div>

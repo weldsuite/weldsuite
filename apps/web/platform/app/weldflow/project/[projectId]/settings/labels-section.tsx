@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -39,7 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import { coloredSquareColors } from '@/components/app-sidebar-layout';
 import { labelsApi } from '@/app/weldflow/lib/api-client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 
 interface ProjectLabel {

@@ -2,10 +2,11 @@
 
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { HrTabsPage, TabBody, useHrBreadcrumbs } from '../components/page-kit';
+import { HrTabsPage, useHrBreadcrumbs } from '../components/page-kit';
 import { BalancesTab } from './components/balances-tab';
 import { CalendarTab } from './components/calendar-tab';
 import { RequestsTab } from './components/requests-tab';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
 
 type Tab = 'requests' | 'calendar' | 'balances';
 

@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { FeedbackClient, type FeatureRequestWithVote, type FeedbackStats } from './feedback-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 

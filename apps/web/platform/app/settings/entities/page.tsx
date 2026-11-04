@@ -10,7 +10,7 @@ import { Banknote, Building2, Lock } from 'lucide-react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { useI18n } from '@/lib/i18n/provider';

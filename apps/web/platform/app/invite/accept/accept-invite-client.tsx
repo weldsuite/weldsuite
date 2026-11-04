@@ -6,7 +6,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Loader2, CheckCircle, XCircle, Clock, UserCheck } from 'lucide-react';
 import { useInvitationDetails, useAcceptInvitation } from '@/hooks/queries/use-settings-queries';
 import type { InvitationDetails, AcceptInvitationResult } from '@/lib/api/legacy-types';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { workspacePath } from '@/lib/workspace-url';
 

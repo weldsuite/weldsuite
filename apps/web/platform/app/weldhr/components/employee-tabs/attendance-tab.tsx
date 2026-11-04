@@ -8,17 +8,11 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrAttendance, useHrAttendanceSummary, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
 import { AttendanceRecordDialog } from '../../attendance/components/record-dialog';
-import { EmptyText, FieldGrid, SectionCard } from '../page-kit';
-import {
-  ErrorBanner,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-  formatMinutes,
-  useFormatTime,
-  shiftIsoDate,
-  todayIso,
-} from '../shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { FieldGrid } from '@weldsuite/ui/components/field-grid';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate, formatMinutes, useFormatTime, shiftIsoDate, todayIso } from '../shared';
 
 export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();

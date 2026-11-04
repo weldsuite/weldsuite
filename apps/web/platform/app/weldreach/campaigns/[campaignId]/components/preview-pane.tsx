@@ -14,7 +14,8 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { useReachStepPreview } from '@/hooks/queries/use-reach-campaign-queries';
 import type { ReachRenderedPreview } from '@weldsuite/app-api-client/schemas/reach';
 import { personName } from '@/app/weldreach/components/engage/format';
-import { Notice, SectionCard } from '@/app/weldreach/components/engage/kit';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const SAMPLE_VALUE = '__sample__';
 const DEBOUNCE_MS = 500;
@@ -46,18 +47,18 @@ function PreviewBody({
       </div>
     );
   }
-  if (failed) return <Notice tone="warning">{t('reachEngage.preview.failed')}</Notice>;
+  if (failed) return <InfoBanner variant="warning">{t('reachEngage.preview.failed')}</InfoBanner>;
 
   return (
     <>
       {rendered && rendered.missingVariables.length > 0 && (
-        <Notice tone="warning" title={t('reachEngage.preview.missingTitle')}>
+        <InfoBanner variant="warning" title={t('reachEngage.preview.missingTitle')}>
           <p>
             {t('reachEngage.preview.missingDescription', {
               names: rendered.missingVariables.map((name) => `{{${name}}}`).join(', '),
             })}
           </p>
-        </Notice>
+        </InfoBanner>
       )}
 
       <div className="space-y-3 rounded-md border bg-muted/20 p-4">

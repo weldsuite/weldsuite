@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSignEnvelope } from '@/hooks/queries/use-weldsign-queries';

@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useAmendTaxReturn,
@@ -25,8 +25,8 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { ExceptionItem, ReturnExceptions, TaxReturnDetail } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { DocumentLink } from '../../shared/document-link';
 import { EmptyState, ErrorState, RowsSkeleton } from '../../shared/query-states';
-import { Notice } from '../../shared/notice';
 import { fill } from '../../shared/text';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 /** An exception row that is still waiting for a decision. */
 export function isOpenException(item: Pick<ExceptionItem, 'resolution'>): boolean {
@@ -240,7 +240,7 @@ export function ExceptionsCard({ ret, canCarryForward, canAmend }: Readonly<Exce
             ) : null}
 
             {recalculate.length > 0 ? (
-              <Notice tone="info" data-testid="recalculate-note">
+              <InfoBanner data-testid="recalculate-note">
                 <p>{te.recalculateNote}</p>
                 <ul className="list-disc pl-5">
                   {recalculate.map((later) => (
@@ -255,13 +255,13 @@ export function ExceptionsCard({ ret, canCarryForward, canAmend }: Readonly<Exce
                     </li>
                   ))}
                 </ul>
-              </Notice>
+              </InfoBanner>
             ) : null}
 
             {alreadyAmended ? (
-              <Notice tone="info">
+              <InfoBanner>
                 <p>{te.alreadyAmended}</p>
-              </Notice>
+              </InfoBanner>
             ) : null}
 
             {canCarryForward || canAmend ? (

@@ -10,7 +10,7 @@ import {
   type FilterConfig,
 } from '@/components/entity-list';
 import { useMailAppSettings } from '@/hooks/queries/use-app-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 
 type MailAccount = NonNullable<ReturnType<typeof useMailAppSettings>['data']>['accounts'][number];

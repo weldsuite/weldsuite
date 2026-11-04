@@ -1,7 +1,7 @@
 
 import { useVoipConfigured, useAddresses, useBundles, useNumberPricing } from '@/hooks/use-phone-numbers';
 import { NewNumberClient } from './new-number-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function NewNumberPage() {
   const { data: isConfigured, isLoading: isLoadingConfigured } = useVoipConfigured();

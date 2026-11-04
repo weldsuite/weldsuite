@@ -21,7 +21,7 @@ import {
   type SignRecipientRole,
   type UpdateSignTemplateRoleInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { targetOf, useSignTemplateRoleMutations, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
 import { ChoiceField } from '../../components/choice-field';

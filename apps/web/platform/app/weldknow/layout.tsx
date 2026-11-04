@@ -2,7 +2,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCan } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';

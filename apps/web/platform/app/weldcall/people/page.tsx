@@ -3,7 +3,7 @@ import { useSearchParams } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
 import type { TranslationNamespaces } from '@/lib/i18n';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   EntityGrid,
   type EntityGridConfig,

@@ -6,7 +6,7 @@ import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { RowChip } from '@/components/accounting/weldbooks-row-cells';
 import { CompaniesIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useDeleteSalesTaxJurisdiction,
   useDeleteSalesTaxRate,

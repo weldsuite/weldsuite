@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { useAnalyticsReport, useAnalyticsCharts, useAnalyticsReports } from '@/hooks/queries/use-helpdesk-queries';
 import { ReportViewClient } from './_components/report-view-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function HelpdeskAnalyticsReportPage() {
   const params = useParams();

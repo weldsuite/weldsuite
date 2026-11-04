@@ -3,7 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useBankReconciliationReport } from '@/hooks/queries/use-weldbooks-banking-queries';

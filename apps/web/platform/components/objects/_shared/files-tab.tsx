@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,

@@ -16,7 +16,8 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrShift, useUpdateHrShift } from '@/hooks/queries/use-weldhr-queries';
-import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage, instantAt, minutesAfter } from '../../components/shared';
+import { CompanyPicker, EmployeePicker, errorMessage, instantAt, minutesAfter } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /** The local calendar day (`YYYY-MM-DD`) of a UTC instant, matching `timeOf`. */
 export function dateOf(iso: string): string {

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/componen
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { ArrowLeft, RefreshCw, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   usePortingOrder,
   useRefreshPortingOrder,

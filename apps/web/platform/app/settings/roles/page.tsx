@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter } from '@/lib/router';
 import { Plus, EllipsisVertical, Pencil, Trash2, Crown, Eye } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import {
@@ -25,7 +25,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
 import { CreateRoleDialog } from '@/components/settings/create-role-dialog';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 
 function matchesRoleFilter(role: Role, filter: ActiveFilter): boolean {

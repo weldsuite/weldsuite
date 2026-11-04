@@ -17,7 +17,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrDeclarationListItem } from '@weldsuite/app-api-client/domains/weldhr';
 import { useReviewHrDeclaration } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
-import { ErrorBanner, errorMessage, formatDate, formatMoney } from '../../components/shared';
+import { errorMessage, formatDate, formatMoney } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function DeclarationReviewDialog({
   declaration,

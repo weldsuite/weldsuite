@@ -8,9 +8,9 @@ import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { UserAppConsentDialog } from '@/components/weldapps/user-app-consent-dialog';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { cn } from '@/lib/utils';
 import {
   useUserAppStore,

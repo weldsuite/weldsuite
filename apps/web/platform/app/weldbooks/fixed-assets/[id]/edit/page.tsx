@@ -4,7 +4,7 @@ import { ArrowLeft, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useFixedAsset, useUpdateFixedAsset } from '@/hooks/queries/use-weldbooks-assets-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';

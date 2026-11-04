@@ -6,7 +6,7 @@ import { usePipeline, usePipelineStages } from '@/hooks/queries/use-pipelines-qu
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { usePeople } from '@/components/objects/person/use-person-data';
 import { DEFAULT_PIPELINE_SETTINGS, type PipelineViewSettings } from '@/app/weldcrm/pipeline/pipeline-settings-types';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toast } from 'sonner';
 import { resolveDealCurrency } from '@/lib/crm/deal-format';

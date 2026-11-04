@@ -36,7 +36,7 @@ import { getTemplateStages } from '../components/pipeline-templates';
 import { useRouter } from '@/lib/router';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useCreatePipeline,
   useUpdatePipeline,

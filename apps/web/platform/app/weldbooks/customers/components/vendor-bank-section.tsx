@@ -11,7 +11,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { maskedAccountNumber } from '@/app/weldbooks/banking/components/routing-number';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useRevealAchAccount, useVerifyBankDetails } from '@/hooks/queries/use-weldbooks-1099-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { VendorTaxView } from '@/lib/api/domains/weldbooks-1099';

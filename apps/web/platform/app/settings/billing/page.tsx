@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';

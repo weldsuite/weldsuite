@@ -1,7 +1,7 @@
 import { useParams } from '@/lib/router';
 import { TasksView } from '@/components/weldflow/tasks/tasks-view';
 import { useProjectTasks } from '@/hooks/queries/use-projects-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { ListLoadError } from '@/app/weldflow/components/list-load-error';
 

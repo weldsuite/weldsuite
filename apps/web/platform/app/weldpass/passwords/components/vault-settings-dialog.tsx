@@ -19,16 +19,17 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDeleteWeldPassVault,
   useUpdateWeldPassVault,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { VaultActivityPanel } from './vault-activity-panel';
 import { VaultDetailsForm } from './vault-details-form';
 import { VaultMembersPanel } from './vault-members-panel';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function VaultSettingsDialog({
   vault,

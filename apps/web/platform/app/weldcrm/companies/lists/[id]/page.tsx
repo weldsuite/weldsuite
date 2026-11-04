@@ -6,7 +6,7 @@
 
 import { useEffect } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function CompanyListDetailRedirect() {
   const { id } = useParams() as { id: string };

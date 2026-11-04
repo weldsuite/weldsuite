@@ -6,7 +6,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { AlertTriangle, Loader2, GitPullRequest, History, RotateCw, Settings, type LucideIcon } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link, useParams } from '@/lib/router';
 import { toast } from 'sonner';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';

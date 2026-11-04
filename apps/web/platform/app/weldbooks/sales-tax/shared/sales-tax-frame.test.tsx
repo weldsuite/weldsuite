@@ -20,7 +20,7 @@ vi.mock('@tanstack/react-router', () => ({
     select({ location: { pathname: router.pathname } }),
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => jurisdiction.current }));
-vi.mock('@/components/page-loader', () => ({ PageLoader: () => <div>Loading jurisdiction</div> }));
+vi.mock('@weldsuite/ui/components/page-loader', () => ({ PageLoader: () => <div>Loading jurisdiction</div> }));
 
 import { SalesTaxFrame, SalesTaxGate, sectionOf } from './sales-tax-frame';
 import { renderWithProviders } from './test-support';

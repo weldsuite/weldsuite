@@ -14,7 +14,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { Button } from '@weldsuite/ui/components/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useWeldPanelProject } from '@/hooks/queries/use-weldpanel-queries';

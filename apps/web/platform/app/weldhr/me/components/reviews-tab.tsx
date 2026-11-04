@@ -12,8 +12,10 @@ import {
   useMyHrCoaching,
   useMyHrEvaluations,
 } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { ScoreBadge, StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { AcknowledgeControl } from './acknowledge-control';
 import { Meta, TabLoading } from './shared';
 

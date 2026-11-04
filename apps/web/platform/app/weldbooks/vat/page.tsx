@@ -4,7 +4,7 @@ import { VatNotAvailable } from './components/vat-not-available';
 import GstReturnPage from './gst-return-page';
 import BrApuracaoPage from './br-apuracao-page';
 import { toast } from 'sonner';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi, type IcpDeclaration } from '@/lib/api/domains/weldbooks';
 import { Button } from '@weldsuite/ui/components/button';
@@ -24,7 +24,7 @@ import {
   RowTitle,
   StatusChip,
 } from '@/components/accounting/weldbooks-row-cells';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { vatStatusTone } from '@/components/objects/vat-return/vat-return-model';
 import { useI18n } from '@/lib/i18n/provider';

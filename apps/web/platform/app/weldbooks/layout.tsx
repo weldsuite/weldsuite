@@ -1,6 +1,6 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { AccountingLayoutClient } from './components/accounting-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function AccountingLayout({ children }: Readonly<{ children: React.ReactNode }>) {

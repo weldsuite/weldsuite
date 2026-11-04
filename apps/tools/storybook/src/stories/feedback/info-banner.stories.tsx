@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { Button } from '@weldsuite/ui/components/button';
 
 const meta = {
   title: 'Feedback/InfoBanner',
@@ -8,7 +9,7 @@ const meta = {
   argTypes: {
     variant: {
       control: 'select',
-      options: ['info', 'warning', 'success', 'tip'],
+      options: ['info', 'warning', 'danger', 'success', 'tip', 'neutral'],
     },
     dismissible: { control: 'boolean' },
   },
@@ -34,13 +35,33 @@ export const Warning: Story = {
   },
 };
 
+export const WithAction: Story = {
+  args: {
+    variant: 'danger',
+    title: 'Totals are out of date',
+    children: 'Transactions changed after this return was prepared.',
+    action: <Button size="sm">Recalculate</Button>,
+  },
+  render: (args) => (
+    <div className="w-[560px]">
+      <InfoBanner {...args} />
+    </div>
+  ),
+};
+
+export const TitleOnly: Story = {
+  args: { variant: 'warning', title: 'This campaign is paused' },
+};
+
 export const AllVariants: Story = {
   render: () => (
     <div className="flex flex-col gap-3">
       <InfoBanner variant="info" title="Info">Informational message.</InfoBanner>
       <InfoBanner variant="success" title="Success">Your account is configured.</InfoBanner>
       <InfoBanner variant="warning" title="Warning">Something needs attention.</InfoBanner>
+      <InfoBanner variant="danger" title="Danger">Something went wrong and needs action.</InfoBanner>
       <InfoBanner variant="tip" title="Tip">A helpful suggestion.</InfoBanner>
+      <InfoBanner variant="neutral">A quiet hint that does not need action.</InfoBanner>
     </div>
   ),
 };

@@ -26,7 +26,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@weldsuite/ui/components/card';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   Dialog,
   DialogContent,

@@ -49,7 +49,7 @@ import { PersonDetailLayout } from '@/components/person-detail';
 import { toast } from 'sonner';
 import { membersApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 interface ProjectMember {
   id: string;

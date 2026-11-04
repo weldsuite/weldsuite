@@ -1,4 +1,4 @@
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface DeleteMessageDialogProps {

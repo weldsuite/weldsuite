@@ -1,7 +1,7 @@
 
 import { useAppAccess } from '@/hooks/use-app-access';
 import { HostLayoutClient } from './components/host-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Globe } from 'lucide-react';

@@ -26,8 +26,10 @@ import {
   useMyHrOpenShifts,
   useMyHrSignUpForOpenShift,
 } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDateTime, useFormatTime } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { errorMessage, formatDateTime, useFormatTime } from '../../components/shared';
 import { TabLoading } from './shared';
 
 const REQUEST_TONE = { approved: 'default', rejected: 'destructive' } as const;

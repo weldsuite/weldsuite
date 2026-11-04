@@ -56,7 +56,7 @@ import { useUpdatePerson } from '@/components/objects/person/use-person-data';
 import { useCustomerLists, useAddCustomersToList, useAddContactsToList, type CustomerList } from '@/hooks/queries/use-customer-lists-queries';
 import { coloredSquareIcons } from '@/components/app-sidebar-layout';
 import { NewEventDialog } from '@/app/weldcalendar/events/components/new-event-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useCreateCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';

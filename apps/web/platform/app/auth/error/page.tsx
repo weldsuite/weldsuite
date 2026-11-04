@@ -4,7 +4,7 @@ import { useSearchParams, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
 function AuthErrorContent() {

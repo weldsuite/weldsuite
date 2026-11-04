@@ -4,7 +4,7 @@ import { FileText, PlusCircle, Download, Eye } from 'lucide-react';
 import { EntityPageHeader, type StatItem, type ActionButton } from '@/components/entity-overview/entity-page-header';
 import { useChangelog, type ChangelogEntry } from '@/hooks/queries/use-helpdesk-queries';
 import { ChangelogClient } from './changelog-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 

@@ -5,7 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useMobileNavActionsOptional } from '@/contexts/mobile-nav-context';
 import {

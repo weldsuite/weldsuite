@@ -33,7 +33,7 @@ import { useTasks } from '@/hooks/queries/use-task-queries';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { SortState } from '@/components/entity-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export interface TasksTabProps {
   entityId: string;

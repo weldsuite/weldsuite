@@ -12,10 +12,11 @@ import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { ReachBillingSummary } from '@weldsuite/app-api-client/schemas/reach';
-import { SoftBadge, type SoftTone } from '@/components/shared/soft-badge';
+import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { useReachBilling } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
-import { ErrorPanel, SectionCard } from '../components/page-kit';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { usePaymentMethodSetup } from '../components/use-payment-method-setup';
 
 const STATUS_TONE: Record<ReachBillingSummary['status'], SoftTone> = {
@@ -43,7 +44,7 @@ export function BillingSection() {
           {t('reach.common.loading')}
         </div>
       )}
-      {billing.isError && <ErrorPanel onRetry={() => void billing.refetch()} />}
+      {billing.isError && <ErrorState onRetry={() => void billing.refetch()} />}
       {billing.data && (
         <div className="space-y-5">
           {billing.data.status === 'past_due' && (

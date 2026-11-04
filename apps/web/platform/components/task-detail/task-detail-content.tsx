@@ -80,7 +80,7 @@ import {
   PickerScrollArea,
   PickerFooter,
   focusPickerList,
-} from '@/components/shared/picker-menu';
+} from '@weldsuite/ui/components/picker-menu';
 import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';

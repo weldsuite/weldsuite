@@ -7,7 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCustomFields } from '@/hooks/use-custom-fields';

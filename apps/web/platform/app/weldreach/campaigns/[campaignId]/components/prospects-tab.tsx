@@ -10,7 +10,7 @@ import {
   type ReachEnrollment,
   type ReachEnrollmentStatus,
 } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import {
   useReachEnrollments,
@@ -22,8 +22,9 @@ import {
 } from '@/app/weldreach/components/engage/badges';
 import { personName, useReachFormat } from '@/app/weldreach/components/engage/format';
 import { selectFilterConfig, useSelectFilter } from '@/app/weldreach/components/engage/filters';
-import { FilterSelect, emptyIcon, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { emptyIcon, errorMessage } from '@/app/weldreach/components/engage/kit';
 import { AddProspectsDialog } from './add-prospects-dialog';
+import { FilterSelect } from '@weldsuite/ui/components/filter-select';
 
 const STATUS_OPTIONS = reachEnrollmentStatusSchema.options;
 

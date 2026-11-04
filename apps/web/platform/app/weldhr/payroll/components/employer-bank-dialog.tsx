@@ -16,9 +16,10 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { hrPayrollEmployerBankSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
 import { useSetHrPayrollEmployerBank } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { SelectField, TextField } from './form-fields';
 import { InfoLine } from './payroll-ui';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Values = z.input<typeof hrPayrollEmployerBankSchema>;
 type Parsed = z.output<typeof hrPayrollEmployerBankSchema>;

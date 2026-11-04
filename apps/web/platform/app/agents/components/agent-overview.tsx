@@ -5,7 +5,7 @@ import { Plus, Search } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace-agents';
-import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
+import { WeldAgentIcon } from '@weldsuite/ui/components/weldagent-icon';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useRouter } from '@/lib/router';

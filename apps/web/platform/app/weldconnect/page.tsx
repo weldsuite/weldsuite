@@ -12,7 +12,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ChartBarInteractive, type ExecutionTrendDataPoint } from './components/chart-bar-interactive';
 import { mapPeriodToApi } from './components/chart-utils';
 import { RecentActivityTable, type ActivityItem } from './components/recent-workflows-table';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Translations } from '@weldsuite/i18n/locales';

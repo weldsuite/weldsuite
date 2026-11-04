@@ -1,6 +1,6 @@
 import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
-import { AuditTimeline, AuditTimelineSkeleton } from './audit-timeline';
-import type { AuditLogEntry } from './audit-timeline';
+import { AuditTimeline, AuditTimelineSkeleton } from '@weldsuite/ui/components/audit-timeline';
+import type { AuditLogEntry } from '@weldsuite/ui/components/audit-timeline';
 
 interface EntityAuditPanelProps {
   entityType: string;

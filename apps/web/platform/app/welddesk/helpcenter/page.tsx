@@ -1,6 +1,6 @@
 import { HelpcenterSettingsClient } from './helpcenter-settings-client';
 import { useHelpcenterSettings } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function HelpcenterPage() {
   const { data, isLoading } = useHelpcenterSettings();

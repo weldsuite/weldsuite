@@ -16,15 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCreateHrLeaveRequest, useHrEmployee, useHrLeaveBalances, useHrLeaveTypes } from '@/hooks/queries/use-weldhr-queries';
-import {
-  EmployeePicker,
-  ErrorBanner,
-  WarningNote,
-  errorMessage,
-  formatDate,
-  todayIso,
-  workingDaysBetween,
-} from '../../components/shared';
+import { EmployeePicker, errorMessage, formatDate, todayIso, workingDaysBetween } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 export function LeaveRequestDialog({
   fixedEmployeeId,
@@ -146,14 +140,14 @@ export function LeaveRequestDialog({
           </div>
 
           {overAllowance && balance && !blocked && (
-            <WarningNote>
+            <InfoBanner variant="warning">
               {t('weldhr.leave.requests.form.overAllowance', {
                 days,
                 available: Math.max(available ?? 0, 0),
                 allowance: balance.allowance ?? 0,
                 type: balance.name,
               })}
-            </WarningNote>
+            </InfoBanner>
           )}
           {blocked && balance && (
             <ErrorBanner
@@ -165,7 +159,7 @@ export function LeaveRequestDialog({
             />
           )}
           {beforeStart && employeeStart && (
-            <WarningNote>{t('weldhr.leave.requests.form.beforeStartDate', { date: formatDate(employeeStart) })}</WarningNote>
+            <InfoBanner variant="warning">{t('weldhr.leave.requests.form.beforeStartDate', { date: formatDate(employeeStart) })}</InfoBanner>
           )}
 
           <div className="space-y-1.5">

@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type { ActiveFilter, ColumnDef, FilterConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAmount, RowDate, RowTitle, StatusChip, type ChipTone } from '@/components/accounting/weldbooks-row-cells';

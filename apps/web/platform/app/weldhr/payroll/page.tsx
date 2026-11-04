@@ -13,13 +13,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrPayrollOverview } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useCreateHrPayRun, useHrPayrollOverview } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { DashboardPage, EmptyText, KpiCard, KpiGrid, SectionCard, useHrBreadcrumbs } from '../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate } from '../components/shared';
+import { useHrBreadcrumbs } from '../components/page-kit';
+import { errorMessage, formatDate } from '../components/shared';
 import { FilingStatusBadge, IssueList, PayrollGate, RunStatusBadge } from './components/payroll-ui';
 import { countryCurrency, formatCents, formatDecimal, periodRange } from './lib/format';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export default function WeldHrPayrollHomePage() {
   return (
