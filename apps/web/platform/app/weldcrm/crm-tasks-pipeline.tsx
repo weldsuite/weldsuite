@@ -207,8 +207,8 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
           </>
         ) : (
           <>
-            <Avatar className="h-4 w-4 rounded">
-              <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground rounded">
+            <Avatar className="h-4 w-4">
+              <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground">
                 ?
               </AvatarFallback>
             </Avatar>

@@ -693,9 +693,9 @@ function AssigneesButtonContent({ selected }: Readonly<{ selected: AssigneeOptio
     const a = selected[0];
     return (
       <>
-        <Avatar className="size-[18px] !rounded-[7px]">
-          {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-          <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
+        <Avatar className="size-[18px]">
+          {a.avatar && <AvatarImage src={a.avatar} alt={a.name} />}
+          <AvatarFallback className="text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
             {a.name.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -708,9 +708,9 @@ function AssigneesButtonContent({ selected }: Readonly<{ selected: AssigneeOptio
     <>
       <span className="flex -space-x-1">
         {shown.map((a) => (
-          <Avatar key={a.id} className="size-[18px] !rounded-[7px] ring-1 ring-blue-100 dark:ring-blue-900/30">
-            {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
+          <Avatar key={a.id} className="size-[18px] ring-1 ring-blue-100 dark:ring-blue-900/30">
+            {a.avatar && <AvatarImage src={a.avatar} alt={a.name} />}
+            <AvatarFallback className="text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
               {a.name.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -762,9 +762,9 @@ function AssigneesPopover({
               className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded gap-4"
             >
               <span className="flex items-center gap-2">
-                <Avatar className="h-5 w-5 !rounded-[7px]">
-                  {avatar && <AvatarImage src={avatar} alt={name} className="!rounded-[7px]" />}
-                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                <Avatar className="h-5 w-5">
+                  {avatar && <AvatarImage src={avatar} alt={name} />}
+                  <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                     {name.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
@@ -833,11 +833,11 @@ function RecordPopover({
             <ColoredSquareIcon icon={selectedCompany.icon} color={selectedCompany.iconColor} className="size-[18px] rounded-[7px]" />
           )}
           {record && !selectedCompany?.icon && (
-            <Avatar className="h-5 w-5 !rounded-[6px]">
+            <Avatar className="h-5 w-5">
               {selectedCompany?.avatar && (
-                <AvatarImage src={selectedCompany.avatar} alt={selectedCompanyLabel || ''} className="!rounded-[6px]" />
+                <AvatarImage src={selectedCompany.avatar} alt={selectedCompanyLabel || ''} />
               )}
-              <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+              <AvatarFallback className="text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
                 {(selectedCompanyLabel || '?').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -870,11 +870,11 @@ function RecordPopover({
                     {company.icon ? (
                       <ColoredSquareIcon icon={company.icon} color={company.iconColor} />
                     ) : (
-                      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+                      <Avatar className="h-5 w-5 flex-shrink-0">
                         {company.avatar && (
-                          <AvatarImage src={company.avatar} alt={company.name} className="!rounded-[7px]" />
+                          <AvatarImage src={company.avatar} alt={company.name} />
                         )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                           {company.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -906,9 +906,9 @@ function LockedRecordChip({ record }: Readonly<{ record: { id: string; name: str
       className="h-7 text-xs font-normal gap-1.5 pl-1 cursor-default bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100 hover:text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 dark:hover:bg-purple-900/30 dark:hover:text-purple-400"
     >
       <span>
-        <Avatar className="h-5 w-5 !rounded-[6px]">
-          {record.avatar && <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[6px]" />}
-          <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+        <Avatar className="h-5 w-5">
+          {record.avatar && <AvatarImage src={record.avatar} alt={record.name} />}
+          <AvatarFallback className="text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
             {(record.name || '?').charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>

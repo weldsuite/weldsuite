@@ -532,10 +532,10 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
             onClick={handleCompanyClick}
             className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
           >
-            <Avatar className="h-4 w-4 rounded">
+            <Avatar className="h-4 w-4">
               <AvatarImage src={note.linkedCompany?.logoUrl} />
               <AvatarFallback 
-                className="rounded text-[6px] font-medium text-white"
+                className="text-[6px] font-medium text-white"
                 style={{
                   backgroundColor: note.linkedCompany?.color || '#6B7280'
                 }}

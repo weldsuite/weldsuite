@@ -226,16 +226,16 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
 
       {/* Assignee */}
       <div className="flex items-center gap-2 mt-2">
-        <Avatar className="h-4 w-4 rounded-[5px]">
+        <Avatar className="h-4 w-4">
           {task.assignee ? (
             <>
-              <AvatarImage src={task.assignees?.[0]?.avatar} className="rounded-[5px]" />
-              <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded-[5px]">
+              <AvatarImage src={task.assignees?.[0]?.avatar} />
+              <AvatarFallback className="text-[9px] bg-cyan-500 text-white">
                 {task.assignee.charAt(0).toUpperCase()}
               </AvatarFallback>
             </>
           ) : (
-            <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground rounded-[5px]">
+            <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground">
               ?
             </AvatarFallback>
           )}
@@ -598,8 +598,8 @@ export function MyTasksPipeline({
                   <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate block">{activeTask.title}</span>
                   {activeTask.assignee && (
                     <div className="flex items-center gap-2 mt-2">
-                      <Avatar className="h-4 w-4 rounded">
-                        <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">
+                      <Avatar className="h-4 w-4">
+                        <AvatarFallback className="text-[9px] bg-cyan-500 text-white">
                           {activeTask.assignee.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>

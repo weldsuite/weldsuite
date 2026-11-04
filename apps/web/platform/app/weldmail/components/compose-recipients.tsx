@@ -297,11 +297,10 @@ function RecipientAvatar({
   /** 16px instead of 20px, for the recipients in the field itself. */
   compact?: boolean;
 }>) {
-  const radius = compact ? '!rounded-[5px]' : '!rounded-[7px]';
   return (
-    <Avatar className={cn('flex-shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5', radius)}>
-      {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className={radius} />}
-      <AvatarFallback className={cn('bg-gray-200 dark:bg-muted-foreground/25', radius)}>
+    <Avatar className={cn('flex-shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')}>
+      {avatarUrl && <AvatarImage src={avatarUrl} alt={name} />}
+      <AvatarFallback className={'bg-gray-200 dark:bg-muted-foreground/25'}>
         <User className="size-2.5" />
       </AvatarFallback>
     </Avatar>

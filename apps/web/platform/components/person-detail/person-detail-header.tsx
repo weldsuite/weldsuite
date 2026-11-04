@@ -73,8 +73,8 @@ export function PersonDetailHeader({
           <div className={cn("py-2 md:py-4", className)}>
             <div className="flex flex-row justify-between items-center gap-3">
               <div className="flex gap-3 items-center min-w-0">
-                <Avatar className="h-9 w-9 md:h-11 md:w-11 rounded-lg flex-shrink-0">
-                  <AvatarFallback className="bg-primary/10 text-primary text-xs md:text-sm font-semibold rounded-lg">
+                <Avatar className="h-9 w-9 md:h-11 md:w-11 flex-shrink-0">
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs md:text-sm font-semibold">
                     {avatar}
                   </AvatarFallback>
                 </Avatar>

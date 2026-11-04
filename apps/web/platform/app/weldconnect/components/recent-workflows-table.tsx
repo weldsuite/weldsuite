@@ -107,8 +107,8 @@ function buildColumns(
       cell: ({ row }) => {
         return (
           <div className="flex items-center gap-3 min-w-0">
-            <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">
-              <AvatarFallback className={cn('text-[11px] text-white font-medium rounded-md', row.original.avatarColor)}>
+            <Avatar className="h-7 w-7 flex-shrink-0">
+              <AvatarFallback className={cn('text-[11px] text-white font-medium', row.original.avatarColor)}>
                 {row.original.customerInitial}
               </AvatarFallback>
             </Avatar>

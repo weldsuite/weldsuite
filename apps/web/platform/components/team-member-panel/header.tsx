@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Phone, Video, MessageSquare, Clock } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -59,17 +60,12 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
     <div className="border-b px-6 pt-6 pb-4">
       <div className="flex items-start gap-4">
         <div className="relative shrink-0">
-          {profile.picture ? (
-            <img
-              src={profile.picture}
-              alt={profile.name ?? ''}
-              className="h-16 w-16 rounded-full object-cover"
-            />
-          ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-xl font-medium uppercase">
+          <Avatar className="h-16 w-16">
+            {profile.picture && <AvatarImage src={profile.picture} alt={profile.name ?? ''} />}
+            <AvatarFallback className="bg-muted text-xl font-medium uppercase">
               {(profile.name ?? '?').charAt(0)}
-            </div>
-          )}
+            </AvatarFallback>
+          </Avatar>
           <StatusDot
             status={status}
             size="lg"

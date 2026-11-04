@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect } from 'react';
+import { Avatar, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   ArrowLeft,
   X,
@@ -429,7 +430,9 @@ function ChatHeader({ themeSettings, disableBackNavigation, showTalkToHuman, onB
 
       {/* Center - Avatar and Name */}
       <div className="flex items-center gap-2">
-        <img src="/assets/images/weldagent/avatar.png" alt="WeldAgent" className="flex-shrink-0" style={{ width: 24, height: 'auto' }} />
+        <Avatar className="h-6 w-6 flex-shrink-0">
+          <AvatarImage src="/assets/images/weldagent/avatar.png" alt="WeldAgent" />
+        </Avatar>
         <span className="font-medium text-sm text-gray-900 dark:text-foreground">WeldAgent</span>
       </div>
 

@@ -453,10 +453,10 @@ function AssigneeAvatar({ id, name, avatar, className }: Readonly<AssigneeAvatar
   const bg = assigneeFallbackColor(seed);
   const initial = (name || '?').charAt(0).toUpperCase();
   return (
-    <Avatar className={cn('h-5 w-5 rounded-[7px]', className)}>
-      <AvatarImage src={avatar} className="rounded-[7px]" />
+    <Avatar className={cn('h-5 w-5', className)}>
+      <AvatarImage src={avatar} />
       <AvatarFallback
-        className="text-[10px] rounded-[7px] text-white font-medium"
+        className="text-[10px] text-white font-medium"
         style={{ backgroundColor: bg }}
       >
         {initial}
@@ -2719,13 +2719,10 @@ export function CommentsList({
 
             return (
               <div key={comment.id} className="flex gap-2 px-2 py-1.5 rounded-xl hover:bg-muted/30 group">
-                <div className="w-6 h-6 rounded-[9px] bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {comment.authorAvatar ? (
-                    <img src={comment.authorAvatar} alt={comment.authorName} className="w-6 h-6 rounded-[9px] object-cover" />
-                  ) : (
-                    <span className="text-[10px] font-medium text-muted-foreground">{initials}</span>
-                  )}
-                </div>
+                <Avatar className="w-6 h-6 flex-shrink-0 mt-0.5">
+                  {comment.authorAvatar && <AvatarImage src={comment.authorAvatar} alt={comment.authorName} />}
+                  <AvatarFallback className="text-[10px] font-medium text-muted-foreground">{initials}</AvatarFallback>
+                </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-foreground">{comment.authorName}</span>

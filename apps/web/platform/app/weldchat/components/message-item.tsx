@@ -161,11 +161,11 @@ function ForwardedMessage({
         </span>
       </div>
       <div className="flex items-start gap-2">
-        <Avatar className="h-5 w-5 !rounded-[6px] flex-shrink-0 mt-0.5">
+        <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
           {forwardedFrom.authorAvatar && (
-            <AvatarImage src={forwardedFrom.authorAvatar} className="!rounded-[6px]" />
+            <AvatarImage src={forwardedFrom.authorAvatar} />
           )}
-          <AvatarFallback className="text-[9px] !rounded-[6px]">
+          <AvatarFallback className="text-[9px]">
             {(forwardedFrom.authorName || '?')[0].toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -516,11 +516,11 @@ function MessageAvatar({
       className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
       title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
     >
-      <Avatar className="h-7 w-7 !rounded-[9px]">
+      <Avatar className="h-7 w-7">
         {message.authorAvatar && (
-          <AvatarImage src={message.authorAvatar} className="!rounded-[9px]" />
+          <AvatarImage src={message.authorAvatar} />
         )}
-        <AvatarFallback className="text-[9px] !rounded-[9px]">
+        <AvatarFallback className="text-[9px]">
           {(message.authorName || '?')[0].toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -607,9 +607,9 @@ export function MessageItem({
         <div className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
-            <Avatar className="h-4 w-4 !rounded-[5.5px]">
-              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} className="!rounded-[5.5px]" />}
-              <AvatarFallback className="text-[8px] !rounded-[5.5px]">
+            <Avatar className="h-4 w-4">
+              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} />}
+              <AvatarFallback className="text-[8px]">
                 {/* An agent's avatar is its emoji icon, not an image. */}
                 {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar)
                   ? replyToMessage.authorAvatar

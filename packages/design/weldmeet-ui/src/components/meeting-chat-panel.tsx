@@ -729,10 +729,10 @@ function MessageItem({
             picture={message.authorAvatar}
             colorSeed={message.authorId}
             className={cn(
-              'h-7 w-7 flex-shrink-0 mt-0.5 !rounded-[9px]',
+              'h-7 w-7 flex-shrink-0 mt-0.5',
               authorClickable && 'cursor-pointer',
             )}
-            innerClassName="text-[9px] !rounded-[9px]"
+            innerClassName="text-[9px]"
             {...authorHoverProps}
           />
         )}
@@ -1276,8 +1276,8 @@ function MentionPicker({
                 initials={getInitials(p.name || '?')}
                 picture={p.avatar}
                 colorSeed={p.id}
-                className="h-6 w-6 !rounded-[7px] flex-shrink-0"
-                innerClassName="text-[9px] !rounded-[7px]"
+                className="h-6 w-6 flex-shrink-0"
+                innerClassName="text-[9px]"
               />
               <span className="truncate flex-1">{p.name}</span>
               {p.isGuest && (

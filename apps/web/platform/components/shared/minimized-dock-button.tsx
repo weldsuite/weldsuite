@@ -81,12 +81,12 @@ export function MinimizedDockButton({
         {icon}
         <Avatar
           className={cn(
-            'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 !rounded-[5px] bg-background ring-2 ring-background',
+            'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 bg-background ring-2 ring-background',
             !front && 'opacity-0 transition-opacity duration-[225ms] group-hover/stack:opacity-100 group-focus-within/stack:opacity-100',
           )}
         >
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={avatarAlt} className="!rounded-[5px]" />}
-          <AvatarFallback className="!rounded-[5px] bg-gray-200 dark:bg-accent">{avatarFallback}</AvatarFallback>
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={avatarAlt} />}
+          <AvatarFallback className="bg-gray-200 dark:bg-accent">{avatarFallback}</AvatarFallback>
         </Avatar>
       </Button>
       <button

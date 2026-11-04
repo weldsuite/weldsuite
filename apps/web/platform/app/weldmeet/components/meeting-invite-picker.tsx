@@ -146,9 +146,9 @@ export function MeetingInvitePicker({
     const pending = !!candidate.email && pendingEmails.has(candidate.email.toLowerCase());
     return (
       <div key={candidate.key} className={cn('flex items-center gap-3', compact ? 'py-2' : 'py-2.5')}>
-        <Avatar className="h-7 w-7 !rounded-[8px]">
+        <Avatar className="h-7 w-7">
           {candidate.avatar && <AvatarImage src={candidate.avatar} alt="" />}
-          <AvatarFallback className="text-[10px] !rounded-[8px]">
+          <AvatarFallback className="text-[10px]">
             {candidate.typed ? (
               <Mail className="h-3.5 w-3.5" />
             ) : (

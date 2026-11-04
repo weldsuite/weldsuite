@@ -56,7 +56,7 @@ export function EntityGridSkeleton({ columns = 6, rows = 12 }: Readonly<EntityGr
         {rowSlots.map((slot, rowIndex) => (
           <div key={slot} className="flex h-10 items-center gap-4 border-b border-border px-4">
             <div className="flex w-28 md:w-60 shrink-0 items-center gap-2.5">
-              <Skeleton className="size-6 rounded-full shrink-0" />
+              <Skeleton className="size-6 rounded-[32%] shrink-0" />
               <Skeleton className={`h-3.5 ${CELL_WIDTHS[rowIndex % CELL_WIDTHS.length]}`} />
             </div>
             {columnSlots.map((columnSlot, columnIndex) => (

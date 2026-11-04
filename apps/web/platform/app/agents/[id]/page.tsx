@@ -154,7 +154,7 @@ export default function AgentDetailPage() {
             onClick={() => openSettings('general')}
             title={t.detail.settings.title}
           >
-            <AgentAvatar agent={agent} size="sm" className="h-[26px] w-[26px] rounded-lg" />
+            <AgentAvatar agent={agent} size="sm" className="h-[26px] w-[26px]" />
             <span className="truncate font-semibold">{agent.name}</span>
           </button>
         </div>

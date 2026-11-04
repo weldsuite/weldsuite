@@ -7,6 +7,7 @@
  */
 
 import { memo, useMemo } from 'react';
+import { Avatar, AvatarImage } from '@weldsuite/ui/components/avatar';
 import type { WhiteboardPresence } from '@/lib/realtime/whiteboard/types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -85,11 +86,9 @@ const RemoteCursor = memo(function RemoteCursor({
         }}
       >
         {presence.avatar && (
-          <img
-            src={presence.avatar}
-            alt={presence.name}
-            className="h-4 w-4 rounded-full"
-          />
+          <Avatar className="h-4 w-4">
+            <AvatarImage src={presence.avatar} alt={presence.name} />
+          </Avatar>
         )}
         <span>{firstName}</span>
         {presence.tool && (

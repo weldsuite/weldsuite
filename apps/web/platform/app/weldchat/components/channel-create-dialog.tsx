@@ -182,9 +182,9 @@ export function ChannelCreateDialog({
                       key={m.userId}
                       className="flex items-center gap-1 bg-muted rounded-md px-2 py-1 text-sm"
                     >
-                      <Avatar className="h-4 w-4 !rounded-[4px]">
-                        {m.picture && <AvatarImage src={m.picture} className="!rounded-[4px]" />}
-                        <AvatarFallback className="text-[8px] !rounded-[4px]">
+                      <Avatar className="h-4 w-4">
+                        {m.picture && <AvatarImage src={m.picture} />}
+                        <AvatarFallback className="text-[8px]">
                           {(m.name || m.email || '?')[0].toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -234,9 +234,9 @@ export function ChannelCreateDialog({
                                   : 'hover:bg-accent',
                               )}
                             >
-                              <Avatar className="h-6 w-6 !rounded-[6px]">
-                                {m.picture && <AvatarImage src={m.picture} className="!rounded-[6px]" />}
-                                <AvatarFallback className="text-[9px] !rounded-[6px]">
+                              <Avatar className="h-6 w-6">
+                                {m.picture && <AvatarImage src={m.picture} />}
+                                <AvatarFallback className="text-[9px]">
                                   {(m.name || m.email || '?')[0].toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>

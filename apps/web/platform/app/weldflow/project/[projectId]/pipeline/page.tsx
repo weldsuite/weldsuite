@@ -357,16 +357,16 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
 
       {/* Assignee */}
       <div className="flex items-center gap-2 mt-2">
-        <Avatar className="h-4 w-4 rounded-[5px]">
+        <Avatar className="h-4 w-4">
           {feature.owner ? (
             <>
-              <AvatarImage src={feature.owner.image} className="rounded-[5px]" />
-              <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded-[5px]">
+              <AvatarImage src={feature.owner.image} />
+              <AvatarFallback className="text-[9px] bg-cyan-500 text-white">
                 {feature.owner.name.charAt(0).toUpperCase()}
               </AvatarFallback>
             </>
           ) : (
-            <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground rounded-[5px]">
+            <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground">
               ?
             </AvatarFallback>
           )}
@@ -1251,7 +1251,7 @@ const PipelinePage = () => {
                   <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate block">{activeDeal.name}</span>
                   {activeDeal.owner && (
                     <div className="flex items-center gap-2 mt-2">
-                      <Avatar className="h-4 w-4 rounded"><AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">{activeDeal.owner.name.charAt(0).toUpperCase()}</AvatarFallback></Avatar>
+                      <Avatar className="h-4 w-4"><AvatarFallback className="text-[9px] bg-cyan-500 text-white">{activeDeal.owner.name.charAt(0).toUpperCase()}</AvatarFallback></Avatar>
                       <span className="text-sm text-gray-600 dark:text-muted-foreground">{activeDeal.owner.name}</span>
                     </div>
                   )}

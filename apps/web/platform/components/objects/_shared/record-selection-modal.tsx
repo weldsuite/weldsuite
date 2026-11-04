@@ -377,9 +377,9 @@ export function RecordSelectionModal({
               />
             )}
             <div className="pointer-events-none flex items-center gap-1.5 min-w-0 flex-1">
-              <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
+              <Avatar className="h-[22px] w-[22px] border border-border flex-shrink-0">
                 <AvatarImage src={record.avatarUrl ?? (record.logoDomain ? logos.get(record.logoDomain) : undefined)} />
-                <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
+                <AvatarFallback className="bg-muted text-[10px] font-medium">
                   {getInitial(record)}
                 </AvatarFallback>
               </Avatar>

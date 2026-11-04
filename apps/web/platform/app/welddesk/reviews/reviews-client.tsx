@@ -338,8 +338,8 @@ export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
             <div className="p-6">
               {/* Customer */}
               <div className="flex items-center gap-3 mb-5">
-                <Avatar className="h-11 w-11 rounded-md">
-                  <AvatarFallback className="text-sm bg-gray-100 dark:bg-secondary text-gray-700 dark:text-muted-foreground rounded-md">
+                <Avatar className="h-11 w-11">
+                  <AvatarFallback className="text-sm bg-gray-100 dark:bg-secondary text-gray-700 dark:text-muted-foreground">
                     {selectedReview.customerName?.split(' ').map(n => n[0]).join('') ?? '?'}
                   </AvatarFallback>
                 </Avatar>

@@ -5,22 +5,21 @@
  */
 
 import { ExternalLink, Globe, LifeBuoy, Mail } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import type { PartnerPublicInfo } from '@weldsuite/app-api-client/schemas/partners';
 import { useI18n } from '@/lib/i18n/provider';
 import { safeHttpUrl } from '@/lib/partner/safe-url';
 
 export function PartnerLogo({ partner, className = 'h-10 w-10' }: Readonly<{ partner: PartnerPublicInfo; className?: string }>) {
   const logo = safeHttpUrl(partner.logoUrl);
-  if (logo) {
-    return <img src={logo} alt="" className={`${className} shrink-0 rounded-md border bg-white object-contain`} />;
-  }
   return (
-    <div
-      aria-hidden
-      className={`${className} flex shrink-0 items-center justify-center rounded-md border bg-muted text-sm font-semibold`}
-    >
-      {partner.name.slice(0, 1).toUpperCase()}
-    </div>
+    <Avatar aria-hidden className={`${className} shrink-0 border`}>
+      {/* A logo may be a wide wordmark: fit it whole instead of cropping. */}
+      {logo && <AvatarImage src={logo} alt="" className="bg-white object-contain" />}
+      <AvatarFallback className="bg-muted text-sm font-semibold">
+        {partner.name.slice(0, 1).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 

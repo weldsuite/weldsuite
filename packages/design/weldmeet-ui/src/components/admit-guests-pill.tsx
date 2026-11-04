@@ -112,8 +112,8 @@ export function AdmitGuestsPill({ meeting }: Readonly<AdmitGuestsPillProps>) {
           initials={initials}
           picture={primary.picture}
           colorSeed={colorSeed}
-          className="h-9 w-9 !rounded-[10px] shrink-0"
-          innerClassName="text-[13px] !rounded-[10px]"
+          className="h-9 w-9 shrink-0"
+          innerClassName="text-[13px]"
         />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold leading-none truncate">

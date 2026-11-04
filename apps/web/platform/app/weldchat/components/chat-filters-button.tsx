@@ -198,11 +198,11 @@ export function ChatFiltersButton() {
                         variant="secondary"
                         className="gap-1.5 pl-1 pr-1.5 py-1 !rounded-md"
                       >
-                        <Avatar className="h-[18px] w-[18px] !rounded-[6px]">
+                        <Avatar className="h-[18px] w-[18px]">
                           {m?.avatar && (
-                            <AvatarImage src={m.avatar} alt={name} className="!rounded-[6px]" />
+                            <AvatarImage src={m.avatar} alt={name} />
                           )}
-                          <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                          <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                             {name.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
@@ -273,9 +273,9 @@ export function ChatFiltersButton() {
                               onClick={() => togglePerson(m.label)}
                               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent text-left"
                             >
-                              <Avatar className="h-5 w-5 !rounded-[7px]">
-                                {m.avatar && <AvatarImage src={m.avatar} className="!rounded-[7px]" />}
-                                <AvatarFallback className="text-[9px] !rounded-[7px]">
+                              <Avatar className="h-5 w-5">
+                                {m.avatar && <AvatarImage src={m.avatar} />}
+                                <AvatarFallback className="text-[9px]">
                                   {m.label[0]?.toUpperCase() ?? '?'}
                                 </AvatarFallback>
                               </Avatar>

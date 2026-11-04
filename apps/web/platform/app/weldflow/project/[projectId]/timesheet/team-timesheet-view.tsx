@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { AlertCircle, AlertTriangle, Download, Users } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
@@ -330,9 +331,11 @@ function MemberRow({
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium">
-        {member.initials}
-      </div>
+      <Avatar className="h-7 w-7 shrink-0">
+        <AvatarFallback className="bg-muted text-[11px] font-medium">
+          {member.initials}
+        </AvatarFallback>
+      </Avatar>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">

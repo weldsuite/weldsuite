@@ -85,10 +85,10 @@ function AssigneeAvatar({ id, name, picture, className }: Readonly<AssigneeAvata
   const bg = assigneeFallbackColor(seed);
   const initial = (name || '?').charAt(0).toUpperCase();
   return (
-    <Avatar className={cn('h-5 w-5 rounded-[7px]', className)}>
-      {picture && <AvatarImage src={picture} className="rounded-[7px]" />}
+    <Avatar className={cn('h-5 w-5', className)}>
+      {picture && <AvatarImage src={picture} />}
       <AvatarFallback
-        className="text-[10px] rounded-[7px] text-white font-medium"
+        className="text-[10px] text-white font-medium"
         style={{ backgroundColor: bg }}
       >
         {initial}

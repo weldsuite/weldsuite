@@ -124,8 +124,8 @@ function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Re
           initials={getInitials(row.raw.name ?? row.name)}
           picture={row.picture}
           colorSeed={getPeerColorSeed(row.raw)}
-          className="h-7 w-7 !rounded-[8px]"
-          innerClassName="text-[10px] !rounded-[8px]"
+          className="h-7 w-7"
+          innerClassName="text-[10px]"
         />
         {!isWaiting && <PresenceDot />}
       </div>

@@ -42,11 +42,11 @@ export function ProjectChatPanel({ projectId, projectName }: Readonly<ProjectCha
                 <Tooltip key={m.userId} delayDuration={150}>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
-                      <Avatar className="h-[22px] w-[22px] !rounded-[7px] ring-1 ring-background">
+                      <Avatar className="h-[22px] w-[22px] ring-1 ring-background">
                         {m.user?.avatar && (
-                          <AvatarImage src={m.user.avatar} alt={label} className="!rounded-[7px]" />
+                          <AvatarImage src={m.user.avatar} alt={label} />
                         )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                           {label.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>

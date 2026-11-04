@@ -224,9 +224,9 @@ function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Rea
         {/* Assignee - fixed width */}
         <div className="w-6">
           {task.assignee && (
-            <Avatar className="h-6 w-6 rounded-sm">
+            <Avatar className="h-6 w-6">
               <AvatarImage src={task.assignee.avatarUrl} />
-              <AvatarFallback className="text-[9px] bg-gray-100 dark:bg-secondary rounded-sm">
+              <AvatarFallback className="text-[9px] bg-gray-100 dark:bg-secondary">
                 {getInitials(task.assignee.name)}
               </AvatarFallback>
             </Avatar>

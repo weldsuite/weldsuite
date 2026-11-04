@@ -258,11 +258,11 @@ export default function ActivityPage() {
 
         <div className="flex-1 min-w-0 flex items-center gap-3">
           <div className="relative flex-shrink-0 -top-[6px]">
-            <Avatar className="h-6 w-6 !rounded-[8px]">
+            <Avatar className="h-6 w-6">
               {actorAvatar && (
-                <AvatarImage src={actorAvatar} className="!rounded-[8px]" />
+                <AvatarImage src={actorAvatar} />
               )}
-              <AvatarFallback className="text-[10px] !rounded-[8px]">
+              <AvatarFallback className="text-[10px]">
                 {(actorName || '?')[0]?.toUpperCase()}
               </AvatarFallback>
             </Avatar>

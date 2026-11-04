@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, MoreVertical, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
@@ -399,7 +400,9 @@ function Byline({ name, at, edited, language, children }: { name: string; at: nu
   const when = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   return (
     <div className="flex items-start gap-2">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-medium text-white">{initials(name)}</div>
+      <Avatar className="size-7 shrink-0">
+        <AvatarFallback className="bg-blue-600 text-xs font-medium text-white">{initials(name)}</AvatarFallback>
+      </Avatar>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>
         <div className="text-xs text-muted-foreground">

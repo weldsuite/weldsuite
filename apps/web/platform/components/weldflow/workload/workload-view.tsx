@@ -253,9 +253,9 @@ const TeamMemberSidebarItem = memo(({
           <ChevronRight className="h-3.5 w-3.5" />
         )}
       </span>
-      <Avatar className="h-[30px] w-[30px] rounded-lg -ml-1">
-        {member.image && <AvatarImage src={member.image} className="rounded-lg" />}
-        <AvatarFallback className="rounded-lg text-xs">{(member.name ?? '?').slice(0, 2)}</AvatarFallback>
+      <Avatar className="h-[30px] w-[30px] -ml-1">
+        {member.image && <AvatarImage src={member.image} />}
+        <AvatarFallback className="text-xs">{(member.name ?? '?').slice(0, 2)}</AvatarFallback>
       </Avatar>
       <span className="block flex-1 min-w-0 -space-y-px -ml-1">
         <span className="block text-sm font-medium truncate">{member.name}</span>
@@ -1240,9 +1240,9 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                         <ChevronRight className="h-3.5 w-3.5" />
                       )}
                     </span>
-                    <Avatar className="h-6 w-6 rounded-md">
-                      {member.image && <AvatarImage src={member.image} className="rounded-md" />}
-                      <AvatarFallback className="rounded-md text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
+                    <Avatar className="h-6 w-6">
+                      {member.image && <AvatarImage src={member.image} />}
+                      <AvatarFallback className="text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm font-medium flex-1 truncate">{member.name}</span>
                     <span className={cn(

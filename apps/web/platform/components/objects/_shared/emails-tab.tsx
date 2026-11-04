@@ -164,9 +164,9 @@ export function EmailsTab({ entityEmail, entityKind, entityAvatar }: Readonly<Em
     return (
       <TabListRow key={m.id} label={m.subject || t('sweep.entities.noSubject')} onOpen={() => setOpenMessageId(m.id)}>
         <div className={cn(COLUMN.from, 'flex items-center gap-2')}>
-          <Avatar className="h-[18px] w-[18px] !rounded-[6px] flex-shrink-0">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt={m.senderName} className="!rounded-[6px] object-cover" />}
-            <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          <Avatar className="h-[18px] w-[18px] flex-shrink-0">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={m.senderName} className="object-cover" />}
+            <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
               {(m.senderName.trim()[0] ?? '?').toUpperCase()}
             </AvatarFallback>
           </Avatar>

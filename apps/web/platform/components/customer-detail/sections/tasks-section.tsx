@@ -501,11 +501,11 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
                   const avatarUrl = memberAvatarByName.get(task.assignee.name);
                   return (
                     <div className="flex items-center gap-1.5">
-                      <Avatar className="h-5 w-5 !rounded-[7px]">
+                      <Avatar className="h-5 w-5">
                         {avatarUrl && (
-                          <AvatarImage src={avatarUrl} alt={task.assignee.name} className="!rounded-[7px]" />
+                          <AvatarImage src={avatarUrl} alt={task.assignee.name} />
                         )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                           {task.assignee.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -528,11 +528,11 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4 h-auto"
                 >
                   <span className="flex items-center gap-2">
-                    <Avatar className="h-5 w-5 !rounded-[7px]">
+                    <Avatar className="h-5 w-5">
                       {memberAvatarByName.get(name) && (
-                        <AvatarImage src={memberAvatarByName.get(name)} alt={name} className="!rounded-[7px]" />
+                        <AvatarImage src={memberAvatarByName.get(name)} alt={name} />
                       )}
-                      <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                      <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                         {name.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

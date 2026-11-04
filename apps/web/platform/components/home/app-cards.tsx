@@ -26,6 +26,7 @@ import {
   Bot,
   MessagesSquare,
 } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import * as React from 'react';
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { Link } from '@tanstack/react-router';
@@ -863,14 +864,16 @@ export function WorkloadCard({
                 className="border-b border-border/50 last:border-b-0 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
                 style={{ height: WORKLOAD_ROW_HEIGHT }}
               >
-                <div
-                  className={cn(
-                    'h-[30px] w-[30px] rounded-lg flex items-center justify-center text-white font-medium text-xs shrink-0',
-                    WORKLOAD_AVATARS[i % WORKLOAD_AVATARS.length]
-                  )}
-                >
-                  {initials}
-                </div>
+                <Avatar className="h-[30px] w-[30px] shrink-0">
+                  <AvatarFallback
+                    className={cn(
+                      'text-white font-medium text-xs',
+                      WORKLOAD_AVATARS[i % WORKLOAD_AVATARS.length]
+                    )}
+                  >
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
                 <div className="flex-1 min-w-0 -space-y-px">
                   <p className="text-sm font-medium truncate text-foreground">{w.name}</p>
                   <p className="text-xs text-muted-foreground truncate">{tc.workload.roles[w.role]}</p>
@@ -1046,9 +1049,11 @@ export function DeskEmailsCard({
             {e.unread && (
               <div className="absolute -left-[10px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-600" />
             )}
-            <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
-              {e.initials}
-            </div>
+            <Avatar className="w-7 h-7">
+              <AvatarFallback className={cn('text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
+                {e.initials}
+              </AvatarFallback>
+            </Avatar>
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -1110,9 +1115,11 @@ export function DeskLiveChatCard({
             <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500 rounded-r" />
           )}
           <div className="relative flex-shrink-0">
-            <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
-              {c.initials}
-            </div>
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className={cn('text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
+                {c.initials}
+              </AvatarFallback>
+            </Avatar>
             {c.online && (
               <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-card" />
             )}
@@ -1311,9 +1318,11 @@ export function DeskAiActiveCard({
         return (
           <div key={a.customer + a.started} className={ROW_CLASS}>
             <div className="relative flex-shrink-0">
-              <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
-                {a.initials}
-              </div>
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className={cn('text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
+                  {a.initials}
+                </AvatarFallback>
+              </Avatar>
               <span className="absolute -bottom-0.5 -right-0.5 h-[14px] w-[14px] rounded-full bg-card flex items-center justify-center">
                 <Bot className="h-2.5 w-2.5 text-primary" />
               </span>
@@ -1389,9 +1398,11 @@ export function DeskAiResolvedCard({
         return (
           <div key={a.customer + a.when} className={ROW_CLASS}>
             <div className="relative flex-shrink-0">
-              <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
-                {a.initials}
-              </div>
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className={cn('text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
+                  {a.initials}
+                </AvatarFallback>
+              </Avatar>
               <span className="absolute -bottom-0.5 -right-0.5 h-[14px] w-[14px] rounded-full bg-card flex items-center justify-center">
                 <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
               </span>
@@ -1468,9 +1479,11 @@ export function DeskReviewsCard({
       </TableHeader>
       {rows.map((r, i) => (
         <div key={r.customer + r.when} className={ROW_CLASS}>
-          <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-white font-semibold text-[11px] shrink-0', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
-            {r.initials}
-          </div>
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className={cn('text-white font-semibold text-[11px]', TICKET_AVATARS[i % TICKET_AVATARS.length])}>
+              {r.initials}
+            </AvatarFallback>
+          </Avatar>
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium text-foreground block truncate">{r.customer}</span>
             <p className="text-xs text-muted-foreground truncate">{r.comment}</p>
@@ -1601,9 +1614,11 @@ export function CrmCard({
             <div className="w-[110px] min-w-0 flex items-center gap-1.5">
               {task.company ? (
                 <>
-                  <div className={cn('h-5 w-5 rounded-[7px] flex items-center justify-center text-white font-medium text-[10px] shrink-0', companyTone)}>
-                    {task.company.charAt(0).toUpperCase()}
-                  </div>
+                  <Avatar className="h-5 w-5 shrink-0">
+                    <AvatarFallback className={cn('text-white font-medium text-[10px]', companyTone)}>
+                      {task.company.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">{task.company}</span>
                 </>
               ) : (
@@ -2266,21 +2281,18 @@ export function MeetHistoryCard({
             <div className="w-[100px]">
               <div className="flex -space-x-1.5">
                 {PARTICIPANT_AVATAR_SLOTS.slice(0, m.participants.length).map((slot) => (
-                  <div
-                    key={slot}
-                    className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-card"
-                  >
-                    <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
+                  <Avatar key={slot} className="w-[23px] h-[23px] ring-2 ring-card">
+                    <AvatarFallback className="bg-gray-200 dark:bg-accent text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
                       {m.participants[slot]}
-                    </span>
-                  </div>
+                    </AvatarFallback>
+                  </Avatar>
                 ))}
                 {m.totalParticipants > 3 && (
-                  <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-card">
-                    <span className="text-[11px] font-semibold text-gray-600 dark:text-muted-foreground">
+                  <Avatar className="w-[23px] h-[23px] ring-2 ring-card">
+                    <AvatarFallback className="bg-gray-200 dark:bg-accent text-[11px] font-semibold text-gray-600 dark:text-muted-foreground">
                       +{m.totalParticipants - 3}
-                    </span>
-                  </div>
+                    </AvatarFallback>
+                  </Avatar>
                 )}
               </div>
             </div>
@@ -2372,9 +2384,11 @@ export function ChatCard({
             {/* Activity — avatar with category-icon badge + title (with inline "in #channel") + body */}
             <div className="flex-1 min-w-0 flex items-center gap-3">
               <div className="relative flex-shrink-0">
-                <div className={cn('h-6 w-6 rounded-[8px] flex items-center justify-center text-white font-medium text-[10px]', CHAT_AVATARS[i % CHAT_AVATARS.length])}>
-                  {a.initials}
-                </div>
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className={cn('text-white font-medium text-[10px]', CHAT_AVATARS[i % CHAT_AVATARS.length])}>
+                    {a.initials}
+                  </AvatarFallback>
+                </Avatar>
                 <span className="absolute -bottom-0.5 -right-0.5 h-[12px] w-[12px] rounded-full bg-background flex items-center justify-center">
                   <Icon className="h-2.5 w-2.5 text-foreground" />
                 </span>
@@ -2468,9 +2482,11 @@ export function ChatDMsCard({
 
           <div className="flex-1 min-w-0 flex items-center gap-3">
             <div className="relative flex-shrink-0">
-              <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-white font-medium text-xs', CHAT_AVATARS[i % CHAT_AVATARS.length])}>
-                {dm.initials}
-              </div>
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className={cn('text-white font-medium text-xs', CHAT_AVATARS[i % CHAT_AVATARS.length])}>
+                  {dm.initials}
+                </AvatarFallback>
+              </Avatar>
               {dm.online && (
                 <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-card" />
               )}

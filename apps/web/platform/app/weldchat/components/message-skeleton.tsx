@@ -10,7 +10,7 @@ export function MessageSkeleton({ count = 5 }: Readonly<MessageSkeletonProps>) {
     <div className="space-y-4">
       {rowIds.map((rowId, i) => (
         <div key={rowId} className="flex gap-3">
-          <Skeleton className="h-8 w-8 rounded-full flex-shrink-0" />
+          <Skeleton className="h-8 w-8 rounded-[32%] flex-shrink-0" />
           <div className="space-y-2 flex-1">
             <div className="flex items-center gap-2">
               <Skeleton className="h-4 w-24" />
