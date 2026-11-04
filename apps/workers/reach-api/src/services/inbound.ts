@@ -267,6 +267,8 @@ interface EffectInput {
   bounce: BounceInfo | null;
   optOut: boolean;
   senderEmail: string;
+  /** The delivery's clock: the bounce guardrail's 24-hour window ends here. */
+  now: Date;
 }
 
 /** A person answered: end the sequence (or sequences), or honour an opt-out. */
@@ -320,7 +322,7 @@ async function applyBounceEffects(input: EffectInput & { bounce: BounceInfo }): 
   }
 
   // After the enrollment is marked bounced: the guardrail counts bounced enrollments.
-  await recordHardBounce(db, { mailboxId: input.mailbox.id, campaignId: match.campaign?.id ?? null });
+  await recordHardBounce(db, { mailboxId: input.mailbox.id, campaignId: match.campaign?.id ?? null }, {}, input.now);
 }
 
 /** An out-of-office or similar: the sequence goes on unless the campaign says to stop on auto-replies. */
@@ -463,7 +465,7 @@ export async function deliverInbound(input: DeliverInboundInput): Promise<Delive
   if (!stored) return { status: 'duplicate', messageIdHeader: a.messageIdHeader };
 
   try {
-    await applyEffects({ db, message: stored, mailbox, kind: a.kind, match: a.match, bounce: a.bounce, optOut: a.optOut, senderEmail: a.senderEmail });
+    await applyEffects({ db, message: stored, mailbox, kind: a.kind, match: a.match, bounce: a.bounce, optOut: a.optOut, senderEmail: a.senderEmail, now });
   } catch (err) {
     // Not stored means redeliverable: drop the row so a replay is not de-duplicated away.
     await db.delete(reachMessages).where(eq(reachMessages.id, stored.id)).catch(() => undefined);

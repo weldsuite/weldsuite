@@ -581,6 +581,7 @@ async fn apply_bounce_effects(
     mailbox: &InboundMailbox,
     a: &Analysis,
     bounce: &BounceInfo,
+    now: OffsetDateTime,
 ) -> ReachResult<()> {
     if !bounce.permanent {
         return Ok(());
@@ -613,7 +614,7 @@ async fn apply_bounce_effects(
         Some(&mailbox.id),
         id_of(m.campaign.as_ref()),
         &NoEvents,
-        weldsuite_reach_domain::now(),
+        now,
     )
     .await?;
     Ok(())
@@ -638,9 +639,12 @@ async fn apply_effects(
     message: &Value,
     mailbox: &InboundMailbox,
     a: &Analysis,
+    now: OffsetDateTime,
 ) -> ReachResult<()> {
     match (&a.bounce, a.kind) {
-        (Some(bounce), "bounce") => apply_bounce_effects(db, message, mailbox, a, bounce).await,
+        (Some(bounce), "bounce") => {
+            apply_bounce_effects(db, message, mailbox, a, bounce, now).await
+        }
         (_, "auto_reply") => apply_auto_reply_effects(db, a).await,
         _ => apply_reply_effects(db, message, a).await,
     }
@@ -681,7 +685,7 @@ pub async fn deliver_inbound(mut input: DeliverInput<'_>) -> ReachResult<Deliver
         });
     };
     let stored_id = text(&stored, "id").unwrap_or_default().to_owned();
-    if let Err(error) = apply_effects(input.db, &stored, input.mailbox, &a).await {
+    if let Err(error) = apply_effects(input.db, &stored, input.mailbox, &a, input.now).await {
         // Not stored means redeliverable: drop the row so a replay is not
         // de-duplicated away.
         let _ = sqlx::query("delete from reach_messages where id = $1")
