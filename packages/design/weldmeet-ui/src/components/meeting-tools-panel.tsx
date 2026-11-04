@@ -181,6 +181,10 @@ function toolStatus(
   const idle = { description: rows[`${key}Description` as const], live: false };
   if (!tools) return idle;
   const { state } = tools;
+  // Both read the live transcription, which only runs with live captions on.
+  if ((key === 'translation' || key === 'transcribe') && !tools.liveCaptions) {
+    return { description: rows.liveCaptionsOff, live: false };
+  }
   switch (key) {
     case 'translation':
       return state.prefs.translationEnabled
@@ -355,6 +359,7 @@ function ToolView({
           onCaptionsChange={(captions) => store.setPrefs({ captions })}
           meetingTitle={tools.meetingTitle}
           labels={labels}
+          liveCaptions={tools.liveCaptions}
         />
       );
     case 'translation':

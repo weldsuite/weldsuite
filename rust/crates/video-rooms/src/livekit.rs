@@ -276,8 +276,11 @@ enum Role {
 impl Role {
     fn of(preset: Option<&str>) -> Self {
         match preset {
-            Some(crate::HOST_PRESET) => Self::Host,
-            Some(crate::GUEST_WAITING_PRESET) => Self::Waiting,
+            // Either variant, with or without live captions, is the same role.
+            Some(crate::HOST_PRESET | crate::HOST_CAPTIONS_PRESET) => Self::Host,
+            Some(crate::GUEST_WAITING_PRESET | crate::GUEST_WAITING_CAPTIONS_PRESET) => {
+                Self::Waiting
+            }
             _ => Self::Participant,
         }
     }
@@ -576,7 +579,22 @@ mod tests {
         assert_eq!(waiting["attributes"][WAITING_ATTRIBUTE], "true");
         assert_eq!(waiting["attributes"]["customParticipantId"], "user_1");
 
-        for preset in [crate::MEMBER_PRESET, crate::GUEST_PRESET] {
+        // The live-captions variant of a preset is the same role.
+        assert_eq!(
+            token(crate::HOST_CAPTIONS_PRESET).await["video"],
+            host["video"]
+        );
+        assert_eq!(
+            token(crate::GUEST_WAITING_CAPTIONS_PRESET).await["video"],
+            waiting["video"]
+        );
+
+        for preset in [
+            crate::MEMBER_PRESET,
+            crate::GUEST_PRESET,
+            crate::MEMBER_CAPTIONS_PRESET,
+            crate::GUEST_CAPTIONS_PRESET,
+        ] {
             let claims = token(preset).await;
             assert_eq!(
                 claims["video"],

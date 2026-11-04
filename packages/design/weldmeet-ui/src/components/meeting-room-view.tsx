@@ -934,6 +934,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     meetingTitle,
     labels: toolsLabels,
     captions,
+    // Speech is only transcribed when the host turned on live captions.
+    liveCaptions: hostControls?.enableCaptions === true,
     panelOpen: rightPanel === 'tools',
     onOpenPanel: openToolsPanel,
   });

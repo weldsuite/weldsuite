@@ -14,6 +14,8 @@ export interface TranscriptToolProps {
   onCaptionsChange: (on: boolean) => void;
   meetingTitle?: string;
   labels: MeetingToolsLabels;
+  /** The meeting transcribes speech; when false the empty state says live captions are off. */
+  liveCaptions?: boolean;
 }
 
 function formatTime(at: number): string {
@@ -34,6 +36,7 @@ export function TranscriptTool({
   onCaptionsChange,
   meetingTitle,
   labels,
+  liveCaptions = true,
 }: TranscriptToolProps) {
   const t = labels.transcript;
   const [copied, setCopied] = useState(false);
@@ -100,7 +103,7 @@ export function TranscriptTool({
         }}
       >
         {lines.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t.empty}</p>
+          <p className="text-sm text-muted-foreground">{liveCaptions ? t.empty : labels.rows.liveCaptionsOff}</p>
         ) : (
           <ol className="space-y-3">
             {lines.map((line) => (
