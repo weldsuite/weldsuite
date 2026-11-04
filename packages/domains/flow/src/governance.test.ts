@@ -208,8 +208,8 @@ describe('deliverable rules', () => {
 
   it('accepts by the one who answered, else the last approver; a rejection rejects', () => {
     const rows = [
-      { decidedBy: 'u_sponsor', decision: 'approved', step: 1 },
-      { decidedBy: 'con_1', decision: 'approved', step: 2 },
+      { decidedBy: 'u_sponsor', decision: 'approved' as const, step: 1 },
+      { decidedBy: 'con_1', decision: 'approved' as const, step: 2 },
     ];
     expect(deliverableResolution('approved', 'con_1', rows, now)).toEqual({ status: 'accepted', acceptedBy: 'con_1', acceptedAt: now });
     expect(deliverableResolution('approved', null, rows, now)).toEqual({ status: 'accepted', acceptedBy: 'con_1', acceptedAt: now });
