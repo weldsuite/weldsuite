@@ -40,6 +40,10 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     data: [{ id: 'dim_c1', entityId: 'e', dimension: 'class', name: 'Retail', code: null, parentId: null, isActive: true }],
   }),
 }));
+vi.mock('@/hooks/queries/use-projects-queries', () => ({
+  useProjects: () => ({ data: { data: [{ id: 'proj_1', name: 'Portal' }] }, isLoading: false, isError: false }),
+  useProject: () => ({ data: undefined }),
+}));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
   const labels = {
     tax: 'Tax',
@@ -204,6 +208,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
         form1099Box: 'omit',
         classId: 'dim_c1',
         locationId: null,
+        projectId: null,
       });
     });
 
@@ -314,6 +319,38 @@ describe('BillForm', { timeout: 30_000 }, () => {
       expect(payload.items[0]).toMatchObject({ taxRateId: 'tax_21', quantity: '1', unitPrice: '1000' });
       expect(payload.items[0]).not.toHaveProperty('accrueUseTax');
       expect(payload.items[0]).not.toHaveProperty('form1099Box');
+    });
+
+    it('tags a line with a WeldFlow project, keeps a stored tag and takes it off again', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      const tagged = bill();
+      Object.assign(tagged.items[0], { projectId: 'proj_1' });
+      renderWithProviders(<BillForm mode="edit" bill={tagged} onSubmit={onSubmit} />);
+
+      expect(screen.getByRole('combobox', { name: 'Project' })).toHaveTextContent('Portal');
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].items[0].projectId).toBe('proj_1');
+
+      await user.click(screen.getByRole('combobox', { name: 'Project' }));
+      await user.click(await screen.findByRole('option', { name: 'No project' }));
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+      expect(onSubmit.mock.calls[1][0].items[0].projectId).toBeNull();
+    });
+
+    it('sends the project picked on a new line', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
+
+      expect(screen.getByRole('combobox', { name: 'Project' })).toHaveTextContent('No project');
+      await user.click(screen.getByRole('combobox', { name: 'Project' }));
+      await user.click(await screen.findByRole('option', { name: 'Portal' }));
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].items[0].projectId).toBe('proj_1');
     });
 
     it('offers purchase and both rates on a bill line, never a sales-only rate', async () => {

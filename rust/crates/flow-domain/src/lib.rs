@@ -19,6 +19,7 @@ pub mod intake;
 pub mod gates;
 pub mod decisions;
 pub mod deliverables;
+pub mod finance;
 pub mod js;
 pub mod numbering;
 pub mod project_closing;

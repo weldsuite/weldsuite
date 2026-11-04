@@ -18,6 +18,13 @@ macro_rules! purchase_order_row {
     };
 }
 
+/// `purchase_order_items`.
+macro_rules! purchase_order_item_row {
+    () => {
+        "(to_jsonb(t) || jsonb_build_object('unit_price', t.\"unit_price\"::text, 'discount_percent', t.\"discount_percent\"::text, 'discount_amount', t.\"discount_amount\"::text, 'tax_percent', t.\"tax_percent\"::text, 'tax_amount', t.\"tax_amount\"::text, 'total', t.\"total\"::text))"
+    };
+}
+
 /// `warehouse_locations`.
 macro_rules! location_row {
     () => {
@@ -39,4 +46,6 @@ macro_rules! inventory_row {
     };
 }
 
-pub(crate) use {box_row, inventory_row, location_row, purchase_order_row, supplier_row};
+pub(crate) use {
+    box_row, inventory_row, location_row, purchase_order_item_row, purchase_order_row, supplier_row,
+};

@@ -53,6 +53,7 @@ import { isForeignCurrency } from '@/lib/weldbooks/currencies';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { WELD_TAX_CODES } from '@/lib/weldbooks/tax-codes';
 import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
+import { ProjectSelect } from '@/components/weldflow/project-select';
 import { DocumentTaxPanel } from '@/app/weldbooks/invoices/components/document-tax-panel';
 import { GstTaxSplit } from '@/app/weldbooks/invoices/components/gst-fields';
 import { useDocumentTaxPreview } from '@/app/weldbooks/invoices/components/use-document-tax-preview';
@@ -113,6 +114,8 @@ function createBillFormSchema(st: (key: string) => string, brMessages: { line: B
     form1099Box: z.string().default(''),
     classId: z.string().default(''),
     locationId: z.string().default(''),
+    /** The WeldFlow project the line's cost belongs to (FLOW-019); empty = none. */
+    projectId: z.string().default(''),
     ...brLineFields,
   })
     .superRefine(brLineChecks(brMessages.line));
@@ -181,6 +184,7 @@ const emptyItem = {
   form1099Box: '',
   classId: '',
   locationId: '',
+  projectId: '',
   ...EMPTY_BR_LINE,
 };
 
@@ -263,6 +267,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
             form1099Box: item.form1099Box ?? '',
             classId: item.classId ?? '',
             locationId: item.locationId ?? '',
+            projectId: item.projectId ?? '',
             ...brLineValuesFromStored(item),
           }))
         : prefilledItems ?? [{ ...emptyItem }],
@@ -303,7 +308,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     })),
     fiscalData: br ? brDocumentPayload(watched, { bill: true }) : undefined,
   });
-  const showLineOptions = salesTax || features.form1099 || br;
+  // Every line can carry a WeldFlow project (FLOW-019), so the options row is always there.
+  const showLineOptions = true;
 
   // Copy the supplier's billing address in when the supplier changes (not
   // when an existing bill is opened).
@@ -748,6 +754,18 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                               }
                               className="contents"
                             />
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`bill-${index}-project`} className="text-xs">
+                                {t.flowFinance.projectTag.label}
+                              </Label>
+                              <ProjectSelect
+                                id={`bill-${index}-project`}
+                                value={line?.projectId || null}
+                                onChange={(value) =>
+                                  form.setValue(`items.${index}.projectId`, value ?? '', { shouldDirty: true })
+                                }
+                              />
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>

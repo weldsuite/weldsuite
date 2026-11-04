@@ -74,7 +74,27 @@ export interface ProjectClosingSettings {
   handovers: Record<string, { ownerId: string; by: string; at: string }>;
 }
 
+/** One manual forecast at completion, with why (slice E). `amount: null` records that the manual forecast was cleared. */
+export interface ProjectManualForecast {
+  amount: number | null;
+  reason: string | null;
+  /** The member who set it. */
+  setBy: string;
+  /** ISO date-time. */
+  setAt: string;
+}
+
+/** `finance` (FLOW-019): the project manager's manual forecast and the history of it (slice E). */
+export interface ProjectFinanceSettings {
+  /** Replaces budget / CPI as the forecast while set. */
+  manualForecast: ProjectManualForecast | null;
+  /** Every change, newest first, at most 25. */
+  history: ProjectManualForecast[];
+}
+
 export interface ProjectSettings {
+  // slice E:
+  finance?: ProjectFinanceSettings;
   changeControl?: ProjectChangeControlSettings;
   schedule?: ProjectScheduleSettings;
   statusReport?: ProjectStatusReportSettings;

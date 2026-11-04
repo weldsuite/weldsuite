@@ -236,6 +236,8 @@ export interface BillItemTaxFields {
   form1099Box?: string | null;
   classId?: string | null;
   locationId?: string | null;
+  /** The WeldFlow project the line's cost belongs to (FLOW-019). */
+  projectId?: string | null;
   ncm?: string | null;
   cfop?: string | null;
   fiscalData?: Record<string, unknown> | null;

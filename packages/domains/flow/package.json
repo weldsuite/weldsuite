@@ -17,6 +17,7 @@
     "./benefits": "./src/benefits.ts",
     "./decisions": "./src/decisions.ts",
     "./deliverables": "./src/deliverables.ts",
+    "./finance": "./src/finance.ts",
     "./project-access": "./src/project-access.ts",
     "./project-closing": "./src/project-closing.ts",
     "./project-templates": "./src/project-templates.ts",

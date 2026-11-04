@@ -26,6 +26,8 @@ pub(crate) struct BillLine {
     pub fiscal_data: Option<Value>,
     pub class_id: Option<String>,
     pub location_id: Option<String>,
+    /// The `WeldFlow` project the line's cost belongs to (FLOW-019).
+    pub project_id: Option<String>,
 }
 
 /// `createBillSchema` (`.partial()`): what the route reads.
@@ -320,6 +322,7 @@ fn line(issues: &mut Issues, item: &Value) -> Option<BillLine> {
     let fiscal = line_fiscal(issues, fields).into_option();
     let class_id = text(issues, "classId", nullish, Some(30));
     let location_id = text(issues, "locationId", nullish, Some(30));
+    let project_id = text(issues, "projectId", nullish, Some(255));
     if issues.count() > before {
         return None;
     }
@@ -342,6 +345,7 @@ fn line(issues: &mut Issues, item: &Value) -> Option<BillLine> {
         fiscal_data: fiscal,
         class_id,
         location_id,
+        project_id,
     })
 }
 
