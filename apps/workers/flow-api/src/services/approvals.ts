@@ -34,6 +34,7 @@ import type {
 } from '@weldsuite/app-api-client/schemas/flow-approvals';
 import {
   decideApproval,
+  inAccessibleOrNoProject,
   isStepActive,
   listSubjectApprovals,
   listPendingForApprover,
@@ -556,7 +557,7 @@ export async function buildReviewItems(
       siblings.get(keyOf(row.subjectType, row.subjectId)) ?? [row],
       projectId ? (names.get(projectId) ?? null) : null,
       now,
-      row.approverId !== userId,
+      row.approverId !== userId && row.delegatedFrom !== userId,
     );
   });
 }
@@ -636,13 +637,19 @@ export interface MineOptions {
   canReviewTime: boolean;
   type?: ReviewType;
   projectId?: string;
+  /** `accessibleProjectIds`: rows of other projects stay out (rows without a project stay in). `null`: no limit. */
+  accessibleProjectIds?: readonly string[] | null;
   now: Date;
 }
 
 /** `GET /mine`: the caller's open reviews in groups, with the per-type counts. */
 export async function loadMyReviews(db: Database, options: MineOptions): Promise<MyReviews> {
   const { userId, now } = options;
-  const pending = await listPendingForApprover(db, userId, { projectId: options.projectId, now });
+  const pending = await listPendingForApprover(db, userId, {
+    projectId: options.projectId,
+    accessibleProjectIds: options.accessibleProjectIds,
+    now,
+  });
   const approvalItems = await buildReviewItems(db, pending.map((review) => review.approval), userId, now);
   const timesheets =
     options.canReviewTime && (!options.type || options.type === 'timesheet')
@@ -706,7 +713,9 @@ export async function countMyReviews(db: Database, options: Omit<MineOptions, 't
         eq(a.approverKind, 'member'),
         eq(a.decision, 'pending'),
         isNull(a.deletedAt),
-        or(eq(a.approverId, userId), inArray(a.approverId, delegators)),
+        // Their own, those of members who delegated to them, and those asked of a delegate while they were away.
+        or(eq(a.approverId, userId), inArray(a.approverId, delegators), eq(a.delegatedFrom, userId)),
+        options.accessibleProjectIds ? inAccessibleOrNoProject(a.projectId, options.accessibleProjectIds) : undefined,
         // Its turn: no row of an earlier step is still unanswered or declined.
         sql`not exists (
           select 1 from flow_approvals s
@@ -743,6 +752,8 @@ export interface ListFilters {
   projectId?: string;
   cursor?: string;
   limit: number;
+  /** `accessibleProjectIds`: rows of other projects stay out (rows without a project stay in). `null`: no limit. */
+  accessibleProjectIds?: readonly string[] | null;
 }
 
 /** `GET /sent`: subjects the caller asked approval for that still wait for someone, newest request first. */
@@ -758,6 +769,7 @@ export async function loadSentReviews(
     isNull(approvals.deletedAt),
     filters.type ? eq(approvals.subjectType, filters.type) : undefined,
     filters.projectId ? eq(approvals.projectId, filters.projectId) : undefined,
+    filters.accessibleProjectIds ? inAccessibleOrNoProject(approvals.projectId, filters.accessibleProjectIds) : undefined,
   );
   const subjects = db
     .select({
@@ -833,6 +845,7 @@ export async function loadDoneReviews(
     inArray(approvals.decision, ['approved', 'approved_with_conditions', 'rejected']),
     filters.type ? eq(approvals.subjectType, filters.type) : undefined,
     filters.projectId ? eq(approvals.projectId, filters.projectId) : undefined,
+    filters.accessibleProjectIds ? inAccessibleOrNoProject(approvals.projectId, filters.accessibleProjectIds) : undefined,
   );
   const countWhere = where;
   let cursorWhere = sql`true`;

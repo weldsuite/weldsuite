@@ -511,8 +511,57 @@ export async function applyApprovedChange(
   ctx: { actorId: string | null; rows?: readonly ApprovalRow[]; now?: Date },
 ): Promise<AppliedChange> {
   const now = ctx.now ?? new Date();
-  const change = await findChangeRequest(db, changeId);
-  if (!change || change.status !== 'awaiting_approval') return { outcome: 'skipped', change, baseline: null, decision: null };
+  return withClaimedChange(db, changeId, now, (change) => writeApprovedChange(db, change, ctx, now));
+}
+
+/**
+ * Claim a change that is waiting for approval, so two final answers at once
+ * cannot both settle it: a guarded update stamps `decided_at` (always null
+ * while a change is `awaiting_approval`; submitting clears it) and only the
+ * caller that gets the row back goes on. The status column has no in-between
+ * value, so the stamp is the claim. A claim that did not end in a write is
+ * released, so the settlement can run again.
+ */
+async function claimAwaitingChange(db: Database, changeId: string, now: Date): Promise<ChangeRequestRow | null> {
+  const [claimed] = await db
+    .update(changes)
+    .set({ decidedAt: now })
+    .where(and(eq(changes.id, changeId), eq(changes.status, 'awaiting_approval'), isNull(changes.decidedAt), isNull(changes.deletedAt)))
+    .returning();
+  return claimed ?? null;
+}
+
+async function releaseChangeClaim(db: Database, changeId: string, now: Date): Promise<void> {
+  await db
+    .update(changes)
+    .set({ decidedAt: null })
+    .where(and(eq(changes.id, changeId), eq(changes.status, 'awaiting_approval'), eq(changes.decidedAt, now)));
+}
+
+async function withClaimedChange(
+  db: Database,
+  changeId: string,
+  now: Date,
+  settle: (change: ChangeRequestRow) => Promise<AppliedChange>,
+): Promise<AppliedChange> {
+  const claimed = await claimAwaitingChange(db, changeId, now);
+  if (!claimed) return { outcome: 'skipped', change: await findChangeRequest(db, changeId), baseline: null, decision: null };
+  try {
+    const result = await settle(claimed);
+    if (result.outcome === 'skipped') await releaseChangeClaim(db, changeId, now);
+    return result;
+  } catch (err) {
+    await releaseChangeClaim(db, changeId, now).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function writeApprovedChange(
+  db: Database,
+  change: ChangeRequestRow,
+  ctx: { actorId: string | null; rows?: readonly ApprovalRow[]; now?: Date },
+  now: Date,
+): Promise<AppliedChange> {
   const plan = await loadPlanState(db, change.projectId);
   if (!plan) return { outcome: 'skipped', change, baseline: null, decision: null };
 
@@ -692,9 +741,15 @@ export async function recordRejectedChange(
   ctx: { actorId: string | null; rows: readonly ApprovalRow[]; now?: Date },
 ): Promise<AppliedChange> {
   const now = ctx.now ?? new Date();
-  const change = await findChangeRequest(db, changeId);
-  if (!change || change.status !== 'awaiting_approval') return { outcome: 'skipped', change, baseline: null, decision: null };
+  return withClaimedChange(db, changeId, now, (change) => writeRejectedChange(db, change, ctx, now));
+}
 
+async function writeRejectedChange(
+  db: Database,
+  change: ChangeRequestRow,
+  ctx: { actorId: string | null; rows: readonly ApprovalRow[] },
+  now: Date,
+): Promise<AppliedChange> {
   const rejecting = ctx.rows.find((row) => row.decision === 'rejected');
   const actor = rejecting?.decidedBy ?? ctx.actorId ?? change.createdBy;
   const code = changeCode(change.number);

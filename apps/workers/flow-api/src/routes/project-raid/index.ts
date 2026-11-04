@@ -69,6 +69,7 @@ import {
 import { requestRiskAcceptanceSchema } from '@weldsuite/app-api-client/schemas/flow-approvals';
 import { acceptanceError } from '@weldsuite/flow-domain/acceptance';
 import { presentReviewApprover } from '@weldsuite/flow-domain/approval-views';
+import { cancelPendingApprovals } from '@weldsuite/flow-domain/approvals';
 import { allocateNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import type { Env, Variables } from '../../types';
@@ -76,6 +77,7 @@ import { accessibleProjectIds, canAccessProject, canWriteProject, inAccessiblePr
 import { containsPattern, parseLimit, queryBoolean } from '../../lib/query-params';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { dispatchAssignmentNotifications } from '../../lib/task-notifications';
+import { announceApprovalsCancelled } from '../../services/approvals';
 import { requestRiskAcceptance } from '../../services/risk-acceptance';
 import {
   convertedItemValues,
@@ -504,6 +506,10 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
           ),
         ),
     ]);
+    // A risk that is gone has nothing left to accept: close the open acceptance request.
+    if (existing.kind === 'risk') {
+      announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'risk_acceptance', subjectId: id, includeDecided: true }));
+    }
     publishEntityEvent({
       c,
       entityType: 'project_raid_item',
@@ -648,6 +654,10 @@ app.post('/:id/convert', requirePermission('projects:update'), async (c) => {
         .set({ status: sourceStatusAfterConversion(source.kind), closedAt: now, updatedAt: now })
         .where(and(eq(t.id, id), isNull(t.deletedAt))),
     ]);
+    // The source is closed now: a risk converted to an issue is no longer accepted or refused as a risk.
+    if (source.kind === 'risk') {
+      announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'risk_acceptance', subjectId: id, includeDecided: true }));
+    }
     const [newRow, sourceRow] = await Promise.all([findRaidItem(db, newId), findRaidItem(db, id)]);
     const [linkRow] = await db.select().from(linksTable).where(eq(linksTable.id, linkId)).limit(1);
     if (!newRow || !sourceRow || !linkRow) return error.internal(c, 'Failed to convert RAID item');

@@ -251,3 +251,30 @@ describe('the sponsor answers', () => {
     });
   });
 });
+
+describe('a risk that goes away takes its open acceptance request with it', () => {
+  it('closes the request, and tells the sponsor, when the risk is deleted', async () => {
+    await seedProject('prj_acc_del');
+    const risk = await createRisk('prj_acc_del');
+    await request(risk.id);
+    expect((await approvalOf(risk.id)).filter((r) => r.deletedAt === null)).toHaveLength(1);
+    published.mockClear();
+    expect((await pm()('DELETE', `/project-raid/${risk.id}`)).status).toBe(204);
+    expect(actions()).toContain('flow_approval.cancelled');
+    expect((await approvalOf(risk.id)).filter((r) => r.deletedAt === null)).toHaveLength(0);
+    const inbox = await data<{ total: number }>(await as(SPONSOR, READ)('GET', '/approvals/mine'));
+    expect(inbox.total).toBe(0);
+  });
+
+  it('closes the request when the risk is converted to an issue', async () => {
+    await seedProject('prj_acc_conv');
+    const risk = await createRisk('prj_acc_conv');
+    await request(risk.id);
+    published.mockClear();
+    const res = await pm()('POST', `/project-raid/${risk.id}/convert`, { to: 'issue', title: 'Supplier is late' });
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
+    expect(actions()).toContain('flow_approval.cancelled');
+    expect((await approvalOf(risk.id)).filter((r) => r.deletedAt === null)).toHaveLength(0);
+    expect((await data<{ total: number }>(await as(SPONSOR, READ)('GET', '/approvals/mine'))).total).toBe(0);
+  });
+});

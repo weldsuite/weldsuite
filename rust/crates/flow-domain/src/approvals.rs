@@ -969,7 +969,12 @@ pub async fn decide_approval(
     };
 
     let mut via_delegation = false;
-    let is_approver = row.approver_kind == actor.kind && row.approver_id == actor.id;
+    // A member row stored for a delegate (`delegated_from` = the member) stays the
+    // member's to answer too, so it does not strand when the delegation ends.
+    let is_approver = row.approver_kind == actor.kind
+        && (row.approver_id == actor.id
+            || (actor.kind == "member"
+                && row.delegated_from.as_deref() == Some(actor.id.as_str())));
     if !is_approver {
         let delegation = if actor.kind == "member" && row.approver_kind == "member" {
             find_active_delegation(db, &row.approver_id, now).await?
@@ -1145,6 +1150,9 @@ pub struct PendingReviewFilters {
     pub include_delegated: Option<bool>,
     /// Also list rows whose earlier steps are not answered yet. Default false.
     pub include_waiting: bool,
+    /// The projects the caller may see (`accessibleProjectIds`): rows of other
+    /// projects are left out, rows without a project stay. `None`: no limit.
+    pub accessible_project_ids: Option<Vec<String>>,
     /// Default 200, at most 500.
     pub limit: Option<i64>,
 }
@@ -1187,10 +1195,13 @@ pub async fn list_pending_for_approver(
 
     let values: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(a) from flow_approvals a
-         where a.approver_kind = $1 and a.approver_id = any($2) and a.decision = any($3)
+         where a.approver_kind = $1
+           and (a.approver_id = any($2) or ($1 = 'member' and a.delegated_from = $7))
+           and a.decision = any($3)
            and a.deleted_at is null
            and (cardinality($4::text[]) = 0 or a.subject_type = any($4))
            and ($5::text is null or a.project_id = $5)
+           and ($8::text[] is null or a.project_id is null or a.project_id = any($8))
          order by a.due_at asc nulls last, a.created_at asc, a.id asc
          limit $6",
     )
@@ -1200,6 +1211,8 @@ pub async fn list_pending_for_approver(
     .bind(&filters.subject_types)
     .bind(filters.project_id.as_deref())
     .bind(limit)
+    .bind(user_id)
+    .bind(filters.accessible_project_ids.as_deref())
     .fetch_all(db)
     .await?;
     let rows = approval_rows(values);
@@ -1238,7 +1251,8 @@ pub async fn list_pending_for_approver(
                 None => is_step_active(&approval, std::slice::from_ref(&approval)),
             };
             PendingReview {
-                via_delegation: approval.approver_id != user_id,
+                via_delegation: approval.approver_id != user_id
+                    && approval.delegated_from.as_deref() != Some(user_id),
                 actionable,
                 bucket: review_bucket(approval.due_at, now_ms),
                 approval,

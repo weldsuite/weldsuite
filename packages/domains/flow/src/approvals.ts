@@ -29,7 +29,7 @@
  * access and permissions for the routes around it.
  */
 
-import { and, asc, eq, gt, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import {
   APPROVAL_DECISIONS,
   APPROVAL_SUBJECT_TYPES,
@@ -535,6 +535,22 @@ function asActor(actor: string | ApprovalActor): ApprovalActor {
   return typeof actor === 'string' ? { kind: 'member', id: actor } : actor;
 }
 
+/** How the actor stands to a row: its named approver, their active delegate, or neither. */
+async function standingOf(
+  db: Database,
+  row: ApprovalRow,
+  actor: ApprovalActor,
+  now: Date,
+): Promise<'approver' | 'delegate' | null> {
+  // A member row stored for a delegate (`delegatedFrom` = the member) stays the member's to answer
+  // too, so it does not strand when the delegation ends.
+  const named = row.approverId === actor.id || (actor.kind === 'member' && row.delegatedFrom === actor.id);
+  if (row.approverKind === actor.kind && named) return 'approver';
+  if (actor.kind !== 'member' || row.approverKind !== 'member') return null;
+  const delegation = await findActiveDelegation(db, row.approverId, now);
+  return delegation?.delegateId === actor.id ? 'delegate' : null;
+}
+
 /**
  * Answer a review. The checks run in a fixed order, so every backend answers
  * alike: the row exists, the actor is its approver or their active delegate,
@@ -560,14 +576,9 @@ export async function decideApproval(db: Database, input: DecideApprovalInput): 
     .limit(1);
   if (!row) return fail('not_found', APPROVAL_MESSAGES.notFound);
 
-  let viaDelegation = false;
-  const isApprover = row.approverKind === actor.kind && row.approverId === actor.id;
-  if (!isApprover) {
-    const delegation =
-      actor.kind === 'member' && row.approverKind === 'member' ? await findActiveDelegation(db, row.approverId, now) : null;
-    if (!delegation || delegation.delegateId !== actor.id) return fail('not_approver', APPROVAL_MESSAGES.notApprover);
-    viaDelegation = true;
-  }
+  const standing = await standingOf(db, row, actor, now);
+  if (!standing) return fail('not_approver', APPROVAL_MESSAGES.notApprover);
+  const viaDelegation = standing === 'delegate';
 
   if (!isOpenDecision(row.decision)) return fail('already_decided', APPROVAL_MESSAGES.alreadyDecided);
 
@@ -648,6 +659,13 @@ export async function cancelPendingApprovals(
     .returning();
 }
 
+/** A row of one of these projects, or without a project (a project request has none yet). */
+export function inAccessibleOrNoProject(projectId: AnyColumn, accessible: readonly string[]): SQL {
+  return accessible.length > 0
+    ? (or(isNull(projectId), inArray(projectId, [...accessible])) as SQL)
+    : isNull(projectId);
+}
+
 export interface PendingReviewFilters {
   subjectTypes?: readonly ApprovalSubjectType[];
   projectId?: string;
@@ -659,6 +677,11 @@ export interface PendingReviewFilters {
   includeDelegated?: boolean;
   /** Also list rows whose earlier steps are not answered yet. Default false. */
   includeWaiting?: boolean;
+  /**
+   * The projects the caller may see (`accessibleProjectIds`): rows of other projects are left out,
+   * rows without a project stay. `null` or undefined: no limit.
+   */
+  accessibleProjectIds?: readonly string[] | null;
   /** Default 200, at most 500. */
   limit?: number;
   /** Defaults to the clock. */
@@ -692,12 +715,10 @@ export async function listPendingForApprover(
   const approverIds = [userId, ...delegators.filter((id) => id !== userId)];
   const decisions: ApprovalDecision[] = filters.decisions ? [...filters.decisions] : ['pending'];
 
-  const conditions: SQL[] = [
-    eq(t.approverKind, kind),
-    inArray(t.approverId, approverIds),
-    inArray(t.decision, decisions),
-    isNull(t.deletedAt),
-  ];
+  // A member also keeps the rows asked of a delegate while they were away (`delegatedFrom`).
+  const mine = kind === 'member' ? or(inArray(t.approverId, approverIds), eq(t.delegatedFrom, userId)) : inArray(t.approverId, approverIds);
+  const conditions: SQL[] = [eq(t.approverKind, kind), mine as SQL, inArray(t.decision, decisions), isNull(t.deletedAt)];
+  if (filters.accessibleProjectIds) conditions.push(inAccessibleOrNoProject(t.projectId, filters.accessibleProjectIds));
   if (filters.subjectTypes && filters.subjectTypes.length > 0) conditions.push(inArray(t.subjectType, [...filters.subjectTypes]));
   if (filters.projectId) conditions.push(eq(t.projectId, filters.projectId));
 
@@ -726,7 +747,7 @@ export async function listPendingForApprover(
 
   const reviews: PendingReview[] = rows.map((approval) => ({
     approval,
-    viaDelegation: approval.approverId !== userId,
+    viaDelegation: approval.approverId !== userId && approval.delegatedFrom !== userId,
     actionable: isStepActive(approval, siblingsByKey.get(`${approval.subjectType}:${approval.subjectId}`) ?? [approval]),
     bucket: reviewBucket(approval.dueAt, now),
   }));

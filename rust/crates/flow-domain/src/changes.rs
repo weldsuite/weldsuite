@@ -682,8 +682,67 @@ async fn read_back(
 /// scope changes, the budget, the next baseline (none without one), a decided
 /// decision and the status, in one batch. Idempotent: a change that is no
 /// longer `awaiting_approval` is left alone.
-#[allow(clippy::too_many_lines)]
 pub async fn apply_approved_change(
+    db: &PgPool,
+    change_id: &str,
+    actor_id: Option<&str>,
+    now_ms: i64,
+) -> Result<AppliedChange, sqlx::Error> {
+    settle_claimed_change(
+        db,
+        change_id,
+        now_ms,
+        write_approved_change(db, change_id, actor_id, now_ms),
+    )
+    .await
+}
+
+/// Claim a change that is waiting for approval, so two final answers at once
+/// cannot both settle it: a guarded update stamps `decided_at` (always null
+/// while a change is `awaiting_approval`; submitting clears it) and only the
+/// caller that changed the row goes on. The status column has no in-between
+/// value, so the stamp is the claim. A claim that did not end in a write is
+/// released, so the settlement can run again. `settle` is polled only after
+/// the claim is won.
+async fn settle_claimed_change(
+    db: &PgPool,
+    change_id: &str,
+    now_ms: i64,
+    settle: impl std::future::Future<Output = Result<AppliedChange, sqlx::Error>>,
+) -> Result<AppliedChange, sqlx::Error> {
+    let now = iso_from_millis(now_ms).unwrap_or_default();
+    let claimed = sqlx::query(
+        "update project_change_requests set decided_at = $2::timestamptz
+         where id = $1 and status = 'awaiting_approval' and decided_at is null and deleted_at is null",
+    )
+    .bind(change_id)
+    .bind(&now)
+    .execute(db)
+    .await?
+    .rows_affected();
+    if claimed == 0 {
+        return Ok(AppliedChange {
+            change: find_change_request(db, change_id).await?,
+            ..AppliedChange::default()
+        });
+    }
+    let result = settle.await;
+    if result.as_ref().map_or(true, |settled| !settled.applied) {
+        // A failed release keeps the original outcome; the claim then stays for an operator to clear.
+        let _released = sqlx::query(
+            "update project_change_requests set decided_at = null
+             where id = $1 and status = 'awaiting_approval' and decided_at = $2::timestamptz",
+        )
+        .bind(change_id)
+        .bind(&now)
+        .execute(db)
+        .await;
+    }
+    result
+}
+
+#[allow(clippy::too_many_lines)]
+async fn write_approved_change(
     db: &PgPool,
     change_id: &str,
     actor_id: Option<&str>,
@@ -946,6 +1005,22 @@ pub async fn apply_approved_change(
 /// `recordRejectedChange(db, changeId, { actorId, rows, now })`: `rejected`,
 /// and a decided decision with the rejecting approver's reason.
 pub async fn record_rejected_change(
+    db: &PgPool,
+    change_id: &str,
+    actor_id: Option<&str>,
+    rows: &[ApprovalRow],
+    now_ms: i64,
+) -> Result<AppliedChange, sqlx::Error> {
+    settle_claimed_change(
+        db,
+        change_id,
+        now_ms,
+        write_rejected_change(db, change_id, actor_id, rows, now_ms),
+    )
+    .await
+}
+
+async fn write_rejected_change(
     db: &PgPool,
     change_id: &str,
     actor_id: Option<&str>,

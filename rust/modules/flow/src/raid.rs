@@ -40,6 +40,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_db::js_row;
 use weldsuite_flow_domain::analytics::task_analytics_payload;
+use weldsuite_flow_domain::approvals::cancel_pending_approvals;
 use weldsuite_flow_domain::js::{contains_pattern, iso_from_millis, js_date, parse_int, to_fixed};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_flow_domain::raid::{
@@ -56,6 +57,7 @@ use weldsuite_flow_domain::tasks::create_task;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::approvals::announce::announce_approvals_cancelled;
 use crate::raid_body::{
     Body, ListQuery, matrix_query, parse_body, raid_list_query, read_assess, read_convert,
     read_create, read_task, read_update,
@@ -1052,6 +1054,18 @@ async fn remove(
     )
 }
 
+/// `announceApprovalsCancelled(c, await cancelPendingApprovals(db, { subjectType: 'risk_acceptance', subjectId: id, includeDecided: true }))`.
+async fn close_acceptance_request(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+) -> Result<(), sqlx::Error> {
+    let cleared =
+        cancel_pending_approvals(&caller.db, "risk_acceptance", id, true, crate::now_ms()).await?;
+    announce_approvals_cancelled(state, caller, &cleared);
+    Ok(())
+}
+
 async fn remove_item(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     let (existing, kind) = writable_item(caller, id).await?;
     // The item's links go with it, in the same batch.
@@ -1075,6 +1089,10 @@ async fn remove_item(state: &FlowState, caller: &Caller, id: &str) -> Reply {
         ],
     )
     .await?;
+    // A risk that is gone has nothing left to accept: close the open acceptance request.
+    if kind == RaidKind::Risk {
+        close_acceptance_request(state, caller, id).await?;
+    }
     let number = existing["number"].as_i64().unwrap_or_default();
     caller.publish(
         state,
@@ -1403,6 +1421,10 @@ async fn convert_item(
     statements.push(insert_link(&link));
     statements.push(update_item(id, &closing));
     weldsuite_db::atomically(db, statements).await?;
+    // The source is closed now: a risk converted to an issue is no longer accepted or refused as a risk.
+    if kind == RaidKind::Risk {
+        close_acceptance_request(state, caller, id).await?;
+    }
 
     let new_row = find_raid_item(db, &new_id).await?;
     let source_row = find_raid_item(db, id).await?;

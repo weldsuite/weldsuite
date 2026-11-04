@@ -77,6 +77,8 @@ async function seedProject(id: string, settings: Record<string, unknown> | null 
     [
       [SPONSOR, 'viewer'],
       [MEMBER, 'member'],
+      // The delegate of the delegation tests: answering is the row's right, but it needs the project.
+      [COVER, 'viewer'],
     ].map(([userId, role]) => ({ id: `pm_${id}_${userId}`, projectId: id, userId: userId as string, role: role as string, isActive: true, createdAt: now, updatedAt: now, joinedAt: now })),
   );
 }
@@ -422,6 +424,56 @@ describe('delegations', () => {
     expect(done.data.map((r) => r.id)).toEqual([approvalId]);
   });
 
+  it('refuses a delegate who is not a member of the project, and keeps its reviews out of their lists', async () => {
+    await seedProject('prj_apr_dlg_out');
+    const { approvalId } = await createAndSubmit('prj_apr_dlg_out');
+    expect((await pm()('POST', '/approvals/delegations', { delegateId: AWAY, ...when(-1, 7) })).status).toBe(201);
+    const stranger = as(AWAY, READ);
+    expect((await mine(stranger)).total).toBe(0);
+    expect(await data(await stranger('GET', '/approvals/mine/count'))).toEqual({ count: 0, overdue: 0 });
+    const res = await stranger('POST', `/approvals/${approvalId}/decide`, { decision: 'approved' });
+    expect(res.status).toBe(403);
+    expect((await errorOf(res)).message).toBe('You are not a member of this project');
+    const [row] = await db.select().from(schema.flowApprovals).where(eq(schema.flowApprovals.id, approvalId));
+    expect(row?.decision).toBe('pending');
+    const [change] = await db.select().from(schema.projectChangeRequests).where(eq(schema.projectChangeRequests.projectId, 'prj_apr_dlg_out'));
+    expect(change?.status).toBe('awaiting_approval');
+  });
+
+  it('hides the reviews of a project the caller left from My reviews, the badge and Done', async () => {
+    await seedProject('prj_apr_left');
+    const { approvalId } = await createAndSubmit('prj_apr_left');
+    await pm()('POST', '/approvals/delegations', { delegateId: COVER, ...when(-1, 7) });
+    const cover = as(COVER, READ);
+    const leave = (isActive: boolean) =>
+      db.update(schema.projectMembers).set({ isActive }).where(eq(schema.projectMembers.id, `pm_prj_apr_left_${COVER}`));
+    await leave(false);
+    expect((await mine(cover)).total).toBe(0);
+    expect(await data(await cover('GET', '/approvals/mine/count'))).toEqual({ count: 0, overdue: 0 });
+    await leave(true);
+    expect((await mine(cover)).total).toBe(1);
+    expect((await cover('POST', `/approvals/${approvalId}/decide`, { decision: 'approved' })).status).toBe(200);
+    await leave(false);
+    expect(((await (await cover('GET', '/approvals/done')).json()) as { data: Review[] }).data).toEqual([]);
+    await leave(true);
+    expect(((await (await cover('GET', '/approvals/done')).json()) as { data: Review[] }).data.map((r) => r.id)).toEqual([approvalId]);
+  });
+
+  it('keeps a review asked of the delegate with the member after the delegation ended', async () => {
+    await seedProject('prj_apr_dlg_end');
+    const active = await data<{ id: string }>(await pm()('POST', '/approvals/delegations', { delegateId: COVER, ...when(-1, 7) }));
+    const { approvalId } = await createAndSubmit('prj_apr_dlg_end');
+    expect((await pm()('DELETE', `/approvals/delegations/${active.id}`)).status).toBe(204);
+    const [row] = await db.select().from(schema.flowApprovals).where(eq(schema.flowApprovals.id, approvalId));
+    expect(row).toMatchObject({ approverId: COVER, delegatedFrom: PM });
+    // The member sees it again, as their own, and the badge counts it.
+    expect(all(await mine(pm())).map((r) => [r.id, r.viaDelegation, r.delegatedFrom])).toEqual([[approvalId, false, PM]]);
+    expect(await data(await pm()('GET', '/approvals/mine/count'))).toEqual({ count: 1, overdue: 0 });
+    const res = await pm()('POST', `/approvals/${approvalId}/decide`, { decision: 'approved' });
+    expect(res.status).toBe(200);
+    expect(await data(res)).toMatchObject({ viaDelegation: false, outcome: 'approved' });
+  });
+
   it('asks the delegate instead for reviews requested while the member is away', async () => {
     await seedProject('prj_apr_dlg2');
     await as(PM)('POST', '/approvals/delegations', { delegateId: COVER, ...when(-1, 7) });
@@ -429,7 +481,8 @@ describe('delegations', () => {
     const [row] = await db.select().from(schema.flowApprovals).where(eq(schema.flowApprovals.id, approvalId));
     expect(row).toMatchObject({ approverId: COVER, delegatedFrom: PM });
     expect(all(await mine(as(COVER, READ))).map((r) => [r.id, r.delegatedFrom])).toEqual([[approvalId, PM]]);
-    expect((await mine(pm())).total).toBe(0);
+    // The member who handed it over still has it, as their own: it stays theirs when the delegation ends.
+    expect(all(await mine(pm())).map((r) => [r.id, r.viaDelegation, r.delegatedFrom])).toEqual([[approvalId, false, PM]]);
   });
 
   it('does not delegate before it starts or after it ends, and ending it takes the delegate out again', async () => {

@@ -279,6 +279,22 @@ describe('decideApproval', () => {
     ).toMatchObject({ ok: false, code: 'not_approver' });
   });
 
+  it('keeps a row asked of a delegate answerable by the member after the delegation ended', async () => {
+    await seedDelegation('u1', 'u9', new Date(NOW.getTime() - DAY), new Date(NOW.getTime() + DAY));
+    const [row] = await ask('cr_1', [{ approverId: 'u1', rule }]);
+    expect(row).toMatchObject({ approverId: 'u9', delegatedFrom: 'u1' });
+    // Two days on the delegation is over: the member is still an approver of the row.
+    const later = new Date(NOW.getTime() + 2 * DAY);
+    const result = await decideApproval(db, { approvalId: row!.id, actor: 'u1', decision: 'approved', now: later });
+    expect(result).toMatchObject({ ok: true, viaDelegation: false });
+    // A stranger still cannot.
+    const [other] = await ask('cr_2', [{ approverId: 'u1', rule }]);
+    expect(await decideApproval(db, { approvalId: other!.id, actor: 'u5', decision: 'approved', now: later })).toMatchObject({
+      ok: false,
+      code: 'not_approver',
+    });
+  });
+
   it('needs a note to decline and to set conditions, and stores nothing when it is missing', async () => {
     const [row] = await ask('cr_1', [{ approverId: 'u1', rule }]);
     expect(await decideApproval(db, { approvalId: row!.id, actor: 'u1', decision: 'rejected' })).toMatchObject({
@@ -489,6 +505,38 @@ describe('listPendingForApprover', () => {
     ]);
     expect(await listPendingForApprover(db, 'u9', { now: NOW, includeDelegated: false })).toHaveLength(1);
     expect(await listPendingForApprover(db, 'u9', { now: new Date(NOW.getTime() + 2 * DAY) })).toHaveLength(1);
+  });
+
+  it('lists a row asked of a delegate for the member who delegated, as their own, after the delegation ended', async () => {
+    await seedDelegation('u1', 'u9', new Date(NOW.getTime() - DAY), new Date(NOW.getTime() + DAY));
+    await ask('cr_1', [{ approverId: 'u1', rule }]);
+    const later = new Date(NOW.getTime() + 2 * DAY);
+    expect((await listPendingForApprover(db, 'u1', { now: later })).map((r) => [r.approval.subjectId, r.viaDelegation])).toEqual([['cr_1', false]]);
+    // The delegate keeps it as theirs.
+    expect((await listPendingForApprover(db, 'u9', { now: later })).map((r) => [r.approval.subjectId, r.viaDelegation])).toEqual([['cr_1', false]]);
+  });
+
+  it('limits the reviews to the accessible projects and keeps the rows without a project', async () => {
+    await db.insert(schema.projects).values([
+      { id: 'prj_a', name: 'A', createdAt: NOW, updatedAt: NOW },
+      { id: 'prj_b', name: 'B', createdAt: NOW, updatedAt: NOW },
+    ]);
+    for (const [subjectId, projectId] of [['cr_a', 'prj_a'], ['cr_b', 'prj_b'], ['cr_none', null]] as const) {
+      const result = await requestApprovals(db, {
+        projectId,
+        subjectType: 'change_request',
+        subjectId,
+        requestedBy: 'requester',
+        rows: [{ approverId: 'u1', rule }],
+        now: NOW,
+      });
+      expect(result.ok).toBe(true);
+    }
+    const ids = async (accessibleProjectIds: string[] | null) =>
+      (await listPendingForApprover(db, 'u1', { now: NOW, accessibleProjectIds })).map((r) => r.approval.subjectId).sort();
+    expect(await ids(null)).toEqual(['cr_a', 'cr_b', 'cr_none']);
+    expect(await ids(['prj_a'])).toEqual(['cr_a', 'cr_none']);
+    expect(await ids([])).toEqual(['cr_none']);
   });
 
   it('filters by subject type and project, and respects the limit', async () => {

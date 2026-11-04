@@ -424,7 +424,7 @@ pub(crate) async fn build_review_items(
                 siblings.get(&key).map_or(&fallback[..], Vec::as_slice),
                 project_id.as_ref().and_then(|p| names.get(p)),
                 now,
-                row.approver_id != user_id,
+                row.approver_id != user_id && row.delegated_from.as_deref() != Some(user_id),
             )
         })
         .collect())
@@ -540,6 +540,8 @@ pub(crate) struct MineOptions<'a> {
     pub(crate) can_review_time: bool,
     pub(crate) review_type: Option<&'a str>,
     pub(crate) project_id: Option<&'a str>,
+    /// `accessibleProjectIds`: `None` for scope:all holders.
+    pub(crate) accessible_project_ids: Option<&'a [String]>,
     pub(crate) now: i64,
 }
 
@@ -557,6 +559,7 @@ pub(crate) async fn load_my_reviews(
 ) -> Result<Value, sqlx::Error> {
     let filters = PendingReviewFilters {
         project_id: o.project_id.map(str::to_owned),
+        accessible_project_ids: o.accessible_project_ids.map(<[String]>::to_vec),
         ..PendingReviewFilters::default()
     };
     let pending = list_pending_for_approver(db, o.user_id, &filters, o.now).await?;
@@ -621,6 +624,7 @@ pub(crate) async fn load_my_reviews(
 pub(crate) async fn count_my_reviews(
     db: &PgPool,
     user_id: &str,
+    accessible_project_ids: Option<&[String]>,
     scope_all: bool,
     can_review_time: bool,
     now: i64,
@@ -633,7 +637,9 @@ pub(crate) async fn count_my_reviews(
            and (a.approver_id = $1 or a.approver_id in (
                select d.member_id from flow_approval_delegations d
                where d.delegate_id = $1 and d.deleted_at is null
-                 and d.starts_at <= $2::timestamptz and d.ends_at > $2::timestamptz))
+                 and d.starts_at <= $2::timestamptz and d.ends_at > $2::timestamptz)
+               or a.delegated_from = $1)
+           and ($3::text[] is null or a.project_id is null or a.project_id = any($3))
            and not exists (
                select 1 from flow_approvals s
                where s.subject_type = a.subject_type and s.subject_id = a.subject_id
@@ -642,6 +648,7 @@ pub(crate) async fn count_my_reviews(
     )
     .bind(user_id)
     .bind(&at)
+    .bind(accessible_project_ids)
     .fetch_one(db)
     .await?;
     let timesheets = if can_review_time {
@@ -658,6 +665,8 @@ pub(crate) struct ListFilters<'a> {
     pub(crate) project_id: Option<&'a str>,
     pub(crate) cursor: Option<&'a str>,
     pub(crate) limit: i64,
+    /// `accessibleProjectIds`: `None` for scope:all holders.
+    pub(crate) accessible_project_ids: Option<&'a [String]>,
 }
 
 /// A page of a list: items, hasMore, next cursor, total.
@@ -678,17 +687,19 @@ pub(crate) async fn load_sent_reviews(
         from flow_approvals a
         where a.created_by = $1 and a.deleted_at is null
           and ($2::text is null or a.subject_type = $2) and ($3::text is null or a.project_id = $3)
+          and ($4::text[] is null or a.project_id is null or a.project_id = any($4))
         group by a.subject_type, a.subject_id
         having bool_or(a.decision in ('pending', 'info_requested')))";
     let page: Vec<(String, String, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{SUBJECTS} select subject_type, subject_id, to_jsonb(requested_at) #>> '{{}}' from subjects
-         where ($4::text is null or not exists (select 1 from subjects where subject_id = $4)
-                or (requested_at, subject_id) < (select requested_at, subject_id from subjects where subject_id = $4 limit 1))
-         order by requested_at desc, subject_id desc limit $5"
+         where ($5::text is null or not exists (select 1 from subjects where subject_id = $5)
+                or (requested_at, subject_id) < (select requested_at, subject_id from subjects where subject_id = $5 limit 1))
+         order by requested_at desc, subject_id desc limit $6"
     )))
     .bind(user_id)
     .bind(f.review_type)
     .bind(f.project_id)
+    .bind(f.accessible_project_ids)
     .bind(f.cursor)
     .bind(f.limit + 1)
     .fetch_all(db)
@@ -699,6 +710,7 @@ pub(crate) async fn load_sent_reviews(
     .bind(user_id)
     .bind(f.review_type)
     .bind(f.project_id)
+    .bind(f.accessible_project_ids)
     .fetch_one(db)
     .await?;
     let limit = usize::try_from(f.limit).unwrap_or(0);
@@ -776,16 +788,18 @@ pub(crate) async fn load_done_reviews(
     }
     const WHERE: &str = "a.decided_by = $1 and a.deleted_at is null
         and a.decision in ('approved', 'approved_with_conditions', 'rejected')
-        and ($2::text is null or a.subject_type = $2) and ($3::text is null or a.project_id = $3)";
+        and ($2::text is null or a.subject_type = $2) and ($3::text is null or a.project_id = $3)
+        and ($4::text[] is null or a.project_id is null or a.project_id = any($4))";
     let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(a) from flow_approvals a where {WHERE}
-           and ($4::text is null or not exists (select 1 from flow_approvals c where c.id = $4 and c.decided_at is not null)
-                or (a.decided_at, a.id) < (select c.decided_at, c.id from flow_approvals c where c.id = $4))
-         order by a.decided_at desc, a.id desc limit $5"
+           and ($5::text is null or not exists (select 1 from flow_approvals c where c.id = $5 and c.decided_at is not null)
+                or (a.decided_at, a.id) < (select c.decided_at, c.id from flow_approvals c where c.id = $5))
+         order by a.decided_at desc, a.id desc limit $6"
     )))
     .bind(user_id)
     .bind(f.review_type)
     .bind(f.project_id)
+    .bind(f.accessible_project_ids)
     .bind(f.cursor)
     .bind(f.limit + 1)
     .fetch_all(db)
@@ -796,6 +810,7 @@ pub(crate) async fn load_done_reviews(
     .bind(user_id)
     .bind(f.review_type)
     .bind(f.project_id)
+    .bind(f.accessible_project_ids)
     .fetch_one(db)
     .await?;
     let limit = usize::try_from(f.limit).unwrap_or(0);

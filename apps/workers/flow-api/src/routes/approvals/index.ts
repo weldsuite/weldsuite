@@ -52,7 +52,7 @@ import {
   presentReviewApprover,
 } from '@weldsuite/flow-domain/approval-views';
 import type { Env, Variables } from '../../types';
-import { canManageProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canManageProject } from '../../lib/project-access';
 import { parseLimit } from '../../lib/query-params';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
@@ -104,6 +104,7 @@ function readQuery<S extends z.ZodTypeAny>(c: AppContext, querySchema: S): Parse
   return { ok: true, data: parsed.data };
 }
 
+const PROJECT_DENIED = 'You are not a member of this project';
 const PROJECT_EDIT_DENIED = 'You must be a project owner, admin, or manager to edit this project';
 
 // ── My reviews ──────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ app.get('/mine', requirePermission('projects:read'), async (c) => {
     const [scopeAll, canReviewTime] = await Promise.all([hasContextPermission(c, 'projects:scope:all'), hasContextPermission(c, 'time:update')]);
     const reviews = await loadMyReviews(c.get('tenantDb'), {
       userId: c.get('userId'),
+      accessibleProjectIds: await accessibleProjectIds(c),
       scopeAll,
       canReviewTime,
       type: query.data.type,
@@ -132,7 +134,14 @@ app.get('/mine', requirePermission('projects:read'), async (c) => {
 app.get('/mine/count', requirePermission('projects:read'), async (c) => {
   try {
     const [scopeAll, canReviewTime] = await Promise.all([hasContextPermission(c, 'projects:scope:all'), hasContextPermission(c, 'time:update')]);
-    return success(c, await countMyReviews(c.get('tenantDb'), { userId: c.get('userId'), scopeAll, canReviewTime, now: new Date() }));
+    return success(c, await countMyReviews(c.get('tenantDb'), {
+        userId: c.get('userId'),
+        accessibleProjectIds: await accessibleProjectIds(c),
+        scopeAll,
+        canReviewTime,
+        now: new Date(),
+      }),
+    );
   } catch (err) {
     console.error('[flow-api/approvals] count failed:', err);
     return error.internal(c, 'Failed to count your reviews');
@@ -144,7 +153,12 @@ app.get('/sent', requirePermission('projects:read'), async (c) => {
   if (!query.ok) return query.response;
   const limit = parseLimit(query.data.limit, 25, 100);
   try {
-    const page = await loadSentReviews(c.get('tenantDb'), c.get('userId'), { ...query.data, limit }, new Date());
+    const page = await loadSentReviews(
+      c.get('tenantDb'),
+      c.get('userId'),
+      { ...query.data, limit, accessibleProjectIds: await accessibleProjectIds(c) },
+      new Date(),
+    );
     return list(c, page.items, cursorPagination(page.total, page.hasMore, page.nextCursor));
   } catch (err) {
     console.error('[flow-api/approvals] sent failed:', err);
@@ -157,7 +171,12 @@ app.get('/done', requirePermission('projects:read'), async (c) => {
   if (!query.ok) return query.response;
   const limit = parseLimit(query.data.limit, 25, 100);
   try {
-    const page = await loadDoneReviews(c.get('tenantDb'), c.get('userId'), { ...query.data, limit }, new Date());
+    const page = await loadDoneReviews(
+      c.get('tenantDb'),
+      c.get('userId'),
+      { ...query.data, limit, accessibleProjectIds: await accessibleProjectIds(c) },
+      new Date(),
+    );
     return list(c, page.items, cursorPagination(page.total, page.hasMore, page.nextCursor));
   } catch (err) {
     console.error('[flow-api/approvals] done failed:', err);
@@ -303,6 +322,11 @@ app.post('/:id/decide', requirePermission('projects:read'), async (c) => {
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!row) return await decideTimeEntry(c, id, decision, note ?? null);
+
+    // Project membership is the row boundary (FLOW-001): the right to answer comes from the row, but a
+    // delegate who is not on the project must not settle its change requests. A row without a project
+    // (a project request) keeps its own rules.
+    if (row.projectId && !(await canAccessProject(c, row.projectId))) return error.forbidden(c, PROJECT_DENIED);
 
     const result = await decideAndAnnounce(c, row, { actor: userId, decision, note });
     if (!result.ok) {

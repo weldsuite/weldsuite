@@ -75,6 +75,7 @@ use crate::raid_body::parse_body;
 use crate::time_entries::{apply_review, find_entry, review_denial};
 use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, paged, reply};
 
+const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_EDIT_DENIED: &str =
     "You must be a project owner, admin, or manager to edit this project";
 
@@ -137,8 +138,10 @@ async fn mine(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
+            let accessible = caller.accessible_project_ids().await?;
             let options = MineOptions {
                 user_id: &caller.user_id,
+                accessible_project_ids: accessible.as_deref(),
                 scope_all: caller.can("projects:scope:all"),
                 can_review_time: caller.can("time:update"),
                 review_type: review_type.as_deref(),
@@ -155,9 +158,11 @@ async fn mine(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 async fn count(caller: Caller) -> Response {
     reply(
         async {
+            let accessible = caller.accessible_project_ids().await?;
             let value = store::count_my_reviews(
                 &caller.db,
                 &caller.user_id,
+                accessible.as_deref(),
                 caller.can("projects:scope:all"),
                 caller.can("time:update"),
                 now_ms(),
@@ -177,11 +182,13 @@ async fn sent(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
+            let accessible = caller.accessible_project_ids().await?;
             let filters = ListFilters {
                 review_type: q.review_type.as_deref(),
                 project_id: q.project_id.as_deref(),
                 cursor: q.cursor.as_deref(),
                 limit: parse_limit(q.limit.as_deref()),
+                accessible_project_ids: accessible.as_deref(),
             };
             let (items, has_more, next, total) =
                 store::load_sent_reviews(&caller.db, &caller.user_id, &filters).await?;
@@ -199,11 +206,13 @@ async fn done(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
+            let accessible = caller.accessible_project_ids().await?;
             let filters = ListFilters {
                 review_type: q.review_type.as_deref(),
                 project_id: q.project_id.as_deref(),
                 cursor: q.cursor.as_deref(),
                 limit: parse_limit(q.limit.as_deref()),
+                accessible_project_ids: accessible.as_deref(),
             };
             let (items, has_more, next, total) =
                 store::load_done_reviews(&caller.db, &caller.user_id, &filters, now_ms()).await?;
@@ -488,6 +497,14 @@ async fn decide_review(
     let Some(row) = found.and_then(|v| ApprovalRow::from_json(&js_row(v))) else {
         return decide_time_entry(state, caller, id, decision, note.as_deref()).await;
     };
+
+    // Project membership is the row boundary (FLOW-001): a row without a project
+    // (a project request) keeps its own rules.
+    if let Some(project_id) = row.project_id.as_deref().filter(|p| !p.is_empty())
+        && !caller.can_access(project_id).await?
+    {
+        return Err(Refusal::forbidden(PROJECT_DENIED));
+    }
 
     let result = decide_and_announce(
         state,
