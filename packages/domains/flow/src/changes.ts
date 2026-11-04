@@ -730,3 +730,14 @@ export function impactChanged(
   if (data.scopeChanges !== undefined && stableJson(data.scopeChanges) !== stableJson(existing.scopeChanges)) return true;
   return false;
 }
+
+/** What the routes tell the client about how a change was routed (`changeRoutingSchema`): the route and why. */
+export function presentRouting(routing: Pick<ChangeRouting, 'route' | 'overLimit' | 'noBoard' | 'costLimit' | 'scheduleLimitDays'>) {
+  return {
+    route: routing.route,
+    overLimit: routing.overLimit,
+    costLimit: routing.costLimit,
+    scheduleLimitDays: routing.scheduleLimitDays,
+    noBoard: routing.noBoard,
+  };
+}

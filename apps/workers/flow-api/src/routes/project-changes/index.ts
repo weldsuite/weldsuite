@@ -50,6 +50,7 @@ import {
   impactChanged,
   isOpenChange,
   presentChangeRequest,
+  presentRouting,
   routeChange,
   type ChangeRequestRow,
   type ChangeRouting,
@@ -272,10 +273,12 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
       ...presentChangeRequest(row),
       approvers: rows.map(presentReviewApprover),
       effects,
-      routing: routingOf(
-        row,
-        project,
-        rows.map((r) => r.rule.params),
+      routing: presentRouting(
+        routingOf(
+          row,
+          project,
+          rows.map((r) => r.rule.params),
+        ),
       ),
       baselineVersion: baseline[0]?.version ?? null,
       canDecide: pending.some((review) => review.approval.subjectId === id),
@@ -471,7 +474,7 @@ app.post('/:id/submit', requirePermission('projects:update'), async (c) => {
       subject: { code: changeCode(row.number), title: row.title },
       projectName: project.name,
     });
-    return success(c, { change: presentChangeRequest(row), approvers: requested.rows.map(presentReviewApprover), routing });
+    return success(c, { change: presentChangeRequest(row), approvers: requested.rows.map(presentReviewApprover), routing: presentRouting(routing) });
   } catch (err) {
     console.error('[flow-api/project-changes] submit failed:', err);
     return error.internal(c, 'Failed to submit change request');
