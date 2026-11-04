@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ArrowLeft, CheckCircle2, LayoutTemplate } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { CloseChecklist } from '@weldsuite/app-api-client/domains/project-closing';
@@ -129,15 +129,18 @@ export default function CloseProjectPage() {
   const projectId = params.projectId as string;
   const query = useCloseChecklist(projectId);
 
+  let body: ReactNode;
+  if (query.isLoading) {
+    body = <CloseLoadingState />;
+  } else if (query.isError || !query.data) {
+    body = <CloseErrorState error={query.error} onRetry={() => void query.refetch()} />;
+  } else {
+    body = <CloseContent key={projectId} projectId={projectId} checklist={query.data} />;
+  }
+
   return (
     <div className="mx-auto w-full max-w-[90rem] px-3 pb-10 md:px-4">
-      {query.isLoading ? (
-        <CloseLoadingState />
-      ) : query.isError || !query.data ? (
-        <CloseErrorState error={query.error} onRetry={() => void query.refetch()} />
-      ) : (
-        <CloseContent key={projectId} projectId={projectId} checklist={query.data} />
-      )}
+      {body}
     </div>
   );
 }

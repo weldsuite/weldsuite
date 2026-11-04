@@ -57,6 +57,32 @@ function RequestDialog({ open, onClose, sponsorName }: Readonly<{ open: boolean;
   );
 }
 
+function SignOffAction({ isApprover, reasonShown, onRequest }: Readonly<{ isApprover: boolean; reasonShown: boolean; onRequest: () => void }>) {
+  const { t } = useI18n();
+  const copy = t.flowClosing.close.signoff;
+  const { checklist, abilities } = useClose();
+  const pending = checklist.signOff.state === 'pending';
+  if (checklist.closed) {
+    return <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-800 dark:bg-green-950 dark:text-green-200">{copy.closed}</span>;
+  }
+  if (isApprover) {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className="text-xs text-muted-foreground">{copy.answerInReviews}</span>
+        <Button asChild>
+          <Link href="/weldflow/reviews">{copy.openReviews}</Link>
+        </Button>
+      </div>
+    );
+  }
+  if (!abilities.manage) return null;
+  return (
+    <Button type="button" disabled={!checklist.canRequest || pending} aria-describedby={reasonShown ? 'signoff-reason' : undefined} onClick={onRequest}>
+      {pending ? copy.requested : copy.request}
+    </Button>
+  );
+}
+
 /** The sponsor, the state of the sign-off, and the request. */
 export function SignOffCard() {
   const { t, language, plural, format } = useI18n();
@@ -71,13 +97,11 @@ export function SignOffCard() {
   const names = t.flowClosing.close.checklist.names;
   const isApprover = signOff.state === 'pending' && signOff.approval?.approverId === userId && userId !== null;
 
-  const descriptionKey = checklist.closed ? 'closed' : signOff.state;
   const dateIso = signOff.state === 'pending' ? signOff.approval?.requestedAt : signOff.approval?.decidedAt;
   const date = formatDay(dateIso ?? null, locale);
   let description: string = copy.description.closed;
-  if (descriptionKey !== 'closed') {
-    const withName = sponsorName !== null;
-    const key = (withName ? descriptionKey : `${descriptionKey}NoSponsor`) as keyof typeof copy.description;
+  if (!checklist.closed) {
+    const key = (sponsorName === null ? `${signOff.state}NoSponsor` : signOff.state) as keyof typeof copy.description;
     description = format(copy.description[key], { name: sponsorName ?? '', date });
   }
 
@@ -108,25 +132,11 @@ export function SignOffCard() {
           {reason}
         </span>
       ) : null}
-      {checklist.closed ? (
-        <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-800 dark:bg-green-950 dark:text-green-200">{copy.closed}</span>
-      ) : isApprover ? (
-        <div className="flex flex-col items-start gap-1">
-          <span className="text-xs text-muted-foreground">{copy.answerInReviews}</span>
-          <Button asChild>
-            <Link href="/weldflow/reviews">{copy.openReviews}</Link>
-          </Button>
-        </div>
-      ) : abilities.manage ? (
-        <Button
-          type="button"
-          disabled={!checklist.canRequest || signOff.state === 'pending'}
-          aria-describedby={reason ? 'signoff-reason' : undefined}
-          onClick={() => setRequesting(true)}
-        >
-          {signOff.state === 'pending' ? copy.requested : copy.request}
-        </Button>
-      ) : null}
+      <SignOffAction
+        isApprover={isApprover}
+        reasonShown={reason !== null}
+        onRequest={() => setRequesting(true)}
+      />
       <RequestDialog open={requesting} onClose={() => setRequesting(false)} sponsorName={sponsorName} />
     </section>
   );

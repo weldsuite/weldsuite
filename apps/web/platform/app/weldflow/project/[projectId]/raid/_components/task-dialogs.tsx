@@ -159,6 +159,9 @@ function LinkTaskList({ item, linkedTaskIds, onClose }: Readonly<{ item: RaidIte
   const { projectId } = useRaid();
   const tasks = useProjectTasks(projectId, { pageSize: 200 });
   const createLink = useCreateControlLink();
+  let emptyText: string = copy.linkTask.empty;
+  if (tasks.isLoading) emptyText = '…';
+  else if (tasks.isError) emptyText = copy.linkTask.loadFailed;
 
   const candidates = useMemo(
     () => (tasks.data?.data ?? []).filter((task) => !linkedTaskIds.has(task.id) && task.status !== 'cancelled'),
@@ -185,9 +188,7 @@ function LinkTaskList({ item, linkedTaskIds, onClose }: Readonly<{ item: RaidIte
     <Command className="rounded-md border">
       <CommandInput placeholder={copy.linkTask.search} />
       <CommandList className="max-h-64">
-        <CommandEmpty>
-          {tasks.isLoading ? '…' : tasks.isError ? copy.linkTask.loadFailed : copy.linkTask.empty}
-        </CommandEmpty>
+        <CommandEmpty>{emptyText}</CommandEmpty>
         <CommandGroup>
           {candidates.map((task) => (
             <CommandItem

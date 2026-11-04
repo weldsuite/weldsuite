@@ -201,6 +201,113 @@ export default function DecisionsPage() {
   );
 }
 
+type DecisionsCopy = ReturnType<typeof useI18n>['t']['flowGovernance']['decisions'];
+
+function decisionMeta(
+  row: Decision,
+  env: { copy: DecisionsCopy; format: ReturnType<typeof useI18n>['format']; formatters: ReturnType<typeof useFormatters> },
+  memberName: (id: string | null) => string,
+): string {
+  const { copy, format, formatters } = env;
+  if (row.status === 'proposed') {
+    if (row.decisionDueAt) return format(copy.proposedDue, { name: memberName(row.createdBy), date: formatters.date(row.decisionDueAt) });
+    return format(copy.proposedBy, { name: memberName(row.createdBy) });
+  }
+  if (row.decidedBy) return format(copy.decidedBy, { name: memberName(row.decidedBy), date: formatters.date(row.decidedAt) });
+  return format(copy.decidedByUnknown, { date: formatters.date(row.decidedAt) });
+}
+
+function ProposedBanner({
+  row,
+  declined,
+  canRecord,
+  onDecide,
+  memberName,
+}: Readonly<{
+  row: Decision;
+  declined: DecisionDetail['approvals'][number] | undefined;
+  canRecord: boolean;
+  onDecide: () => void;
+  memberName: (id: string | null) => string;
+}>) {
+  const { t, format } = useI18n();
+  const copy = t.flowGovernance.decisions;
+  const formatters = useFormatters();
+  let waiting: string = copy.waitingOpen;
+  if (row.deciderId) {
+    waiting = row.decisionDueAt
+      ? format(copy.waitingNamedDue, { name: memberName(row.deciderId), date: formatters.date(row.decisionDueAt) })
+      : format(copy.waitingNamed, { name: memberName(row.deciderId) });
+  }
+  let declinedText = '';
+  if (declined) {
+    const name = memberName(declined.approverId);
+    declinedText = declined.note ? format(copy.declined, { name, note: declined.note }) : format(copy.declinedNoNote, { name });
+  }
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 px-3.5 py-3 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-200">
+      <span className="min-w-0 flex-1 basis-64">
+        {waiting}
+        {declined ? <span className="mt-1 block text-xs opacity-80">{declinedText}</span> : null}
+      </span>
+      {canRecord ? (
+        <Button type="button" size="sm" onClick={onDecide}>
+          {copy.actions.record}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function OptionsList({ options }: Readonly<{ options: Decision['options'] }>) {
+  const { t } = useI18n();
+  const copy = t.flowGovernance.decisions;
+  if (options.length === 0) return <p className="text-sm text-muted-foreground">{copy.noOptions}</p>;
+  return (
+    <ol className="flex flex-col gap-2">
+      {options.map((option, index) => (
+        <li
+          key={`${option.title}-${index}`}
+          className={cn('flex gap-2.5 rounded-lg border px-3 py-2.5', option.chosen && 'border-green-600/40 bg-green-50 dark:bg-green-950/30')}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white',
+              option.chosen ? 'bg-green-700' : 'bg-muted-foreground/60',
+            )}
+          >
+            {option.chosen ? '✓' : index + 1}
+          </span>
+          <div>
+            <div className="font-medium">
+              {option.title}
+              {option.chosen ? <span className="font-semibold text-green-700 dark:text-green-400"> · {copy.chosen}</span> : null}
+            </div>
+            {option.note ? <div className="mt-0.5 text-xs text-muted-foreground">{option.note}</div> : null}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function LinkedList({ detail, loading }: Readonly<{ detail: DecisionDetail | null; loading: boolean }>) {
+  const { t } = useI18n();
+  if (loading && !detail) return null;
+  if (!detail || detail.links.length === 0) return <p className="text-sm text-muted-foreground">{t.flowGovernance.common.noLinks}</p>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {detail.links.map((link) => (
+        <span key={link.id} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs">
+          <span className="text-muted-foreground">{t.flowGovernance.common.linkKinds[link.target.type]}</span>
+          <span className="font-semibold">{link.target.code ?? link.target.title}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function DecisionDetailView({
   decision,
   detail,
@@ -232,14 +339,7 @@ function DecisionDetailView({
   const row = detail ?? decision;
   const declined = (detail?.approvals ?? []).find((approval) => approval.decision === 'rejected');
 
-  const meta =
-    row.status === 'proposed'
-      ? row.decisionDueAt
-        ? format(copy.proposedDue, { name: memberName(row.createdBy), date: formatters.date(row.decisionDueAt) })
-        : format(copy.proposedBy, { name: memberName(row.createdBy) })
-      : row.decidedBy
-        ? format(copy.decidedBy, { name: memberName(row.decidedBy), date: formatters.date(row.decidedAt) })
-        : format(copy.decidedByUnknown, { date: formatters.date(row.decidedAt) });
+  const meta = decisionMeta(row, { copy, format, formatters }, memberName);
 
   const onDelete = async () => {
     try {
@@ -273,27 +373,7 @@ function DecisionDetailView({
       <p className="mt-1.5 text-[13px] text-muted-foreground">{meta}</p>
 
       {row.status === 'proposed' ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 px-3.5 py-3 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-200">
-          <span className="min-w-0 flex-1 basis-64">
-            {row.deciderId
-              ? row.decisionDueAt
-                ? format(copy.waitingNamedDue, { name: memberName(row.deciderId), date: formatters.date(row.decisionDueAt) })
-                : format(copy.waitingNamed, { name: memberName(row.deciderId) })
-              : copy.waitingOpen}
-            {declined ? (
-              <span className="mt-1 block text-xs opacity-80">
-                {declined.note
-                  ? format(copy.declined, { name: memberName(declined.approverId), note: declined.note })
-                  : format(copy.declinedNoNote, { name: memberName(declined.approverId) })}
-              </span>
-            ) : null}
-          </span>
-          {abilities.update ? (
-            <Button type="button" size="sm" onClick={onDecide}>
-              {copy.actions.record}
-            </Button>
-          ) : null}
-        </div>
+        <ProposedBanner row={row} declined={declined} canRecord={abilities.update} onDecide={onDecide} memberName={memberName} />
       ) : null}
 
       {row.status === 'superseded' && detail?.supersededBy ? (
@@ -309,35 +389,7 @@ function DecisionDetailView({
       <p className="leading-relaxed whitespace-pre-line">{row.context || <span className="text-muted-foreground">{copy.noContext}</span>}</p>
 
       <h3 className="mt-6 mb-2 text-[13px] font-semibold text-foreground/80">{sections.options}</h3>
-      {row.options.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{copy.noOptions}</p>
-      ) : (
-        <ol className="flex flex-col gap-2">
-          {row.options.map((option, index) => (
-            <li
-              key={`${option.title}-${index}`}
-              className={cn('flex gap-2.5 rounded-lg border px-3 py-2.5', option.chosen && 'border-green-600/40 bg-green-50 dark:bg-green-950/30')}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white',
-                  option.chosen ? 'bg-green-700' : 'bg-muted-foreground/60',
-                )}
-              >
-                {option.chosen ? '✓' : index + 1}
-              </span>
-              <div>
-                <div className="font-medium">
-                  {option.title}
-                  {option.chosen ? <span className="font-semibold text-green-700 dark:text-green-400"> · {copy.chosen}</span> : null}
-                </div>
-                {option.note ? <div className="mt-0.5 text-xs text-muted-foreground">{option.note}</div> : null}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+      <OptionsList options={row.options} />
 
       <h3 className="mt-6 mb-2 text-[13px] font-semibold text-foreground/80">{sections.consequences}</h3>
       {row.consequences.length === 0 ? (
@@ -351,18 +403,7 @@ function DecisionDetailView({
       )}
 
       <h3 className="mt-6 mb-2 text-[13px] font-semibold text-foreground/80">{sections.linked}</h3>
-      {loading && !detail ? null : detail && detail.links.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {detail.links.map((link) => (
-            <span key={link.id} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs">
-              <span className="text-muted-foreground">{t.flowGovernance.common.linkKinds[link.target.type]}</span>
-              <span className="font-semibold">{link.target.code ?? link.target.title}</span>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">{t.flowGovernance.common.noLinks}</p>
-      )}
+      <LinkedList detail={detail} loading={loading} />
 
       {detail && row.status === 'decided' && abilities.manage ? (
         <div className="mt-6">

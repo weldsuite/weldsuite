@@ -14,9 +14,15 @@ import { ItemDialog, type ItemDialogState } from './_components/item-dialog';
 import { RaidDetailPanel } from './_components/raid-detail-panel';
 import { RaidContext, type RaidAbilities, type RaidContextValue, type RaidMember } from './_components/raid-context';
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 /** The sub-tab a pathname belongs to; the risks sub-tab is the RAID root. */
 function kindForPath(pathname: string, basePath: string): RaidKind {
-  const rest = pathname.slice(basePath.length).replace(/\/+$/, '');
+  const rest = trimTrailingSlashes(pathname.slice(basePath.length));
   return RAID_KINDS.find((kind) => kind !== 'risk' && RAID_KIND_PATHS[kind] === rest) ?? 'risk';
 }
 

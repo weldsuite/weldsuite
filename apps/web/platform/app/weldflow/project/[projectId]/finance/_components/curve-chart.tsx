@@ -37,13 +37,8 @@ export function CurveChart({
   const endMs = endDate ? new Date(endDate).getTime() : null;
   const curve = useMemo(() => buildCurve(snapshots, finance, Number.isFinite(endMs) ? endMs : null, now), [snapshots, finance, endMs, now]);
 
-  const value = (n: number | null | undefined): string =>
-    n === null || n === undefined
-      ? '–'
-      : curve.percent
-        ? `${formatPercent(n, intlLocale)}%`
-        : formatMoney(String(n), finance.currency, intlLocale);
   const tick = (n: number) => (curve.percent ? `${formatPercent(n, intlLocale)}%` : formatMoney(String(n), finance.currency, intlLocale));
+  const value = (n: number | null | undefined): string => (n === null || n === undefined ? '–' : tick(n));
   const date = (t: number) => new Intl.DateTimeFormat(intlLocale, { day: 'numeric', month: 'short' }).format(new Date(t));
 
   const current = curve.points.find((p) => p.t === now);

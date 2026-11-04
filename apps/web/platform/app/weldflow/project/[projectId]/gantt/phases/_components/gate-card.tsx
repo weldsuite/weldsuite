@@ -101,6 +101,16 @@ function Approvers({ gate }: Readonly<{ gate: PhaseGate }>) {
   );
 }
 
+function criterionDotClass(satisfied: boolean, blocked: boolean): string {
+  if (satisfied) return 'border-emerald-600 bg-emerald-600 text-white';
+  return blocked ? 'border-red-600 text-red-600' : 'border-neutral-400';
+}
+
+function criterionIcon(satisfied: boolean, blocked: boolean) {
+  if (satisfied) return <Check className="size-3" strokeWidth={3.5} />;
+  return blocked ? <X className="size-3" strokeWidth={3.5} /> : null;
+}
+
 /** The next gate: its criteria with the data behind each, the approval request and who has to approve. */
 export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Readonly<Props>) {
   const { t, language } = useI18n();
@@ -113,11 +123,11 @@ export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Re
   const open = check.total - check.satisfiedCount;
   const waiting = gate.gateRequestedAt !== null;
   const blocked = gate.requestBlockedReason;
-  const reason = blocked
-    ? blocked === 'criteria_open'
-      ? fill(copy.gate.blocked.criteria_open, { count: open })
-      : copy.gate.blocked[blocked]
-    : null;
+  let reason: string | null = null;
+  if (blocked) reason = blocked === 'criteria_open' ? fill(copy.gate.blocked.criteria_open, { count: open }) : copy.gate.blocked[blocked];
+  let footnote: string | null = reason;
+  if (!canManage) footnote = copy.gate.readOnly;
+  else if (waiting) footnote = copy.gate.waitingForApproval;
   const title = nextName
     ? fill(copy.gate.title, { number: gate.gateNumber, from: gate.name, to: nextName })
     : fill(copy.gate.titleLast, { number: gate.gateNumber, from: gate.name });
@@ -167,10 +177,10 @@ export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Re
                     aria-hidden
                     className={cn(
                       'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-                      item.satisfied ? 'border-emerald-600 bg-emerald-600 text-white' : blockedItem ? 'border-red-600 text-red-600' : 'border-neutral-400',
+                      criterionDotClass(item.satisfied, blockedItem),
                     )}
                   >
-                    {item.satisfied ? <Check className="size-3" strokeWidth={3.5} /> : blockedItem ? <X className="size-3" strokeWidth={3.5} /> : null}
+                    {criterionIcon(item.satisfied, blockedItem)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -214,7 +224,7 @@ export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Re
             </Button>
           ) : null}
           <span id="gate-why" className="text-xs text-muted-foreground">
-            {!canManage ? copy.gate.readOnly : waiting ? copy.gate.waitingForApproval : reason}
+            {footnote}
           </span>
         </div>
       </section>

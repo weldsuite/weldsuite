@@ -128,5 +128,7 @@ export function buildCurve(
   } else {
     points.push(current);
   }
-  return { points, budget: percent ? (finance.percent.spent === null ? null : 100) : toNumber(figures.budget), forecast, today: now, percent };
+  let budget = toNumber(figures.budget);
+  if (percent) budget = finance.percent.spent === null ? null : 100;
+  return { points, budget, forecast, today: now, percent };
 }

@@ -92,7 +92,7 @@ export default function StakeholdersPage() {
                     <td className="p-3">{copy.attitudes[row.attitude]}</td>
                     <td className="p-3">{copy.engagements[row.engagement]}</td>
                     <td className="p-3 text-muted-foreground">{row.lastContactAt ? new Date(row.lastContactAt).toLocaleDateString() : '-'}</td>
-                    <td className="p-3">{row.kind === 'member' ? copy.portalStates.team : row.portalAccess ? copy.portalStates.yes : copy.portalStates.none}</td>
+                    <td className="p-3">{portalLabel(row, copy.portalStates)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -109,6 +109,11 @@ export default function StakeholdersPage() {
       <RaciMatrix projectId={projectId} stakeholders={all} canWrite={canWrite} />
     </div>
   );
+}
+
+function portalLabel(row: Stakeholder, states: { team: string; yes: string; none: string }): string {
+  if (row.kind === 'member') return states.team;
+  return row.portalAccess ? states.yes : states.none;
 }
 
 function AddForm({ projectId, existing, onDone }: Readonly<{ projectId: string; existing: Stakeholder[]; onDone: () => void }>) {
@@ -238,9 +243,8 @@ function EditForm({ row, canWrite, canManage, onDone }: Readonly<{ row: Stakehol
               </button>
             ) : null}
           </>
-        ) : row.kind === 'member' && canManage ? (
-          <span className="text-xs text-muted-foreground">{copy.portal.onlyContacts}</span>
         ) : null}
+        {canManage && row.kind === 'member' ? <span className="text-xs text-muted-foreground">{copy.portal.onlyContacts}</span> : null}
         {canWrite ? (
           <button type="button" className={`${BTN} ml-auto`} onClick={() => window.confirm(copy.form.removeConfirm) && remove.mutate(row.id, { onSuccess: onDone })}>
             {copy.form.remove}
@@ -328,7 +332,10 @@ function RaciMatrix({ projectId, stakeholders, canWrite }: Readonly<{ projectId:
   const put = usePutRaci();
   const [message, setMessage] = useState<string | null>(null);
 
-  const title = (subject: RaciSubject) => subject.subjectType === 'deliverable' ? `${subject.code ?? ''} ${subject.title ?? ''}` : subject.subjectType === 'change_requests' ? copy.changeRequests : copy.goLive;
+  const title = (subject: RaciSubject) => {
+    if (subject.subjectType === 'deliverable') return `${subject.code ?? ''} ${subject.title ?? ''}`;
+    return subject.subjectType === 'change_requests' ? copy.changeRequests : copy.goLive;
+  };
 
   // One letter per cell; the API takes the whole row of a subject.
   const setCell = (subject: RaciSubject, stakeholderId: string, letter: RaciLetter | '') => {

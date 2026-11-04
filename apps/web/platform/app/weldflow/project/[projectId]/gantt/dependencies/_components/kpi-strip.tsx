@@ -22,6 +22,24 @@ function Tile({ label, value, detail, tone }: Readonly<{ label: string; value: s
   );
 }
 
+function floatTileOf(
+  schedule: ProjectSchedule,
+  copy: ReturnType<typeof useI18n>['t']['flowSchedule']['dependencies']['kpis'],
+  locale: string,
+): { value: string; detail: string; tone: 'bad' | 'warn' | 'good' | undefined } {
+  const slack = schedule.goLiveSlackDays;
+  if (slack === null || !schedule.goLive.date || !schedule.finish) {
+    return { value: copy.floatNone, detail: copy.floatNoneDetail, tone: undefined };
+  }
+  const value = fill(copy.floatValue, { days: slack });
+  if (slack < 0) return { value, detail: fill(copy.floatLate, { days: -slack }), tone: 'bad' };
+  return {
+    value,
+    detail: fill(copy.floatDetail, { finish: shortDate(schedule.finish, locale), goLive: shortDate(schedule.goLive.date, locale) }),
+    tone: slack <= 2 ? 'warn' : 'good',
+  };
+}
+
 /** Critical path, float to go-live, conflicts and tasks without links. */
 export function KpiStrip({ schedule }: Readonly<{ schedule: ProjectSchedule }>) {
   const { t, language } = useI18n();
@@ -30,17 +48,7 @@ export function KpiStrip({ schedule }: Readonly<{ schedule: ProjectSchedule }>) 
   const { summary } = schedule;
   const byId = new Map(schedule.tasks.map((task) => [task.id, task]));
 
-  const slack = schedule.goLiveSlackDays;
-  const floatTile =
-    slack === null || !schedule.goLive.date || !schedule.finish
-      ? { value: copy.floatNone, detail: copy.floatNoneDetail, tone: undefined }
-      : slack < 0
-        ? { value: fill(copy.floatValue, { days: slack }), detail: fill(copy.floatLate, { days: -slack }), tone: 'bad' as const }
-        : {
-            value: fill(copy.floatValue, { days: slack }),
-            detail: fill(copy.floatDetail, { finish: shortDate(schedule.finish, locale), goLive: shortDate(schedule.goLive.date, locale) }),
-            tone: slack <= 2 ? ('warn' as const) : ('good' as const),
-          };
+  const floatTile = floatTileOf(schedule, copy, locale);
 
   const first = schedule.conflicts[0];
   const successor = first ? byId.get(first.successorId) : undefined;

@@ -195,11 +195,16 @@ export function SummaryTile({
   );
 }
 
+function confidenceLevel(confidence: string): number {
+  if (confidence === 'high') return 3;
+  return confidence === 'medium' ? 2 : 1;
+}
+
 /** Confidence of an assumption as three bars and a word. */
 export function ConfidenceBars({ confidence }: Readonly<{ confidence: string | null }>) {
   const { t } = useI18n();
   if (!confidence) return <span className="text-xs text-muted-foreground">—</span>;
-  const level = confidence === 'high' ? 3 : confidence === 'medium' ? 2 : 1;
+  const level = confidenceLevel(confidence);
   const label = (t.projects.raid.confidence as unknown as Record<string, string>)[confidence] ?? confidence;
   return (
     <span className="inline-flex items-center gap-2 text-xs text-foreground/80 whitespace-nowrap">

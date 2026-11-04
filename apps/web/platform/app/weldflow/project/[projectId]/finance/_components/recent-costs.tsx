@@ -23,6 +23,18 @@ function Item({ line, currency }: Readonly<{ line: CostLine; currency: string | 
   );
 }
 
+function RecentList({ lines, currency }: Readonly<{ lines: CostLine[]; currency: string | null }>) {
+  const { copy } = useFinanceEnv();
+  if (lines.length === 0) return <p className="mt-3 text-sm text-muted-foreground">{copy.overview.recent.empty}</p>;
+  return (
+    <ul className="mt-2">
+      {lines.map((line) => (
+        <Item key={line.id} line={line} currency={currency} />
+      ))}
+    </ul>
+  );
+}
+
 export function RecentCosts({ currency }: Readonly<{ currency: string | null }>) {
   const { projectId, copy } = useFinanceEnv();
   const costs = useProjectCosts(projectId, {}, 5);
@@ -43,14 +55,8 @@ export function RecentCosts({ currency }: Readonly<{ currency: string | null }>)
             <Skeleton key={index} className="h-10" />
           ))}
         </div>
-      ) : lines.length === 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">{copy.overview.recent.empty}</p>
       ) : (
-        <ul className="mt-2">
-          {lines.map((line) => (
-            <Item key={line.id} line={line} currency={currency} />
-          ))}
-        </ul>
+        <RecentList lines={lines} currency={currency} />
       )}
     </section>
   );

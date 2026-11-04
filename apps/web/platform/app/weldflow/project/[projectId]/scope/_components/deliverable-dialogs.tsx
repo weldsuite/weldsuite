@@ -233,6 +233,127 @@ function DeliverableForm({
 
 const ANSWER_TONE = { pending: 'neutral', approved: 'success', approved_with_conditions: 'success', rejected: 'danger', info_requested: 'warning' } as const;
 
+type DeliverableRow = NonNullable<ReturnType<typeof useDeliverable>['data']>;
+type DetailPanel = 'request' | 'reject' | 'delete';
+
+function CriteriaSection({ row }: Readonly<{ row: DeliverableRow }>) {
+  const { t } = useI18n();
+  const copy = t.flowGovernance.scope;
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{copy.deliverableForm.criteria}</h3>
+      {row.acceptanceCriteria.length === 0 ? (
+        <p className="text-muted-foreground">{copy.deliverables.noCriteria}</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {row.acceptanceCriteria.map((c, index) => (
+            <li key={index} className="flex items-start gap-2">
+              <span aria-hidden className={c.met ? 'text-green-700' : 'text-muted-foreground'}>{c.met ? '✓' : '○'}</span>
+              <span className={c.met ? '' : 'text-foreground/80'}>{c.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SignoffSection({ row, memberName }: Readonly<{ row: DeliverableRow; memberName: (id: string | null) => string }>) {
+  const { t, format } = useI18n();
+  const copy = t.flowGovernance.scope;
+  const d = copy.deliverableDetail;
+  const formatters = useFormatters();
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{d.signoff}</h3>
+      {row.signoff.length === 0 ? (
+        <p className="text-muted-foreground">{d.noSignoff}</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {row.signoff.map((s) => (
+            <li key={s.id} className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">{s.step === 1 ? d.steps.sponsor : d.steps.client}</span>
+              <span>{s.approverKind === 'member' ? memberName(s.approverId) : s.approverId}</span>
+              <Pill tone={ANSWER_TONE[s.decision as keyof typeof ANSWER_TONE] ?? 'neutral'}>
+                {d.answers[s.decision as keyof typeof d.answers] ?? s.decision}
+              </Pill>
+              {s.note ? <span className="text-xs text-muted-foreground">{s.note}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {row.status === 'accepted' && row.acceptedAt ? (
+        <p className="mt-2 text-xs text-muted-foreground">{format(copy.deliverables.acceptedOn, { date: formatters.date(row.acceptedAt) })}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function LinksSection({ row }: Readonly<{ row: DeliverableRow }>) {
+  const { t } = useI18n();
+  const d = t.flowGovernance.scope.deliverableDetail;
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{d.links}</h3>
+      {row.links.length === 0 ? (
+        <p className="text-muted-foreground">{t.flowGovernance.common.noLinks}</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {row.links.map((link) => (
+            <span key={link.id} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs">
+              <span className="text-muted-foreground">{t.flowGovernance.common.linkKinds[link.target.type]}</span>
+              <span className="font-semibold">{link.target.code ?? link.target.title}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface DetailActionsProps {
+  row: DeliverableRow;
+  abilities: GovernanceAbilities;
+  criteriaOpen: boolean;
+  waiting: boolean;
+  accepting: boolean;
+  onPanel: (panel: DetailPanel) => void;
+  onEdit: (deliverable: Deliverable) => void;
+  onAccept: () => void;
+}
+
+function DetailActions({ row, abilities, criteriaOpen, waiting, accepting, onPanel, onEdit, onAccept }: Readonly<DetailActionsProps>) {
+  const { t } = useI18n();
+  const d = t.flowGovernance.scope.deliverableDetail;
+  return (
+    <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+      {abilities.remove ? (
+        <Button type="button" variant="ghost" onClick={() => onPanel('delete')}>
+          {t.flowGovernance.common.delete}
+        </Button>
+      ) : null}
+      {abilities.update ? (
+        <Button type="button" variant="outline" onClick={() => onEdit(row)}>
+          {t.flowGovernance.common.edit}
+        </Button>
+      ) : null}
+      {abilities.manage && row.status !== 'accepted' ? (
+        <>
+          <Button type="button" variant="outline" onClick={() => onPanel('reject')}>
+            {d.reject}
+          </Button>
+          <Button type="button" variant="outline" disabled={criteriaOpen || waiting} onClick={() => onPanel('request')}>
+            {d.requestSignoff}
+          </Button>
+          <Button type="button" disabled={criteriaOpen || accepting} onClick={onAccept}>
+            {d.accept}
+          </Button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function DetailDialog({
   id,
   abilities,
@@ -249,11 +370,10 @@ function DetailDialog({
   const { t, format } = useI18n();
   const copy = t.flowGovernance.scope;
   const d = copy.deliverableDetail;
-  const formatters = useFormatters();
   const query = useDeliverable(id);
   const accept = useAcceptDeliverable();
   const remove = useDeleteDeliverable();
-  const [panel, setPanel] = useState<'request' | 'reject' | 'delete' | null>(null);
+  const [panel, setPanel] = useState<DetailPanel | null>(null);
   const row = query.data;
 
   const act = async (run: () => Promise<unknown>, success: string) => {
@@ -280,90 +400,22 @@ function DetailDialog({
           {row ? (
             <div className="flex flex-col gap-4 text-sm">
               {row.description ? <p className="whitespace-pre-line">{row.description}</p> : null}
-              <section>
-                <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{copy.deliverableForm.criteria}</h3>
-                {row.acceptanceCriteria.length === 0 ? (
-                  <p className="text-muted-foreground">{copy.deliverables.noCriteria}</p>
-                ) : (
-                  <ul className="flex flex-col gap-1">
-                    {row.acceptanceCriteria.map((c, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span aria-hidden className={c.met ? 'text-green-700' : 'text-muted-foreground'}>{c.met ? '✓' : '○'}</span>
-                        <span className={c.met ? '' : 'text-foreground/80'}>{c.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-              <section>
-                <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{d.signoff}</h3>
-                {row.signoff.length === 0 ? (
-                  <p className="text-muted-foreground">{d.noSignoff}</p>
-                ) : (
-                  <ul className="flex flex-col gap-1.5">
-                    {row.signoff.map((s) => (
-                      <li key={s.id} className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{s.step === 1 ? d.steps.sponsor : d.steps.client}</span>
-                        <span>{s.approverKind === 'member' ? memberName(s.approverId) : s.approverId}</span>
-                        <Pill tone={ANSWER_TONE[s.decision as keyof typeof ANSWER_TONE] ?? 'neutral'}>
-                          {d.answers[s.decision as keyof typeof d.answers] ?? s.decision}
-                        </Pill>
-                        {s.note ? <span className="text-xs text-muted-foreground">{s.note}</span> : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {row.status === 'accepted' && row.acceptedAt ? (
-                  <p className="mt-2 text-xs text-muted-foreground">{format(copy.deliverables.acceptedOn, { date: formatters.date(row.acceptedAt) })}</p>
-                ) : null}
-              </section>
-              <section>
-                <h3 className="mb-1.5 text-[13px] font-semibold text-foreground/80">{d.links}</h3>
-                {row.links.length === 0 ? (
-                  <p className="text-muted-foreground">{t.flowGovernance.common.noLinks}</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {row.links.map((link) => (
-                      <span key={link.id} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs">
-                        <span className="text-muted-foreground">{t.flowGovernance.common.linkKinds[link.target.type]}</span>
-                        <span className="font-semibold">{link.target.code ?? link.target.title}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </section>
+              <CriteriaSection row={row} />
+              <SignoffSection row={row} memberName={memberName} />
+              <LinksSection row={row} />
               {abilities.manage && row.status !== 'accepted' && criteriaOpen ? (
                 <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{d.criteriaOpen}</p>
               ) : null}
-              <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
-                {abilities.remove ? (
-                  <Button type="button" variant="ghost" onClick={() => setPanel('delete')}>
-                    {t.flowGovernance.common.delete}
-                  </Button>
-                ) : null}
-                {abilities.update ? (
-                  <Button type="button" variant="outline" onClick={() => onEdit(row)}>
-                    {t.flowGovernance.common.edit}
-                  </Button>
-                ) : null}
-                {abilities.manage && row.status !== 'accepted' ? (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => setPanel('reject')}>
-                      {d.reject}
-                    </Button>
-                    <Button type="button" variant="outline" disabled={criteriaOpen || waiting} onClick={() => setPanel('request')}>
-                      {d.requestSignoff}
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={criteriaOpen || accept.isPending}
-                      onClick={() => void act(() => accept.mutateAsync(row.id), d.toasts.accepted)}
-                    >
-                      {d.accept}
-                    </Button>
-                  </>
-                ) : null}
-              </div>
+              <DetailActions
+                row={row}
+                abilities={abilities}
+                criteriaOpen={criteriaOpen}
+                waiting={waiting}
+                accepting={accept.isPending}
+                onPanel={setPanel}
+                onEdit={onEdit}
+                onAccept={() => void act(() => accept.mutateAsync(row.id), d.toasts.accepted)}
+              />
             </div>
           ) : null}
         </DialogContent>

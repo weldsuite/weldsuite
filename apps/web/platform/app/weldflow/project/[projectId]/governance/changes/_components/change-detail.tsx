@@ -47,6 +47,11 @@ function effectLines(effects: ChangeEffects, copy: ReturnType<typeof useI18n>["t
 }
 
 
+function decisionBadgeVariant(decision: string): 'destructive' | 'outline' | 'secondary' {
+  if (decision === 'rejected') return 'destructive';
+  return decision === 'pending' ? 'outline' : 'secondary';
+}
+
 interface ChangeDetailProps {
   change: ChangeRequestDetail;
   currency: string | null;
@@ -171,7 +176,7 @@ export function ChangeDetail({ change, currency, abilities, userId, nameOf, onEd
                     {approver.roleLabel ? <p className="text-xs text-muted-foreground">{approver.roleLabel}</p> : null}
                     {approver.note ? <p className="text-xs">{approver.note}</p> : null}
                   </div>
-                  <Badge variant={approver.decision === 'rejected' ? 'destructive' : approver.decision === 'pending' ? 'outline' : 'secondary'}>
+                  <Badge variant={decisionBadgeVariant(approver.decision)}>
                     {t.flowApprovals.reviews.decision[approver.decision]}
                   </Badge>
                 </li>

@@ -35,6 +35,15 @@ import { fromDateInput, toDateInput } from './raid';
 
 // ── Error messages ──────────────────────────────────────────────────────────
 
+function invalidTypeMessage(issue: z.ZodInvalidTypeIssue, copy: RaidCopy['validation']): string {
+  if (issue.received === 'undefined' || issue.received === 'null') {
+    return issue.expected === 'number' ? copy.ratingRequired : copy.required;
+  }
+  if (issue.expected === 'integer') return copy.invalidWholeNumber;
+  if (issue.expected === 'number') return copy.invalidNumber;
+  return copy.invalidValue;
+}
+
 /**
  * Turns Zod's issues into the messages of the user's language. The shared
  * schemas carry no messages of their own, so every rule they enforce ends up
@@ -44,12 +53,7 @@ export function raidErrorMap(copy: RaidCopy['validation'], format: Format): z.Zo
   return (issue, ctx) => {
     switch (issue.code) {
       case z.ZodIssueCode.invalid_type:
-        if (issue.received === 'undefined' || issue.received === 'null') {
-          return { message: issue.expected === 'number' ? copy.ratingRequired : copy.required };
-        }
-        if (issue.expected === 'integer') return { message: copy.invalidWholeNumber };
-        if (issue.expected === 'number') return { message: copy.invalidNumber };
-        return { message: copy.invalidValue };
+        return { message: invalidTypeMessage(issue, copy) };
       case z.ZodIssueCode.too_small:
         return { message: issue.type === 'string' ? copy.required : copy.invalidNumber };
       case z.ZodIssueCode.too_big:
@@ -485,6 +489,11 @@ export function convertValuesFromItem(item: RaidItem): ConvertFormValues {
   };
 }
 
+function convertExtras(to: 'risk' | 'issue', values: ConvertFormValues): Record<string, unknown> {
+  if (to === 'risk') return { probability: values.probability, impact: values.impact };
+  return values.severity ? { severity: values.severity } : {};
+}
+
 export function buildConvertBody(to: 'risk' | 'issue', values: ConvertFormValues): ConvertRaidItemInput | null {
   const dueAt = fromDateInput(values.dueDate);
   // The route's own rule: a risk made from an assumption needs its rating, an issue takes none.
@@ -493,11 +502,7 @@ export function buildConvertBody(to: 'risk' | 'issue', values: ConvertFormValues
     to,
     title: values.title,
     ...(dueAt ? { dueAt } : {}),
-    ...(to === 'risk'
-      ? { probability: values.probability, impact: values.impact }
-      : values.severity
-        ? { severity: values.severity }
-        : {}),
+    ...convertExtras(to, values),
   });
   return parsed.success ? parsed.data : null;
 }

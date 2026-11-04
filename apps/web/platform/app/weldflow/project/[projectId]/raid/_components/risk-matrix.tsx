@@ -104,9 +104,8 @@ export function RiskMatrix({
                       isSelected && 'ring-2 ring-foreground ring-offset-1 ring-offset-card',
                     )}
                   >
-                    {isLoading ? (
-                      <Skeleton className="h-4 w-4 rounded-full opacity-40" />
-                    ) : count > 0 ? (
+                    {isLoading ? <Skeleton className="h-4 w-4 rounded-full opacity-40" /> : null}
+                    {!isLoading && count > 0 ? (
                       <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-xs font-bold text-neutral-900 shadow-sm">
                         {count}
                       </span>

@@ -14,6 +14,79 @@ export interface CriterionText {
 const text = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
 const num = (value: unknown, fallback = 0): number => (typeof value === 'number' ? value : fallback);
 
+interface DescribeContext {
+  item: GateCheckItem;
+  facts: GateCheckItem['facts'];
+  copy: Copy;
+  c: Copy['criteria'];
+  locale: string;
+  code: string;
+}
+
+/** The ", and N more" tail of a criterion detail, only when more than one item matches. */
+const moreSuffix = (count: number, template: string): string => (count > 1 ? fill(template, { count: count - 1 }) : '');
+
+function describeTasksDone({ c, facts, code }: DescribeContext): CriterionText {
+  const total = num(facts.total);
+  return {
+    title: fill(c.deliverable_tasks_done, { code }),
+    detail: total === 0 ? fill(c.deliverable_tasks_done_empty, { code }) : fill(c.deliverable_tasks_done_detail, { done: num(facts.done), total }),
+  };
+}
+
+function describeAccepted({ c, facts, code }: DescribeContext): CriterionText {
+  return { title: fill(c.deliverable_accepted, { code }), detail: fill(c.deliverable_accepted_detail, { status: text(facts.status) }) };
+}
+
+function describeOpenRisk({ c, facts, copy }: DescribeContext): CriterionText {
+  const band = copy.editor.bands[text(facts.band)] ?? text(facts.band);
+  const top = (facts.top ?? null) as { code: string; title: string; score: number } | null;
+  const more = moreSuffix(num(facts.count), c.no_open_risk_above_more);
+  return {
+    title: fill(c.no_open_risk_above, { band: band.toLowerCase() }),
+    detail: top ? fill(c.no_open_risk_above_detail, { code: top.code, title: top.title, score: top.score }) + more : '',
+  };
+}
+
+function describeDecision({ c, facts, code, item, locale }: DescribeContext): CriterionText {
+  const due = text(facts.decisionDueAt);
+  const dueNote = due && !item.met ? fill(c.decision_due, { date: shortDate(due, locale) }) : '';
+  return {
+    title: fill(c.decision_decided, { code }),
+    detail: fill(c.decision_decided_detail, { status: text(facts.status) }) + dueNote,
+  };
+}
+
+function describeChangeRequests({ c, facts }: DescribeContext): CriterionText {
+  const first = (facts.first ?? null) as { code: string; title: string } | null;
+  const more = moreSuffix(num(facts.count), c.no_change_request_pending_more);
+  return {
+    title: c.no_change_request_pending,
+    detail: first ? fill(c.no_change_request_pending_detail, { code: first.code, title: first.title }) + more : '',
+  };
+}
+
+function describeSpend({ c, facts, locale }: DescribeContext): CriterionText {
+  const budget = facts.budget;
+  const spent = money(facts.spent, facts.currency, locale);
+  return {
+    title: c.spend_within_baseline,
+    detail:
+      typeof budget === 'string'
+        ? fill(c.spend_within_baseline_detail, { spent, budget: money(budget, facts.currency, locale), version: num(facts.baselineVersion) })
+        : fill(c.spend_within_baseline_none, { spent }),
+  };
+}
+
+const DESCRIBERS = new Map<string, (ctx: DescribeContext) => CriterionText>([
+  ['deliverable_tasks_done', describeTasksDone],
+  ['deliverable_accepted', describeAccepted],
+  ['no_open_risk_above', describeOpenRisk],
+  ['decision_decided', describeDecision],
+  ['no_change_request_pending', describeChangeRequests],
+  ['spend_within_baseline', describeSpend],
+]);
+
 /** What a criterion asks, and what the data says about it now, in words (the API sends facts, not prose). */
 export function describeCriterion(item: GateCheckItem, copy: Copy, locale: string): CriterionText {
   const facts = item.facts;
@@ -24,58 +97,12 @@ export function describeCriterion(item: GateCheckItem, copy: Copy, locale: strin
   }
   if (facts.missing === true) {
     const id = text(facts.deliverableId, text(facts.decisionId, ''));
-    return { title: `${c[`${item.key}`] ?? item.key ?? ''}`.replace(/\{code\}/g, id), detail: c.missing };
+    const name = c[String(item.key)] ?? item.key ?? '';
+    return { title: name.replace(/\{code\}/g, id), detail: c.missing };
   }
-  const code = text(facts.code, '?');
-  switch (item.key) {
-    case 'deliverable_tasks_done': {
-      const total = num(facts.total);
-      return {
-        title: fill(c.deliverable_tasks_done, { code }),
-        detail: total === 0 ? fill(c.deliverable_tasks_done_empty, { code }) : fill(c.deliverable_tasks_done_detail, { done: num(facts.done), total }),
-      };
-    }
-    case 'deliverable_accepted':
-      return { title: fill(c.deliverable_accepted, { code }), detail: fill(c.deliverable_accepted_detail, { status: text(facts.status) }) };
-    case 'no_open_risk_above': {
-      const band = copy.editor.bands[text(facts.band)] ?? text(facts.band);
-      const top = (facts.top ?? null) as { code: string; title: string; score: number } | null;
-      const count = num(facts.count);
-      return {
-        title: fill(c.no_open_risk_above, { band: band.toLowerCase() }),
-        detail: top
-          ? fill(c.no_open_risk_above_detail, { code: top.code, title: top.title, score: top.score }) + (count > 1 ? fill(c.no_open_risk_above_more, { count: count - 1 }) : '')
-          : '',
-      };
-    }
-    case 'decision_decided': {
-      const due = text(facts.decisionDueAt);
-      return {
-        title: fill(c.decision_decided, { code }),
-        detail: fill(c.decision_decided_detail, { status: text(facts.status) }) + (due && !item.met ? fill(c.decision_due, { date: shortDate(due, locale) }) : ''),
-      };
-    }
-    case 'no_change_request_pending': {
-      const first = (facts.first ?? null) as { code: string; title: string } | null;
-      const count = num(facts.count);
-      return {
-        title: c.no_change_request_pending,
-        detail: first ? fill(c.no_change_request_pending_detail, { code: first.code, title: first.title }) + (count > 1 ? fill(c.no_change_request_pending_more, { count: count - 1 }) : '') : '',
-      };
-    }
-    case 'spend_within_baseline': {
-      const budget = facts.budget;
-      return {
-        title: c.spend_within_baseline,
-        detail:
-          typeof budget === 'string'
-            ? fill(c.spend_within_baseline_detail, { spent: money(facts.spent, facts.currency, locale), budget: money(budget, facts.currency, locale), version: num(facts.baselineVersion) })
-            : fill(c.spend_within_baseline_none, { spent: money(facts.spent, facts.currency, locale) }),
-      };
-    }
-    default:
-      return { title: item.key ?? '', detail: '' };
-  }
+  const describe = DESCRIBERS.get(item.key ?? '');
+  if (!describe) return { title: item.key ?? '', detail: '' };
+  return describe({ item, facts, copy, c, locale, code: text(facts.code, '?') });
 }
 
 /** An amount as the API sends it (a decimal string) in the project currency. */

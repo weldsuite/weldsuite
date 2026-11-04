@@ -46,17 +46,27 @@ interface DetailContext {
   sponsorName: string | null;
 }
 
+function signOffDetailKey(state: string, done: boolean): 'pending' | 'approved' | 'rejected' | 'none' {
+  if (state === 'pending') return 'pending';
+  if (state === 'approved' || done) return 'approved';
+  if (state === 'rejected') return 'rejected';
+  return 'none';
+}
+
 /** The detail line under a check, from its counts (and the sponsor for the sign-off). */
 export function checkDetail(check: CloseCheck, ctx: DetailContext): string {
   const { copy, plural, format } = ctx;
   if (check.key === 'signoff') {
     const text = copy.checklist.checks.signoff;
     const sponsor = ctx.sponsorName;
-    const state = ctx.signOff.state;
-    if (state === 'pending') return sponsor ? format(text.pending, { sponsor }) : text.pendingNoSponsor;
-    if (state === 'approved' || check.done) return sponsor ? format(text.approved, { sponsor }) : text.approvedNoSponsor;
-    if (state === 'rejected') return sponsor ? format(text.rejected, { sponsor }) : text.rejectedNoSponsor;
-    return sponsor ? format(text.none, { sponsor }) : text.noneNoSponsor;
+    const key = signOffDetailKey(ctx.signOff.state, check.done);
+    const noSponsor = {
+      pending: text.pendingNoSponsor,
+      approved: text.approvedNoSponsor,
+      rejected: text.rejectedNoSponsor,
+      none: text.noneNoSponsor,
+    }[key];
+    return sponsor ? format(text[key], { sponsor }) : noSponsor;
   }
   const text = copy.checklist.checks[check.key as Exclude<CloseCheckKey, 'signoff'>];
   if (check.total === 0) return text.none;
@@ -68,8 +78,9 @@ export function checkDetail(check: CloseCheck, ctx: DetailContext): string {
 
 /** The status that closes an item of a kind: `validated` for an assumption, `closed` for the rest. */
 export function raidClosedStatus(kind: RaidKind): string {
+  if (kind === 'assumption') return 'validated';
   const closed = RAID_CLOSED_STATUSES[kind] as readonly string[];
-  return kind === 'assumption' ? 'validated' : closed.includes('closed') ? 'closed' : closed[0];
+  return closed.includes('closed') ? 'closed' : closed[0];
 }
 
 /** The PATCH body that closes an item. */

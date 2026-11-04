@@ -33,6 +33,8 @@ const PILL: Record<StatusColour, string> = {
   red: 'bg-red-500/10 text-red-700 dark:text-red-300',
   grey: 'bg-muted text-muted-foreground',
 };
+type RagColour = Exclude<StatusColour, 'grey'>;
+
 const BTN = 'inline-flex h-8 items-center gap-1 rounded-md border px-3 text-sm hover:bg-muted disabled:opacity-50';
 const PRIMARY = 'inline-flex h-8 items-center gap-1 rounded-md bg-primary px-3 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-50';
 const CARD = 'rounded-lg border bg-card p-4';
@@ -132,6 +134,71 @@ function ReportRow({ row, active, onSelect }: Readonly<{ row: StatusReportSummar
 
 // -- Schedule -------------------------------------------------------------------
 
+type RecipientRule = 'sponsor' | 'all_stakeholders' | 'portal_contacts';
+
+function scheduleSummary(copy: ReturnType<typeof useCopy>, schedule: StatusReportSettings | null, nextDraftAt: string | null | undefined): string {
+  let text: string = copy.schedule.off;
+  if (schedule) {
+    text = fill(copy.schedule.summary, { cadence: copy.schedule.cadences[schedule.cadence], weekday: copy.schedule.weekdays[schedule.weekday - 1], hour: schedule.hour });
+  }
+  if (nextDraftAt) text += ` · ${fill(copy.schedule.nextDraft, { date: dateText(nextDraftAt) })}`;
+  return text;
+}
+
+function CadenceFields({
+  showWeekday,
+  showRecipients,
+  weekday,
+  onWeekday,
+  hour,
+  onHour,
+  rule,
+  onRule,
+}: Readonly<{
+  showWeekday: boolean;
+  showRecipients: boolean;
+  weekday: number;
+  onWeekday: (value: number) => void;
+  hour: number;
+  onHour: (value: number) => void;
+  rule: RecipientRule;
+  onRule: (value: RecipientRule) => void;
+}>) {
+  const copy = useCopy();
+  return (
+    <>
+      {showWeekday ? (
+        <label className="flex flex-col gap-1 text-xs">
+          {copy.schedule.weekday}
+          <select className="h-8 rounded-md border bg-background px-2 text-sm" value={weekday} onChange={(event) => onWeekday(Number(event.target.value))}>
+            {copy.schedule.weekdays.map((name, index) => (
+              <option key={name} value={index + 1}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <label className="flex flex-col gap-1 text-xs">
+        {copy.schedule.hour}
+        <input type="number" min={0} max={23} className="h-8 rounded-md border bg-background px-2 text-sm" value={hour} onChange={(event) => onHour(Math.min(23, Math.max(0, Number(event.target.value) || 0)))} />
+      </label>
+      {showRecipients ? (
+        <label className="flex flex-col gap-1 text-xs">
+          {copy.schedule.recipients}
+          <select className="h-8 rounded-md border bg-background px-2 text-sm" value={rule} onChange={(event) => onRule(event.target.value as RecipientRule)}>
+            {(['sponsor', 'all_stakeholders', 'portal_contacts'] as const).map((value) => (
+              <option key={value} value={value}>
+                {copy.schedule.rules[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+    </>
+  );
+}
+
 function ScheduleCard({ projectId, manage }: Readonly<{ projectId: string; manage: boolean }>) {
   const copy = useCopy();
   const settings = useStatusReportSettings(projectId);
@@ -142,7 +209,7 @@ function ScheduleCard({ projectId, manage }: Readonly<{ projectId: string; manag
   const [cadence, setCadence] = useState<StatusReportSettings['cadence'] | 'manual'>('weekly');
   const [weekday, setWeekday] = useState(1);
   const [hour, setHour] = useState(9);
-  const [rule, setRule] = useState<'sponsor' | 'all_stakeholders' | 'portal_contacts'>('sponsor');
+  const [rule, setRule] = useState<RecipientRule>('sponsor');
   const [appetite, setAppetite] = useState(9);
 
   useEffect(() => {
@@ -170,12 +237,7 @@ function ScheduleCard({ projectId, manage }: Readonly<{ projectId: string; manag
           </button>
         ) : null}
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {schedule
-          ? fill(copy.schedule.summary, { cadence: copy.schedule.cadences[schedule.cadence], weekday: copy.schedule.weekdays[schedule.weekday - 1], hour: schedule.hour })
-          : copy.schedule.off}
-        {current?.nextDraftAt ? ` · ${fill(copy.schedule.nextDraft, { date: dateText(current.nextDraftAt) })}` : ''}
-      </p>
+      <p className="mt-1 text-xs text-muted-foreground">{scheduleSummary(copy, schedule, current?.nextDraftAt)}</p>
       {open ? (
         <div className="mt-3 flex flex-col gap-2">
           <label className="flex flex-col gap-1 text-xs">
@@ -189,36 +251,16 @@ function ScheduleCard({ projectId, manage }: Readonly<{ projectId: string; manag
             </select>
           </label>
           {cadence !== 'manual' ? (
-            <>
-              {cadence !== 'monthly' ? (
-                <label className="flex flex-col gap-1 text-xs">
-                  {copy.schedule.weekday}
-                  <select className="h-8 rounded-md border bg-background px-2 text-sm" value={weekday} onChange={(event) => setWeekday(Number(event.target.value))}>
-                    {copy.schedule.weekdays.map((name, index) => (
-                      <option key={name} value={index + 1}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label className="flex flex-col gap-1 text-xs">
-                {copy.schedule.hour}
-                <input type="number" min={0} max={23} className="h-8 rounded-md border bg-background px-2 text-sm" value={hour} onChange={(event) => setHour(Math.min(23, Math.max(0, Number(event.target.value) || 0)))} />
-              </label>
-              {!schedule?.recipients.stakeholderIds ? (
-                <label className="flex flex-col gap-1 text-xs">
-                  {copy.schedule.recipients}
-                  <select className="h-8 rounded-md border bg-background px-2 text-sm" value={rule} onChange={(event) => setRule(event.target.value as typeof rule)}>
-                    {(['sponsor', 'all_stakeholders', 'portal_contacts'] as const).map((value) => (
-                      <option key={value} value={value}>
-                        {copy.schedule.rules[value]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </>
+            <CadenceFields
+              showWeekday={cadence !== 'monthly'}
+              showRecipients={!schedule?.recipients.stakeholderIds}
+              weekday={weekday}
+              onWeekday={setWeekday}
+              hour={hour}
+              onHour={setHour}
+              rule={rule}
+              onRule={setRule}
+            />
           ) : null}
           <label className="flex flex-col gap-1 text-xs">
             {copy.schedule.appetite}
@@ -236,14 +278,72 @@ function ScheduleCard({ projectId, manage }: Readonly<{ projectId: string; manag
 
 // -- Editor ---------------------------------------------------------------------
 
-function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; manage: boolean; onGone: () => void; onOpen: (id: string) => void }>) {
+function ReportActions({
+  id,
+  report,
+  manage,
+  editable,
+  preview,
+  onTogglePreview,
+  onGone,
+  onOpen,
+  onError,
+}: Readonly<{
+  id: string;
+  report: StatusReport;
+  manage: boolean;
+  editable: boolean;
+  preview: boolean;
+  onTogglePreview: () => void;
+  onGone: () => void;
+  onOpen: (id: string) => void;
+  onError: () => void;
+}>) {
   const copy = useCopy();
-  const query = useStatusReport(id);
-  const update = useUpdateStatusReport();
   const refresh = useRefreshStatusReport();
   const publish = usePublishStatusReport();
   const discard = useDeleteStatusReport();
   const create = useCreateStatusReport();
+  const draft = report.status === 'draft';
+  return (
+    <>
+      {editable ? (
+        <button type="button" className={BTN} disabled={refresh.isPending} onClick={() => refresh.mutate(id, { onError })}>
+          {copy.report.refresh}
+        </button>
+      ) : null}
+      <button type="button" className={BTN} onClick={onTogglePreview}>
+        {preview ? copy.report.exitPreview : copy.report.preview}
+      </button>
+      {draft && manage && !preview ? (
+        <>
+          <button type="button" className={BTN} onClick={() => window.confirm(copy.report.discardConfirm) && discard.mutate(id, { onSuccess: onGone, onError })}>
+            {copy.report.discard}
+          </button>
+          <button
+            type="button"
+            className={PRIMARY}
+            disabled={publish.isPending || !report.summary}
+            title={report.summary ? undefined : copy.report.summaryRequired}
+            onClick={() => window.confirm(copy.report.publishConfirm) && publish.mutate(id, { onError })}
+          >
+            {fill(copy.report.publishTo, { count: report.resolvedRecipients.length })}
+          </button>
+        </>
+      ) : null}
+      {!draft && manage ? (
+        <button type="button" className={BTN} disabled={create.isPending} onClick={() => create.mutate({ projectId: report.projectId, period: report.period }, { onSuccess: (next) => onOpen(next.id), onError })}>
+          {copy.report.correct}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; manage: boolean; onGone: () => void; onOpen: (id: string) => void }>) {
+  const copy = useCopy();
+  const query = useStatusReport(id);
+  const update = useUpdateStatusReport();
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState(false);
   const report = query.data;
@@ -270,35 +370,17 @@ function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; man
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {editable ? (
-              <button type="button" className={BTN} disabled={refresh.isPending} onClick={() => refresh.mutate(id, { onError: fail })}>
-                {copy.report.refresh}
-              </button>
-            ) : null}
-            <button type="button" className={BTN} onClick={() => setPreview(!preview)}>
-              {preview ? copy.report.exitPreview : copy.report.preview}
-            </button>
-            {draft && manage && !preview ? (
-              <>
-                <button type="button" className={BTN} onClick={() => window.confirm(copy.report.discardConfirm) && discard.mutate(id, { onSuccess: onGone, onError: fail })}>
-                  {copy.report.discard}
-                </button>
-                <button
-                  type="button"
-                  className={PRIMARY}
-                  disabled={publish.isPending || !report.summary}
-                  title={report.summary ? undefined : copy.report.summaryRequired}
-                  onClick={() => window.confirm(copy.report.publishConfirm) && publish.mutate(id, { onError: fail })}
-                >
-                  {fill(copy.report.publishTo, { count: report.resolvedRecipients.length })}
-                </button>
-              </>
-            ) : null}
-            {!draft && manage ? (
-              <button type="button" className={BTN} disabled={create.isPending} onClick={() => create.mutate({ projectId: report.projectId, period: report.period }, { onSuccess: (next) => onOpen(next.id), onError: fail })}>
-                {copy.report.correct}
-              </button>
-            ) : null}
+            <ReportActions
+              id={id}
+              report={report}
+              manage={manage}
+              editable={editable}
+              preview={preview}
+              onTogglePreview={() => setPreview(!preview)}
+              onGone={onGone}
+              onOpen={onOpen}
+              onError={fail}
+            />
           </div>
         </div>
         {!draft ? <p className="text-sm text-muted-foreground">{fill(copy.report.frozen, { date: dateText(report.publishedAt) })}</p> : null}
@@ -352,7 +434,7 @@ function SummaryField({ value, editable, onSave }: Readonly<{ value: string; edi
   );
 }
 
-function OverallAndAreas({ report, editable, onPatch }: Readonly<{ report: StatusReport; editable: boolean; onPatch: (input: { overall?: 'green' | 'amber' | 'red'; areas?: Array<{ key: StatusReportArea['key']; override: { colour: 'green' | 'amber' | 'red'; reason: string } | null }> }) => void }>) {
+function OverallAndAreas({ report, editable, onPatch }: Readonly<{ report: StatusReport; editable: boolean; onPatch: (input: { overall?: RagColour; areas?: Array<{ key: StatusReportArea['key']; override: { colour: RagColour; reason: string } | null }> }) => void }>) {
   const copy = useCopy();
   const suggested = report.snapshot?.computed.overall ?? 'grey';
   return (
@@ -388,10 +470,10 @@ function reasonOf(copy: ReturnType<typeof useCopy>, area: StatusReportArea): str
   return template ? fill(template, area.computed?.params ?? {}) : copy.reasons.unknown;
 }
 
-function AreaCard({ area, editable, onPatch }: Readonly<{ area: StatusReportArea; editable: boolean; onPatch: (input: { areas: Array<{ key: StatusReportArea['key']; override: { colour: 'green' | 'amber' | 'red'; reason: string } | null }> }) => void }>) {
+function AreaCard({ area, editable, onPatch }: Readonly<{ area: StatusReportArea; editable: boolean; onPatch: (input: { areas: Array<{ key: StatusReportArea['key']; override: { colour: RagColour; reason: string } | null }> }) => void }>) {
   const copy = useCopy();
   const [open, setOpen] = useState(false);
-  const [colour, setColour] = useState<'green' | 'amber' | 'red'>(area.colour === 'grey' ? 'amber' : area.colour);
+  const [colour, setColour] = useState<RagColour>(area.colour === 'grey' ? 'amber' : area.colour);
   const [reason, setReason] = useState(area.reason ?? '');
   return (
     <div className="flex flex-col gap-1.5 rounded-md border p-3">
@@ -512,6 +594,11 @@ function DecisionsAndChanges({ report }: Readonly<{ report: StatusReport }>) {
   );
 }
 
+function varianceText(copy: ReturnType<typeof useCopy>, days: number | null): string {
+  if (days === null) return '-';
+  return days > 0 ? fill(copy.report.days, { days: '+' + days }) : copy.report.onTime;
+}
+
 function Milestones({ report }: Readonly<{ report: StatusReport }>) {
   const copy = useCopy();
   const rows = report.snapshot?.milestones ?? [];
@@ -536,7 +623,7 @@ function Milestones({ report }: Readonly<{ report: StatusReport }>) {
                 <td className="p-3 text-muted-foreground">{dateText(row.baselineDate)}</td>
                 <td className="p-3">{dateText(row.forecastDate)}</td>
                 <td className={`p-3 font-semibold ${(row.varianceDays ?? 0) > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
-                  {row.varianceDays === null ? '-' : row.varianceDays > 0 ? fill(copy.report.days, { days: `+${row.varianceDays}` }) : copy.report.onTime}
+                  {varianceText(copy, row.varianceDays)}
                 </td>
               </tr>
             ))}

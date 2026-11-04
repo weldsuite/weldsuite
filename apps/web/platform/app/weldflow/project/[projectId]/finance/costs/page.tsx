@@ -37,6 +37,132 @@ function Row({ line, currency }: Readonly<{ line: CostLine; currency: string | n
   );
 }
 
+function CostFilterBar({
+  source,
+  from,
+  to,
+  filtered,
+  onSource,
+  onFrom,
+  onTo,
+  onClear,
+}: Readonly<{
+  source: CostSource | undefined;
+  from: string;
+  to: string;
+  filtered: boolean;
+  onSource: (value: CostSource | undefined) => void;
+  onFrom: (value: string) => void;
+  onTo: (value: string) => void;
+  onClear: () => void;
+}>) {
+  const { copy } = useFinanceEnv();
+  const c = copy.costs;
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="finance-source">{c.filterSource}</Label>
+        <Select value={source ?? ALL} onValueChange={(value) => onSource(value === ALL ? undefined : (value as CostSource))}>
+          <SelectTrigger id="finance-source" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>{c.allSources}</SelectItem>
+            {COST_SOURCES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {copy.sources[value]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="finance-from">{c.from}</Label>
+        <Input id="finance-from" type="date" value={from} max={to || undefined} onChange={(event) => onFrom(event.target.value)} className="w-40" />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="finance-to">{c.to}</Label>
+        <Input id="finance-to" type="date" value={to} min={from || undefined} onChange={(event) => onTo(event.target.value)} className="w-40" />
+      </div>
+      {filtered ? (
+        <Button type="button" variant="ghost" onClick={onClear}>
+          {c.clear}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function CostsList({
+  costs,
+  lines,
+  filtered,
+  currency,
+}: Readonly<{ costs: ReturnType<typeof useProjectCosts>; lines: CostLine[]; filtered: boolean; currency: string | null }>) {
+  const { copy } = useFinanceEnv();
+  const c = copy.costs;
+  if (costs.isLoading) {
+    return (
+      <div role="status" aria-busy="true" className="flex flex-col gap-2">
+        {Array.from({ length: 5 }, (_, index) => (
+          <Skeleton key={index} className="h-12" />
+        ))}
+      </div>
+    );
+  }
+  if (costs.isError) return <FinanceErrorState onRetry={() => void costs.refetch()} />;
+  if (lines.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
+        <div className="rounded-full bg-muted p-3">
+          <Receipt aria-hidden className="size-6 text-muted-foreground" />
+        </div>
+        <h3 className="text-base font-semibold">{c.emptyTitle}</h3>
+        <p className="max-w-sm text-sm text-muted-foreground">{filtered ? c.emptyFiltered : c.emptyDescription}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[44rem] border-collapse text-sm">
+          <thead>
+            <tr className="text-xs text-muted-foreground">
+              <th scope="col" className="px-4 py-2 text-left font-medium">
+                {c.columns.date}
+              </th>
+              <th scope="col" className="px-2.5 py-2 text-left font-medium">
+                {c.columns.source}
+              </th>
+              <th scope="col" className="px-2.5 py-2 text-left font-medium">
+                {c.columns.description}
+              </th>
+              <th scope="col" className="px-2.5 py-2 text-left font-medium">
+                {c.columns.status}
+              </th>
+              <th scope="col" className="px-4 py-2 text-right font-medium">
+                {c.columns.amount}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((line) => (
+              <Row key={line.id} line={line} currency={currency} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {costs.hasNextPage ? (
+        <div className="flex justify-center border-t p-3">
+          <Button type="button" variant="outline" disabled={costs.isFetchingNextPage} onClick={() => void costs.fetchNextPage()}>
+            {costs.isFetchingNextPage ? c.loadingMore : c.loadMore}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** Finance › Costs: every line that counts toward the project, by source, with filters. */
 export default function FinanceCostsPage() {
   const { projectId, copy } = useFinanceEnv();
@@ -64,101 +190,22 @@ export default function FinanceCostsPage() {
         <p className="text-sm text-muted-foreground">{c.description}</p>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="finance-source">{c.filterSource}</Label>
-          <Select value={source ?? ALL} onValueChange={(value) => setSource(value === ALL ? undefined : (value as CostSource))}>
-            <SelectTrigger id="finance-source" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>{c.allSources}</SelectItem>
-              {COST_SOURCES.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {copy.sources[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="finance-from">{c.from}</Label>
-          <Input id="finance-from" type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} className="w-40" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="finance-to">{c.to}</Label>
-          <Input id="finance-to" type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} className="w-40" />
-        </div>
-        {filtered ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setSource(undefined);
-              setFrom('');
-              setTo('');
-            }}
-          >
-            {c.clear}
-          </Button>
-        ) : null}
-      </div>
+      <CostFilterBar
+        source={source}
+        from={from}
+        to={to}
+        filtered={filtered}
+        onSource={setSource}
+        onFrom={setFrom}
+        onTo={setTo}
+        onClear={() => {
+          setSource(undefined);
+          setFrom('');
+          setTo('');
+        }}
+      />
 
-      {costs.isLoading ? (
-        <div role="status" aria-busy="true" className="flex flex-col gap-2">
-          {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton key={index} className="h-12" />
-          ))}
-        </div>
-      ) : costs.isError ? (
-        <FinanceErrorState onRetry={() => void costs.refetch()} />
-      ) : lines.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-          <div className="rounded-full bg-muted p-3">
-            <Receipt aria-hidden className="size-6 text-muted-foreground" />
-          </div>
-          <h3 className="text-base font-semibold">{c.emptyTitle}</h3>
-          <p className="max-w-sm text-sm text-muted-foreground">{filtered ? c.emptyFiltered : c.emptyDescription}</p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border bg-card">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] border-collapse text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground">
-                  <th scope="col" className="px-4 py-2 text-left font-medium">
-                    {c.columns.date}
-                  </th>
-                  <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                    {c.columns.source}
-                  </th>
-                  <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                    {c.columns.description}
-                  </th>
-                  <th scope="col" className="px-2.5 py-2 text-left font-medium">
-                    {c.columns.status}
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    {c.columns.amount}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line) => (
-                  <Row key={line.id} line={line} currency={finance.data.currency} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {costs.hasNextPage ? (
-            <div className="flex justify-center border-t p-3">
-              <Button type="button" variant="outline" disabled={costs.isFetchingNextPage} onClick={() => void costs.fetchNextPage()}>
-                {costs.isFetchingNextPage ? c.loadingMore : c.loadMore}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      )}
+      <CostsList costs={costs} lines={lines} filtered={filtered} currency={finance.data.currency} />
       <p className="text-xs text-muted-foreground">{c.doubleCount}</p>
     </div>
   );

@@ -59,17 +59,19 @@ function Deliverables() {
   );
 }
 
+function checkStateTone(check: CloseCheck): string {
+  if (check.done) return 'text-green-700 dark:text-green-400';
+  if (check.state === 'waiting') return 'text-muted-foreground';
+  return 'text-orange-700 dark:text-orange-400';
+}
+
 function CheckRow({ check }: Readonly<{ check: CloseCheck }>) {
   const { t, plural, format } = useI18n();
   const copy = t.flowClosing.close.checklist;
   const { checklist, memberOf } = useClose();
   const sponsor = memberOf(checklist.signOff.sponsorId)?.name ?? null;
   const detail = checkDetail(check, { copy: t.flowClosing.close, plural, format, signOff: checklist.signOff, sponsorName: sponsor });
-  const stateTone = check.done
-    ? 'text-green-700 dark:text-green-400'
-    : check.state === 'waiting'
-      ? 'text-muted-foreground'
-      : 'text-orange-700 dark:text-orange-400';
+  const stateTone = checkStateTone(check);
   return (
     <li className={cn('border-b px-4 py-3 last:border-b-0', !check.done && check.state === 'open' && 'bg-orange-50/40 dark:bg-orange-950/10')}>
       <div className="flex items-center gap-2.5">

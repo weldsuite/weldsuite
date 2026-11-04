@@ -35,6 +35,25 @@ function monthLabel(month: string, locale: string): string {
   );
 }
 
+function barClass(conflict: boolean, critical: boolean): string {
+  if (conflict) return 'border-[1.5px] border-red-600 bg-red-50 dark:bg-red-950/40';
+  if (critical) return 'border-[1.5px] border-orange-700 bg-orange-100 dark:bg-orange-950/40';
+  return 'bg-blue-200 dark:bg-blue-900/60';
+}
+
+function linkColor(conflict: boolean, critical: boolean): string {
+  if (conflict) return '#c92a2a';
+  if (critical) return '#c2410c';
+  return '#8a8a8a';
+}
+
+function linkLabel(typeName: string, type: string, lagDays: number): string | null {
+  if (type === 'fs' && lagDays === 0) return null;
+  if (!lagDays) return typeName;
+  const sign = lagDays > 0 ? '+' : '';
+  return typeName + ' ' + sign + lagDays + ' d';
+}
+
 /** The task Gantt: a bar per task, an elbow arrow per dependency, the critical path, conflicts, the go-live and today. */
 export function GanttChart({ schedule, rows, zoom, showCritical, selectedId, onSelect }: Readonly<GanttChartProps>) {
   const { t, language } = useI18n();
@@ -130,6 +149,7 @@ export function GanttChart({ schedule, rows, zoom, showCritical, selectedId, onS
                 const progress = Math.min(100, Math.max(0, Number(task.progress) || 0));
                 const conflictWith = schedule.conflicts.find((c) => c.successorId === task.id);
                 const predecessor = conflictWith ? titleOf.get(conflictWith.predecessorId) : undefined;
+                const conflictNote = conflict && predecessor ? `. ${fill(copy.chart.conflictTitle, { predecessor: taskLabel(predecessor) })}` : '';
                 return (
                   <div key={task.id}>
                     {bar.pushedX2 > bar.x2 && (
@@ -146,14 +166,10 @@ export function GanttChart({ schedule, rows, zoom, showCritical, selectedId, onS
                       title={[taskLabel(task), task.title, task.totalFloat !== null ? fill(copy.chart.floatDays, { days: task.totalFloat }) : '']
                         .filter(Boolean)
                         .join(' · ')}
-                      aria-label={`${task.title}${conflict && predecessor ? `. ${fill(copy.chart.conflictTitle, { predecessor: taskLabel(predecessor) })}` : ''}`}
+                      aria-label={task.title + conflictNote}
                       className={cn(
                         'absolute overflow-hidden rounded outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                        conflict
-                          ? 'border-[1.5px] border-red-600 bg-red-50 dark:bg-red-950/40'
-                          : critical
-                            ? 'border-[1.5px] border-orange-700 bg-orange-100 dark:bg-orange-950/40'
-                            : 'bg-blue-200 dark:bg-blue-900/60',
+                        barClass(conflict, critical),
                         selectedId === task.id && 'outline outline-2 outline-offset-1 outline-foreground',
                       )}
                       style={{ left: bar.x1, width: bar.x2 - bar.x1, top: bar.row * ROW_HEIGHT + 10, height: ROW_HEIGHT - 20 }}
@@ -176,8 +192,8 @@ export function GanttChart({ schedule, rows, zoom, showCritical, selectedId, onS
                   const path = arrowPath(link.type, from, to);
                   const conflict = conflictedLinks.has(link.id);
                   const critical = showCritical && criticalIds.has(link.predecessorId) && criticalIds.has(link.successorId);
-                  const color = conflict ? '#c92a2a' : critical ? '#c2410c' : '#8a8a8a';
-                  const label = link.type !== 'fs' || link.lagDays !== 0 ? `${t.flowSchedule.linkTypes[link.type]}${link.lagDays ? ` ${link.lagDays > 0 ? '+' : ''}${link.lagDays} d` : ''}` : null;
+                  const color = linkColor(conflict, critical);
+                  const label = linkLabel(t.flowSchedule.linkTypes[link.type], link.type, link.lagDays);
                   const pointsRight = link.type === 'fs' || link.type === 'ss';
                   return (
                     <g key={link.id}>

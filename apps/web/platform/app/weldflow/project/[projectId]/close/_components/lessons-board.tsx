@@ -150,14 +150,18 @@ export function LessonsBoard() {
             <Skeleton key={category} className="h-40 rounded-lg" />
           ))}
         </div>
-      ) : query.isError ? (
+      ) : null}
+
+      {!query.isLoading && query.isError ? (
         <div role="alert" className="mt-3 flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-8 text-center">
           <p className="text-sm text-destructive">{copy.loadFailed}</p>
           <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
             {t.flowClosing.shared.retry}
           </Button>
         </div>
-      ) : (
+      ) : null}
+
+      {!query.isLoading && !query.isError ? (
         <div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
           {LESSON_COLUMNS.map((category) => {
             const items = columns[category];
@@ -189,7 +193,7 @@ export function LessonsBoard() {
             );
           })}
         </div>
-      )}
+      ) : null}
 
       <LessonDialog state={dialog} onClose={() => setDialog(null)} />
       <PublishDialog open={publishing} onClose={() => setPublishing(false)} />

@@ -104,11 +104,8 @@ export function AssumptionsTable({ items, emptyText }: Readonly<TableProps>) {
       empty={<EmptyRows show={items.length === 0} text={emptyText} />}
     >
       {items.map((item) => {
-        const closedText = item.closedAt
-          ? format(item.status === 'invalid' ? copy.due.provedWrongOn : copy.due.validatedOn, {
-              date: formatShortDate(item.closedAt, intlLocale, now),
-            })
-          : null;
+        const closedTemplate = item.status === 'invalid' ? copy.due.provedWrongOn : copy.due.validatedOn;
+        const closedText = item.closedAt ? format(closedTemplate, { date: formatShortDate(item.closedAt, intlLocale, now) }) : null;
         return (
           <ItemRow key={item.id} item={item}>
             <TitleCell

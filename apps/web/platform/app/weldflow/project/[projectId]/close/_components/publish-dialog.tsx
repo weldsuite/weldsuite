@@ -13,6 +13,49 @@ import { usePublishLessons } from '@/hooks/queries/use-project-closing-queries';
 import { apiMessage } from '../_lib/api-error';
 import { useClose } from './close-context';
 
+type WritableSpace = NonNullable<ReturnType<typeof useKnowledgeSpaces>['data']>['data'][number];
+
+function SpaceField({
+  isError,
+  isLoading,
+  writable,
+  spaceId,
+  onChange,
+  invalid,
+}: Readonly<{ isError: boolean; isLoading: boolean; writable: WritableSpace[]; spaceId: string; onChange: (id: string) => void; invalid: boolean }>) {
+  const { t, format } = useI18n();
+  const copy = t.flowClosing.close.publish;
+  if (isError) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {copy.spacesFailed}
+      </p>
+    );
+  }
+  if (isLoading) {
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        {copy.loadingSpaces}
+      </p>
+    );
+  }
+  if (writable.length === 0) return <p className="text-sm text-muted-foreground">{copy.noSpaces}</p>;
+  return (
+    <Select value={spaceId} onValueChange={onChange}>
+      <SelectTrigger id="publish-space" aria-invalid={invalid}>
+        <SelectValue placeholder={copy.spacePlaceholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {writable.map((space) => (
+          <SelectItem key={space.id} value={space.id}>
+            {space.kind === 'personal' ? format(copy.personalSuffix, { name: space.name }) : space.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /** Publish every lesson as one WeldKnow page in a teamspace the person can write in. */
 export function PublishDialog({ open, onClose }: Readonly<{ open: boolean; onClose: () => void }>) {
   const { t, language, plural, format } = useI18n();
@@ -75,30 +118,14 @@ export function PublishDialog({ open, onClose }: Readonly<{ open: boolean; onClo
             </DialogHeader>
             <div className="space-y-1.5">
               <Label htmlFor="publish-space">{copy.space}</Label>
-              {spaces.isError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {copy.spacesFailed}
-                </p>
-              ) : spaces.isLoading ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  {copy.loadingSpaces}
-                </p>
-              ) : writable.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{copy.noSpaces}</p>
-              ) : (
-                <Select value={spaceId} onValueChange={setSpaceId}>
-                  <SelectTrigger id="publish-space" aria-invalid={touched && !spaceId}>
-                    <SelectValue placeholder={copy.spacePlaceholder} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {writable.map((space) => (
-                      <SelectItem key={space.id} value={space.id}>
-                        {space.kind === 'personal' ? format(copy.personalSuffix, { name: space.name }) : space.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <SpaceField
+                isError={spaces.isError}
+                isLoading={spaces.isLoading}
+                writable={writable}
+                spaceId={spaceId}
+                onChange={setSpaceId}
+                invalid={touched && !spaceId}
+              />
               {touched && !spaceId ? (
                 <p role="alert" className="text-sm text-destructive">
                   {copy.spaceRequired}

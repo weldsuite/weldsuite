@@ -139,6 +139,7 @@ export default function BusinessValuePage() {
                 const on = b.id === current?.id;
                 const late = !!b.realiseBy && new Date(b.realiseBy) < now && b.status !== 'realised' && b.status !== 'closed';
                 const metricKey = b.metric as keyof typeof copy.metrics;
+                const noLatest = b.status === 'planned' ? copy.startsAtGoLive : copy.noValue;
                 return (
                   <tr key={b.id} className={cn('border-t align-top', on && 'bg-muted/40')}>
                     <td className="max-w-80 px-4 py-3">
@@ -162,7 +163,7 @@ export default function BusinessValuePage() {
                     </td>
                     <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums text-foreground/70">{b.baselineValue ? formatters.value(b.baselineValue, b.unit) : copy.noValue}</td>
                     <td className="px-2 py-3 text-right font-semibold whitespace-nowrap tabular-nums">
-                      {b.latest ? formatters.value(b.latest.value, b.unit) : b.status === 'planned' ? copy.startsAtGoLive : copy.noValue}
+                      {b.latest ? formatters.value(b.latest.value, b.unit) : noLatest}
                     </td>
                     <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">{b.targetValue ? formatters.value(b.targetValue, b.unit) : copy.noValue}</td>
                     <td className="w-36 px-2 py-3">

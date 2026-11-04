@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ComponentProps } from 'react';
 import { useAuth } from '@/lib/auth';
 import { Loader2, Plus } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -28,6 +28,68 @@ function Message({ text, action }: Readonly<{ text: string; action?: { label: st
       ) : null}
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <div className="flex justify-center py-12" role="status">
+      <Loader2 className="animate-spin text-muted-foreground" aria-hidden />
+    </div>
+  );
+}
+
+function ChangeListPane({
+  changes,
+  visible,
+  filtered,
+  selectedId,
+  onSelect,
+}: Readonly<{
+  changes: ReturnType<typeof useChangeRequests>;
+  visible: NonNullable<ReturnType<typeof useChangeRequests>['data']>;
+  filtered: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}>) {
+  const { t } = useI18n();
+  const copy = t.flowApprovals.changes;
+  if (changes.isLoading) return <Spinner />;
+  if (changes.isError) return <Message text={copy.loadFailed} action={{ label: t.flowApprovals.common.retry, onClick: () => void changes.refetch() }} />;
+  if (visible.length === 0) return <Message text={filtered ? copy.emptyFiltered : copy.empty} />;
+  return (
+    <ul>
+      {visible.map((change) => (
+        <li key={change.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(change.id)}
+            aria-current={change.id === selectedId ? 'true' : undefined}
+            className={cn('flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left text-sm last:border-b-0 hover:bg-muted/50', change.id === selectedId && 'bg-muted')}
+          >
+            <span className="text-xs text-muted-foreground">
+              {change.code} · {copy.status[change.status]}
+            </span>
+            <span className="font-medium">{change.title}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ChangeDetailPane({
+  selectedId,
+  detail,
+  ...detailProps
+}: Readonly<
+  { selectedId: string | null; detail: ReturnType<typeof useChangeRequest> } & Omit<ComponentProps<typeof ChangeDetail>, 'change'>
+>) {
+  const { t } = useI18n();
+  const copy = t.flowApprovals.changes;
+  if (!selectedId) return <Message text={copy.selectOne} />;
+  if (detail.isLoading) return <Spinner />;
+  if (detail.data) return <ChangeDetail change={detail.data} {...detailProps} />;
+  return <Message text={copy.loadFailed} action={{ label: t.flowApprovals.common.retry, onClick: () => void detail.refetch() }} />;
 }
 
 /** Governance > Change requests: the approval rules, the list per status and the detail of one change. */
@@ -98,54 +160,19 @@ export default function ChangeRequestsPage() {
 
       <div className="grid min-h-[24rem] gap-4 lg:grid-cols-[22rem_1fr]">
         <div className="rounded-lg border">
-          {changes.isLoading ? (
-            <div className="flex justify-center py-12" role="status">
-              <Loader2 className="animate-spin text-muted-foreground" aria-hidden />
-            </div>
-          ) : changes.isError ? (
-            <Message text={copy.loadFailed} action={{ label: t.flowApprovals.common.retry, onClick: () => void changes.refetch() }} />
-          ) : visible.length === 0 ? (
-            <Message text={status ? copy.emptyFiltered : copy.empty} />
-          ) : (
-            <ul>
-              {visible.map((change) => (
-                <li key={change.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(change.id)}
-                    aria-current={change.id === selectedId ? 'true' : undefined}
-                    className={cn('flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left text-sm last:border-b-0 hover:bg-muted/50', change.id === selectedId && 'bg-muted')}
-                  >
-                    <span className="text-xs text-muted-foreground">
-                      {change.code} · {copy.status[change.status]}
-                    </span>
-                    <span className="font-medium">{change.title}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ChangeListPane changes={changes} visible={visible} filtered={!!status} selectedId={selectedId} onSelect={setSelectedId} />
         </div>
         <div className="min-h-[24rem] rounded-lg border">
-          {!selectedId ? (
-            <Message text={copy.selectOne} />
-          ) : detail.isLoading ? (
-            <div className="flex justify-center py-12" role="status">
-              <Loader2 className="animate-spin text-muted-foreground" aria-hidden />
-            </div>
-          ) : detail.data ? (
-            <ChangeDetail
-              change={detail.data}
-              currency={currency}
-              abilities={abilities}
-              userId={userId}
-              nameOf={nameOf}
-              onEdit={() => setDialog('edit')}
-              onDeleted={() => setSelectedId(null)}
-            />
-          ) : (
-            <Message text={copy.loadFailed} action={{ label: t.flowApprovals.common.retry, onClick: () => void detail.refetch() }} />
-          )}
+          <ChangeDetailPane
+            selectedId={selectedId}
+            detail={detail}
+            currency={currency}
+            abilities={abilities}
+            userId={userId}
+            nameOf={nameOf}
+            onEdit={() => setDialog('edit')}
+            onDeleted={() => setSelectedId(null)}
+          />
         </div>
       </div>
 

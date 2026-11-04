@@ -47,8 +47,17 @@ function Property({ label, children }: Readonly<{ label: string; children: React
   );
 }
 
-/** The labelled facts of an item, by kind. */
-function Properties({ item, detail }: Readonly<{ item: RaidItem; detail: RaidItemDetail | undefined }>) {
+function DueValue({ item }: Readonly<{ item: RaidItem }>) {
+  const { t, language } = useI18n();
+  const { now } = useRaid();
+  if (!item.dueAt) return <span className="text-muted-foreground">{t.projects.raid.tasks.noDate}</span>;
+  const overdue = isOpenItem(item) && isOverdue(item.dueAt, now);
+  return (
+    <span className={overdue ? 'font-medium text-red-700 dark:text-red-400' : undefined}>{formatShortDate(item.dueAt, intlLocaleOf(language), now)}</span>
+  );
+}
+
+function RiskProperties({ item, detail }: Readonly<{ item: RaidItem; detail: RaidItemDetail | undefined }>) {
   const { t, language, format, plural } = useI18n();
   const copy = t.projects.raid;
   const { now } = useRaid();
@@ -66,63 +75,88 @@ function Properties({ item, detail }: Readonly<{ item: RaidItem; detail: RaidIte
   ].filter(Boolean);
 
   return (
+    <>
+      {item.strategy ? <Property label={copy.detail.strategy}>{strategyLabel(copy, item.strategy)}</Property> : null}
+      <Property label={copy.detail.nextReview}>
+        {date ? (
+          <span className={dueClass}>
+            {date}
+            {' · '}
+            {reviewEveryLabel(copy, reviewIntervalLabel(reviewIntervalDays(item.band ?? 'medium', item.reviewIntervalDays)), format)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{copy.tasks.noDate}</span>
+        )}
+      </Property>
+      <Property label={copy.detail.milestone}>
+        <MilestoneValue item={item} links={linkedMilestones(detail)} />
+      </Property>
+      {impactText.length > 0 ? <Property label={copy.detail.ifItHappens}>{impactText.join(' · ')}</Property> : null}
+      {item.trigger ? <Property label={copy.detail.earlyWarning}><span className="leading-snug whitespace-pre-wrap">{item.trigger}</span></Property> : null}
+    </>
+  );
+}
+
+function AssumptionProperties({ item }: Readonly<{ item: RaidItem }>) {
+  const { t } = useI18n();
+  const copy = t.projects.raid;
+  return (
+    <>
+      <Property label={copy.detail.confidence}>{confidenceLabel(copy, item.confidence) ?? '—'}</Property>
+      <Property label={copy.detail.validateBy}>
+        <DueValue item={item} />
+      </Property>
+      {item.ifWrong ? <Property label={copy.detail.ifWrong}><span className="leading-snug whitespace-pre-wrap">{item.ifWrong}</span></Property> : null}
+    </>
+  );
+}
+
+function IssueProperties({ item }: Readonly<{ item: RaidItem }>) {
+  const { t, language } = useI18n();
+  const copy = t.projects.raid;
+  const { now } = useRaid();
+  return (
+    <>
+      <Property label={copy.detail.resolveBy}>
+        <DueValue item={item} />
+      </Property>
+      {item.escalatedAt ? (
+        <Property label={copy.detail.escalated}>{formatShortDate(item.escalatedAt, intlLocaleOf(language), now)}</Property>
+      ) : null}
+    </>
+  );
+}
+
+function DependencyProperties({ item }: Readonly<{ item: RaidItem }>) {
+  const { t } = useI18n();
+  const copy = t.projects.raid;
+  return (
+    <>
+      <Property label={copy.detail.direction}>{directionLabel(copy, item.direction) ?? '—'}</Property>
+      <Property label={copy.detail.otherParty}>
+        {[item.partyName, partyTypeLabel(copy, item.partyType)].filter(Boolean).join(' · ') || '—'}
+      </Property>
+      <Property label={copy.detail.neededBy}>
+        <DueValue item={item} />
+      </Property>
+    </>
+  );
+}
+
+/** The labelled facts of an item, by kind. */
+function Properties({ item, detail }: Readonly<{ item: RaidItem; detail: RaidItemDetail | undefined }>) {
+  const { t } = useI18n();
+  const copy = t.projects.raid;
+
+  return (
     <dl className="mx-6 mt-3 grid grid-cols-[8.5rem_minmax(0,1fr)] gap-x-3 gap-y-2.5 border-y py-4 text-[13px]">
       <Property label={copy.detail.owner}>
         <OwnerCell ownerId={item.ownerId} />
       </Property>
-
-      {item.kind === 'risk' ? (
-        <>
-          {item.strategy ? <Property label={copy.detail.strategy}>{strategyLabel(copy, item.strategy)}</Property> : null}
-          <Property label={copy.detail.nextReview}>
-            {date ? (
-              <span className={dueClass}>
-                {date}
-                {' · '}
-                {reviewEveryLabel(
-                  copy,
-                  reviewIntervalLabel(reviewIntervalDays(item.band ?? 'medium', item.reviewIntervalDays)),
-                  format,
-                )}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">{copy.tasks.noDate}</span>
-            )}
-          </Property>
-          <Property label={copy.detail.milestone}>
-            <MilestoneValue item={item} links={linkedMilestones(detail)} />
-          </Property>
-          {impactText.length > 0 ? <Property label={copy.detail.ifItHappens}>{impactText.join(' · ')}</Property> : null}
-          {item.trigger ? <Property label={copy.detail.earlyWarning}><span className="leading-snug whitespace-pre-wrap">{item.trigger}</span></Property> : null}
-        </>
-      ) : null}
-
-      {item.kind === 'assumption' ? (
-        <>
-          <Property label={copy.detail.confidence}>{confidenceLabel(copy, item.confidence) ?? '—'}</Property>
-          <Property label={copy.detail.validateBy}>{date ? <span className={dueClass}>{date}</span> : <span className="text-muted-foreground">{copy.tasks.noDate}</span>}</Property>
-          {item.ifWrong ? <Property label={copy.detail.ifWrong}><span className="leading-snug whitespace-pre-wrap">{item.ifWrong}</span></Property> : null}
-        </>
-      ) : null}
-
-      {item.kind === 'issue' ? (
-        <>
-          <Property label={copy.detail.resolveBy}>{date ? <span className={dueClass}>{date}</span> : <span className="text-muted-foreground">{copy.tasks.noDate}</span>}</Property>
-          {item.escalatedAt ? (
-            <Property label={copy.detail.escalated}>{formatShortDate(item.escalatedAt, intlLocale, now)}</Property>
-          ) : null}
-        </>
-      ) : null}
-
-      {item.kind === 'dependency' ? (
-        <>
-          <Property label={copy.detail.direction}>{directionLabel(copy, item.direction) ?? '—'}</Property>
-          <Property label={copy.detail.otherParty}>
-            {[item.partyName, partyTypeLabel(copy, item.partyType)].filter(Boolean).join(' · ') || '—'}
-          </Property>
-          <Property label={copy.detail.neededBy}>{date ? <span className={dueClass}>{date}</span> : <span className="text-muted-foreground">{copy.tasks.noDate}</span>}</Property>
-        </>
-      ) : null}
+      {item.kind === 'risk' ? <RiskProperties item={item} detail={detail} /> : null}
+      {item.kind === 'assumption' ? <AssumptionProperties item={item} /> : null}
+      {item.kind === 'issue' ? <IssueProperties item={item} /> : null}
+      {item.kind === 'dependency' ? <DependencyProperties item={item} /> : null}
     </dl>
   );
 }
@@ -156,31 +190,63 @@ function LinkedItems({ detail }: Readonly<{ detail: RaidItemDetail | undefined }
   );
 }
 
-interface RaidDetailPanelProps {
-  itemId: string;
+interface ItemActionsMenuProps {
+  item: RaidItem;
+  onConvert: (item: RaidItem) => void;
+  onDelete: (item: RaidItem) => void;
 }
 
-/** The panel for the selected item. */
-export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
-  const { t, language, format } = useI18n();
+function ItemActionsMenu({ item, onConvert, onDelete }: Readonly<ItemActionsMenuProps>) {
+  const { t } = useI18n();
   const copy = t.projects.raid;
-  const router = useRouter();
-  const { projectId, projectName, items, abilities, select, openEdit, now } = useRaid();
-  const query = useRaidItem(itemId);
-  const deleteItem = useDeleteRaidItem();
+  const { abilities, openEdit } = useRaid();
+  const convertible = isOpenItem(item) && (item.kind === 'assumption' || item.kind === 'risk');
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="icon-sm" aria-label={copy.detail.moreActions} title={copy.detail.moreActions}>
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        {abilities.update ? (
+          <DropdownMenuItem onSelect={() => openEdit(item)}>
+            <Pencil aria-hidden />
+            {copy.detail.edit}
+          </DropdownMenuItem>
+        ) : null}
+        {abilities.update && convertible ? (
+          <DropdownMenuItem onSelect={() => onConvert(item)}>
+            <ArrowRightLeft aria-hidden />
+            {item.kind === 'assumption' ? copy.detail.convertToRisk : copy.detail.convertToIssue}
+          </DropdownMenuItem>
+        ) : null}
+        {abilities.remove ? (
+          <>
+            {abilities.update ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(item)}>
+              <Trash2 aria-hidden />
+              {copy.detail.delete}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
-  const [assessing, setAssessing] = useState<RaidItem | null>(null);
-  const [converting, setConverting] = useState<RaidItem | null>(null);
-  const [creatingTask, setCreatingTask] = useState<RaidItem | null>(null);
-  const [linkingTask, setLinkingTask] = useState<RaidItem | null>(null);
-  const [deleting, setDeleting] = useState<RaidItem | null>(null);
+interface DetailHeaderProps {
+  item: RaidItem | undefined;
+  onAssess: (item: RaidItem) => void;
+  onConvert: (item: RaidItem) => void;
+  onDelete: (item: RaidItem) => void;
+}
 
-  const detail = query.data;
-  const item: RaidItem | undefined = detail ?? items.find((candidate) => candidate.id === itemId);
-  const notFound = query.isError && isApiError(query.error) && query.error.status === 404;
-  const tasks = linkedTasks(detail);
-
-  const header = (
+function DetailHeader({ item, onAssess, onConvert, onDelete }: Readonly<DetailHeaderProps>) {
+  const { t } = useI18n();
+  const copy = t.projects.raid;
+  const { projectName, abilities, select } = useRaid();
+  return (
     <div className="flex items-center gap-2 border-b px-4 py-3">
       <Button type="button" variant="ghost" size="icon-sm" onClick={() => select(null)} aria-label={copy.detail.close} title={copy.detail.close}>
         <X aria-hidden />
@@ -194,46 +260,94 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
       ) : null}
       <div className="min-w-0 flex-1" />
       {item && isOpenItem(item) && abilities.update && item.kind === 'risk' ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => setAssessing(item)}>
+        <Button type="button" variant="outline" size="sm" onClick={() => onAssess(item)}>
           <RefreshCw aria-hidden />
           {copy.detail.reassess}
         </Button>
       ) : null}
       {item && abilities.update && needsSponsorAcceptance(item) ? <AskSponsorAction item={item} /> : null}
-      {item && (abilities.update || abilities.remove) ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="icon-sm" aria-label={copy.detail.moreActions} title={copy.detail.moreActions}>
-              <MoreHorizontal aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-48">
-            {abilities.update ? (
-              <DropdownMenuItem onSelect={() => openEdit(item)}>
-                <Pencil aria-hidden />
-                {copy.detail.edit}
-              </DropdownMenuItem>
-            ) : null}
-            {abilities.update && isOpenItem(item) && (item.kind === 'assumption' || item.kind === 'risk') ? (
-              <DropdownMenuItem onSelect={() => setConverting(item)}>
-                <ArrowRightLeft aria-hidden />
-                {item.kind === 'assumption' ? copy.detail.convertToRisk : copy.detail.convertToIssue}
-              </DropdownMenuItem>
-            ) : null}
-            {abilities.remove ? (
-              <>
-                {abilities.update ? <DropdownMenuSeparator /> : null}
-                <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(item)}>
-                  <Trash2 aria-hidden />
-                  {copy.detail.delete}
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {item && (abilities.update || abilities.remove) ? <ItemActionsMenu item={item} onConvert={onConvert} onDelete={onDelete} /> : null}
+    </div>
+  );
+}
+
+const PILL_RED = 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-200';
+
+function ItemBadges({ item }: Readonly<{ item: RaidItem }>) {
+  const { t, language, format } = useI18n();
+  const copy = t.projects.raid;
+  const { now } = useRaid();
+  const open = isOpenItem(item);
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+      {item.kind === 'risk' && item.score !== null && item.band !== null ? <ScoreBadge score={item.score} band={item.band} /> : null}
+      {item.kind === 'issue' ? <SeverityBadge severity={item.severity} /> : null}
+      <StatusPill kind={item.kind} status={item.status} />
+      {item.category ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground/80">{categoryLabel(copy, item.category)}</span> : null}
+      {item.kind === 'issue' && item.escalatedAt && open ? <span className={PILL_RED}>{copy.register.escalated}</span> : null}
+      {item.kind === 'risk' && open && isOverdue(item.dueAt, now) ? <span className={PILL_RED}>{copy.detail.reviewOverdue}</span> : null}
+      {item.closedAt ? (
+        <span className="text-xs text-muted-foreground">{format(copy.detail.closed, { date: formatShortDate(item.closedAt, intlLocaleOf(language), now) })}</span>
       ) : null}
     </div>
   );
+}
+
+interface ItemBodyProps {
+  item: RaidItem;
+  detail: RaidItemDetail | undefined;
+  tasks: ReturnType<typeof linkedTasks>;
+  onCreateTask: (item: RaidItem) => void;
+  onLinkTask: (item: RaidItem) => void;
+}
+
+function ItemBody({ item, detail, tasks, onCreateTask, onLinkTask }: Readonly<ItemBodyProps>) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="px-6 pt-5">
+        <h1 className="text-xl leading-snug font-semibold">{item.title}</h1>
+        <ItemBadges item={item} />
+        {item.description ? <p className="mt-3.5 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">{item.description}</p> : null}
+      </div>
+
+      <Properties item={item} detail={detail} />
+
+      {item.kind === 'risk' ? <AssessmentSummary risk={item} assessments={detail?.assessments} /> : null}
+
+      {item.kind === 'risk' || item.kind === 'issue' ? (
+        <DetailTasks item={item} tasks={detail ? tasks : undefined} onCreateTask={() => onCreateTask(item)} onLinkTask={() => onLinkTask(item)} />
+      ) : null}
+
+      <LinkedItems detail={detail} />
+
+      {item.kind === 'risk' ? <AssessmentHistory assessments={detail?.assessments} /> : <div className="pb-7" />}
+    </div>
+  );
+}
+
+interface RaidDetailPanelProps {
+  itemId: string;
+}
+
+/** The panel for the selected item. */
+export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
+  const { t, format } = useI18n();
+  const copy = t.projects.raid;
+  const router = useRouter();
+  const { projectId, items, select } = useRaid();
+  const query = useRaidItem(itemId);
+  const deleteItem = useDeleteRaidItem();
+
+  const [assessing, setAssessing] = useState<RaidItem | null>(null);
+  const [converting, setConverting] = useState<RaidItem | null>(null);
+  const [creatingTask, setCreatingTask] = useState<RaidItem | null>(null);
+  const [linkingTask, setLinkingTask] = useState<RaidItem | null>(null);
+  const [deleting, setDeleting] = useState<RaidItem | null>(null);
+
+  const detail = query.data;
+  const item: RaidItem | undefined = detail ?? items.find((candidate) => candidate.id === itemId);
+  const notFound = query.isError && isApiError(query.error) && query.error.status === 404;
+  const tasks = linkedTasks(detail);
 
   let body: ReactNode;
   if (!item && notFound) {
@@ -249,46 +363,7 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
       </div>
     );
   } else {
-    body = (
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-6 pt-5">
-          <h1 className="text-xl leading-snug font-semibold">{item.title}</h1>
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            {item.kind === 'risk' && item.score !== null && item.band !== null ? <ScoreBadge score={item.score} band={item.band} /> : null}
-            {item.kind === 'issue' ? <SeverityBadge severity={item.severity} /> : null}
-            <StatusPill kind={item.kind} status={item.status} />
-            {item.category ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground/80">{categoryLabel(copy, item.category)}</span> : null}
-            {item.kind === 'issue' && item.escalatedAt && isOpenItem(item) ? (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-200">{copy.register.escalated}</span>
-            ) : null}
-            {item.kind === 'risk' && isOpenItem(item) && isOverdue(item.dueAt, now) ? (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-200">{copy.detail.reviewOverdue}</span>
-            ) : null}
-            {item.closedAt ? (
-              <span className="text-xs text-muted-foreground">{format(copy.detail.closed, { date: formatShortDate(item.closedAt, intlLocaleOf(language), now) })}</span>
-            ) : null}
-          </div>
-          {item.description ? <p className="mt-3.5 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">{item.description}</p> : null}
-        </div>
-
-        <Properties item={item} detail={detail} />
-
-        {item.kind === 'risk' ? <AssessmentSummary risk={item} assessments={detail?.assessments} /> : null}
-
-        {item.kind === 'risk' || item.kind === 'issue' ? (
-          <DetailTasks
-            item={item}
-            tasks={detail ? tasks : undefined}
-            onCreateTask={() => setCreatingTask(item)}
-            onLinkTask={() => setLinkingTask(item)}
-          />
-        ) : null}
-
-        <LinkedItems detail={detail} />
-
-        {item.kind === 'risk' ? <AssessmentHistory assessments={detail?.assessments} /> : <div className="pb-7" />}
-      </div>
-    );
+    body = <ItemBody item={item} detail={detail} tasks={tasks} onCreateTask={setCreatingTask} onLinkTask={setLinkingTask} />;
   }
 
   const confirmDelete = async () => {
@@ -305,7 +380,7 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col')}>
-      {header}
+      <DetailHeader item={item} onAssess={setAssessing} onConvert={setConverting} onDelete={setDeleting} />
       {body}
 
       <AssessDialog risk={assessing} onClose={() => setAssessing(null)} />

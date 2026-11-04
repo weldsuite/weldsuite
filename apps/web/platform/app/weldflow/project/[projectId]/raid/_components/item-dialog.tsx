@@ -68,12 +68,16 @@ interface ItemDialogProps {
   onClose: () => void;
 }
 
+function kindOfState(state: ItemDialogState): RaidKind {
+  return state.mode === 'create' ? state.kind : state.item.kind;
+}
+
 /** The dialog; render it once and hand it the item (or kind) to work on. */
 export function ItemDialog({ state, onClose }: Readonly<ItemDialogProps>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
   const { projectName } = useRaid();
-  const kind = state ? (state.mode === 'create' ? state.kind : state.item.kind) : null;
+  const kind = state ? kindOfState(state) : null;
 
   return (
     <Dialog open={state !== null} onOpenChange={(open) => (open ? undefined : onClose())}>

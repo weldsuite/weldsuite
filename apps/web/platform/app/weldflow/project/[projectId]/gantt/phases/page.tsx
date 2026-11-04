@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { AlertCircle, Flag } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
@@ -91,6 +91,15 @@ export default function PhasesPage() {
   const sponsorId = gate.data?.approverIds[0];
   const isSponsor = !!user?.id && sponsorId === user.id;
 
+  let gateCard: ReactNode;
+  if (gate.data) {
+    gateCard = <GateCard projectId={projectId} gate={gate.data} nextName={next?.name ?? null} canManage={canManage && canWrite} isSponsor={isSponsor} />;
+  } else if (gate.isLoading) {
+    gateCard = <Skeleton className="h-96 rounded-lg" />;
+  } else {
+    gateCard = <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{copy.gate.allPassed}</p>;
+  }
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -121,13 +130,7 @@ export default function PhasesPage() {
         <>
           <Lifecycle phases={list} />
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            {gate.data ? (
-              <GateCard projectId={projectId} gate={gate.data} nextName={next?.name ?? null} canManage={canManage && canWrite} isSponsor={isSponsor} />
-            ) : gate.isLoading ? (
-              <Skeleton className="h-96 rounded-lg" />
-            ) : (
-              <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{copy.gate.allPassed}</p>
-            )}
+            {gateCard}
             <PastGates phases={list} />
           </div>
         </>

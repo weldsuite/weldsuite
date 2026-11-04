@@ -14,6 +14,18 @@ import { barBox, overlayAxis, overlayRows, slippedItems, type OverlayRow } from 
 
 const LATEST = '__latest__';
 
+function budgetKpiValue(budgetDelta: string | null | undefined, currency: string | null, language: Parameters<typeof formatMoney>[2]): string {
+  if (!budgetDelta || Number(budgetDelta) === 0) return formatMoney(0, currency, language);
+  const sign = Number(budgetDelta) > 0 ? '+' : '';
+  return sign + formatMoney(budgetDelta, currency, language);
+}
+
+function currentBarColor(row: OverlayRow): string {
+  if ((row.deltaDays ?? 0) > 0) return 'bg-destructive';
+  if (row.change === 'removed') return 'bg-muted-foreground/30';
+  return 'bg-primary';
+}
+
 /** KPI strip, variance rows and the dashed previews of one comparison (no data fetching). */
 export function BaselineVariance({ comparison, currency }: Readonly<{ comparison: BaselineComparison; currency: string | null }>) {
   const { t, language, format } = useI18n();
@@ -25,7 +37,7 @@ export function BaselineVariance({ comparison, currency }: Readonly<{ comparison
 
   const kpis = [
     { label: copy.kpi.goLive, value: goLiveSlip ?? '0d', tone: (comparison.diff.goLive.deltaDays ?? 0) > 0 },
-    { label: copy.kpi.budget, value: budgetDelta && Number(budgetDelta) !== 0 ? `${Number(budgetDelta) > 0 ? '+' : ''}${formatMoney(budgetDelta, currency, language)}` : formatMoney(0, currency, language), tone: Number(budgetDelta ?? 0) > 0 },
+    { label: copy.kpi.budget, value: budgetKpiValue(budgetDelta, currency, language), tone: Number(budgetDelta ?? 0) > 0 },
     { label: copy.kpi.slipped, value: String(slippedItems(rows)), tone: slippedItems(rows) > 0 },
     { label: copy.kpi.pending, value: String(comparison.pending.length), tone: false },
   ];
@@ -75,7 +87,7 @@ function OverlayRowView({ row, axis }: Readonly<{ row: OverlayRow; axis: { min: 
         {baseline ? <span className="absolute top-0.5 h-1.5 rounded-sm bg-muted-foreground/40" style={{ left: `${baseline.left}%`, width: `${baseline.width}%` }} /> : null}
         {current ? (
           <span
-            className={cn('absolute bottom-0.5 h-2 rounded-sm', (row.deltaDays ?? 0) > 0 ? 'bg-destructive' : row.change === 'removed' ? 'bg-muted-foreground/30' : 'bg-primary')}
+            className={cn('absolute bottom-0.5 h-2 rounded-sm', currentBarColor(row))}
             style={{ left: `${current.left}%`, width: `${current.width}%` }}
           />
         ) : null}
@@ -90,6 +102,56 @@ function OverlayRowView({ row, axis }: Readonly<{ row: OverlayRow; axis: { min: 
   );
 }
 
+function SignOffPrompt({ canManage, pending, onSignOff }: Readonly<{ canManage: boolean; pending: boolean; onSignOff: () => void }>) {
+  const { t } = useI18n();
+  const copy = t.flowApprovals.baseline;
+  return (
+    <>
+      <span className="text-xs text-muted-foreground">{copy.signOffHint}</span>
+      {canManage ? (
+        <Button size="sm" variant="outline" disabled={pending} onClick={onSignOff}>
+          {pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
+          {copy.signOff}
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+function VersionPicker({
+  from,
+  onChange,
+  versions,
+}: Readonly<{ from: string; onChange: (value: string) => void; versions: NonNullable<ReturnType<typeof useBaselines>['data']> }>) {
+  const { t, format } = useI18n();
+  const copy = t.flowApprovals.baseline;
+  return (
+    <div className="ml-auto flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground">{copy.picker}</span>
+      <Select value={from} onValueChange={onChange}>
+        <SelectTrigger className="h-8 w-32" aria-label={copy.picker}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={LATEST}>{format(copy.version, { version: String(versions[0]?.version ?? 1) })}</SelectItem>
+          {versions.slice(1).map((baseline) => (
+            <SelectItem key={baseline.id} value={baseline.id}>
+              {format(copy.version, { version: String(baseline.version) })}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function ComparisonBody({ comparison, currency }: Readonly<{ comparison: ReturnType<typeof useBaselineComparison>; currency: string | null }>) {
+  const { t } = useI18n();
+  if (comparison.isLoading) return <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-hidden />;
+  if (comparison.data) return <BaselineVariance comparison={comparison.data} currency={currency} />;
+  return <p className="text-sm text-muted-foreground">{t.flowApprovals.baseline.loadFailed}</p>;
+}
+
 interface BaselineOverlayProps {
   projectId: string;
   currency: string | null;
@@ -99,7 +161,7 @@ interface BaselineOverlayProps {
 
 /** The Gantt tab's baseline strip: version picker, KPIs, variance rows, and the sign-off while there is no baseline. */
 export function BaselineOverlay({ projectId, currency, canManage }: Readonly<BaselineOverlayProps>) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const copy = t.flowApprovals.baseline;
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState<string>(LATEST);
@@ -127,44 +189,12 @@ export function BaselineOverlay({ projectId, currency, canManage }: Readonly<Bas
           {copy.title}
           {hasBaseline ? <span className="text-muted-foreground">v{baselines.data?.[0]?.version}</span> : null}
         </button>
-        {!hasBaseline ? (
-          <>
-            <span className="text-xs text-muted-foreground">{copy.signOffHint}</span>
-            {canManage ? (
-              <Button size="sm" variant="outline" disabled={signOff.isPending} onClick={() => void onSignOff()}>
-                {signOff.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
-                {copy.signOff}
-              </Button>
-            ) : null}
-          </>
-        ) : open ? (
-          <div className="ml-auto flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">{copy.picker}</span>
-            <Select value={from} onValueChange={setFrom}>
-              <SelectTrigger className="h-8 w-32" aria-label={copy.picker}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={LATEST}>{format(copy.version, { version: String(baselines.data?.[0]?.version ?? 1) })}</SelectItem>
-                {(baselines.data ?? []).slice(1).map((baseline) => (
-                  <SelectItem key={baseline.id} value={baseline.id}>
-                    {format(copy.version, { version: String(baseline.version) })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
+        {hasBaseline ? null : <SignOffPrompt canManage={canManage} pending={signOff.isPending} onSignOff={() => void onSignOff()} />}
+        {hasBaseline && open ? <VersionPicker from={from} onChange={setFrom} versions={baselines.data ?? []} /> : null}
       </div>
       {open && hasBaseline ? (
         <div className="mt-3 max-h-72 overflow-y-auto pb-2">
-          {comparison.isLoading ? (
-            <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-hidden />
-          ) : comparison.data ? (
-            <BaselineVariance comparison={comparison.data} currency={currency} />
-          ) : (
-            <p className="text-sm text-muted-foreground">{copy.loadFailed}</p>
-          )}
+          <ComparisonBody comparison={comparison} currency={currency} />
         </div>
       ) : null}
     </section>

@@ -35,6 +35,8 @@ function TaskRow({ link }: Readonly<{ link: LinkedObject }>) {
   const task = link.target;
   const done = task.status === 'done';
   const cancelled = task.status === 'cancelled';
+  let dueLabel: string = copy.tasks.done;
+  if (!done) dueLabel = task.dueDate ? formatShortDate(task.dueDate, intlLocaleOf(language), now) : copy.tasks.noDate;
 
   const toggle = async () => {
     try {
@@ -74,7 +76,7 @@ function TaskRow({ link }: Readonly<{ link: LinkedObject }>) {
         {task.title}
       </button>
       <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
-        {done ? copy.tasks.done : task.dueDate ? formatShortDate(task.dueDate, intlLocaleOf(language), now) : copy.tasks.noDate}
+        {dueLabel}
       </span>
       <OwnerCell ownerId={task.ownerId} withName={false} />
       {abilities.update ? (
@@ -113,17 +115,17 @@ export function DetailTasks({ item, tasks, onCreateTask, onLinkTask }: Readonly<
         <div className="h-full rounded-full bg-foreground/80" style={{ width: `${percent}%` }} />
       </div>
 
-      {tasks === undefined ? (
-        <Skeleton className="h-24 rounded-lg" />
-      ) : tasks.length === 0 ? (
+      {tasks === undefined ? <Skeleton className="h-24 rounded-lg" /> : null}
+      {tasks?.length === 0 ? (
         <p className="rounded-lg border border-dashed px-3 py-4 text-center text-[13px] text-muted-foreground">{copy.none}</p>
-      ) : (
+      ) : null}
+      {tasks && tasks.length > 0 ? (
         <ul className="rounded-lg border">
           {tasks.map((link) => (
             <TaskRow key={link.id} link={link} />
           ))}
         </ul>
-      )}
+      ) : null}
 
       {abilities.update ? (
         <div className="mt-2.5 flex flex-wrap gap-2">

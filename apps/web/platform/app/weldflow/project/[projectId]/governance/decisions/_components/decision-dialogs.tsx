@@ -272,26 +272,30 @@ function DecisionForm({
           </Button>
         </fieldset>
 
-        {locked ? null : mode === 'proposed' ? (
+        {locked ? null : (
           <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              control={form.control}
-              name="deciderId"
-              label={f.decider}
-              description={f.deciderHelp}
-              options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
-            />
-            <TextField control={form.control} name="decisionDueAt" label={f.dueDate} type="date" />
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              control={form.control}
-              name="decidedBy"
-              label={f.decidedBy}
-              options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
-            />
-            <TextField control={form.control} name="decidedAt" label={f.decidedAt} type="date" />
+            {mode === 'proposed' ? (
+              <>
+                <SelectField
+                  control={form.control}
+                  name="deciderId"
+                  label={f.decider}
+                  description={f.deciderHelp}
+                  options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
+                />
+                <TextField control={form.control} name="decisionDueAt" label={f.dueDate} type="date" />
+              </>
+            ) : (
+              <>
+                <SelectField
+                  control={form.control}
+                  name="decidedBy"
+                  label={f.decidedBy}
+                  options={[{ value: NONE, label: t.flowGovernance.common.none }, ...memberOptions]}
+                />
+                <TextField control={form.control} name="decidedAt" label={f.decidedAt} type="date" />
+              </>
+            )}
           </div>
         )}
       </Form>

@@ -5,12 +5,24 @@ import { intlLocaleOf } from '@/app/weldflow/project/[projectId]/raid/_lib/local
 import { financeVerdict, formatDay, formatMoney, formatPercent } from '../_lib/close';
 import { useClose } from './close-context';
 
+const TILE_BG = {
+  warn: 'bg-orange-50 dark:bg-orange-950/30',
+  good: 'bg-green-50 dark:bg-green-950/30',
+  none: 'bg-muted/50',
+} as const;
+
+function verdictTone(kind: string): 'warn' | 'good' | undefined {
+  if (kind === 'over') return 'warn';
+  if (kind === 'under') return 'good';
+  return undefined;
+}
+
 function Tile({ label, value, tone }: Readonly<{ label: string; value: string; tone?: 'warn' | 'good' }>) {
   return (
     <div
       className={cn(
         'rounded-lg px-3 py-2.5',
-        tone === 'warn' ? 'bg-orange-50 dark:bg-orange-950/30' : tone === 'good' ? 'bg-green-50 dark:bg-green-950/30' : 'bg-muted/50',
+        TILE_BG[tone ?? 'none'],
       )}
     >
       <div className={cn('text-xs', tone === 'warn' ? 'text-orange-800 dark:text-orange-300' : 'text-muted-foreground')}>{label}</div>
@@ -29,12 +41,18 @@ export function FinanceCard() {
   const verdict = financeVerdict(finance);
   const money = (value: string | number | null) => formatMoney(value, finance.currency, locale);
 
+  const showVerdictAmount = verdict.kind !== 'none' && finance.amountsVisible;
   const verdictValue = [
-    verdict.kind === 'none' ? null : finance.amountsVisible && verdict.amount !== null ? money(verdict.amount) : null,
+    showVerdictAmount && verdict.amount !== null ? money(verdict.amount) : null,
     verdict.percent !== null ? formatPercent(verdict.percent, locale) : null,
   ]
     .filter((part): part is string => part !== null)
     .join(' · ');
+
+  let source = copy.percentOnly;
+  if (finance.amountsVisible) {
+    source = finance.snapshot ? format(copy.sourceSnapshot, { week: finance.snapshot.week }) : copy.sourceTime;
+  }
 
   return (
     <section aria-labelledby="close-finance-title" className="rounded-xl border bg-card p-4">
@@ -59,7 +77,7 @@ export function FinanceCard() {
         <Tile
           label={copy.verdict[verdict.kind]}
           value={verdictValue || '—'}
-          tone={verdict.kind === 'over' ? 'warn' : verdict.kind === 'under' ? 'good' : undefined}
+          tone={verdictTone(verdict.kind)}
         />
         <Tile
           label={copy.goLive}
@@ -71,11 +89,7 @@ export function FinanceCard() {
         />
       </div>
       <p className="mt-2.5 text-xs text-muted-foreground">
-        {finance.amountsVisible
-          ? finance.snapshot
-            ? format(copy.sourceSnapshot, { week: finance.snapshot.week })
-            : copy.sourceTime
-          : copy.percentOnly}
+        {source}
       </p>
     </section>
   );

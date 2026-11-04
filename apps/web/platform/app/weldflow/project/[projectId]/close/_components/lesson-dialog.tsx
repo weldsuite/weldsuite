@@ -31,6 +31,9 @@ function LessonForm({ state, onClose }: Readonly<{ state: LessonDialogState; onC
     defaultValues: edit ? { category: edit.category, text: edit.text } : { category: state.mode === 'create' ? state.category : 'went_well', text: '' },
   });
   const pending = create.isPending || update.isPending;
+  let submitLabel = copy.dialog.submit;
+  if (pending) submitLabel = copy.dialog.saving;
+  else if (edit) submitLabel = copy.dialog.save;
 
   const submit = async (values: LessonFormValues) => {
     try {
@@ -93,7 +96,7 @@ function LessonForm({ state, onClose }: Readonly<{ state: LessonDialogState; onC
           </Button>
           <Button type="submit" disabled={pending}>
             {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
-            {pending ? copy.dialog.saving : edit ? copy.dialog.save : copy.dialog.submit}
+            {submitLabel}
           </Button>
         </DialogFooter>
       </form>

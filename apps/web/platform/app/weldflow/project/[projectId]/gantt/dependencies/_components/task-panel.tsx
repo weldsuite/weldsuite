@@ -206,11 +206,7 @@ function ImpactSection({ projectId, schedule, task, canWrite }: Readonly<{ proje
             </div>
           )}
           <p className={cn('text-xs', impact.exceedsGoLive || finishLimitDays > impact.scheduleLimitDays ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground')}>
-            {impact.exceedsGoLive
-              ? fill(copy.exceeds, { days: Math.abs(impact.after.goLiveSlackDays ?? 0) })
-              : finishLimitDays > impact.scheduleLimitDays
-                ? fill(copy.overLimit, { days: finishLimitDays, limit: impact.scheduleLimitDays })
-                : fill(copy.withinLimit, { days: finishLimitDays, limit: impact.scheduleLimitDays })}
+            {limitMessageOf(copy, impact, finishLimitDays)}
           </p>
           {!impact.autoSchedule && <p className="text-xs text-muted-foreground">{copy.applyOffNote}</p>}
           {canWrite && (
@@ -229,6 +225,24 @@ function ImpactSection({ projectId, schedule, task, canWrite }: Readonly<{ proje
   );
 }
 
+function limitMessageOf(
+  copy: { exceeds: string; overLimit: string; withinLimit: string },
+  impact: { exceedsGoLive: boolean; scheduleLimitDays: number; after: { goLiveSlackDays: number | null } },
+  finishLimitDays: number,
+): string {
+  if (impact.exceedsGoLive) return fill(copy.exceeds, { days: Math.abs(impact.after.goLiveSlackDays ?? 0) });
+  const values = { days: finishLimitDays, limit: impact.scheduleLimitDays };
+  if (finishLimitDays > impact.scheduleLimitDays) return fill(copy.overLimit, values);
+  return fill(copy.withinLimit, values);
+}
+
+function taskStatusText(task: ScheduleTask, copy: { critical: string; done: string; float: string; unscheduled: string }): string {
+  if (task.critical) return copy.critical;
+  if (task.done) return copy.done;
+  if (task.totalFloat !== null) return fill(copy.float, { days: task.totalFloat });
+  return copy.unscheduled;
+}
+
 /** The selected task: what it waits for, what waits for it, and what a move would do. */
 export function TaskPanel({ projectId, schedule, task, canWrite, onAddLink }: Readonly<PanelProps>) {
   const { t, language } = useI18n();
@@ -243,7 +257,7 @@ export function TaskPanel({ projectId, schedule, task, canWrite, onAddLink }: Re
   }
   const { predecessors, successors } = linksOfTask(schedule, task.id);
   const byId = new Map(schedule.tasks.map((other) => [other.id, other]));
-  const status = task.critical ? copy.critical : task.done ? copy.done : task.totalFloat !== null ? fill(copy.float, { days: task.totalFloat }) : copy.unscheduled;
+  const status = taskStatusText(task, copy);
 
   return (
     <aside aria-label={copy.label} className="grid content-start gap-4">

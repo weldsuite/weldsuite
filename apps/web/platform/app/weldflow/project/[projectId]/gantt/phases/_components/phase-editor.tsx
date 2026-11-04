@@ -134,6 +134,48 @@ function CriterionRow({
   );
 }
 
+interface SaveContext {
+  projectId: string;
+  phases: readonly PhaseSummary[];
+  create: ReturnType<typeof useCreatePhase>;
+  update: ReturnType<typeof useUpdatePhase>;
+  remove: ReturnType<typeof useDeletePhase>;
+}
+
+type PhaseUpdate = Parameters<ReturnType<typeof useUpdatePhase>['mutateAsync']>[0]['data'];
+
+function changedFields(draft: PhaseDraft, stored: PhaseSummary): PhaseUpdate {
+  const data: PhaseUpdate = {};
+  if (draft.name.trim() !== stored.name) data.name = draft.name.trim();
+  if (draft.start !== dateInput(stored.plannedStart)) data.plannedStart = isoOf(draft.start);
+  if (draft.end !== dateInput(stored.plannedEnd)) data.plannedEnd = isoOf(draft.end);
+  if (!draft.gateRequested && criteriaChanged(stored.gateCriteria, draft.criteria)) data.gateCriteria = draft.criteria.map(criterionOf);
+  return data;
+}
+
+/** Write one draft to the API; resolves to the id the phase takes in the order, or null when it has none. */
+async function syncDraft(draft: PhaseDraft, ctx: SaveContext): Promise<string | null> {
+  if (draft.removed) {
+    if (draft.id) await ctx.remove.mutateAsync(draft.id);
+    return null;
+  }
+  if (draft.passed) return draft.id ?? null;
+  const stored = ctx.phases.find((phase) => phase.id === draft.id);
+  if (!stored) {
+    const created = await ctx.create.mutateAsync({
+      projectId: ctx.projectId,
+      name: draft.name.trim(),
+      plannedStart: isoOf(draft.start),
+      plannedEnd: isoOf(draft.end),
+      gateCriteria: draft.criteria.map(criterionOf),
+    });
+    return created.data.id;
+  }
+  const data = changedFields(draft, stored);
+  if (Object.keys(data).length > 0) await ctx.update.mutateAsync({ id: stored.id, data });
+  return stored.id;
+}
+
 /** Edit the lifecycle: add, rename, re-date, reorder and remove phases, and the criteria of each gate. Saved in one go. */
 export function PhaseEditor({ open, onOpenChange, projectId, phases, deliverables, decisions }: Readonly<Props>) {
   const { t } = useI18n();
@@ -160,34 +202,8 @@ export function PhaseEditor({ open, onOpenChange, projectId, phases, deliverable
     try {
       const order: string[] = [];
       for (const draft of drafts) {
-        const stored = phases.find((phase) => phase.id === draft.id);
-        if (draft.removed) {
-          if (draft.id) await remove.mutateAsync(draft.id);
-          continue;
-        }
-        if (draft.passed) {
-          if (draft.id) order.push(draft.id);
-          continue;
-        }
-        const criteria = draft.criteria.map(criterionOf);
-        if (!stored) {
-          const created = await create.mutateAsync({
-            projectId,
-            name: draft.name.trim(),
-            plannedStart: isoOf(draft.start),
-            plannedEnd: isoOf(draft.end),
-            gateCriteria: criteria,
-          });
-          order.push(created.data.id);
-          continue;
-        }
-        const data: Parameters<typeof update.mutateAsync>[0]['data'] = {};
-        if (draft.name.trim() !== stored.name) data.name = draft.name.trim();
-        if (draft.start !== dateInput(stored.plannedStart)) data.plannedStart = isoOf(draft.start);
-        if (draft.end !== dateInput(stored.plannedEnd)) data.plannedEnd = isoOf(draft.end);
-        if (!draft.gateRequested && criteriaChanged(stored.gateCriteria, draft.criteria)) data.gateCriteria = criteria;
-        if (Object.keys(data).length > 0) await update.mutateAsync({ id: stored.id, data });
-        order.push(stored.id);
+        const id = await syncDraft(draft, { projectId, phases, create, update, remove });
+        if (id) order.push(id);
       }
       if (order.length > 1) await reorder.mutateAsync({ projectId, ids: order });
       onOpenChange(false);
