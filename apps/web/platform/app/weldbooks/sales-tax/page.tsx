@@ -2,7 +2,6 @@ import { Link } from '@tanstack/react-router';
 import { AlertTriangle, Landmark } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSalesTaxOverview } from '@/hooks/queries/use-weldbooks-sales-tax-center-queries';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';

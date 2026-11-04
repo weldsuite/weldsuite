@@ -25,6 +25,12 @@ export const Full: Story = {
   args: { value: 100, className: "w-[300px]" },
 };
 
+function usageColor(value: number): string {
+  if (value >= 90) return "bg-red-500";
+  if (value >= 80) return "bg-amber-500";
+  return "bg-primary";
+}
+
 /** `indicatorClassName` colors the bar, e.g. by how close a usage meter is to its limit. */
 export const UsageColors: Story = {
   render: () => (
@@ -35,7 +41,7 @@ export const UsageColors: Story = {
           <Progress
             value={value}
             className="bg-secondary h-1.5"
-            indicatorClassName={value >= 90 ? "bg-red-500" : value >= 80 ? "bg-amber-500" : "bg-primary"}
+            indicatorClassName={usageColor(value)}
           />
         </div>
       ))}
