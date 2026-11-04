@@ -52,6 +52,11 @@ export function TemplatePreview({ summary, detail, isLoading, isError, onRetry, 
   const locale = intlLocaleOf(language);
   const blueprint = detail?.blueprint ?? null;
   const phases = useMemo(() => (blueprint ? phaseSummaries(blueprint) : []), [blueprint]);
+  const weekRangeOf = (phase: (typeof phases)[number]) => {
+    if (phase.fromWeek === null || phase.toWeek === null) return null;
+    if (phase.fromWeek === phase.toWeek) return format(copy.phases.week, { week: phase.fromWeek });
+    return format(copy.phases.weeks, { from: phase.fromWeek, to: phase.toWeek });
+  };
   const control = useMemo(
     () => (blueprint ? controlLines(blueprint, { copy: copy.control, plural, format, intlLocale: locale }) : []),
     [blueprint, copy.control, plural, format, locale],
@@ -122,11 +127,7 @@ export function TemplatePreview({ summary, detail, isLoading, isError, onRetry, 
                 <div className="text-[13px] font-semibold">{phase.name}</div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
                   {[
-                    phase.fromWeek === null || phase.toWeek === null
-                      ? null
-                      : phase.fromWeek === phase.toWeek
-                        ? format(copy.phases.week, { week: phase.fromWeek })
-                        : format(copy.phases.weeks, { from: phase.fromWeek, to: phase.toWeek }),
+                    weekRangeOf(phase),
                     plural(phase.tasks, copy.phases.tasks),
                   ]
                     .filter(Boolean)

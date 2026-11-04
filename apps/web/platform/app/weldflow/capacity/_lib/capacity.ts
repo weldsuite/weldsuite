@@ -106,7 +106,13 @@ export function groupBySkill(members: readonly MemberCapacity[], weekCount: numb
     if (member.skills.length === 0) add('', '', member);
     for (const skill of member.skills) add(skill.toLowerCase(), skill, member);
   }
-  return [...groups.values()].sort((a, b) => (a.key === '' ? 1 : b.key === '' ? -1 : a.label.localeCompare(b.label)));
+  return [...groups.values()].sort(compareSkillGroups);
+}
+
+function compareSkillGroups(a: { key: string; label: string }, b: { key: string; label: string }): number {
+  if (a.key === '') return 1;
+  if (b.key === '') return -1;
+  return a.label.localeCompare(b.label);
 }
 
 /** Percentage of contract hours, null without any. */

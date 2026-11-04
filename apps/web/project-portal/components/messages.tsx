@@ -20,9 +20,13 @@ const MESSAGE_MAX = 4000
 function chronological(messages: Iterable<PortalMessage>): PortalMessage[] {
   const byId = new Map<string, PortalMessage>()
   for (const message of messages) byId.set(message.id, message)
-  return [...byId.values()].sort((a, b) =>
-    a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-  )
+  return [...byId.values()].sort(compareMessages)
+}
+
+function compareMessages(a: PortalMessage, b: PortalMessage): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
+  if (a.id !== b.id) return a.id < b.id ? -1 : 1
+  return 0
 }
 
 function sendFailureText(t: PortalStrings, code: FailureCode): string {

@@ -49,11 +49,13 @@ export function phaseSummaries(blueprint: Blueprint): PhaseSummary[] {
       if (!dated || due === null) return false;
       return (start === null || due >= start) && (end === null || due <= end);
     }).length;
+    const first = start ?? end;
+    const last = end ?? start;
     return {
       key: phase.key,
       name: phase.name,
-      fromWeek: start === null ? (end === null ? null : weekOf(end)) : weekOf(start),
-      toWeek: end === null ? (start === null ? null : weekOf(start)) : weekOf(end),
+      fromWeek: first === null ? null : weekOf(first),
+      toWeek: last === null ? null : weekOf(last),
       tasks,
       criteria: phase.gateCriteria.length,
     };

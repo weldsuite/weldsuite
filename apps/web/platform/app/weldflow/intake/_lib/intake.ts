@@ -35,10 +35,12 @@ export function paybackMonths(cost: string | null, value: string | null): number
 export function parseNeededSkills(text: string): NeededSkillInput[] {
   const out: NeededSkillInput[] = [];
   for (const part of text.split(',')) {
-    const match = /^(.*?)(?:\s+(\d+(?:[.,]\d+)?))?$/.exec(part.trim());
-    const skill = match?.[1]?.trim() ?? '';
+    const trimmed = part.trim();
+    const last = trimmed.split(/\s+/).pop() ?? '';
+    const hasHours = last !== trimmed && /^\d+(?:[.,]\d+)?$/.test(last);
+    const skill = (hasHours ? trimmed.slice(0, trimmed.length - last.length) : trimmed).trim();
     if (!skill) continue;
-    const hours = match?.[2] ? Number(match[2].replace(',', '.')) : undefined;
+    const hours = hasHours ? Number(last.replace(',', '.')) : undefined;
     out.push(hours && hours >= 0.01 && hours <= 168 ? { skill, hoursPerWeek: hours } : { skill });
   }
   return out;

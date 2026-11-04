@@ -51,6 +51,9 @@ export default function CapacityPage() {
   const skills = useMemo(() => allSkills(everyone.data?.members ?? []), [everyone.data]);
   const load = skill ? filtered.data : everyone.data;
   const error = skill ? filtered.isError : everyone.isError;
+  const retry = () => {
+    (skill ? filtered : everyone).refetch().catch(() => undefined);
+  };
   const requests = open.data ?? [];
   const oldest = requests.reduce((min, r) => Math.min(min, Date.parse(r.createdAt)), Number.POSITIVE_INFINITY);
   const oldestDays = Number.isFinite(oldest) ? Math.max(0, Math.floor((Date.now() - oldest) / 86_400_000)) : null;
@@ -128,7 +131,7 @@ export default function CapacityPage() {
       {error ? (
         <div role="alert" className="flex items-center gap-3 rounded-lg border border-destructive/30 p-4 text-sm">
           {t.flowPortfolio.common.loadFailed}
-          <Button variant="outline" size="sm" onClick={() => void (skill ? filtered.refetch() : everyone.refetch())}>
+          <Button variant="outline" size="sm" onClick={retry}>
             {t.flowPortfolio.common.retry}
           </Button>
         </div>

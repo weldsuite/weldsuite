@@ -9,12 +9,18 @@ export interface SubNavItem {
   path: string;
 }
 
+function trimTrailingSlashes(path: string): string {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === '/') end--;
+  return path.slice(0, end);
+}
+
 /**
  * The pill a pathname belongs to: the exact path, else the pill whose path is a
  * parent of it (a detail page under a register), else the section root.
  */
 export function activeSubNavId(pathname: string, basePath: string, items: readonly SubNavItem[]): string {
-  const rest = pathname.startsWith(basePath) ? pathname.slice(basePath.length).replace(/\/+$/, '') : '';
+  const rest = pathname.startsWith(basePath) ? trimTrailingSlashes(pathname.slice(basePath.length)) : '';
   const exact = items.find((item) => item.path === rest);
   if (exact) return exact.id;
   const parent = items.find((item) => item.path !== '' && rest.startsWith(`${item.path}/`));

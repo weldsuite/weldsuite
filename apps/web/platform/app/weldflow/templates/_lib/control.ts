@@ -35,6 +35,10 @@ export function controlLines(blueprint: Blueprint, ctx: ControlContext): Control
   const { changeControl, statusReport, riskAppetite } = blueprint.settings;
   const roleLabel = (key: string) => blueprint.roles.find((role) => role.key === key)?.label ?? key;
   const lines: ControlLine[] = [];
+  const changeBoardValue = () => {
+    if (!changeControl) return copy.notSet;
+    return changeControl.boardRoles.length > 0 ? changeControl.boardRoles.map(roleLabel).join(', ') : copy.changeBoardEmpty;
+  };
 
   lines.push({
     key: 'changeApproval',
@@ -47,7 +51,7 @@ export function controlLines(blueprint: Blueprint, ctx: ControlContext): Control
   });
   lines.push({
     key: 'changeBoard',
-    value: changeControl ? (changeControl.boardRoles.length > 0 ? changeControl.boardRoles.map(roleLabel).join(', ') : copy.changeBoardEmpty) : copy.notSet,
+    value: changeBoardValue(),
   });
   lines.push({
     key: 'statusReport',

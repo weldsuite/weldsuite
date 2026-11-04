@@ -28,6 +28,12 @@ const DECISION_BUTTON: Record<ApprovalAnswer, { key: 'approve' | 'approveConditi
   info_requested: { key: 'askInfo', variant: 'outline' },
 };
 
+function approverBadgeVariant(decision: ReviewItem['approvers'][number]['decision']): 'destructive' | 'outline' | 'secondary' {
+  if (decision === 'rejected') return 'destructive';
+  if (decision === 'pending') return 'outline';
+  return 'secondary';
+}
+
 /** The detail of one review: why the caller was asked, what it means, who else answers, and the answer form. */
 export function ReviewDetail({ review, nameOf, onClose, readOnly = false }: Readonly<ReviewDetailProps>) {
   const { t, language, format } = useI18n();
@@ -61,6 +67,11 @@ export function ReviewDetail({ review, nameOf, onClose, readOnly = false }: Read
   };
 
   const noteError = form.formState.errors.note?.message;
+  const impactText = (impact: ReviewItem['impacts'][number]) => {
+    if (impact.kind === 'cost') return formatMoney(impact.value, impact.currency, language);
+    if (impact.kind === 'schedule_days') return format(copy.scheduleDays, { count: String(impact.value) });
+    return String(impact.value);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="review-detail">
@@ -96,11 +107,7 @@ export function ReviewDetail({ review, nameOf, onClose, readOnly = false }: Read
                 <div key={impact.kind} className="rounded-md border px-3 py-2">
                   <dt className="text-xs text-muted-foreground">{copy.impact[impact.kind]}</dt>
                   <dd className="font-medium">
-                    {impact.kind === 'cost'
-                      ? formatMoney(impact.value, impact.currency, language)
-                      : impact.kind === 'schedule_days'
-                        ? format(copy.scheduleDays, { count: String(impact.value) })
-                        : String(impact.value)}
+                    {impactText(impact)}
                   </dd>
                 </div>
               ))}
@@ -137,7 +144,7 @@ export function ReviewDetail({ review, nameOf, onClose, readOnly = false }: Read
                     </p>
                     {approver.note ? <p className="mt-0.5 text-xs">{approver.note}</p> : null}
                   </div>
-                  <Badge variant={approver.decision === 'rejected' ? 'destructive' : approver.decision === 'pending' ? 'outline' : 'secondary'}>
+                  <Badge variant={approverBadgeVariant(approver.decision)}>
                     {copy.decision[approver.decision]}
                   </Badge>
                 </li>

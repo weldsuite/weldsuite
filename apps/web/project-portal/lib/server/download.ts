@@ -34,6 +34,25 @@ function toSignIn(slug: string, request: Request, reason: 'expired' | 'revoked')
   })
 }
 
+function downloadHeaders(upstream: Response): Headers {
+  const headers = new Headers({ 'Cache-Control': 'private, no-store' })
+  for (const name of PASSED_HEADERS) {
+    const value = upstream.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  // A download is never shown by the browser.
+  if (!headers.has('content-disposition')) headers.set('Content-Disposition', 'attachment')
+  return headers
+}
+
+/** The answer for a failed download; null when the failure is not one flow-api describes. */
+function apiErrorResponse(err: PortalApiError, slug: string, request: Request): Response | null {
+  if (err.status === 401) return toSignIn(slug, request, err.message === 'Access revoked' ? 'revoked' : 'expired')
+  if (err.status === 404) return text(404, 'Not found')
+  if (err.status === 503) return text(503, 'The portal is temporarily unavailable')
+  return null
+}
+
 export async function downloadResponse(
   request: Request,
   params: { workspace: string; projectId: string; kind: string; itemId: string },
@@ -51,21 +70,10 @@ export async function downloadResponse(
     const api = portalApi(token)
     const upstream =
       params.kind === 'files' ? await api.downloadFile(projectId, itemId) : await api.downloadDocument(projectId, itemId)
-
-    const headers = new Headers({ 'Cache-Control': 'private, no-store' })
-    for (const name of PASSED_HEADERS) {
-      const value = upstream.headers.get(name)
-      if (value) headers.set(name, value)
-    }
-    // A download is never shown by the browser.
-    if (!headers.has('content-disposition')) headers.set('Content-Disposition', 'attachment')
-    return new Response(upstream.body, { status: 200, headers })
+    return new Response(upstream.body, { status: 200, headers: downloadHeaders(upstream) })
   } catch (err) {
-    if (err instanceof PortalApiError) {
-      if (err.status === 401) return toSignIn(slug, request, err.message === 'Access revoked' ? 'revoked' : 'expired')
-      if (err.status === 404) return text(404, 'Not found')
-      if (err.status === 503) return text(503, 'The portal is temporarily unavailable')
-    }
+    const answer = err instanceof PortalApiError ? apiErrorResponse(err, slug, request) : null
+    if (answer) return answer
     console.error('[project-portal] download failed:', err)
     return text(502, 'The file could not be downloaded')
   }

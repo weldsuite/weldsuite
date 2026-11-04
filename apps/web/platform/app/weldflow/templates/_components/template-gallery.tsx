@@ -52,6 +52,36 @@ function TemplateCard({ template, selected, onSelect }: Readonly<{ template: Pro
   );
 }
 
+function GalleryError({ forbidden, onRetry }: Readonly<{ forbidden: boolean; onRetry: () => void }>) {
+  const { t } = useI18n();
+  const copy = t.flowClosing.templates.gallery;
+  const Icon = forbidden ? Lock : AlertCircle;
+  return (
+    <div role="alert" className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center">
+      <Icon aria-hidden className="size-5 text-muted-foreground" />
+      <p className="text-sm font-semibold">{forbidden ? copy.forbiddenTitle : copy.errorTitle}</p>
+      <p className="text-xs text-muted-foreground">{forbidden ? copy.forbiddenDescription : copy.errorDescription}</p>
+      {forbidden ? null : (
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {t.flowClosing.shared.retry}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function GalleryEmpty({ searching, canManage }: Readonly<{ searching: boolean; canManage: boolean }>) {
+  const { t } = useI18n();
+  const copy = t.flowClosing.templates.gallery;
+  const emptyDescription = canManage ? copy.emptyManage : copy.emptyMember;
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center">
+      <p className="text-sm font-semibold">{searching ? copy.noMatchTitle : copy.emptyTitle}</p>
+      <p className="text-xs text-muted-foreground">{searching ? copy.noMatchDescription : emptyDescription}</p>
+    </div>
+  );
+}
+
 /** The templates this person may use, with a search box and the "save a project" entry. */
 export function TemplateGallery({
   templates,
@@ -67,8 +97,6 @@ export function TemplateGallery({
 }: Readonly<TemplateGalleryProps>) {
   const { t, format } = useI18n();
   const copy = t.flowClosing.templates.gallery;
-  const status = isApiError(error) ? error.status : null;
-  const searching = search.trim().length > 0;
 
   let body;
   if (isLoading) {
@@ -80,27 +108,9 @@ export function TemplateGallery({
       </div>
     );
   } else if (error) {
-    const forbidden = status === 403;
-    const Icon = forbidden ? Lock : AlertCircle;
-    body = (
-      <div role="alert" className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center">
-        <Icon aria-hidden className="size-5 text-muted-foreground" />
-        <p className="text-sm font-semibold">{forbidden ? copy.forbiddenTitle : copy.errorTitle}</p>
-        <p className="text-xs text-muted-foreground">{forbidden ? copy.forbiddenDescription : copy.errorDescription}</p>
-        {forbidden ? null : (
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            {t.flowClosing.shared.retry}
-          </Button>
-        )}
-      </div>
-    );
+    body = <GalleryError forbidden={isApiError(error) && error.status === 403} onRetry={onRetry} />;
   } else if (!templates || templates.length === 0) {
-    body = (
-      <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center">
-        <p className="text-sm font-semibold">{searching ? copy.noMatchTitle : copy.emptyTitle}</p>
-        <p className="text-xs text-muted-foreground">{searching ? copy.noMatchDescription : canManage ? copy.emptyManage : copy.emptyMember}</p>
-      </div>
-    );
+    body = <GalleryEmpty searching={search.trim().length > 0} canManage={canManage} />;
   } else {
     body = (
       <ul className="flex flex-col gap-2">

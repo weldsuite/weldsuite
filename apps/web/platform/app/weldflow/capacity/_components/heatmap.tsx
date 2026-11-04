@@ -34,6 +34,7 @@ function Cell({
 }: Readonly<{ hours: number; tentativeHours: number; percent: number | null; band: CapacityBand; label: string }>) {
   const tentative = tentativeHours > 0;
   const text = percent === null ? `${hours} h` : `${Math.round(percent)}%`;
+  const prefix = tentative ? '~' : '';
   return (
     <div
       title={label}
@@ -44,7 +45,7 @@ function Cell({
         tentative && 'border-[1.5px] border-dashed border-foreground/50 italic',
       )}
     >
-      {hours <= 0 ? '–' : `${tentative ? '~' : ''}${text}`}
+      {hours <= 0 ? '–' : `${prefix}${text}`}
     </div>
   );
 }

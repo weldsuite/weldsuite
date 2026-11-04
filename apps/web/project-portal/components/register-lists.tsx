@@ -71,11 +71,9 @@ export function Deliverables({
         <ul className="flex flex-col">
           {deliverables.map((deliverable) => {
             const status = deliverableStatus(t, deliverable.status)
-            const when = deliverable.acceptedAt
-              ? fill(d.accepted, { date: format.date(deliverable.acceptedAt) })
-              : deliverable.plannedEnd
-                ? fill(d.planned, { date: format.date(deliverable.plannedEnd) })
-                : ''
+            let when = ''
+            if (deliverable.acceptedAt) when = fill(d.accepted, { date: format.date(deliverable.acceptedAt) })
+            else if (deliverable.plannedEnd) when = fill(d.planned, { date: format.date(deliverable.plannedEnd) })
             return (
               <li
                 key={deliverable.id}
