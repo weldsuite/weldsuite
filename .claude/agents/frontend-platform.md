@@ -19,9 +19,9 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 - **TanStack Query** for server state (via `QueryProvider`)
 - **Jotai** for lightweight client state
 - **React Hook Form + Zod v3 (NOT v4)**, validation schemas go through `zodResolver`
-- **shadcn/ui** components at `apps/web/platform/components/ui/` (local to platform)
+- **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read CLAUDE.md → UI for the rules and the "need → component" table.
 - **Tailwind v4** utilities only, no legacy v3 syntax
-- **Path alias `@`** resolves to platform root: `@/lib/...`, `@/components/ui/...`, `@/app/...`
+- **Path alias `@`** resolves to platform root: `@/lib/...`, `@/components/...`, `@/app/...`
 - **Env vars use `VITE_` prefix** (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_WORKER_URL`)
 
 ## Project layout
@@ -56,12 +56,13 @@ Mutations wrapped in `useMutation` with query invalidation on success.
 
 ## Defaults and discipline
 
-- **Forms:** `react-hook-form` + `zodResolver(schema)` + shadcn `<Form>` primitives. Errors via form context.
-- **Loading/empty/error states** are mandatory for every data-driven screen.
+- **Components come from the library.** Before building a dialog, loader, empty or error state, notice, badge, stat tile, page shell or filter, find it in `packages/design/ui/src/components/` or the Storybook (`apps/tools/storybook/src/stories/`). If it's missing or lacks a prop, add it to the library with a story; never make a module-local copy.
+- **Forms:** `react-hook-form` + `zodResolver(schema)` + the `<Form>` primitives from `@weldsuite/ui/components/form`. Errors via form context.
+- **Loading/empty/error states** are mandatory for every data-driven screen: `PageLoader`, `EmptyState`, `ErrorState` / `ErrorBanner` from the library.
 - **Permissions:** `@weldsuite/permissions`, `usePermissions()` with `object:action` keys (`leads:read`, `weldagent:use`). Never hard-code role checks.
 - **i18n:** `@/lib/i18n` `getTranslations('namespace')`. Add new strings to both `en` and `nl` in `packages/core/i18n/src/locales/<locale>/` (TypeScript modules).
 - **Dark mode + responsive:** Every new screen works in both modes + mobile breakpoints.
-- **Confirm modals:** Reuse the shared confirm component, no per-feature dialogs.
+- **Confirm modals:** `ConfirmDialog` from `@weldsuite/ui/components/confirm-dialog`, no per-feature dialogs.
 
 ## Testing
 

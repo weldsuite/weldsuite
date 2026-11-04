@@ -179,9 +179,8 @@ pnpm migrate:dry-run      # Preview without applying
 
 ### Adding shadcn components
 ```bash
-pnpm dlx shadcn@latest add [component-name] -c packages/ui
-# For the platform's own local components:
-pnpm dlx shadcn@latest add [component-name] -c apps/web/platform
+# Every web app, the platform included, takes shadcn components from @weldsuite/ui:
+pnpm dlx shadcn@latest add [component-name] -c packages/design/ui
 ```
 
 ## Architecture
@@ -410,7 +409,47 @@ at compile time, and a test that mocks `useI18n` with the wrong shape will throw
 
 ### UI
 
-The **platform** has its own local shadcn components at `apps/web/platform/components/ui/`. `@weldsuite/ui` is consumed by sites/portals/widget/helpcenter, not by the platform.
+**The platform takes its UI from `@weldsuite/ui`** (`packages/design/ui`), the
+same library the portals, admin and partner apps use (ADR FE-010). There is no
+barrel: import each component by path,
+`import { Button } from '@weldsuite/ui/components/button'`. Every library
+component has a Storybook story in `apps/tools/storybook/src/stories/`
+(`pnpm storybook`); look there, or in `packages/design/ui/src/components/`,
+before building any UI.
+
+- **Don't build generic UI inside a module.** Dialogs, loaders, empty and error
+  states, notices, badges, stat tiles, page shells, filter dropdowns and the
+  like come from the library, never from a copy in `app/<module>/` or
+  `components/`.
+- **Missing, or not quite right? Change the library, not a local copy.** Add
+  the component, or the prop it lacks, in `packages/design/ui/src/components/`,
+  add or extend its story, and import it from there. Module folders keep only
+  what belongs to the module: breadcrumbs, column presets, domain widgets built
+  from library parts.
+- **Library components hold no translations.** Text a component renders on its
+  own (Back, Cancel, Loading…) comes from `UiLabelsProvider`, which the platform
+  fills from `@weldsuite/i18n` in `components/layout/accessibility-bridge.tsx`:
+  add a label there, in en and nl, rather than hard-coding English. Everything
+  else is passed in as props.
+- Don't import `@radix-ui/*` in platform code; the library wraps it. (Three
+  note dialogs still do, for positioning the library `Dialog` can't do yet.)
+- `apps/web/platform/components/ui/` only re-exports two library files for old
+  import paths. Don't add to it.
+
+| Need | From `@weldsuite/ui/components/…` |
+|---|---|
+| Confirm before a destructive action | `confirm-dialog` (`ConfirmDialog`) |
+| Page or inline loading | `page-loader` (`PageLoader`, `InlineSpinner`) |
+| Empty list, failed load | `empty-state` (`EmptyState`, `EmptyText`), `error-banner` (`ErrorBanner`, `ErrorState`, `InlineError`) |
+| Notice, warning, tip | `info-banner` (`InfoBanner`, variants info/warning/danger/success/tip/neutral) |
+| Status pill | `soft-badge` (`SoftBadge`), `badge` |
+| Stat tiles | `kpi-card` (`KpiGrid`, `KpiCard`); for a tile that links somewhere, the platform's `@/components/kpi-card-link` |
+| Page shells | `page-layout` (`DashboardPage`, `DetailPage`, `DetailHeader`, `TabBody`), `settings-layout` (`SettingsPage`, `SettingsSection`, `SettingRow`), `section-card`, `list-detail-layout`, `page-tabs` |
+| Lists and detail panels | `list-table`, `entity-detail-panel` |
+| Read-only label/value grid | `field-grid` (`FieldGrid`) |
+| "All …" filter dropdown | `filter-select` (`FilterSelect`) |
+| Number field | `number-input` (`NumberInput`) |
+| Icon by name, activity history | `lucide-dynamic-icon`, `audit-timeline` |
 
 ### State
 - **Server state**: TanStack Query
