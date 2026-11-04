@@ -42,9 +42,7 @@ use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::governance_approvals::{
-    ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
-    cancel_pending_approvals, list_subject_approvals, publish_cancelled, publish_requested,
-    register_decision_subject, request_approvals,
+    publish_cancelled, publish_requested, register_decision_subject,
 };
 use crate::governance_body::{
     RegisterQuery, decision_list_query, read_create_decision, read_decide, read_supersede,
@@ -58,6 +56,10 @@ use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
 use crate::{
     Caller, FlowState, Refusal, Reply, access_scope, keyset_cursor, outside, page, paged, reply,
+};
+use weldsuite_flow_domain::approvals::{
+    ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
+    cancel_pending_approvals, list_subject_approvals, request_approvals,
 };
 
 const DECISION_LABEL: &str = "Decision";

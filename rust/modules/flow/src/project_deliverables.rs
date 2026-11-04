@@ -42,9 +42,7 @@ use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::governance_approvals::{
-    ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
-    cancel_pending_approvals, list_subject_approvals, publish_cancelled, publish_requested,
-    register_deliverable_subject, request_approvals, sponsor_of,
+    publish_cancelled, publish_requested, register_deliverable_subject,
 };
 use crate::governance_body::{
     RegisterQuery, deliverable_list_query, read_create_deliverable, read_reject_deliverable,
@@ -59,6 +57,10 @@ use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms, or_null, parse_l
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
 use crate::{Caller, FlowState, Refusal, Reply, outside, page, paged, reply};
+use weldsuite_flow_domain::approvals::{
+    ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
+    cancel_pending_approvals, list_subject_approvals, request_approvals, sponsor_of,
+};
 
 const DELIVERABLE_LABEL: &str = "Deliverable";
 
@@ -597,13 +599,12 @@ fn signoff_approval_rows(
             .with_due_at(due_at),
     ];
     if let Some(contact) = contact_id {
-        rows.push(
-            ApprovalRowInput::member(contact, "deliverable_client")
-                .with_kind("contact")
-                .with_role_label("Client")
-                .with_step(2)
-                .with_due_at(due_at),
-        );
+        let mut client = ApprovalRowInput::member(contact, "deliverable_client")
+            .with_role_label("Client")
+            .with_step(2)
+            .with_due_at(due_at);
+        client.approver_kind = Some("contact".to_owned());
+        rows.push(client);
     }
     rows
 }
@@ -755,4 +756,36 @@ async fn reject_deliverable(state: &FlowState, caller: &Caller, id: &str, input:
     let cleared = cancel_pending_approvals(db, "deliverable", id, false, now_ms).await?;
     publish_cancelled(state, caller, &cleared);
     Ok(Data(present_one(caller, &row).await?).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn signs_off_by_the_sponsor_first_and_then_the_client_contact() {
+        let rows = signoff_approval_rows("u_sponsor", None, None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].approver_id, "u_sponsor");
+        assert_eq!(rows[0].role_label.as_deref(), Some("Sponsor"));
+        assert_eq!(rows[0].step, Some(1));
+        assert_eq!(rows[0].rule, json!({ "code": "deliverable_sponsor" }));
+
+        let rows = signoff_approval_rows("u_sponsor", Some("con_1"), Some(5));
+        let kinds: Vec<Option<&str>> = rows
+            .iter()
+            .map(|row| row.approver_kind.as_deref())
+            .collect();
+        let ids: Vec<&str> = rows.iter().map(|row| row.approver_id.as_str()).collect();
+        let steps: Vec<Option<i64>> = rows.iter().map(|row| row.step).collect();
+        let dues: Vec<Option<i64>> = rows.iter().map(|row| row.due_at).collect();
+        assert_eq!(kinds, [None, Some("contact")]);
+        assert_eq!(ids, ["u_sponsor", "con_1"]);
+        assert_eq!(steps, [Some(1), Some(2)]);
+        assert_eq!(dues, [Some(5), Some(5)]);
+        assert_eq!(rows[1].rule, json!({ "code": "deliverable_client" }));
+        assert_eq!(rows[1].role_label.as_deref(), Some("Client"));
+    }
 }
