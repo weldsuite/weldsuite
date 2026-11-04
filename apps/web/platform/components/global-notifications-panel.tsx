@@ -98,6 +98,49 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
   };
 }
 
+/** The actor's photo, or their initial on a colour derived from their name. */
+function NotificationActorAvatar({ notification }: Readonly<{ notification: DisplayNotification }>) {
+  const displayName = notification.actorName || notification.title;
+  const avatarSeed = displayName || '?';
+  const initial = (avatarSeed.charAt(0) || '?').toUpperCase();
+  return (
+    <Avatar className="w-7 h-7">
+      {notification.actorImageUrl && (
+        <AvatarImage src={notification.actorImageUrl} alt={displayName} />
+      )}
+      <AvatarFallback
+        className="text-white font-semibold text-xs"
+        style={{ backgroundColor: getAvatarColor(avatarSeed) }}
+      >
+        {initial}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+/** How an access request was settled, shown in place of Approve/Deny. */
+function AccessRequestStatusPill({
+  approved,
+  approvedLabel,
+  deniedLabel,
+}: Readonly<{ approved: boolean; approvedLabel: string; deniedLabel: string }>) {
+  return (
+    <div className="mt-2">
+      <span
+        className={cn(
+          'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium',
+          approved
+            ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400'
+            : 'bg-gray-100 text-gray-600 dark:bg-secondary dark:text-muted-foreground',
+        )}
+      >
+        {approved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+        {approved ? approvedLabel : deniedLabel}
+      </span>
+    </div>
+  );
+}
+
 export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAnimation }: Readonly<GlobalNotificationsPanelProps>) {
   const { t } = useI18n();
   const tn = t.common.notificationsPanel;
@@ -253,9 +296,6 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
           <div>
             {notifications.map((notification) => {
               const hasUnread = !notification.read;
-              const displayName = notification.actorName || notification.title;
-              const avatarSeed = displayName || '?';
-              const initial = (avatarSeed.charAt(0) || '?').toUpperCase();
               // Approve/Deny stays visible as long as the underlying access
               // request is still pending — the read flag alone is meaningless
               // because clicking the row auto-marks-read without resolving
@@ -276,17 +316,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                   <div className="flex items-start gap-2.5">
                     {/* Avatar */}
                     <div className="relative flex-shrink-0 mt-[3px]">
-                      <Avatar className="w-7 h-7">
-                        {notification.actorImageUrl && (
-                          <AvatarImage src={notification.actorImageUrl} alt={displayName} />
-                        )}
-                        <AvatarFallback
-                          className="text-white font-semibold text-xs"
-                          style={{ backgroundColor: getAvatarColor(avatarSeed) }}
-                        >
-                          {initial}
-                        </AvatarFallback>
-                      </Avatar>
+                      <NotificationActorAvatar notification={notification} />
                       {hasUnread && (
                         <div className="absolute top-1/2 -translate-y-1/2 -left-2.5 w-1.5 h-1.5 rounded-full bg-blue-600" />
                       )}
@@ -350,28 +380,11 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                         </div>
                       )}
                       {accessRequestResolved && (
-                        <div className="mt-2">
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium',
-                              notification.resolvedStatus === 'approved'
-                                ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400'
-                                : 'bg-gray-100 text-gray-600 dark:bg-secondary dark:text-muted-foreground',
-                            )}
-                          >
-                            {notification.resolvedStatus === 'approved' ? (
-                              <>
-                                <Check className="h-3 w-3" />
-                                {tn.approved}
-                              </>
-                            ) : (
-                              <>
-                                <X className="h-3 w-3" />
-                                {tn.denied}
-                              </>
-                            )}
-                          </span>
-                        </div>
+                        <AccessRequestStatusPill
+                          approved={notification.resolvedStatus === 'approved'}
+                          approvedLabel={tn.approved}
+                          deniedLabel={tn.denied}
+                        />
                       )}
                     </div>
 

@@ -14,7 +14,8 @@ export function PartnerLogo({ partner, className = 'h-10 w-10' }: Readonly<{ par
   const logo = safeHttpUrl(partner.logoUrl);
   return (
     <Avatar aria-hidden className={`${className} shrink-0 border`}>
-      {logo && <AvatarImage src={logo} alt="" className="bg-white" />}
+      {/* A logo may be a wide wordmark: fit it whole instead of cropping. */}
+      {logo && <AvatarImage src={logo} alt="" className="bg-white object-contain" />}
       <AvatarFallback className="bg-muted text-sm font-semibold">
         {partner.name.slice(0, 1).toUpperCase()}
       </AvatarFallback>
