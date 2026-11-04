@@ -8,6 +8,7 @@ pub mod analytics;
 pub mod day_bounds;
 pub mod js;
 pub mod numbering;
+pub mod project_portal;
 pub mod raid;
 pub mod recurrence;
 pub mod risk;
