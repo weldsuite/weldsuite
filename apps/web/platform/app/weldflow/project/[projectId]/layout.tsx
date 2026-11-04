@@ -9,6 +9,9 @@ import {
   SquareDashedMousePointer,
   Target,
   ShieldAlert,
+  Gavel,
+  Crosshair,
+  Wallet,
   SquareKanban,
   Users,
   Timer,
@@ -52,6 +55,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { EyeOff, ArrowLeft, ArrowRight, Plus } from 'lucide-react';
 import { ProjectPermissionProvider } from '@/app/weldflow/contexts/project-permission-context';
+import { ProjectActionsMenu } from '@/app/weldflow/components/project-actions-menu';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { isApiError } from '@weldsuite/api-client';
 import { useProject } from '@/hooks/queries/use-projects-queries';
@@ -88,6 +92,9 @@ const TABS_WITHOUT_TOP_PADDING = new Set([
   'documents',
   'goals',
   'raid',
+  'governance',
+  'scope',
+  'finance',
   'table',
   'gantt',
   'workload',
@@ -381,6 +388,9 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
     { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
     { id: 'raid', name: t.projects.projectLayout.tabs.raid, href: '/raid', icon: ShieldAlert },
+    { id: 'governance', name: t.projects.projectLayout.tabs.governance, href: '/governance', icon: Gavel },
+    { id: 'scope', name: t.projects.projectLayout.tabs.scope, href: '/scope', icon: Crosshair },
+    { id: 'finance', name: t.projects.projectLayout.tabs.finance, href: '/finance', icon: Wallet },
     { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
     { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
   ];
@@ -531,12 +541,13 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
       {/* Project Header */}
       <div className="bg-background sticky top-0 z-10 group/header pt-[6px]">
         <div className="mb-3">
-          <div className="-mt-2">
+          <div className="-mt-2 flex items-center gap-1.5">
             {projectName ? (
-              <h1 className="text-xl md:text-2xl font-semibold truncate">{projectName}</h1>
+              <h1 className="min-w-0 text-xl md:text-2xl font-semibold truncate">{projectName}</h1>
             ) : (
               <div className="h-7 md:h-8 w-40 bg-muted/50 rounded animate-pulse" />
             )}
+            <ProjectActionsMenu projectId={projectId} />
           </div>
         </div>
 
