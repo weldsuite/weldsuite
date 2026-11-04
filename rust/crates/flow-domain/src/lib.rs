@@ -5,9 +5,12 @@
 
 pub mod access;
 pub mod analytics;
+pub mod blueprint;
 pub mod day_bounds;
 pub mod js;
 pub mod numbering;
+pub mod project_closing;
+pub mod project_templates;
 pub mod raid;
 pub mod recurrence;
 pub mod risk;

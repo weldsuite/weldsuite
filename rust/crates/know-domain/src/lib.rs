@@ -5,6 +5,7 @@
 //! workspace API key (no user) reaches open teamspaces only.
 
 pub mod access;
+pub mod pages;
 
 use axum::response::{IntoResponse, Response};
 use weldsuite_kit::ApiError;
