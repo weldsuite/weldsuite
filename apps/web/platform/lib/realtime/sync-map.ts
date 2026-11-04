@@ -55,6 +55,8 @@ const personKeys = {
 // WeldFlow RAID log — mirrors raidKeys in hooks/queries/use-project-control-queries.ts.
 // Lists, the matrix and every open detail sit under this root.
 const raidKeys = { all: ['project-raid'] as const };
+// WeldFlow approvals: mirrors flowApprovalKeys in hooks/queries/use-flow-approvals-queries.ts.
+const flowApprovalKeys = { all: ['flow-approvals'] as const };
 
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
@@ -193,14 +195,14 @@ export const platformSyncMap: EntitySyncMap = {
   // (FLOW-019) and the client portal has no platform page.
 
   // Approvals and My reviews (`flow_approval`).
-  flow_approval: inv(projectKeys.all),
+  flow_approval: inv(flowApprovalKeys.all, projectKeys.all),
 
   // Governance: decisions, change requests, deliverables, scope, baselines, benefits.
   project_decision: inv(projectKeys.all),
-  project_change_request: inv(projectKeys.all),
+  project_change_request: inv(flowApprovalKeys.all, projectKeys.all),
   project_deliverable: inv(projectKeys.all),
   project_scope: inv(projectKeys.all),
-  project_baseline: inv(projectKeys.all),
+  project_baseline: inv(flowApprovalKeys.all, projectKeys.all),
   project_benefit: inv(projectKeys.all),
 
   // Schedule: dependencies, phases and gates.

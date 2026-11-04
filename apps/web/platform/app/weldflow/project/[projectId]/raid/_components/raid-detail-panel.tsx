@@ -5,6 +5,7 @@
  * can open beside it.
  */
 
+import { AskSponsorAction, needsSponsorAcceptance } from './ask-sponsor-action';
 import { useState, type ReactNode } from 'react';
 import { ArrowRightLeft, MoreHorizontal, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -198,6 +199,7 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
           {copy.detail.reassess}
         </Button>
       ) : null}
+      {item && abilities.update && needsSponsorAcceptance(item) ? <AskSponsorAction item={item} /> : null}
       {item && (abilities.update || abilities.remove) ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
