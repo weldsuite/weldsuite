@@ -6,9 +6,14 @@ import {
   Users,
   PanelsTopLeft,
   BarChart3,
+  ClipboardCheck,
+  Inbox,
+  Gauge,
+  LayoutTemplate,
   type LucideIcon,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useMyReviewsCount } from '@/hooks/queries/use-flow-approvals-queries';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { coloredSquareColorLabel, coloredSquareColors, coloredSquareIconLabel, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
@@ -32,6 +37,9 @@ import { useSidebarProjectOrder } from '@/hooks/queries/use-weldflow-preferences
 const findIconByLabel = findColoredSquareIconByLabel;
 
 const PROJECT_HREF_PREFIX = '/weldflow/project/';
+
+/** General pages that came after the first saved set of visible pages (see the load effect below). */
+const GENERAL_PAGES_ADDED_LATER = ['analytics', 'reviews', 'intake', 'capacity', 'templates'];
 
 /** The project id behind a sidebar item's href (`/weldflow/project/:id`). */
 function projectIdFromHref(href: string | undefined): string {
@@ -72,6 +80,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
   const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
+  const { data: reviewsCount } = useMyReviewsCount();
   const [projectPages, setProjectPages] = React.useState<MenuItemProps[]>([]);
   // The user's own project order is a saved preference (follows them across
   // devices); the refs let the stable handlers below read the latest values.
@@ -112,7 +121,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
 
   // Track which general pages are visible
   const [visibleGeneralPages, setVisibleGeneralPages] = React.useState<Set<string>>(
-    new Set(['my-tasks', 'all-projects', 'workload', 'analytics', 'timeline', 'list'])
+    new Set(['my-tasks', 'reviews', 'all-projects', 'workload', 'intake', 'capacity', 'templates', 'analytics', 'timeline', 'list'])
   );
 
   // Load visible general pages from localStorage
@@ -127,10 +136,12 @@ export function useProjectsSidebarItems(isActive: boolean): {
         savedPages.delete('my-inbox');
         dirty = true;
       }
-      // Merge Analytics in for users who saved prefs before it existed
-      if (!savedPages.has('analytics')) {
-        savedPages.add('analytics');
-        dirty = true;
+      // Merge pages in for users who saved prefs before they existed
+      for (const pageId of GENERAL_PAGES_ADDED_LATER) {
+        if (!savedPages.has(pageId)) {
+          savedPages.add(pageId);
+          dirty = true;
+        }
       }
       if (dirty) {
         localStorage.setItem('visibleGeneralPages', JSON.stringify(Array.from(savedPages)));
@@ -401,11 +412,25 @@ export function useProjectsSidebarItems(isActive: boolean): {
     return { menuGroups: [], dialogs: null };
   }
 
+  const reviewsBadge = reviewsCount > 99 ? '99+' : String(reviewsCount);
+
   // Define all available general pages
   const allGeneralPages: Array<{ id: string } & MenuItemProps> = [
     { id: 'my-tasks', title: t.projects.sidebar.myTasks, href: '/weldflow', icon: SquareCheck, actions: [] },
+    {
+      id: 'reviews',
+      title: t.projects.sidebar.myReviews,
+      href: '/weldflow/reviews',
+      icon: ClipboardCheck,
+      actions: [],
+      badge: reviewsCount > 0 ? reviewsBadge : undefined,
+      badgeLabel: reviewsCount > 0 ? t.projects.sidebar.myReviewsBadge.replace('{count}', String(reviewsCount)) : undefined,
+    },
     { id: 'all-projects', title: t.projects.sidebar.allProjects, href: '/weldflow/projects', icon: PanelsTopLeft, actions: [] },
     { id: 'workload', title: t.projects.sidebar.workload, href: '/weldflow/workload', icon: Users, actions: [] },
+    { id: 'intake', title: t.projects.sidebar.intake, href: '/weldflow/intake', icon: Inbox, actions: [], permission: 'portfolio:read' },
+    { id: 'capacity', title: t.projects.sidebar.capacity, href: '/weldflow/capacity', icon: Gauge, actions: [], permission: 'portfolio:read' },
+    { id: 'templates', title: t.projects.sidebar.templates, href: '/weldflow/templates', icon: LayoutTemplate, actions: [], permission: 'projects:read' },
     { id: 'analytics', title: t.projects.sidebar.analytics, href: '/weldflow/analytics', icon: BarChart3, actions: [] },
   ];
 
