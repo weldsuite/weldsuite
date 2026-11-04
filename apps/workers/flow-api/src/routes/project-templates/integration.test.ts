@@ -341,7 +341,7 @@ const minimalBlueprint = () => ({
   milestones: [],
   deliverables: [],
   tasks: [
-    { key: 't1', parentKey: null, title: 'Kick-off', description: null, priority: 'medium', type: 'task', status: 'todo', assigneeRoles: ['project_manager'], startOffset: 0, dueOffset: 1, estimatedHours: null, storyPoints: null, milestoneKey: null, deliverableKey: null, labels: null, tags: null, isBillable: true },
+    { key: 't1', parentKey: null as string | null, title: 'Kick-off', description: null, priority: 'medium', type: 'task', status: 'todo', assigneeRoles: ['project_manager'], startOffset: 0, dueOffset: 1, estimatedHours: null, storyPoints: null, milestoneKey: null, deliverableKey: null, labels: null, tags: null, isBillable: true },
   ],
   dependencies: [],
   raid: [],
