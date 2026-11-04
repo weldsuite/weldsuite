@@ -63,6 +63,14 @@ cron jobs and the migration Job read the same settings
   value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
 - name: TRUSTED_PROXIES
   value: {{ .Values.config.trustedProxies | default 1 | toString | quote }}
+{{- if .Values.consume.enabled }}
+{{- /* WeldReach's send sweep queues on NATS for the consume role's reach-send subscriber. */}}
+- name: REACH_SEND_QUEUE
+  value: "nats"
+{{- /* And the warmup dispatch for its reach-warmup-send / -engage subscribers. */}}
+- name: REACH_WARMUP_QUEUE
+  value: "nats"
+{{- end }}
 {{- with .Values.config.edition }}
 {{- if not (has . (list "eu" "self-hosted")) }}
 {{- fail "config.edition must be eu or self-hosted" }}
@@ -73,6 +81,28 @@ cron jobs and the migration Job read the same settings
 {{- with .Values.config.publicEnv }}
 - name: PUBLIC_ENV
   value: {{ toJson . | quote }}
+{{- end }}
+{{- with .Values.config.video }}
+{{- if eq (.provider | default "") "livekit" }}
+- name: VIDEO_PROVIDER
+  value: "livekit"
+- name: LIVEKIT_URL
+  value: {{ required "config.video.livekit.url is required with config.video.provider livekit" .livekit.url | quote }}
+{{- with .livekit.apiUrl }}
+- name: LIVEKIT_API_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .livekit.tokenTtlSeconds }}
+- name: LIVEKIT_TOKEN_TTL_SECONDS
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- else if .provider }}
+{{- if ne .provider "realtimekit" }}
+{{- fail "config.video.provider must be livekit or realtimekit" }}
+{{- end }}
+- name: VIDEO_PROVIDER
+  value: "realtimekit"
+{{- end }}
 {{- end }}
 {{- with .Values.config.auth }}
 - name: AUTH_PROVIDER
@@ -154,6 +184,10 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.collabRooms.enabled }}
+- name: COLLAB_ROOMS_URLS
+  value: {{ include "weldsuite.collabRooms.urls" . | quote }}
+{{- end }}
 {{- with .Values.config.mail.from }}
 - name: SYSTEM_EMAIL_FROM
   value: {{ . | quote }}
@@ -234,6 +268,34 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/version: {{ .Values.signPortal.image.tag | default .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- define "weldsuite.collabRooms.fullname" -}}
+{{- printf "%s-collab-rooms" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.collabRooms.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: collab-rooms
+{{- end }}
+
+{{- define "weldsuite.collabRooms.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.collabRooms.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.collabRooms.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Every collab-rooms pod's URL, comma separated: the server routes rooms over them. */ -}}
+{{- define "weldsuite.collabRooms.urls" -}}
+{{- $svc := include "weldsuite.collabRooms.fullname" . -}}
+{{- $urls := list -}}
+{{- range $i := until (int .Values.collabRooms.replicaCount) -}}
+{{- $urls = append $urls (printf "http://%s-%d.%s.%s.svc:8090" $svc $i $svc $.Release.Namespace) -}}
+{{- end -}}
+{{- join "," $urls -}}
 {{- end }}
 
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}

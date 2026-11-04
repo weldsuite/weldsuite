@@ -1,16 +1,19 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, MoreVertical, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { LINE_BREAK, OBJECT, PARA, suggestionRanges, type Thread } from '@weldsuite/docs-engine';
+import { LINE_BREAK, OBJECT, PARA, caretRect, suggestionRanges, type Thread } from '@weldsuite/docs-engine';
 import { useI18n } from '@/lib/i18n/provider';
 import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
 import { CommentBody, CommentComposer, initials, type ComposerLabels, type Person } from '@/components/record-comments/comment-parts';
 import { fromChatContent } from '@/components/record-comments/mentions';
 import { useRecordComments, type RecordCommentsState } from '@/components/record-comments/use-record-comments';
 import type { DocController } from './model/doc-controller';
+import { stackCards, type MarginCard } from './view/margin-cards';
+import { PX_PER_PT, pageTops, pagesHeight } from './view/page-view';
+import { useDocScroll } from './view/scroll-context';
 
 export type { Person };
 
@@ -20,9 +23,9 @@ const HIDDEN = new RegExp(`[${PARA}${LINE_BREAK}${OBJECT}]`, 'g');
 type Review = ReturnType<typeof useI18n>['t']['welddocs']['review'];
 
 /**
- * The comments beside the pages, as in Google Docs: a new comment being
- * written, then every discussion in the order of the text (suggestions with
- * Accept and Reject), each with its replies and a reply box when picked.
+ * The comments beside the pages, as in Google Docs: each discussion level
+ * with the text it is about (suggestions with Accept and Reject), with its
+ * replies and a reply box when picked, and a new comment beside its text.
  *
  * The document holds each discussion's place and whether it is resolved;
  * what is said in it is a thread in the document's WeldChat chat (ADR
@@ -83,20 +86,162 @@ function Panel({ controller, people, comments, docId }: { controller: DocControl
         </button>
       </div>
       {docId && comments && <RecordChatPanelBar entityType="doc" entityId={docId} channelId={comments.channelId} />}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
-        {comments?.isError && <p className="text-sm text-destructive">{tr.loadFailed}</p>}
-        {controller.draft && comments && (
-          <div className="rounded-lg border bg-card p-3 shadow-sm">
-            <CommentComposer people={people} labels={labels} autoFocus onSubmit={post} onCancel={() => controller.cancelComment()} />
-          </div>
-        )}
-        {!controller.draft && threads.length === 0 && <p className="px-1 py-6 text-center text-sm text-muted-foreground">{tr.empty}</p>}
-        {threads.map((thread) => (
-          <ThreadCard key={thread.root.id} controller={controller} thread={thread} people={people} names={names} comments={comments} active={thread.root.id === active} />
-        ))}
-      </div>
+      {comments?.isError && <p className="px-3 pt-3 text-sm text-destructive">{tr.loadFailed}</p>}
+      {!controller.draft && threads.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">{tr.empty}</p>}
+      <MarginCards
+        controller={controller}
+        draft={
+          controller.draft && comments ? (
+            <div className="rounded-lg border bg-card p-3 shadow-sm">
+              <CommentComposer people={people} labels={labels} autoFocus onSubmit={post} onCancel={() => controller.cancelComment()} />
+            </div>
+          ) : null
+        }
+        threads={threads}
+        active={active}
+        renderThread={(thread) => <ThreadCard controller={controller} thread={thread} people={people} names={names} comments={comments} active={thread.root.id === active} />}
+      />
     </aside>
   );
+}
+
+/** The comment being written, among the cards. */
+const DRAFT = '\0draft';
+/** Height assumed for a card until it has been measured. */
+const CARD_GUESS = 96;
+
+/**
+ * The cards beside the pages, each level with the text it is about, moving
+ * with the pages as they scroll (the wheel over the cards scrolls the pages).
+ */
+function MarginCards({
+  controller,
+  draft,
+  threads,
+  active,
+  renderThread,
+}: {
+  controller: DocController;
+  draft: React.ReactNode;
+  threads: Thread[];
+  active: string | null;
+  renderThread: (thread: Thread) => React.ReactNode;
+}) {
+  const scroll = useDocScroll();
+  const areaRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const heights = useCardHeights();
+
+  // Where each card's text starts, in the pages' scrolled area.
+  const scale = controller.zoom * PX_PER_PT;
+  const tops = pageTops(controller.pages, scale);
+  const textTop = (at: { story: string; from: number } | null): number | null => {
+    if (!at) return null;
+    const r = caretRect(controller.layout, at.story, at.from);
+    return r && tops[r.page] !== undefined ? tops[r.page]! + r.y * scale : null;
+  };
+  const sel = controller.draft;
+  const cards: MarginCard[] = threads.map((th) => ({ id: th.root.id, want: textTop(th.at), height: heights.of(th.root.id) ?? CARD_GUESS }));
+  if (draft && sel) cards.push({ id: DRAFT, want: textTop({ story: sel.story, from: Math.min(sel.anchor, sel.head) }), height: heights.of(DRAFT) ?? CARD_GUESS });
+  // In the order of the pages; those with no place in the text last (the sort keeps text order for ties).
+  cards.sort((a, b) => (a.want ?? Infinity) - (b.want ?? Infinity) || 0);
+  const placed = stackCards(cards, draft ? DRAFT : active);
+  const last = cards.reduce((max, c) => Math.max(max, placed.get(c.id)! + c.height), 0);
+
+  // Room under the last page for cards that run past it.
+  const roomBelow = Math.max(0, Math.ceil(last + 16 - pagesHeight(tops)));
+  const setRoomBelow = scroll?.setRoomBelow;
+  useEffect(() => setRoomBelow?.(roomBelow), [setRoomBelow, roomBelow]);
+  useEffect(() => () => setRoomBelow?.(0), [setRoomBelow]);
+
+  // The cards move with the pages: the layer is shifted directly, with no render per scroll.
+  const follow = useCallback(() => {
+    const el = scroll?.scrollRef.current;
+    const area = areaRef.current;
+    const layer = layerRef.current;
+    if (!el || !area || !layer) return;
+    const offset = el.getBoundingClientRect().top - area.getBoundingClientRect().top;
+    layer.style.transform = `translateY(${offset - el.scrollTop}px)`;
+  }, [scroll]);
+  useLayoutEffect(follow);
+  useEffect(() => {
+    const el = scroll?.scrollRef.current;
+    const area = areaRef.current;
+    if (!el || !area) return;
+    el.addEventListener('scroll', follow, { passive: true });
+    const ro = new ResizeObserver(follow);
+    ro.observe(area);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', follow);
+      ro.disconnect();
+    };
+  }, [scroll, follow]);
+
+  const onWheel = (e: React.WheelEvent) => {
+    const el = scroll?.scrollRef.current;
+    if (!el || e.ctrlKey) return;
+    // A comment box that scrolls itself keeps the wheel.
+    if ((e.target as HTMLElement).closest('textarea')) return;
+    el.scrollBy({ top: e.deltaY, left: e.deltaX });
+  };
+
+  const byId = new Map(threads.map((th) => [th.root.id, th]));
+  return (
+    <div ref={areaRef} className="relative min-h-0 flex-1 overflow-hidden" onWheel={onWheel}>
+      <div ref={layerRef} className="absolute inset-x-0 top-0">
+        {cards.map((c) => (
+          <div key={c.id} ref={heights.ref(c.id)} className="absolute inset-x-3 transition-[top] duration-150 ease-out motion-reduce:transition-none" style={{ top: placed.get(c.id) }}>
+            {c.id === DRAFT ? draft : renderThread(byId.get(c.id)!)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Measures the cards as they render and grow (a reply box opening, a long comment). */
+function useCardHeights() {
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
+  const els = useRef(new Map<string, HTMLDivElement>());
+  const refs = useRef(new Map<string, (el: HTMLDivElement | null) => void>());
+  const measure = useCallback(() => {
+    setHeights((prev) => {
+      let changed = prev.size !== els.current.size;
+      const next = new Map<string, number>();
+      for (const [id, el] of els.current) {
+        const h = el.offsetHeight;
+        next.set(id, h);
+        if (prev.get(id) !== h) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+  const [observer] = useState(() => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)));
+  useEffect(() => () => observer?.disconnect(), [observer]);
+  // A new card's height, before it paints.
+  useLayoutEffect(measure);
+  return {
+    of: (id: string) => heights.get(id),
+    ref: (id: string) => {
+      let fn = refs.current.get(id);
+      if (!fn) {
+        fn = (el) => {
+          const old = els.current.get(id);
+          if (old) observer?.unobserve(old);
+          if (el) {
+            els.current.set(id, el);
+            observer?.observe(el);
+          } else {
+            els.current.delete(id);
+            refs.current.delete(id);
+          }
+        };
+        refs.current.set(id, fn);
+      }
+      return fn;
+    },
+  };
 }
 
 function ThreadCard({

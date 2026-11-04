@@ -225,6 +225,7 @@ export function ParticipantContextMenu({
       <div
         ref={menuRef}
         role="menu"
+        tabIndex={-1}
         aria-label={name}
         className="bg-popover border border-border rounded-md shadow-md min-w-[200px] animate-in fade-in-0 zoom-in-95 duration-100 overflow-hidden"
         onClick={(e) => e.stopPropagation()}

@@ -1,6 +1,6 @@
 /** Name + description, shared by "New vault" and the vault settings. */
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,6 +29,7 @@ export function VaultDetailsForm({
   pending,
   onSubmit,
   onCancel,
+  children,
 }: Readonly<{
   defaultValues: VaultDetailsValues;
   submitLabel: string;
@@ -36,6 +37,8 @@ export function VaultDetailsForm({
   onSubmit: (values: VaultDetailsValues) => void | Promise<void>;
   /** Shown as a Cancel button when given (the create dialog). */
   onCancel?: () => void;
+  /** Extra fields between the description and the buttons (the create dialog's access). */
+  children?: ReactNode;
 }>) {
   const tp = usePasswordsT();
 
@@ -88,6 +91,8 @@ export function VaultDetailsForm({
             </FormItem>
           )}
         />
+
+        {children}
 
         <div className="flex justify-end gap-2">
           {onCancel && (

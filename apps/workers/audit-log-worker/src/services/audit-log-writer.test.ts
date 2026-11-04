@@ -83,6 +83,13 @@ describe('writeAuditLogFromEvent Phase 2 idempotency', () => {
     };
     expect(row.metadata.eventId).toBe('evt_new01');
   });
+
+  it('throws when the insert fails, so the message is not acked without a row', async () => {
+    const { db, insert } = mockDb({ existingId: null });
+    const readOnly = Object.assign(new Error('cannot execute INSERT in a read-only transaction'), { code: '25006' });
+    insert.mockImplementation(() => ({ values: vi.fn(() => Promise.reject(readOnly)) }));
+    await expect(writeAuditLogFromEvent(db, sampleEvent('evt_locked01'))).rejects.toBe(readOnly);
+  });
 });
 
 describe('audit log descriptions', () => {

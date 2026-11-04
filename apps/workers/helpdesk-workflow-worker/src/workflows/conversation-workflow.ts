@@ -112,7 +112,7 @@ function describeTriggers(triggers: unknown): string {
     .join(', ');
 }
 
-function workflowMatches(
+export function workflowMatches(
   wf: { id: string; triggers: unknown },
   params: ConversationWorkflowParams,
 ): boolean {
@@ -435,14 +435,15 @@ export class ConversationWorkflow extends WorkflowEntrypoint<Env, ConversationWo
   // --------------------------------------------------------------------
 
   private async waitForCustomerResponse(ec: ExecutionContext, wfStep: WorkflowStepDef, i: number): Promise<void> {
-    const { step, workflow, stepResults, variables } = ec;
+    const { step, workflow, event, stepResults, variables } = ec;
 
-    // Update execution state
+    // Update execution state. The instance id stays in the context: /respond
+    // finds this run by it (instances are created with a generated id).
     await step.do(`pause-${workflow.id}-${i}`, () => this.updateExecution(ec, {
       status: 'waiting_for_input',
       currentStepIndex: i + 1,
       currentStepId: wfStep.id,
-      executionContext: { stepResults, variables, waitingStepId: wfStep.id },
+      executionContext: { cfInstanceId: event.instanceId, stepResults, variables, waitingStepId: wfStep.id },
       updatedAt: new Date(),
     }));
 

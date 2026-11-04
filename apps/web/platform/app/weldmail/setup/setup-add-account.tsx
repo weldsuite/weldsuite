@@ -369,11 +369,11 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
           {label}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent aria-describedby={undefined} className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {accountType !== 'select' && (
-              <Button
+              <Button aria-label={t.common.actions.back}
                 type="button"
                 variant="ghost"
                 size="icon"

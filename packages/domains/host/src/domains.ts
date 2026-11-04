@@ -33,9 +33,11 @@ import {
   isDefiniteStripeFailure,
 } from '@weldsuite/stripe';
 import {
+  externalDomainVerificationRecord,
   isExternalDomainRegistrar,
   MAX_CHECKOUT_DOMAINS,
   toPublicDomain,
+  type DomainVerificationRecord,
 } from '@weldsuite/core-api-client/schemas/domains';
 import { asText } from '@weldsuite/text';
 
@@ -500,7 +502,20 @@ export async function abandonUnpaidDomains(
 
 export interface ExternalDomainResult {
   domain: typeof schema.hostDomains.$inferSelect;
-  verificationRecord: { name: string; type: 'TXT'; value: string };
+  verificationRecord: DomainVerificationRecord;
+}
+
+/**
+ * The TXT record an external domain still has to publish, or null once it is
+ * verified (it has a Cloudflare zone) or is not an external domain at all.
+ */
+export function pendingVerificationRecord(
+  domain: Pick<typeof schema.hostDomains.$inferSelect, 'fullDomain' | 'registrar' | 'nameserverVerificationToken'>,
+  zone: Pick<typeof schema.hostDnsZones.$inferSelect, 'provider' | 'deletedAt'> | null | undefined,
+): DomainVerificationRecord | null {
+  if (!isExternalDomainRegistrar(domain.registrar)) return null;
+  if (!domain.nameserverVerificationToken || (zone?.provider === 'cloudflare' && !zone.deletedAt)) return null;
+  return externalDomainVerificationRecord(domain.fullDomain, domain.nameserverVerificationToken);
 }
 
 export async function addExternalDomain(
@@ -522,8 +537,6 @@ export async function addExternalDomain(
   const tld = parts.slice(1).join('.') || 'com';
   const id = generateId('dom');
   const token = crypto.randomUUID().replaceAll('-', '');
-  const verificationValue = `weldhost-verify=${token}`;
-  const verificationName = `_weldhost-verify.${domainName}`;
 
   await db.insert(hostDomains).values({
     id,
@@ -548,7 +561,7 @@ export async function addExternalDomain(
     ok: true,
     result: {
       domain: domain!,
-      verificationRecord: { name: verificationName, type: 'TXT', value: verificationValue },
+      verificationRecord: externalDomainVerificationRecord(domainName, token),
     },
   };
 }
@@ -615,8 +628,9 @@ export async function verifyOwnershipAndCreateZone(
 
   if (!domain.nameserverVerificationToken) return { ok: false, reason: 'missing_token' };
 
-  const expected = `weldhost-verify=${domain.nameserverVerificationToken}`;
-  const recordName = `_weldhost-verify.${domain.fullDomain}`;
+  const expectedRecord = externalDomainVerificationRecord(domain.fullDomain, domain.nameserverVerificationToken);
+  const expected = expectedRecord.value;
+  const recordName = expectedRecord.name;
 
   let records: string[];
   try {
@@ -630,7 +644,7 @@ export async function verifyOwnershipAndCreateZone(
     return {
       ok: false,
       reason: 'txt_not_found',
-      details: { expected: { name: recordName, type: 'TXT', value: expected }, found: records },
+      details: { expected: expectedRecord, found: records },
     };
   }
 

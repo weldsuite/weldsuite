@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import type { MeetingClient } from '../types';
 import {
   createInitialToolsState,
+  createLocalMeetingToolsStore,
   filterBreakoutParticipants,
   getMeetingToolsStore,
   type MeetingToolsState,
@@ -12,9 +13,15 @@ const EMPTY_STATE = createInitialToolsState();
 const getEmptyState = () => EMPTY_STATE;
 const subscribeToNothing = () => () => {};
 
-/** The shared tools store of the meeting, or null before a client exists. */
-export function useMeetingToolsStore(meeting: MeetingClient | null): MeetingToolsStore | null {
-  return useMemo(() => (meeting ? getMeetingToolsStore(meeting) : null), [meeting]);
+/**
+ * The shared tools store of the meeting, or null before a client exists.
+ * With `local` and no meeting (a phone call), a store for this viewer only.
+ */
+export function useMeetingToolsStore(meeting: MeetingClient | null, local = false): MeetingToolsStore | null {
+  return useMemo(() => {
+    if (meeting) return getMeetingToolsStore(meeting);
+    return local ? createLocalMeetingToolsStore() : null;
+  }, [meeting, local]);
 }
 
 export function useMeetingToolsState(store: MeetingToolsStore | null): MeetingToolsState {

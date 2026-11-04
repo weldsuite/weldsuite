@@ -239,3 +239,73 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
     throw cachedMasterError;
   }
 }
+
+/**
+ * pglite-backed shared PERSONAL database (`DATABASE_URL_PERSONAL`, ADR
+ * DATA-011): the `personal_*` tables personal-api reads and writes, built
+ * from `drizzle/personal-migrations` as journaled. A cache slot of its own,
+ * beside the tenant and master helpers. Conformance mode serves it to the
+ * Rust server as the test's database (`ctx.tenantDb`): personal-api has no
+ * tenant, and its suites hand the personal database in that slot.
+ */
+let cachedPersonal: { db: unknown; close: () => Promise<void> } | null = null;
+let cachedPersonalError: Error | null = null;
+
+export async function createPersonalPgliteDb(): Promise<{ db: any; close: () => Promise<void> }> {
+  if (cachedPersonal) return cachedPersonal;
+  if (cachedPersonalError) throw cachedPersonalError;
+
+  try {
+    const [{ PGlite }, drizzlePg, personalSchemaModule, fs, path, url] = await Promise.all([
+      import('@electric-sql/pglite'),
+      import('drizzle-orm/pglite'),
+      import('@weldsuite/db/schema/personal'),
+      import('node:fs/promises'),
+      import('node:path'),
+      import('node:url'),
+    ]);
+
+    const client = new PGlite();
+    const db = drizzlePg.drizzle(client, { schema: personalSchemaModule });
+
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const migrationsDir = path.resolve(here, '../../../db/drizzle/personal-migrations');
+    const journal = JSON.parse(
+      await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const files = [...journal.entries].sort((a, b) => a.idx - b.idx).map((entry) => `${entry.tag}.sql`);
+
+    for (const file of files) {
+      const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');
+      const statements = raw
+        .split(/-->\s*statement-breakpoint/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const stmt of statements) {
+        try {
+          await client.exec(stmt);
+        } catch (err) {
+          const msg = (err as Error).message;
+          if (/already exists/i.test(msg) || /does not exist/i.test(msg)) continue;
+          throw new Error(
+            `pglite failed on personal migration ${file}: ${msg}\nStatement: ${stmt.slice(0, 200)}…`,
+          );
+        }
+      }
+    }
+
+    // Conformance mode serves it to the Rust server like the tenant database.
+    clients.set(db, client);
+    cachedPersonal = {
+      db,
+      close: async () => {
+        await client.close();
+        cachedPersonal = null;
+      },
+    };
+    return cachedPersonal;
+  } catch (err) {
+    cachedPersonalError = err instanceof Error ? err : new Error(String(err));
+    throw cachedPersonalError;
+  }
+}

@@ -12,6 +12,8 @@ export interface ChannelFeatureFlags {
   attachmentsEnabled: boolean;
   reactionsEnabled: boolean;
   slowModeSeconds: number;
+  /** An archived channel is read-only: nothing new is posted in it. */
+  isArchived: boolean;
 }
 
 export async function getChannelFeatureFlags(
@@ -24,6 +26,7 @@ export async function getChannelFeatureFlags(
       attachmentsEnabled: chatChannels.attachmentsEnabled,
       reactionsEnabled: chatChannels.reactionsEnabled,
       slowModeSeconds: chatChannels.slowModeSeconds,
+      isArchived: chatChannels.isArchived,
     })
     .from(chatChannels)
     .where(and(eq(chatChannels.id, channelId), isNull(chatChannels.deletedAt)))
@@ -35,6 +38,7 @@ export async function getChannelFeatureFlags(
     attachmentsEnabled: row.attachmentsEnabled ?? true,
     reactionsEnabled: row.reactionsEnabled ?? true,
     slowModeSeconds: row.slowModeSeconds ?? 0,
+    isArchived: row.isArchived ?? false,
   };
 }
 

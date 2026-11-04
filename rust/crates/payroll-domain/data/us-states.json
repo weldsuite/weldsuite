@@ -1,0 +1,647 @@
+{
+ "AK": {
+  "code": "AK",
+  "name": "Alaska",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ },
+ "AZ": {
+  "code": "AZ",
+  "name": "Arizona",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "A-4",
+   "usesAllowances": false,
+   "fields": [
+    {
+     "key": "withholding_percent",
+     "type": "select",
+     "options": [
+      "0.5",
+      "1.0",
+      "1.5",
+      "2.0",
+      "2.5",
+      "3.0",
+      "3.5"
+     ],
+     "required": true,
+     "labelKey": "AZ.withholding_percent"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "AZ.extraWithholding"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "AZ.exempt"
+    }
+   ]
+  }
+ },
+ "CA": {
+  "code": "CA",
+  "name": "California",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "DE 4",
+   "filingStatuses": [
+    "single",
+    "married",
+    "head_of_household"
+   ],
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "filingStatus",
+     "type": "select",
+     "options": [
+      "single",
+      "married",
+      "head_of_household"
+     ],
+     "required": true,
+     "labelKey": "CA.filingStatus"
+    },
+    {
+     "key": "allowances",
+     "type": "number",
+     "labelKey": "CA.allowances"
+    },
+    {
+     "key": "estimated_deduction_allowances",
+     "type": "number",
+     "labelKey": "CA.estimated_deduction_allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "CA.extraWithholding"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "CA.exempt"
+    },
+    {
+     "key": "military_spouse_exempt",
+     "type": "boolean",
+     "labelKey": "CA.military_spouse_exempt"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "ca_ett",
+    "labelKey": "employer_rate.ca_ett",
+    "defaultPercent": 0.1
+   }
+  ]
+ },
+ "CO": {
+  "code": "CO",
+  "name": "Colorado",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "DR 0004",
+   "usesAllowances": false,
+   "fields": [
+    {
+     "key": "withholding_allowance",
+     "type": "money",
+     "labelKey": "CO.withholding_allowance"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "CO.extraWithholding"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "co_famli_employee",
+    "labelKey": "employer_rate.co_famli_employee",
+    "defaultPercent": 0.44
+   }
+  ]
+ },
+ "FL": {
+  "code": "FL",
+  "name": "Florida",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ },
+ "GA": {
+  "code": "GA",
+  "name": "Georgia",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "G-4",
+   "filingStatuses": [
+    "single",
+    "married_both_working",
+    "married_one_working",
+    "head_of_household"
+   ],
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "filingStatus",
+     "type": "select",
+     "options": [
+      "single",
+      "married_both_working",
+      "married_one_working",
+      "head_of_household"
+     ],
+     "required": true,
+     "labelKey": "GA.filingStatus"
+    },
+    {
+     "key": "dependent_allowances",
+     "type": "number",
+     "labelKey": "GA.dependent_allowances"
+    },
+    {
+     "key": "adjustment_allowances",
+     "type": "number",
+     "labelKey": "GA.adjustment_allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "GA.extraWithholding"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "GA.exempt"
+    },
+    {
+     "key": "military_spouse_exempt",
+     "type": "boolean",
+     "labelKey": "GA.military_spouse_exempt"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "ga_admin_assessment",
+    "labelKey": "employer_rate.ga_admin_assessment",
+    "defaultPercent": 0.06
+   }
+  ]
+ },
+ "IL": {
+  "code": "IL",
+  "name": "Illinois",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "IL-W-4",
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "allowances",
+     "type": "number",
+     "labelKey": "IL.allowances"
+    },
+    {
+     "key": "additional_allowances",
+     "type": "number",
+     "labelKey": "IL.additional_allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "IL.extraWithholding"
+    }
+   ]
+  }
+ },
+ "MA": {
+  "code": "MA",
+  "name": "Massachusetts",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "M-4",
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "allowances",
+     "type": "number",
+     "required": true,
+     "labelKey": "MA.allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "MA.extraWithholding"
+    },
+    {
+     "key": "head_of_household",
+     "type": "boolean",
+     "labelKey": "MA.head_of_household"
+    },
+    {
+     "key": "blind",
+     "type": "boolean",
+     "labelKey": "MA.blind"
+    },
+    {
+     "key": "spouse_blind",
+     "type": "boolean",
+     "labelKey": "MA.spouse_blind"
+    },
+    {
+     "key": "full_time_student",
+     "type": "boolean",
+     "labelKey": "MA.full_time_student"
+    },
+    {
+     "key": "military_spouse_exempt",
+     "type": "boolean",
+     "labelKey": "MA.military_spouse_exempt"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "ma_covid_recovery",
+    "labelKey": "employer_rate.ma_covid_recovery"
+   },
+   {
+    "code": "ma_wtf",
+    "labelKey": "employer_rate.ma_wtf",
+    "defaultPercent": 0.056
+   },
+   {
+    "code": "ma_emac",
+    "labelKey": "employer_rate.ma_emac"
+   },
+   {
+    "code": "ma_pfml_employee",
+    "labelKey": "employer_rate.ma_pfml_employee",
+    "defaultPercent": 0.46
+   }
+  ]
+ },
+ "NC": {
+  "code": "NC",
+  "name": "North Carolina",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "NC-4",
+   "filingStatuses": [
+    "single",
+    "married",
+    "head_of_household"
+   ],
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "filingStatus",
+     "type": "select",
+     "options": [
+      "single",
+      "married",
+      "head_of_household"
+     ],
+     "required": true,
+     "labelKey": "NC.filingStatus"
+    },
+    {
+     "key": "allowances",
+     "type": "number",
+     "labelKey": "NC.allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "NC.extraWithholding"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "NC.exempt"
+    },
+    {
+     "key": "military_spouse_exempt",
+     "type": "boolean",
+     "labelKey": "NC.military_spouse_exempt"
+    }
+   ]
+  }
+ },
+ "NH": {
+  "code": "NH",
+  "name": "New Hampshire",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ },
+ "NJ": {
+  "code": "NJ",
+  "name": "New Jersey",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "NJ-W4",
+   "filingStatuses": [
+    "single",
+    "married_joint",
+    "married_separate",
+    "head_of_household",
+    "qualifying_widow"
+   ],
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "filingStatus",
+     "type": "select",
+     "options": [
+      "single",
+      "married_joint",
+      "married_separate",
+      "head_of_household",
+      "qualifying_widow"
+     ],
+     "required": true,
+     "labelKey": "NJ.filingStatus"
+    },
+    {
+     "key": "rate_table",
+     "type": "select",
+     "options": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+     ],
+     "labelKey": "NJ.rate_table"
+    },
+    {
+     "key": "allowances",
+     "type": "number",
+     "labelKey": "NJ.allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "NJ.extraWithholding"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "NJ.exempt"
+    },
+    {
+     "key": "nj165_pa_resident",
+     "type": "boolean",
+     "labelKey": "NJ.nj165_pa_resident"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "nj_employer_tdi",
+    "labelKey": "employer_rate.nj_employer_tdi",
+    "defaultPercent": 0.5
+   },
+   {
+    "code": "nj_wf_swf",
+    "labelKey": "employer_rate.nj_wf_swf",
+    "defaultPercent": 0.1175
+   },
+   {
+    "code": "nj_tdi_employee",
+    "labelKey": "employer_rate.nj_tdi_employee",
+    "defaultPercent": 0.19
+   },
+   {
+    "code": "nj_fli_employee",
+    "labelKey": "employer_rate.nj_fli_employee",
+    "defaultPercent": 0.23
+   }
+  ]
+ },
+ "NV": {
+  "code": "NV",
+  "name": "Nevada",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null,
+  "employerRateCodes": [
+   {
+    "code": "nv_cep",
+    "labelKey": "employer_rate.nv_cep",
+    "defaultPercent": 0.05
+   }
+  ]
+ },
+ "NY": {
+  "code": "NY",
+  "name": "New York",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "IT-2104",
+   "filingStatuses": [
+    "single",
+    "married",
+    "married_higher_single"
+   ],
+   "usesAllowances": true,
+   "fields": [
+    {
+     "key": "filingStatus",
+     "type": "select",
+     "options": [
+      "single",
+      "married",
+      "married_higher_single"
+     ],
+     "required": true,
+     "labelKey": "NY.filingStatus"
+    },
+    {
+     "key": "allowances",
+     "type": "number",
+     "labelKey": "NY.allowances"
+    },
+    {
+     "key": "extraWithholding",
+     "type": "money",
+     "labelKey": "NY.extraWithholding"
+    },
+    {
+     "key": "nyc_resident",
+     "type": "boolean",
+     "labelKey": "NY.nyc_resident"
+    },
+    {
+     "key": "yonkers_resident",
+     "type": "boolean",
+     "labelKey": "NY.yonkers_resident"
+    },
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "NY.exempt"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "ny_rsf",
+    "labelKey": "employer_rate.ny_rsf",
+    "defaultPercent": 0.075
+   },
+   {
+    "code": "ny_pfl_employee",
+    "labelKey": "employer_rate.ny_pfl_employee",
+    "defaultPercent": 0.432
+   },
+   {
+    "code": "ny_dbl_employee",
+    "labelKey": "employer_rate.ny_dbl_employee",
+    "defaultPercent": 0.5
+   }
+  ]
+ },
+ "PA": {
+  "code": "PA",
+  "name": "Pennsylvania",
+  "hasIncomeTax": true,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "REV-419",
+   "usesAllowances": false,
+   "fields": [
+    {
+     "key": "exempt",
+     "type": "boolean",
+     "labelKey": "PA.exempt"
+    }
+   ]
+  }
+ },
+ "SD": {
+  "code": "SD",
+  "name": "South Dakota",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null,
+  "employerRateCodes": [
+   {
+    "code": "sd_investment_fee",
+    "labelKey": "employer_rate.sd_investment_fee",
+    "defaultPercent": 0.55
+   },
+   {
+    "code": "sd_admin_fee",
+    "labelKey": "employer_rate.sd_admin_fee"
+   }
+  ]
+ },
+ "TN": {
+  "code": "TN",
+  "name": "Tennessee",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ },
+ "TX": {
+  "code": "TX",
+  "name": "Texas",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ },
+ "WA": {
+  "code": "WA",
+  "name": "Washington",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": {
+   "formName": "WA Cares exemption",
+   "usesAllowances": false,
+   "fields": [
+    {
+     "key": "wa_cares_exempt",
+     "type": "boolean",
+     "labelKey": "WA.wa_cares_exempt"
+    }
+   ]
+  },
+  "employerRateCodes": [
+   {
+    "code": "wa_eaf",
+    "labelKey": "employer_rate.wa_eaf",
+    "defaultPercent": 0.03
+   },
+   {
+    "code": "wa_pfml_employee",
+    "labelKey": "employer_rate.wa_pfml_employee",
+    "defaultPercent": 0.807159
+   }
+  ]
+ },
+ "WY": {
+  "code": "WY",
+  "name": "Wyoming",
+  "hasIncomeTax": false,
+  "supportedYears": [
+   2026
+  ],
+  "certificate": null
+ }
+}

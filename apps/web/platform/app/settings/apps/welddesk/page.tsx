@@ -1,6 +1,5 @@
-import { ArrowUpRight, BookOpen, Info, Mail, MessagesSquare, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, Mail, MessagesSquare, Phone, Shuffle, Tags, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
-import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
 
 interface DeskSettingsLink {
@@ -11,33 +10,45 @@ interface DeskSettingsLink {
   description: string;
 }
 
+interface DeskSettingsSection {
+  id: string;
+  title: string;
+  links: DeskSettingsLink[];
+}
+
+// Each WeldDesk settings page lives under this one: /settings/apps/welddesk/<id>.
+function deskLink(id: string, icon: LucideIcon, title: string, description: string): DeskSettingsLink {
+  return { id, href: `/settings/apps/welddesk/${id}`, icon, title, description };
+}
+
 export default function HelpdeskSettingsPage() {
   const ts = getTranslations('settings');
   const td = ts.welddesk;
 
-  // These settings live in the WeldDesk app, not here. Each row says so and
-  // links out, rather than pretending to be a settings screen.
-  const links: DeskSettingsLink[] = [
+  // Grouped the way the settings menu lists them.
+  const sections: DeskSettingsSection[] = [
     {
-      id: 'chat-widget',
-      href: '/welddesk/chat-widget',
-      icon: MessagesSquare,
-      title: td.chatWidgetTitle,
-      description: td.chatWidgetDescription,
+      id: 'channels',
+      title: td.sections.channels,
+      links: [
+        deskLink('chat-widget', MessagesSquare, td.chatWidgetTitle, td.chatWidgetDescription),
+        deskLink('email', Mail, td.emailTitle, td.emailDescription),
+        deskLink('phone', Phone, td.phoneTitle, td.phoneDescription),
+        deskLink('help-center', BookOpen, td.helpCenterTitle, td.helpCenterDescription),
+      ],
     },
     {
-      id: 'email',
-      href: '/welddesk/email',
-      icon: Mail,
-      title: td.emailTitle,
-      description: td.emailDescription,
+      id: 'ai',
+      title: td.sections.ai,
+      links: [deskLink('voice-agents', Bot, td.voiceAgentsTitle, td.voiceAgentsDescription)],
     },
     {
-      id: 'help-center',
-      href: '/welddesk/help-center',
-      icon: BookOpen,
-      title: td.helpCenterTitle,
-      description: td.helpCenterDescription,
+      id: 'tickets',
+      title: td.sections.ticketsRouting,
+      links: [
+        deskLink('ticket-types', Tags, td.ticketTypesTitle, td.ticketTypesDescription),
+        deskLink('assignment', Shuffle, td.assignmentTitle, td.assignmentDescription),
+      ],
     },
   ];
 
@@ -48,33 +59,27 @@ export default function HelpdeskSettingsPage() {
         <p className="text-muted-foreground">{td.description}</p>
       </div>
 
-      <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        <p className="min-w-0">{td.leavingNotice}</p>
-      </div>
-
-      <ul className="divide-y rounded-lg border">
-        {links.map((link) => (
-          <li
-            key={link.id}
-            className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex min-w-0 items-start gap-3">
-              <link.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="font-medium">{link.title}</p>
-                <p className="text-sm text-muted-foreground">{link.description}</p>
-              </div>
-            </div>
-            <Button asChild variant="outline" size="sm" className="shrink-0 self-start sm:self-center">
-              <Link href={link.href} aria-label={`${td.openInWeldDesk}: ${link.title}`}>
-                {td.openInWeldDesk}
-                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {sections.map((section) => (
+        <section key={section.id} aria-labelledby={`welddesk-settings-${section.id}`} className="space-y-2">
+          <h2 id={`welddesk-settings-${section.id}`} className="text-sm font-medium text-muted-foreground">
+            {section.title}
+          </h2>
+          <ul className="divide-y rounded-lg border">
+            {section.links.map((link) => (
+              <li key={link.id}>
+                <Link href={link.href} className="flex items-center gap-3 p-4 transition-colors hover:bg-muted/50">
+                  <link.icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{link.title}</span>
+                    <span className="block text-sm text-muted-foreground">{link.description}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

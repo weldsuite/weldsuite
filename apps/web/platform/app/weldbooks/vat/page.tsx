@@ -8,15 +8,6 @@ import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi, type IcpDeclaration } from '@/lib/api/domains/weldbooks';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +32,17 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { isFeatureAvailable } from '@/lib/edition';
+import type { TranslationsType } from '@weldsuite/i18n/types';
+import {
+  lastFinishedPeriod,
+  periodBounds,
+  periodIssue,
+  periodLabel as labelOfPeriod,
+  type ReturnPeriod,
+  type ReturnPeriodType,
+} from './return-periods';
+import { ReturnPeriodFields } from './components/return-period-fields';
 
 interface VatReturnRow {
   id: string;
@@ -52,6 +54,26 @@ interface VatReturnRow {
   rubrieken?: Record<string, number> | null;
 }
 
+/** Box 5g: red only when there is VAT to pay, green for a refund; nothing to pay stays neutral. */
+function totalTone(r5g: number): string {
+  if (r5g > 0) return 'text-red-600';
+  if (r5g < 0) return 'text-green-600';
+  return '';
+}
+
+/** Why the typed-in dates can't be filed, or null. */
+function periodErrorText(
+  tv: TranslationsType['accounting']['vat'],
+  type: ReturnPeriodType,
+  start: string,
+  end: string,
+): string | null {
+  const issue = periodIssue(type, start, end);
+  if (issue === 'reversed') return tv.invalidPeriod;
+  if (issue === 'notWhole') return tv.periodNotWhole[type];
+  return null;
+}
+
 export default function VatReturnsPage() {
   const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   const { features, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
@@ -61,14 +83,15 @@ export default function VatReturnsPage() {
   // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
   const { open: openPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldbooks/vat');
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const st = useTranslations();
   const tv = t.accounting.vat;
   const tslVat = { ...t.accounting.vat.statuses, ...t.accounting.statusLabels.vatReturn };
   const { entityId } = useCurrentAccountingEntity();
   const [showDialog, setShowDialog] = useState(false);
   const [dialogMode, setDialogMode] = useState<'vat' | 'icp'>('vat');
-  const [periodType, setPeriodType] = useState('quarterly');
+  const [periodType, setPeriodType] = useState<ReturnPeriodType>('quarterly');
+  const [period, setPeriod] = useState<ReturnPeriod>(() => lastFinishedPeriod('quarterly', new Date()));
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
   const [periodLabel, setPeriodLabel] = useState('');
@@ -149,10 +172,22 @@ export default function VatReturnsPage() {
   };
   const periodRange = (start: string | null, end: string | null) => `${formatDate(start)} — ${formatDate(end)}`;
 
+  // Picking a month, quarter or year fills in its dates and label; the dates stay editable.
+  const applyPeriod = (type: ReturnPeriodType, next: ReturnPeriod) => {
+    const bounds = periodBounds(type, next);
+    setPeriodType(type);
+    setPeriod(next);
+    setPeriodStart(bounds.start);
+    setPeriodEnd(bounds.end);
+    setPeriodLabel(labelOfPeriod(type, next, language));
+  };
+
+  const periodError = periodErrorText(tv, periodType, periodStart, periodEnd);
+
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
-    if (periodEnd < periodStart) {
-      toast.error(tv.invalidPeriod);
+    if (periodError) {
+      toast.error(periodError);
       return;
     }
     if (dialogMode === 'icp' && !showIcp) {
@@ -187,10 +222,12 @@ export default function VatReturnsPage() {
 
   const openVatDialog = () => {
     setDialogMode('vat');
+    applyPeriod(periodType, lastFinishedPeriod(periodType, new Date()));
     setShowDialog(true);
   };
   const openIcpDialog = () => {
     setDialogMode('icp');
+    applyPeriod(periodType, lastFinishedPeriod(periodType, new Date()));
     setShowDialog(true);
   };
 
@@ -225,9 +262,7 @@ export default function VatReturnsPage() {
       width: 'w-[130px]',
       render: (vr) => {
         const r5g = vr.rubrieken?.r5g ?? 0;
-        return (
-          <RowAmount className={`font-medium ${r5g >= 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(r5g)}</RowAmount>
-        );
+        return <RowAmount className={`font-medium ${totalTone(r5g)}`}>{fmt(r5g)}</RowAmount>;
       },
     },
     {
@@ -264,9 +299,11 @@ export default function VatReturnsPage() {
       render: (d) =>
         d.status === 'calculated' || d.status === 'reviewed' ? (
           <>
-            <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
-              {tv.icpFile}
-            </Button>
+            {isFeatureAvailable('vat-digipoort') ? (
+              <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
+                {tv.icpFile}
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="ghost"
@@ -338,40 +375,23 @@ export default function VatReturnsPage() {
           <DialogHeader>
             <DialogTitle>{dialogMode === 'icp' ? tv.icpNew : tv.calculateReturn}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>{tv.periodType}</Label>
-              <Select value={periodType} onValueChange={setPeriodType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">{tv.periodTypes.monthly}</SelectItem>
-                  <SelectItem value="quarterly">{tv.periodTypes.quarterly}</SelectItem>
-                  <SelectItem value="yearly">{tv.periodTypes.annual}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{tv.periodStart}</Label>
-                <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>{tv.periodEnd}</Label>
-                <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{tv.periodLabel}</Label>
-              <Input placeholder={tv.periodLabelPlaceholder} value={periodLabel} onChange={(e) => setPeriodLabel(e.target.value)} />
-            </div>
-          </div>
+          <ReturnPeriodFields
+            periodType={periodType}
+            period={period}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            periodLabel={periodLabel}
+            periodError={periodError}
+            onPick={applyPeriod}
+            onStartChange={setPeriodStart}
+            onEndChange={setPeriodEnd}
+            onLabelChange={setPeriodLabel}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDialog(false)}>{tv.cancel}</Button>
             <Button
               onClick={handleCalculate}
-              disabled={!periodStart || !periodEnd || calculateMutation.isPending || calculateIcp.isPending}
+              disabled={!periodStart || !periodEnd || Boolean(periodError) || calculateMutation.isPending || calculateIcp.isPending}
             >
               {calculateMutation.isPending || calculateIcp.isPending ? tv.calculating : tv.calculate}
             </Button>

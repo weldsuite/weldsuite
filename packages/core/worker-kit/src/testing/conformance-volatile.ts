@@ -19,6 +19,18 @@ export interface VolatileField {
   pattern?: RegExp;
   /** What a match becomes (default `<volatile>`). */
   replacement?: string;
+  /**
+   * Compare the value decoded instead of masking it: `base64-json` is a
+   * base64 JSON string (Telnyx's `client_state`), whose new ids are then
+   * normalised like any other.
+   */
+  decode?: 'base64-json';
+  /**
+   * Compare an array in a stable order instead of masking it: its items
+   * sorted by these keys (dot paths into each item). For rows a route
+   * orders by a value that differs between the two runs by construction.
+   */
+  sortBy?: string[];
 }
 
 interface VolatileRoute {
@@ -30,9 +42,75 @@ interface VolatileRoute {
    * `ENTITY_EVENTS` message it sends (`data.duration`).
    */
   events?: VolatileField[];
+  /** The same in each third-party call it makes: dot paths into `{ method, url, body }`. */
+  outbound?: VolatileField[];
+  /** A body that is not JSON (an XML download): the matches of each pattern. */
+  text?: Array<{ pattern: RegExp; replacement: string }>;
+  /**
+   * And where it announces them to realtime rooms: dot paths into each
+   * publish, `{ path, body }` (`body.data.duration`).
+   */
+  realtime?: VolatileField[];
 }
 
+/** A desk phone tool token (`Bearer <claims>.<signature>`) at `path`. */
+/** A connector connection id (`generateId('conn')`) inside a string. */
+const CONNECTOR_ID = /conn_[0-9a-z]{16}/g;
+
+function toolToken(path: string): VolatileField {
+  return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
+}
+
+/**
+ * WeldMeet: ending a session stamps its duration, the seconds from its start
+ * to the moment each backend ended it, so it differs when the runs straddle
+ * a second. Every route that can end one announces it.
+ */
+const MEET_SESSION_DURATION = { fields: [], realtime: [{ path: 'body.data.duration' }] };
+
 const ROUTES: VolatileRoute[] = [
+  // The public API's client_credentials grant: a fresh `wsat_` token per run.
+  { method: 'POST', route: '/v1/oauth/token', fields: [{ path: 'access_token' }] },
+  // The CLI's OAuth client: a fresh client id (new client) and secret per run.
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/oauth-client',
+    fields: [{ path: 'data.clientId', pattern: /wac_[0-9a-f]{24}/g, replacement: 'wac_<volatile>' }, { path: 'data.clientSecret' }],
+  },
+  // A version's bundle lives under its new id (`user-apps/<app>/<version>`).
+  {
+    method: 'POST',
+    route: '/v1/user-apps/:id/versions',
+    fields: [{ path: 'data.bundleKey', pattern: /uav_[0-9a-z]+/g, replacement: '<id>' }],
+  },
+  // The public API's database check answers with the time it ran.
+  { method: 'GET', route: '/v1/health/db', fields: [{ path: 'data.timestamp' }] },
+  // An order without a number gets `ORD-<Date.now() base36>-<4 random>`.
+  {
+    method: 'POST',
+    route: '/v1/orders',
+    fields: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+    events: [{ path: 'data.orderNumber', pattern: /^ORD-[0-9A-Z]+-[0-9A-Z]{4}$/g, replacement: 'ORD-<volatile>' }],
+  },
+  // A media asset without a storage path is filed under its new id.
+  {
+    method: 'POST',
+    route: '/v1/social-media',
+    fields: [{ path: 'data.storagePath', pattern: /smed_[0-9a-z]+/g, replacement: '<id>' }],
+  },
+  // WeldConnect: the GitHub App install link carries a state signed with the
+  // current second and a random nonce.
+  {
+    method: 'GET',
+    route: '/api/workflow-github/install-url',
+    fields: [{ path: 'data.url', pattern: /state=[^&]+/g, replacement: 'state=<volatile>' }],
+  },
+  // A project sync's run id ends with the current minute.
+  {
+    method: 'POST',
+    route: '/api/github-project-links/:id/sync',
+    fields: [{ path: 'data.runId', pattern: /-\d+$/g, replacement: '-<minute>' }],
+  },
   // WeldApps: a signed bundle link (`/s/<exp>.<workspace>.<sig>/`) carries its
   // expiry in seconds, so it differs when the runs straddle a second.
   {
@@ -68,6 +146,39 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // WeldAds' Facebook OAuth start: a fresh state (`crypto.randomUUID()`) per run.
+  {
+    method: 'POST',
+    route: '/api/ad-connections/facebook/authorize',
+    fields: [
+      { path: 'data.state' },
+      { path: 'data.authorizeUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' },
+    ],
+  },
+  // WeldConnect's connector authorisation: a fresh state per run (Moneybird's
+  // and Stripe's random state, WooCommerce's signed `user_id`, which carries
+  // its expiry second and the pending connection's id).
+  {
+    method: 'POST',
+    route: '/api/connectors/authorize',
+    fields: [{ path: 'data.authorizeUrl', pattern: /(state|user_id)=[^&]+/g, replacement: '$1=<volatile>' }],
+  },
+  // Connecting registers the store's webhooks with a fresh random secret
+  // (WooCommerce, Picqer); so does finishing a WooCommerce authorisation.
+  // The delivery URL names the new connection.
+  ...['/api/connectors/connect', '/api/integrations/woocommerce-auth', '/webhooks/woocommerce/auth', '/api/connectors/oauth/callback', '/api/connectors/connections/:id/select-account'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.connection.externalAccountId', pattern: CONNECTOR_ID, replacement: 'conn_<id>' }],
+    outbound: [
+      { path: 'body.secret' },
+      ...['body.delivery_url', 'body.address', 'body.url', 'body.webhook.address'].map((path) => ({
+        path,
+        pattern: CONNECTOR_ID,
+        replacement: 'conn_<id>',
+      })),
+    ],
+  })),
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
@@ -80,6 +191,33 @@ const ROUTES: VolatileRoute[] = [
   { method: 'POST', route: '/public/helpdesk-widget/api/visitor', fields: [{ path: 'data.visitorToken' }] },
   // The widget worker's health check stamps the time it answered.
   { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
+  // WeldStash numbers its pick lists, putaway tasks and transfers from
+  // `Date.now()` in base 36 (`PL-…`, `PUT-…`, `TRF-…-<id>`), new per run.
+  { method: 'POST', route: '/api/pick-lists', fields: [{ path: 'data.pickListNumber' }] },
+  {
+    method: 'POST',
+    route: '/api/pick-lists/generate',
+    fields: [{ path: 'data.pickListNumber' }],
+    events: [{ path: 'data.pickListNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/putaway',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/inventory/transfer',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  // The activity summary's period ends now and starts N days before.
+  {
+    method: 'GET',
+    route: '/api/wms-activity/summary',
+    fields: [{ path: 'data.startDate' }, { path: 'data.endDate' }],
+  },
   // WeldFlow's timer: a stopped entry's duration is the minutes since it
   // started, to two decimals (`minutesBetween`), so it ticks every 0.6 s and
   // the two runs can straddle a tick. The whole minutes are still compared,
@@ -97,9 +235,160 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldCommerce: a webhook's drawn signing secret (`whksec_` + 32 random
+  // characters), and how long its test delivery took.
+  {
+    method: 'POST',
+    route: '/api/parcel-notifications/webhooks',
+    fields: [{ path: 'data.secret', pattern: /^whksec_[A-Za-z0-9]{32}$/g, replacement: 'whksec_<volatile>' }],
+  },
+  { method: 'POST', route: '/api/parcel-notifications/webhooks/:id/test', fields: [{ path: 'data.responseTimeMs' }] },
+  // `Date.now()` in base 36 plus random characters (`ORD-…-XXXX`, `RMA-…-XXXX`).
+  { method: 'POST', route: '/api/orders', events: [{ path: 'data.orderNumber' }], fields: [] },
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/orders',
+    fields: [{ path: 'data.orderNumber' }],
+    events: [{ path: 'data.orderNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/returns',
+    fields: [{ path: 'data.returnNumber' }],
+    events: [{ path: 'data.returnNumber' }],
+  },
+  // The order portal's buyer session and company-picker tokens: 32 random bytes per run.
+  {
+    method: 'POST',
+    route: '/public/commerce-portal/auth/verify',
+    fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
+  },
+  { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // WeldMeet's instant meeting reports how long each step took (and leaves the
+  // user's other sessions, which can end one).
+  {
+    method: 'POST',
+    route: '/api/meetings/start-instant',
+    fields: [{ path: 'data.timings' }],
+    realtime: MEET_SESSION_DURATION.realtime,
+  },
+  { method: 'GET', route: '/api/meeting-sessions/active', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/start', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/join', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/leave', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/end', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/meeting-sessions/:id/participants/remove', ...MEET_SESSION_DURATION },
+  { method: 'POST', route: '/api/webhooks/cloudflare-realtime', ...MEET_SESSION_DURATION },
+  // The legacy recording backfill reports why a workspace failed in each
+  // backend's own words (a workspace whose database can't be opened).
+  {
+    method: 'POST',
+    route: '/api/webhooks/cloudflare-realtime/backfill-recordings',
+    fields: [{ path: 'results.0.error' }],
+  },
+  // WeldBooks: the exchange rates are stamped with the moment they were answered.
+  { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
+  // WeldCall: a voice agent's Telnyx assistant carries a tool token that
+  // expires a day from the current second (and names the new call).
+  ...['/api/desk/phone/agents', '/api/desk/phone/agents/:id'].map((route) => ({
+    method: route.endsWith(':id') ? 'PATCH' : 'POST',
+    route,
+    fields: [],
+    outbound: [toolToken('body.tools.1.webhook.headers.0.value')],
+  })),
+  // The Telnyx webhook routes an inbound call: its Call Control requests carry
+  // the new call and conversation ids in base64 JSON (`client_state`), and
+  // the voice agent's tool token.
+  {
+    method: 'POST',
+    route: '/public/webhooks/telnyx',
+    fields: [],
+    outbound: [
+      { path: 'body.client_state', decode: 'base64-json' },
+      toolToken('body.assistant.tools.1.webhook.headers.0.value'),
+    ],
+  },
+  // WeldBooks VAT: a Digipoort filing reference (`WS-<Date.now() base 36>-<6 random>`) per run,
+  // the moment a status was asked, and the creation time inside an XBRL message built on request.
+  { method: 'POST', route: '/api/vat-returns/:id/file', fields: [{ path: 'data.kenmerk' }] },
+  { method: 'POST', route: '/api/icp-declarations/:id/file', fields: [{ path: 'data.kenmerk' }] },
+  { method: 'GET', route: '/api/vat-returns/:id/filing-status', fields: [{ path: 'data.timestamp' }] },
+  ...['/api/vat-returns/:id/xml', '/api/icp-declarations/:id/xml'].map((route) => ({
+    method: 'GET',
+    route,
+    fields: [],
+    text: [{ pattern: /<bd-i:DateTimeCreation contextRef="Msg">[^<]*</g, replacement: '<bd-i:DateTimeCreation contextRef="Msg"><volatile><' }],
+  })),
+  // WeldBooks Brazil: a Focus webhook registration draws a URL token and a secret (32 random bytes each).
+  {
+    method: 'PUT',
+    route: '/api/fiscal-documents/settings',
+    fields: [{ path: 'data.webhookUrl', pattern: /\/fiscal-webhooks\/[\w-]{43}$/g, replacement: '/fiscal-webhooks/<token>' }],
+    outbound: [
+      { path: 'body.url', pattern: /\/fiscal-webhooks\/[\w-]{43}$/g, replacement: '/fiscal-webhooks/<token>' },
+      { path: 'body.authorization' },
+    ],
+  },
+  // WeldBooks reports: a print document (`?format=print`) is stamped with the moment it was built.
+  ...[
+    'profit-loss',
+    'balance-sheet',
+    'trial-balance',
+    'aged-receivables',
+    'aged-payables',
+    'vat-summary',
+    'general-ledger',
+    'cash-flow',
+    'revenue-by-customer',
+    'expense-by-category',
+    'tax-worksheet',
+  ].map((report) => ({ method: 'GET', route: `/api/accounting-reports/${report}`, fields: [{ path: 'data.generatedAt' }] })),
+  // A new 1099 filing answers its lines ordered by (created_at, id). They are
+  // inserted in one statement, so they share created_at, and their ids are
+  // random per run: the two runs list the same lines in different orders (as
+  // TypeScript does from run to run). Compared in recipient order instead: a
+  // new filing has one line per recipient.
+  { method: 'POST', route: '/api/form-1099/filings', fields: [{ path: 'data.lines', sortBy: ['partyId'] }] },
+  // WeldSheets: a new workbook's tab ids are random (`sh_` and 16 hex digits), so its
+  // gzipped first checkpoint, whose size the drive file's event carries,
+  // compresses a byte or two differently per run.
+  ...['/api/sheets', '/api/sheets/import', '/api/sheets/convert'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [],
+    events: [{ path: 'data.fileSize' }],
+  })),
 ];
 
+/** The value at a dot path, as text for ordering. */
+function sortKey(item: unknown, path: string): string {
+  let value: unknown = item;
+  for (const segment of path.split('.')) {
+    value = value && typeof value === 'object' ? (value as Record<string, unknown>)[segment] : undefined;
+  }
+  return JSON.stringify(value) ?? '';
+}
+
 function mask(value: unknown, field: VolatileField): unknown {
+  if (field.sortBy) {
+    if (!Array.isArray(value)) return value;
+    const keys = field.sortBy;
+    return [...value].sort((a, b) => {
+      for (const key of keys) {
+        const order = sortKey(a, key).localeCompare(sortKey(b, key));
+        if (order !== 0) return order;
+      }
+      return 0;
+    });
+  }
+  if (field.decode === 'base64-json' && typeof value === 'string') {
+    try {
+      return JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as unknown;
+    } catch {
+      return value;
+    }
+  }
   if (field.pattern && typeof value === 'string') return value.replace(field.pattern, field.replacement ?? '<volatile>');
   return `<volatile:${value === null ? 'null' : typeof value}>`;
 }
@@ -131,9 +420,30 @@ export function maskVolatile(method: string, route: string | null, body: unknown
   return entry.fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), body);
 }
 
+/** The request's third-party calls with the route's volatile values masked. */
+export function maskVolatileOutbound<T>(method: string, route: string | null, calls: T[]): T[] {
+  const fields = entryFor(method, route)?.outbound;
+  if (!fields?.length) return calls;
+  return calls.map((call) => fields.reduce<unknown>((masked, field) => maskAt(masked, field.path.split('.'), field), call) as T);
+}
+
+/** A non-JSON body with the route's volatile parts masked; null for a route without text masks. */
+export function maskVolatileText(method: string, route: string | null, text: string): string | null {
+  const patterns = entryFor(method, route)?.text;
+  if (!patterns?.length) return null;
+  return patterns.reduce((masked, { pattern, replacement }) => masked.replace(pattern, replacement), text);
+}
+
 /** The request's entity events with the route's volatile values masked. */
 export function maskVolatileEvents(method: string, route: string | null, events: unknown[]): unknown[] {
   const fields = entryFor(method, route)?.events;
   if (!fields?.length) return events;
   return events.map((event) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), event));
+}
+
+/** The request's realtime publishes with the route's volatile values masked. */
+export function maskVolatileRealtime(method: string, route: string | null, publishes: unknown[]): unknown[] {
+  const fields = entryFor(method, route)?.realtime;
+  if (!fields?.length) return publishes;
+  return publishes.map((publish) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), publish));
 }

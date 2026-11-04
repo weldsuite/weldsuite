@@ -313,18 +313,31 @@ function batchMailOf(env: Env, opts: SendOptions, transport: EmailTransport): Ba
   };
 }
 
-/** The attendees to mail: skips blank addresses and the organizer's own inbox (legacy parity). */
+/**
+ * The attendees to mail: everyone with an address. The organizer is only on
+ * the list when they added themselves as a guest, and then they get their own
+ * copy (TASK-1071).
+ */
 function recipientsOf(opts: SendOptions): Recipient[] {
-  const { organizer } = opts;
-  return opts.attendees.filter(
-    (a): a is Recipient => !!a.email && a.email.toLowerCase() !== organizer.email?.toLowerCase(),
-  );
+  return opts.attendees.filter((a): a is Recipient => !!a.email);
+}
+
+/** True when `email` is the organizer's own address. */
+function isOrganizer(opts: SendOptions, email: string): boolean {
+  return !!opts.organizer.email && email.toLowerCase() === opts.organizer.email.toLowerCase();
 }
 
 /** Mail one attendee their copy, with the event as an ICS attachment. Throws when the send fails. */
 async function sendAttendeeMail(opts: SendOptions, batch: BatchMail, email: string): Promise<void> {
   const { kind, event, organizer } = opts;
-  const { method, sequence, zone, meetingUrl } = batch;
+  const { sequence, zone, meetingUrl } = batch;
+
+  // The organizer's own copy is published rather than requested: a REQUEST
+  // that invites you to your own meeting makes Outlook and Gmail ask you to
+  // RSVP to yourself, a PUBLISH just puts the event in your calendar. A
+  // cancellation stays a CANCEL so the client removes it.
+  const ownCopy = isOrganizer(opts, email);
+  const method = ownCopy && batch.method === 'REQUEST' ? 'PUBLISH' : batch.method;
 
   // External guests have no account: the authenticated calendar is a dead
   // end for them, so only members get that link.
@@ -344,7 +357,7 @@ async function sendAttendeeMail(opts: SendOptions, batch: BatchMail, email: stri
     allDay: event.allDay ?? undefined,
     timezone: zone,
     organizer: organizer.email ? { email: organizer.email, name: organizer.name } : undefined,
-    attendees: [{ email }],
+    attendees: method === 'PUBLISH' ? [] : [{ email }],
     url: meetingUrl ?? eventUrl,
     meetingUrl,
     product: 'WeldCalendar',
@@ -394,7 +407,7 @@ async function settleReservation(
  * Send one calendar mail per attendee.
  *
  * No-ops when the worker has no email transport configured (`workerTransport`)
- * or there are no attendees. The organizer is never mailed their own event.
+ * or there are no attendees. An organizer on their own guest list gets a copy.
  * The batch goes through the outbound guard first; if it refuses, nothing is
  * sent. Each send is isolated: one bad address does not stop the rest, and
  * nothing here throws to the caller.

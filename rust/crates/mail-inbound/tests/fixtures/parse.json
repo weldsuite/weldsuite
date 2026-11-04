@@ -1,0 +1,765 @@
+[
+  {
+    "name": "adapter-plain",
+    "raw": "RnJvbTogU2VuZGVyIDxzZW5kZXJAZXhhbXBsZS5jb20+DQpUbzogUmVjaXBpZW50IDxyZWNpcGllbnRAZXhhbXBsZS5jb20+DQpTdWJqZWN0OiBIZWxsbw0KTWVzc2FnZS1JRDogPGFiYzEyM0BleGFtcGxlLmNvbT4NCg0KQm9keSB0ZXh0Lg0K",
+    "envelopeTo": [
+      "recipient@example.com"
+    ],
+    "email": {
+      "messageId": "<abc123@example.com>",
+      "from": {
+        "email": "sender@example.com",
+        "name": "Sender"
+      },
+      "to": [
+        {
+          "email": "recipient@example.com",
+          "name": "Recipient"
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "recipient@example.com"
+      ],
+      "subject": "Hello",
+      "textBody": "Body text.\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "Sender <sender@example.com>"
+        ],
+        [
+          "to",
+          "Recipient <recipient@example.com>"
+        ],
+        [
+          "subject",
+          "Hello"
+        ],
+        [
+          "message-id",
+          "<abc123@example.com>"
+        ]
+      ],
+      "receivedAt": "<now>",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "alternative-qp-encoded-words",
+    "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgud2VsZHN1aXRlLnRlc3Q7IHNwZj1wYXNzIHNtdHAubWFpbGZyb209am9yZ0BwYXJ0bmVyLnRlc3Q7IGRraW09cGFzcyBoZWFkZXIuZD1wYXJ0bmVyLnRlc3Q7IGRtYXJjPXBhc3MgaGVhZGVyLmZyb209cGFydG5lci50ZXN0DQpGcm9tOiA9P0lTTy04ODU5LTE/UT9KPUY2cmdfTT1GQ2xsZXI/PSA8am9yZ0BwYXJ0bmVyLnRlc3Q+DQpUbzogIkluYm94LCBBY21lIiA8aW5ib3hAYWNtZS50ZXN0Piwgb3BzQGFjbWUudGVzdA0KQ2M6IEFubiA8YW5uQGFjbWUudGVzdD4sICJCb2IgQi4iIDxib2JAYWNtZS50ZXN0Pg0KUmVwbHktVG86IENvbGxlY3RvciA8Y29sbGVjdG9yQGVsc2V3aGVyZS50ZXN0Pg0KU3ViamVjdDogPT9VVEYtOD9CP1VtVTZJRVBEdEhURHFRPT0/PSA9P1VURi04P1E/X2R1X2x1bmRpPz0NCkRhdGU6IFR1ZSwgMjcgT2N0IDIwMjYgMDk6MTU6MDAgKzAxMDAgKENFVCkNCk1lc3NhZ2UtSUQ6IDxhbHQtMUBwYXJ0bmVyLnRlc3Q+DQpJbi1SZXBseS1UbzogPHJvb3RAYWNtZS50ZXN0Pg0KUmVmZXJlbmNlczogPHJvb3RAYWNtZS50ZXN0Pg0KIDxzZWNvbmRAcGFydG5lci50ZXN0Pg0KTUlNRS1WZXJzaW9uOiAxLjANCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L2FsdGVybmF0aXZlOyBib3VuZGFyeT0iYjEiDQoNCnByZWFtYmxlDQotLWIxDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTgNCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IHF1b3RlZC1wcmludGFibGUNCg0KQ2FmPUMzPUE5IGF1IGxhaXQgPQ0KYW5kIG1vcmUNCi0tYjENCkNvbnRlbnQtVHlwZTogdGV4dC9odG1sOyBjaGFyc2V0PXV0Zi04DQpDb250ZW50LVRyYW5zZmVyLUVuY29kaW5nOiBxdW90ZWQtcHJpbnRhYmxlDQoNCjxwPkNhZj1DMz1BOSA8Yj5hdTwvYj4gbGFpdDwvcD48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+DQotLWIxLS0NCmVwaWxvZ3VlDQo=",
+    "envelopeTo": [
+      "inbox@acme.test",
+      "bcc-only@acme.test"
+    ],
+    "email": {
+      "messageId": "<alt-1@partner.test>",
+      "from": {
+        "email": "jorg@partner.test",
+        "name": "Jörg Müller"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": "Inbox, Acme"
+        },
+        {
+          "email": "ops@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [
+        {
+          "email": "ann@acme.test",
+          "name": "Ann"
+        },
+        {
+          "email": "bob@acme.test",
+          "name": "Bob B."
+        }
+      ],
+      "envelopeTo": [
+        "inbox@acme.test",
+        "bcc-only@acme.test"
+      ],
+      "subject": "Re: Côté du lundi",
+      "textBody": "Café au lait and more\n",
+      "htmlBody": "<p>Caf&#xe9; <b>au</b> lait</p>\n",
+      "headers": [
+        [
+          "authentication-results",
+          "mx.weldsuite.test; spf=pass smtp.mailfrom=jorg@partner.test; dkim=pass header.d=partner.test; dmarc=pass header.from=partner.test"
+        ],
+        [
+          "from",
+          "=?ISO-8859-1?Q?J=F6rg_M=FCller?= <jorg@partner.test>"
+        ],
+        [
+          "to",
+          "\"Inbox, Acme\" <inbox@acme.test>, ops@acme.test"
+        ],
+        [
+          "cc",
+          "Ann <ann@acme.test>, \"Bob B.\" <bob@acme.test>"
+        ],
+        [
+          "reply-to",
+          "Collector <collector@elsewhere.test>"
+        ],
+        [
+          "subject",
+          "=?UTF-8?B?UmU6IEPDtHTDqQ==?= =?UTF-8?Q?_du_lundi?="
+        ],
+        [
+          "date",
+          "Tue, 27 Oct 2026 09:15:00 +0100 (CET)"
+        ],
+        [
+          "message-id",
+          "<alt-1@partner.test>"
+        ],
+        [
+          "in-reply-to",
+          "<root@acme.test>"
+        ],
+        [
+          "references",
+          "<root@acme.test> <second@partner.test>"
+        ],
+        [
+          "mime-version",
+          "1.0"
+        ],
+        [
+          "content-type",
+          "multipart/alternative; boundary=\"b1\""
+        ]
+      ],
+      "receivedAt": "2026-10-27T08:15:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": "<root@acme.test>",
+      "references": [
+        "<root@acme.test>",
+        "<second@partner.test>"
+      ],
+      "spfStatus": "pass",
+      "dkimStatus": "pass",
+      "dmarcStatus": "pass"
+    },
+    "attachments": []
+  },
+  {
+    "name": "mixed-related-attachments",
+    "raw": "QXV0aGVudGljYXRpb24tUmVzdWx0czogbXgud2VsZHN1aXRlLnRlc3Q7IHNwZj1zb2Z0ZmFpbCBzbXRwLm1haWxmcm9tPXhAYmFkLnRlc3Q7IGRraW09ZmFpbCBoZWFkZXIuZD1iYWQudGVzdDsgZG1hcmM9ZmFpbCBoZWFkZXIuZnJvbT1iYWQudGVzdA0KQXV0aGVudGljYXRpb24tUmVzdWx0czogb3RoZXIudGVzdDsgc3BmPXBhc3MNCkZyb206IEJpbGxpbmcgPGJpbGxpbmdAdmVuZG9yLnRlc3Q+DQpUbzogaW5ib3hAYWNtZS50ZXN0DQpTdWJqZWN0OiBJbnZvaWNlIDQyDQpEYXRlOiAyMDI2LTEwLTI4VDEwOjAwOjAwWg0KTWVzc2FnZS1JRDogPG1peGVkLTFAdmVuZG9yLnRlc3Q+DQpDb250ZW50LVR5cGU6IG11bHRpcGFydC9taXhlZDsgYm91bmRhcnk9Im91dGVyIg0KDQotLW91dGVyDQpDb250ZW50LVR5cGU6IG11bHRpcGFydC9yZWxhdGVkOyBib3VuZGFyeT0icmVsIg0KDQotLXJlbA0KQ29udGVudC1UeXBlOiB0ZXh0L2h0bWw7IGNoYXJzZXQ9InVzLWFzY2lpIg0KDQo8aHRtbD48Ym9keT48aW1nIHNyYz0iY2lkOmxvZ28wMDFAdmVuZG9yIj48cD5TZWUgYXR0YWNoZWQgJmFtcDsgcGF5LjwvcD48L2JvZHk+PC9odG1sPg0KLS1yZWwNCkNvbnRlbnQtVHlwZTogaW1hZ2UvcG5nOyBuYW1lPSJsb2dvLnBuZyINCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NA0KQ29udGVudC1JRDogPGxvZ28wMDFAdmVuZG9yPg0KQ29udGVudC1EaXNwb3NpdGlvbjogaW5saW5lOyBmaWxlbmFtZT0ibG9nby5wbmciDQoNCmlWQk9SdzBLR2dvPQ0KLS1yZWwtLQ0KLS1vdXRlcg0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9vY3RldC1zdHJlYW0NCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NA0KQ29udGVudC1EaXNwb3NpdGlvbjogYXR0YWNobWVudDsgZmlsZW5hbWUqPVVURi04JydmYWN0dXVyJTIwbnIlQzIlQkE0Mi5wZGYNCg0KSlZCRVJpMHhMalFLDQpKU1ZGVDBZSw0KLS1vdXRlcg0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi94LW1zZG93bmxvYWQ7IG5hbWU9InNldHVwLmV4ZSINCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NA0KDQpUVnFRDQotLW91dGVyLS0NCg==",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<mixed-1@vendor.test>",
+      "from": {
+        "email": "billing@vendor.test",
+        "name": "Billing"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Invoice 42",
+      "textBody": null,
+      "htmlBody": "<html><body><img src=\"cid:logo001@vendor\"><p>See attached &amp; pay.</p></body></html>\n",
+      "headers": [
+        [
+          "authentication-results",
+          "other.test; spf=pass"
+        ],
+        [
+          "from",
+          "Billing <billing@vendor.test>"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "Invoice 42"
+        ],
+        [
+          "date",
+          "2026-10-28T10:00:00Z"
+        ],
+        [
+          "message-id",
+          "<mixed-1@vendor.test>"
+        ],
+        [
+          "content-type",
+          "multipart/mixed; boundary=\"outer\""
+        ]
+      ],
+      "receivedAt": "2026-10-28T10:00:00.000Z",
+      "hasAttachments": true,
+      "attachmentCount": 3,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": "softfail",
+      "dkimStatus": "fail",
+      "dmarcStatus": "fail"
+    },
+    "attachments": [
+      {
+        "fileName": "logo.png",
+        "contentType": "image/png",
+        "content": "iVBORw0KGgo=",
+        "contentId": "<logo001@vendor>"
+      },
+      {
+        "fileName": "factuur nrº42.pdf",
+        "contentType": "application/octet-stream",
+        "content": "JVBERi0xLjQKJSVFT0YK",
+        "contentId": null
+      },
+      {
+        "fileName": "setup.exe",
+        "contentType": "application/x-msdownload",
+        "content": "TVqQ",
+        "contentId": null
+      }
+    ]
+  },
+  {
+    "name": "html-only",
+    "raw": "RnJvbTogIlNob3AiIDxuZXdzQHNob3AudGVzdD4NClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFN1bW1lciBTQUxFOiAzMCUgb2ZmIGV2ZXJ5dGhpbmcNCkRhdGU6IFdlZCwgMjggT2N0IDIwMjYgMDg6MDA6MDAgR01UDQpNZXNzYWdlLUlEOiA8cHJvbW8tMUBzaG9wLnRlc3Q+DQpMaXN0LVVuc3Vic2NyaWJlOiA8bWFpbHRvOnVuc3ViQHNob3AudGVzdD9zdWJqZWN0PXVuc3Vic2NyaWJlPiwgPGh0dHBzOi8vc2hvcC50ZXN0L3U/aWQ9MT4NCkxpc3QtVW5zdWJzY3JpYmUtUG9zdDogTGlzdC1VbnN1YnNjcmliZT1PbmUtQ2xpY2sNCkxpc3QtSWQ6IFNob3AgTmV3cyA8bmV3cy5zaG9wLnRlc3Q+DQpQcmVjZWRlbmNlOiBidWxrDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbDsgY2hhcnNldD11dGYtOA0KDQo8IURPQ1RZUEUgaHRtbD48aHRtbD48aGVhZD48dGl0bGU+eDwvdGl0bGU+PC9oZWFkPjxib2R5Pg0KPGgxPkJpZyAmYW1wOyBib2xkICZlYWN1dGU7dCZlYWN1dGU7ICYjODM2NDs1PC9oMT48YnI+PHVsPjxsaT4gb25lPC9saT48bGk+dHdvPC9saT48L3VsPg0KPGEgaHJlZj0iaHR0cHM6Ly9zaG9wLnRlc3QvYSI+U2hvcCBub3c8L2E+IDxocj4gVW5zdWJzY3JpYmUgPCEtLSBub3RlIC0tPg0KPC9ib2R5PjwvaHRtbD4NCg==",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<promo-1@shop.test>",
+      "from": {
+        "email": "news@shop.test",
+        "name": "Shop"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Summer SALE: 30% off everything",
+      "textBody": null,
+      "htmlBody": "<html><body>\n<h1>Big &amp; bold &#xe9;t&#xe9; &#x20ac;5</h1><br><ul><li> one</li><li>two</li></ul>\n<a href=\"https://shop.test/a\">Shop now</a> <hr> Unsubscribe \n</body></html>\n",
+      "headers": [
+        [
+          "from",
+          "\"Shop\" <news@shop.test>"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "Summer SALE: 30% off everything"
+        ],
+        [
+          "date",
+          "Wed, 28 Oct 2026 08:00:00 GMT"
+        ],
+        [
+          "message-id",
+          "<promo-1@shop.test>"
+        ],
+        [
+          "list-unsubscribe",
+          "<mailto:unsub@shop.test?subject=unsubscribe>, <https://shop.test/u?id=1>"
+        ],
+        [
+          "list-unsubscribe-post",
+          "List-Unsubscribe=One-Click"
+        ],
+        [
+          "list-id",
+          "Shop News <news.shop.test>"
+        ],
+        [
+          "precedence",
+          "bulk"
+        ],
+        [
+          "content-type",
+          "text/html; charset=utf-8"
+        ]
+      ],
+      "receivedAt": "2026-10-28T08:00:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "latin1-8bit-folded",
+    "raw": "RnJvbTogPT9pc28tODg1OS0xP3E/QW5kcj1FOT89IDxhbmRyZUBwYXJ0bmVyLnRlc3Q+DQpUbzogaW5ib3hAYWNtZS50ZXN0DQpTdWJqZWN0OiBBIGxvbmcgc3ViamVjdCB0aGF0IHdhcw0KCWZvbGRlZCBvdmVyIHR3byBsaW5lcw0KRGF0ZTogVGh1LCAyOSBPY3QgMjYgMDc6MDA6MDAgRVNUDQpNZXNzYWdlLUlEOiA8bGF0aW4tMUBwYXJ0bmVyLnRlc3Q+DQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9SVNPLTg4NTktMQ0KQ29udGVudC1UcmFuc2Zlci1FbmNvZGluZzogOGJpdA0KDQpWb2ls4CwgZOlq4CB2dS4NCg==",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<latin-1@partner.test>",
+      "from": {
+        "email": "andre@partner.test",
+        "name": "André"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "A long subject that was folded over two lines",
+      "textBody": "Voilà, déjà vu.\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "=?iso-8859-1?q?Andr=E9?= <andre@partner.test>"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "A long subject that was folded over two lines"
+        ],
+        [
+          "date",
+          "Thu, 29 Oct 26 07:00:00 EST"
+        ],
+        [
+          "message-id",
+          "<latin-1@partner.test>"
+        ],
+        [
+          "content-type",
+          "text/plain; charset=ISO-8859-1"
+        ],
+        [
+          "content-transfer-encoding",
+          "8bit"
+        ]
+      ],
+      "receivedAt": "2026-10-29T12:00:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "no-message-id-no-date",
+    "raw": "RnJvbTogc29tZW9uZUBub3doZXJlLnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IChubyBpZCkNCg0KaGkNCg==",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<random>",
+      "from": {
+        "email": "someone@nowhere.test",
+        "name": ""
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "(no id)",
+      "textBody": "hi\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "someone@nowhere.test"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "(no id)"
+        ]
+      ],
+      "receivedAt": "<now>",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "invalid-date",
+    "raw": "RnJvbTogYUBiLnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6IFpvbmUNCkRhdGU6IE1vbiwgMjYgT2N0IDIwMjYgMTI6MDA6MDAgQ0VTVA0KTWVzc2FnZS1JRDogPHpvbmVAYi50ZXN0Pg0KDQp4",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<zone@b.test>",
+      "from": {
+        "email": "a@b.test",
+        "name": ""
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Zone",
+      "textBody": "x\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "a@b.test"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "Zone"
+        ],
+        [
+          "date",
+          "Mon, 26 Oct 2026 12:00:00 CEST"
+        ],
+        [
+          "message-id",
+          "<zone@b.test>"
+        ]
+      ],
+      "receivedAt": "<now>",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "flowed-and-calendar",
+    "raw": "RnJvbTogQ2FsIDxjYWxAcGFydG5lci50ZXN0Pg0KVG86IGluYm94QGFjbWUudGVzdA0KU3ViamVjdDogSW52aXRhdGlvbg0KRGF0ZTogRnJpLCAzMCBPY3QgMjAyNiAxNjo0NToxMiAtMDcwMA0KTWVzc2FnZS1JRDogPGNhbC0xQHBhcnRuZXIudGVzdD4NCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L21peGVkOyBib3VuZGFyeT1taXhlZA0KDQotLW1peGVkDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTg7IGZvcm1hdD1mbG93ZWQ7IGRlbHNwPXllcw0KDQpUaGlzIGxpbmUgaXMgc29mdC0gDQp3cmFwcGVkIGFuZCANCiBzdHVmZmVkLg0KLS0gDQpzaWcNCi0tbWl4ZWQNCkNvbnRlbnQtVHlwZTogdGV4dC9jYWxlbmRhcjsgbWV0aG9kPXJlcXVlc3Q7IGNoYXJzZXQ9dXRmLTgNCg0KQkVHSU46VkNBTEVOREFSDQpFTkQ6VkNBTEVOREFSDQoNCg0KLS1taXhlZC0t",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<cal-1@partner.test>",
+      "from": {
+        "email": "cal@partner.test",
+        "name": "Cal"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Invitation",
+      "textBody": "This line is soft-wrapped and stuffed.\n-- \nsig\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "Cal <cal@partner.test>"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "Invitation"
+        ],
+        [
+          "date",
+          "Fri, 30 Oct 2026 16:45:12 -0700"
+        ],
+        [
+          "message-id",
+          "<cal-1@partner.test>"
+        ],
+        [
+          "content-type",
+          "multipart/mixed; boundary=mixed"
+        ]
+      ],
+      "receivedAt": "2026-10-30T23:45:12.000Z",
+      "hasAttachments": true,
+      "attachmentCount": 1,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": [
+      {
+        "fileName": "attachment",
+        "contentType": "text/calendar",
+        "content": "QkVHSU46VkNBTEVOREFSCkVORDpWQ0FMRU5EQVIK",
+        "contentId": null
+      }
+    ]
+  },
+  {
+    "name": "inline-rfc822-forward",
+    "raw": "RnJvbTogRndkIDxmd2RAYWNtZS50ZXN0Pg0KVG86IGluYm94QGFjbWUudGVzdA0KU3ViamVjdDogRndkOiBPcmlnaW5hbA0KRGF0ZTogU2F0LCAzMSBPY3QgMjAyNiAxMTowMDowMCArMDAwMA0KTWVzc2FnZS1JRDogPGZ3ZC0xQGFjbWUudGVzdD4NCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L21peGVkOyBib3VuZGFyeT1tMg0KDQotLW0yDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW4NCg0KU2VlIGJlbG93Lg0KLS1tMg0KQ29udGVudC1UeXBlOiBtZXNzYWdlL3JmYzgyMg0KDQpGcm9tOiBPcmlnIDxvcmlnQHBhcnRuZXIudGVzdD4NClRvOiBmd2RAYWNtZS50ZXN0DQpTdWJqZWN0OiBPcmlnaW5hbA0KRGF0ZTogRnJpLCAzMCBPY3QgMjAyNiAxMDowMDowMCArMDAwMA0KDQpUaGUgb3JpZ2luYWwgYm9keS4NCi0tbTItLQ0K",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<fwd-1@acme.test>",
+      "from": {
+        "email": "fwd@acme.test",
+        "name": "Fwd"
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Fwd: Original",
+      "textBody": "See below.\n\n\n---------------------------------\nFrom:    Orig <orig@partner.test>\nSubject: Original\nDate:    10/30/2026, 10:00:00\nTo:      fwd@acme.test\n---------------------------------\n\nThe original body.\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "Fwd <fwd@acme.test>"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "Fwd: Original"
+        ],
+        [
+          "date",
+          "Sat, 31 Oct 2026 11:00:00 +0000"
+        ],
+        [
+          "message-id",
+          "<fwd-1@acme.test>"
+        ],
+        [
+          "content-type",
+          "multipart/mixed; boundary=m2"
+        ]
+      ],
+      "receivedAt": "2026-10-31T11:00:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "groups-and-odd-addresses",
+    "raw": "RnJvbTogc3VwcG9ydEB3ZWxkbWFpbC50ZXN0IDxldmlsQHBoaXNoLnRlc3Q+DQpUbzogVW5kaXNjbG9zZWQgcmVjaXBpZW50czo7DQpUbzogVGVhbTogYUBhY21lLnRlc3QsICJCIiA8YkBhY21lLnRlc3Q+OywgcGxhaW5AYWNtZS50ZXN0IChQbGFpbiBQZXJzb24pDQpDYzogPT91dGYtOD9CP3c2bDB3Nms9Pz0gPGV0ZUBhY21lLnRlc3Q+DQpTdWJqZWN0OiBGaXJzdCBzdWJqZWN0DQpTdWJqZWN0OiBTZWNvbmQgc3ViamVjdCB3aW5zDQpEYXRlOiBTdW4sIDEgTm92IDIwMjYgMDA6MDA6MDAgKzAwMDANCk1lc3NhZ2UtSUQ6IDxncm91cHNAcGhpc2gudGVzdD4NCg0KVmlzaXQgaHR0cDovL2JpdC5seS9hYmMgYW5kIGh0dHBzOi8vYS50ZXN0IGh0dHBzOi8vYi50ZXN0IGh0dHBzOi8vYy50ZXN0IGh0dHBzOi8vZC50ZXN0",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<groups@phish.test>",
+      "from": {
+        "email": "evil@phish.test",
+        "name": "support@weldmail.test"
+      },
+      "to": [
+        {
+          "email": "unknown@unknown.com",
+          "name": "Team"
+        },
+        {
+          "email": "plain@acme.test",
+          "name": "Plain Person"
+        },
+        {
+          "email": "unknown@unknown.com",
+          "name": "Undisclosed recipients"
+        }
+      ],
+      "cc": [
+        {
+          "email": "ete@acme.test",
+          "name": "été"
+        }
+      ],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "Second subject wins",
+      "textBody": "Visit http://bit.ly/abc and https://a.test https://b.test https://c.test https://d.test\n",
+      "htmlBody": null,
+      "headers": [
+        [
+          "from",
+          "support@weldmail.test <evil@phish.test>"
+        ],
+        [
+          "to",
+          "Team: a@acme.test, \"B\" <b@acme.test>;, plain@acme.test (Plain Person)"
+        ],
+        [
+          "cc",
+          "=?utf-8?B?w6l0w6k=?= <ete@acme.test>"
+        ],
+        [
+          "subject",
+          "Second subject wins"
+        ],
+        [
+          "date",
+          "Sun, 1 Nov 2026 00:00:00 +0000"
+        ],
+        [
+          "message-id",
+          "<groups@phish.test>"
+        ]
+      ],
+      "receivedAt": "2026-11-01T00:00:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  },
+  {
+    "name": "windows-1252-and-unknown-charset",
+    "raw": "RnJvbTogeEB5LnRlc3QNClRvOiBpbmJveEBhY21lLnRlc3QNClN1YmplY3Q6ID0/eC11bmtub3duP1E/Y2FmPUU5Pz0NCk1lc3NhZ2UtSUQ6IDxjc0B5LnRlc3Q+DQpEYXRlOiBNb24sIDIgTm92IDIwMjYgMTA6MDA6MDAgKzAwMDANCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L2FsdGVybmF0aXZlOyBib3VuZGFyeT16eg0KDQotLXp6DQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9d2luZG93cy0xMjUyDQpDb250ZW50LVRyYW5zZmVyLUVuY29kaW5nOiBxdW90ZWQtcHJpbnRhYmxlDQoNClByaWNlOiA9ODAgNSA9RTkNCi0tenoNCkNvbnRlbnQtVHlwZTogdGV4dC9odG1sOyBjaGFyc2V0PWJvZ3VzLWNoYXJzZXQNCg0KPHA+6XTpPC9wPg0KLS16ei0t",
+    "envelopeTo": [
+      "inbox@acme.test"
+    ],
+    "email": {
+      "messageId": "<cs@y.test>",
+      "from": {
+        "email": "x@y.test",
+        "name": ""
+      },
+      "to": [
+        {
+          "email": "inbox@acme.test",
+          "name": ""
+        }
+      ],
+      "cc": [],
+      "envelopeTo": [
+        "inbox@acme.test"
+      ],
+      "subject": "café",
+      "textBody": "Price: € 5 é\n",
+      "htmlBody": "<p>&#xe9;t&#xe9;</p>\n",
+      "headers": [
+        [
+          "from",
+          "x@y.test"
+        ],
+        [
+          "to",
+          "inbox@acme.test"
+        ],
+        [
+          "subject",
+          "=?x-unknown?Q?caf=E9?="
+        ],
+        [
+          "message-id",
+          "<cs@y.test>"
+        ],
+        [
+          "date",
+          "Mon, 2 Nov 2026 10:00:00 +0000"
+        ],
+        [
+          "content-type",
+          "multipart/alternative; boundary=zz"
+        ]
+      ],
+      "receivedAt": "2026-11-02T10:00:00.000Z",
+      "hasAttachments": false,
+      "attachmentCount": 0,
+      "inReplyTo": null,
+      "references": null,
+      "spfStatus": null,
+      "dkimStatus": null,
+      "dmarcStatus": null
+    },
+    "attachments": []
+  }
+]

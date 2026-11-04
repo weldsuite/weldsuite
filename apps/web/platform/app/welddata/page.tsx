@@ -104,7 +104,7 @@ export default function WelddataFindLeadsPage() {
       </aside>
 
       {/* Results */}
-      <main className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 flex flex-col">
         <div className="flex-1 min-h-0">
           <WelddataSearchGrid
             // Remount on kind change to reset the grid; the toolbar carries the
@@ -141,7 +141,7 @@ export default function WelddataFindLeadsPage() {
             }
           />
         </div>
-      </main>
+      </div>
     </div>
   );
 }

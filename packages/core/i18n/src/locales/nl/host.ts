@@ -659,6 +659,13 @@ export const host = {
       recordNamePlaceholder: '@ of subdomein',
       ttlSeconds: 'TTL (seconden)',
       priorityOptional: 'Prioriteit (optioneel)',
+      // Extern domein in afwachting — de TXT-eigendomscontrole opnieuw oppakken
+      pendingVerificationTitle: 'Verifieer eigendom van {domain}',
+      pendingVerificationDescription: 'Dit domein wacht op de eigendomscontrole. Voeg dit TXT-record toe bij uw huidige DNS-provider en klik dan op Eigendom verifiëren. DNS-records en nameservers zijn beschikbaar zodra het domein geverifieerd is.',
+      verifyOwnership: 'Eigendom verifiëren',
+      verifyingOwnership: 'Verifiëren…',
+      ownershipVerified: 'Domeineigendom geverifieerd',
+      ownershipVerifyFailed: 'Verificatie mislukt',
     },
 
     // SSL Certificates
@@ -835,6 +842,9 @@ export const host = {
       continue: 'Doorgaan',
       errorEnterDomain: 'Voer een domeinnaam in',
       errorReserveFailed: 'Domein reserveren mislukt',
+      errorInvalidDomain: 'Voer een geldige domeinnaam in, bijvoorbeeld example.com',
+      errorReservedTld: 'Dit domein eindigt op een gereserveerde extensie (.example, .test, .invalid, .localhost of .local) en kan nooit geverifieerd worden',
+      invalidDomain: 'Geen geldig domein',
       // Step 2 — verify ownership
       verifyTitle: 'Domeineigendom verifiëren',
       verifySubtitle: 'Voeg een TXT-record toe bij uw huidige DNS-provider om te bewijzen dat u eigenaar bent van dit domein',

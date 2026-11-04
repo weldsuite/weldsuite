@@ -1,0 +1,18 @@
+[package]
+name = "weldsuite-payroll-domain"
+description = "WeldHR payroll engines (NL and US), pay periods, payment files, filings and payslip documents: @weldsuite/payroll-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+# JSON.parse rounds every number correctly; serde_json does only with this.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+unicode-normalization = { workspace = true }
+
+[lints]
+workspace = true

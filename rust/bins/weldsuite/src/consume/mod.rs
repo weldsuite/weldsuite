@@ -15,9 +15,22 @@
 //!   `max_retries + 1` times, with headers naming the subscriber, the hub
 //!   sequence, the deliveries and the last error.
 //!
-//! The subscribers not ported (analytics, WeldConnect, WeldAgent) have no
+//! The subscribers not ported (analytics, WeldAgent) have no
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
+//!
+//! - **WeldReach sends** `REACH_SEND` (`reach.send`), with
+//!   `REACH_SEND_QUEUE=nats`: `weldsuite cron reach-send-sweep` publishes
+//!   one message per workspace with outreach due; the `reach-send`
+//!   subscriber runs that workspace's send tick (the reach-send queue).
+//!   Dead letters go to `REACH_SEND_DLQ`.
+//! - **The WeldReach warmup network** `REACH_WARMUP` (`reach.warmup.send`,
+//!   `reach.warmup.engage`), with `REACH_WARMUP_QUEUE=nats`:
+//!   `weldsuite cron reach-warmup-dispatch` publishes the warmup messages
+//!   due to be sent or engaged; the `reach-warmup-send` and
+//!   `reach-warmup-engage` subscribers send them over SMTP and engage them
+//!   over IMAP (the reach-warmup-send / -engage queues). Dead letters go to
+//!   `REACH_WARMUP_DLQ`.
 //!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
@@ -43,7 +56,7 @@ use weldsuite_adapters_oss::{
     entity_events_stream_config, run_consumer,
 };
 use weldsuite_db::{PgPool, Workspaces, master_pool};
-use weldsuite_ports::{BatchHandler, DynRealtimePublisher, Embeddings};
+use weldsuite_ports::{BatchHandler, DynFileStore, DynJobs, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
     AuditSubscriber, RealtimeSubscriber, Routed, SearchSubscriber, Subscriber, Tenants,
@@ -52,6 +65,7 @@ use weldsuite_subscribers::{
 };
 
 pub(crate) use config::ConsumeConfig;
+use config::{MAIL_INBOUND, MailInboundConfig, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -132,6 +146,122 @@ pub(crate) fn consumer_spec(sub: &Subscriber, config: &ConsumeConfig) -> Consume
     }
 }
 
+/// How the `mail-inbound` subscriber consumes its stream: one message at a
+/// time per worker (a message can be large and fan out to many
+/// mailboxes), a long acknowledgement window, retries with backoff for a
+/// storage failure, then the dead-letter stream.
+pub(crate) fn mail_inbound_spec(inbound: &MailInboundConfig) -> ConsumerSpec {
+    ConsumerSpec {
+        stream: inbound.stream.clone(),
+        durable: MAIL_INBOUND.to_owned(),
+        description: "WeldSuite inbound mail (mail-inbound-worker in Global, MAIL-010)".to_owned(),
+        filter_subject: inbound.subject.clone(),
+        deliver_new_only: false,
+        max_retries: 10,
+        max_deferrals: 0,
+        retry_backoff: RETRY_BACKOFF.to_vec(),
+        ack_wait: Duration::from_secs(300),
+        batch_size: 1,
+        batch_wait: Duration::from_secs(5),
+        workers: 4,
+        dead_letter_subject: "mail-inbound-dlq".to_owned(),
+        dedupe_capacity: DEDUPE_CAPACITY,
+    }
+}
+
+/// The `mail-inbound` subscriber's ports, built from the shared services.
+fn mail_inbound_handler(
+    inbound: &MailInboundConfig,
+    workspaces: &Arc<Workspaces>,
+    services: &Services,
+    subject_prefix: &str,
+) -> Result<Arc<dyn BatchHandler>, Error> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let spool: Arc<dyn DynFileStore> = Arc::new(weldsuite_adapters_oss::S3FileStore::new(
+        &inbound.mail,
+        client.clone(),
+    )?);
+    let storage: Option<Arc<dyn DynFileStore>> = match &inbound.public {
+        Some(options) => Some(Arc::new(weldsuite_adapters_oss::S3FileStore::new(
+            options, client,
+        )?)),
+        None => None,
+    };
+    let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(15))
+        .ok()
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)));
+    let ctx = weldsuite_mail_inbound::InboundContext {
+        master: workspaces.master().clone(),
+        tenants: Arc::new(weldsuite_mail_inbound::WorkspaceDbs(Arc::clone(workspaces))),
+        storage,
+        public_url: inbound.public_url.clone(),
+        mail_storage: Some(Arc::clone(&spool)),
+        realtime: services.realtime.clone(),
+        events: weldsuite_events::EntityEventPublisher::new(
+            Some(bus),
+            weldsuite_events::TaskTracker::new(),
+        )
+        .with_subject_prefix(subject_prefix),
+        http,
+        fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
+        assignment_router: Some(crate::routes::desk_assignment_router()),
+    };
+    if !ctx.fan_out.books {
+        tracing::info!(
+            "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
+        );
+    }
+    let reach = reach_inbound(inbound, workspaces, &ctx);
+    let mail: Arc<dyn BatchHandler> = Arc::new(weldsuite_mail_inbound::MailInboundSubscriber::new(
+        ctx,
+        Arc::clone(&spool),
+    ));
+    Ok(match reach {
+        Some(reach) => {
+            Arc::new(weldsuite_reach::inbound::ReachInboundRouter { reach, mail, spool })
+        }
+        None => mail,
+    })
+}
+
+/// WeldReach's reply path on `mail.inbound`: `reply+<token>@REACH_INBOUND_DOMAIN`
+/// goes to WeldReach, when the module is served and the domain set.
+fn reach_inbound(
+    inbound: &MailInboundConfig,
+    workspaces: &Arc<Workspaces>,
+    ctx: &weldsuite_mail_inbound::InboundContext,
+) -> Option<weldsuite_reach::inbound::ReachInbound> {
+    let served = weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "reach" && m.rust);
+    let domain = inbound.reach_domain.clone().filter(|_| served)?;
+    tracing::info!(
+        domain,
+        "mail-inbound: WeldReach replies are routed to WeldReach"
+    );
+    let tenants = Arc::clone(workspaces);
+    Some(weldsuite_reach::inbound::ReachInbound {
+        master: workspaces.master().clone(),
+        tenants: Arc::new(move |reference: String| {
+            let tenants = Arc::clone(&tenants);
+            Box::pin(async move {
+                tenants
+                    .tenant(&reference)
+                    .await
+                    .map(|tenant| tenant.db)
+                    .map_err(|error| error.to_string())
+            })
+        }),
+        storage: ctx.storage.clone(),
+        events: ctx.events.clone(),
+        inbound_domain: domain,
+    })
+}
+
 /// What the probes look at.
 #[derive(Clone)]
 struct Probe {
@@ -202,6 +332,7 @@ fn handlers(
     realtime: Option<&Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<&Arc<dyn Embeddings>>,
     http: &WebhookHttp,
+    jobs: Option<&Arc<dyn DynJobs>>,
 ) -> Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> {
     let mut out: Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> = Vec::new();
     for id in &config.subscribers {
@@ -213,6 +344,22 @@ fn handlers(
                 Some(master.clone()),
                 http.clone(),
             )),
+            "weldconnect" => {
+                let Some(jobs) = jobs else {
+                    tracing::warn!(
+                        "RESTATE_INGRESS_URL is not set: the weldconnect subscriber does not run"
+                    );
+                    continue;
+                };
+                let runs: Arc<dyn weldsuite_connect::WorkflowRuns> =
+                    Arc::new(weldsuite_connect::JobsWorkflowRuns {
+                        jobs: Arc::clone(jobs),
+                    });
+                Arc::new(weldsuite_connect::EntityWorkflowsSubscriber::new(
+                    Arc::clone(tenants),
+                    Some(runs),
+                ))
+            }
             "realtime" => {
                 let Some(realtime) = realtime else {
                     tracing::warn!("VALKEY_URL is not set: the realtime subscriber does not run");
@@ -253,6 +400,42 @@ struct Services {
 /// Connects NATS (creating the streams when asked) and Valkey, and builds
 /// the embeddings and webhook clients. A configured service that can't be
 /// reached fails the start, so a broken pod crash-loops visibly.
+/// WeldReach's queue streams, which crons publish to: `REACH_SEND` (the
+/// send sweep) and `REACH_WARMUP` (the warmup dispatch), each with its dead
+/// letters, when one of their subscribers runs. Created or updated with
+/// `ensure_streams`, otherwise only what is missing is created.
+async fn ensure_reach_streams(
+    bus: &JetStreamEventBus,
+    config: &ConsumeConfig,
+) -> Result<(), Error> {
+    let runs = |ids: &[&str]| config.subscribers.iter().any(|s| ids.contains(&s.as_str()));
+    let mut streams = Vec::new();
+    if runs(&[REACH_SEND]) {
+        streams.push(crate::reach::send_stream_config(config.stream_replicas));
+        streams.push(dead_letter_stream_config(
+            crate::reach::SEND_DLQ_STREAM,
+            "reach-send-dlq",
+            config.stream_replicas,
+        ));
+    }
+    if runs(&[REACH_WARMUP_SEND, REACH_WARMUP_ENGAGE]) {
+        streams.push(crate::reach::warmup_stream_config(config.stream_replicas));
+        streams.push(dead_letter_stream_config(
+            crate::reach::WARMUP_DLQ_STREAM,
+            crate::reach::WARMUP_DLQ_SUBJECT,
+            config.stream_replicas,
+        ));
+    }
+    for stream in streams {
+        if config.ensure_streams {
+            bus.context().create_or_update_stream(stream).await?;
+        } else {
+            bus.context().get_or_create_stream(stream).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
     let bus = JetStreamEventBus::connect(&NatsOptions {
         url: config.nats_url.clone(),
@@ -277,7 +460,30 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         );
         dead_letters.max_bytes = config.dead_letter_max_bytes.unwrap_or(-1);
         bus.context().create_or_update_stream(dead_letters).await?;
+        if let Some(inbound) = &config.mail_inbound {
+            // Haraka's spool notices: a file stream, a week, a two-minute
+            // duplicate window on `Nats-Msg-Id` = the object key.
+            let stream = async_nats::jetstream::stream::Config {
+                name: inbound.stream.clone(),
+                description: Some("Inbound mail spooled by Haraka (MAIL-010)".to_owned()),
+                subjects: vec![inbound.subject.clone()],
+                storage: async_nats::jetstream::stream::StorageType::File,
+                max_age: Duration::from_hours(7 * 24),
+                duplicate_window: Duration::from_secs(120),
+                num_replicas: config.stream_replicas,
+                ..async_nats::jetstream::stream::Config::default()
+            };
+            bus.context().create_or_update_stream(stream).await?;
+            bus.context()
+                .create_or_update_stream(dead_letter_stream_config(
+                    &inbound.dead_letter_stream,
+                    "mail-inbound-dlq",
+                    config.stream_replicas,
+                ))
+                .await?;
+        }
     }
+    ensure_reach_streams(&bus, config).await?;
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(
             connect_valkey(url).await?,
@@ -301,6 +507,10 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
     })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start-up sequence, one service after the other"
+)]
 async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     tracing::info!(
         ?config,
@@ -321,14 +531,95 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         http,
     } = connect(&config).await?;
 
+    let services = Services {
+        bus,
+        realtime,
+        embeddings,
+        http,
+    };
+    // Workflow runs the weldconnect subscriber starts go to Restate, where
+    // `serve` runs them.
+    let jobs: Option<Arc<dyn DynJobs>> = config.restate_ingress_url.as_ref().map(|url| {
+        Arc::new(weldsuite_adapters_oss::RestateJobs::new(
+            url,
+            reqwest::Client::new(),
+        )) as Arc<dyn DynJobs>
+    });
     let running = handlers(
         &config,
         &tenants,
         &master,
-        realtime.as_ref(),
-        embeddings.as_ref(),
-        &http,
+        services.realtime.as_ref(),
+        services.embeddings.as_ref(),
+        &services.http,
+        jobs.as_ref(),
     );
+    let mail_inbound = match &config.mail_inbound {
+        Some(inbound) if config.subscribers.iter().any(|s| s == MAIL_INBOUND) => Some((
+            mail_inbound_spec(inbound),
+            mail_inbound_handler(inbound, &workspaces, &services, &config.subject_prefix)?,
+        )),
+        _ => None,
+    };
+    let reach_send = if config.subscribers.iter().any(|s| s == REACH_SEND) {
+        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
+            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
+                master.clone(),
+                refresh,
+            )),
+            None => Arc::new(weldsuite_ports::DefaultFlags),
+        };
+        let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+        let events = weldsuite_events::EntityEventPublisher::new(
+            Some(bus),
+            weldsuite_events::TaskTracker::new(),
+        )
+        .with_subject_prefix(&config.subject_prefix);
+        let engine = crate::reach::send_engine(
+            master.clone(),
+            &workspaces,
+            config.keyring.clone(),
+            events,
+            flags,
+        );
+        let handler: Arc<dyn BatchHandler> =
+            Arc::new(weldsuite_reach::send::ReachSendSubscriber::new(engine));
+        Some((crate::reach::send_spec(), handler))
+    } else {
+        None
+    };
+    let warmup_subscribers: Vec<&str> = config
+        .subscribers
+        .iter()
+        .map(String::as_str)
+        .filter(|s| *s == REACH_WARMUP_SEND || *s == REACH_WARMUP_ENGAGE)
+        .collect();
+    let mut reach_warmup = Vec::new();
+    if !warmup_subscribers.is_empty() {
+        let flags: Arc<dyn weldsuite_ports::DynFlagSource> = match config.master_db_flags {
+            Some(refresh) => Arc::new(weldsuite_adapters_oss::MasterDbFlagSource::new(
+                master.clone(),
+                refresh,
+            )),
+            None => Arc::new(weldsuite_ports::DefaultFlags),
+        };
+        let network = crate::reach::warmup_network(master.clone(), flags)?;
+        for id in &warmup_subscribers {
+            let kind = if *id == REACH_WARMUP_SEND {
+                weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Send
+            } else {
+                weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Engage
+            };
+            let handler: Arc<dyn BatchHandler> = Arc::new(
+                weldsuite_reach::warmup_network::dispatch::WarmupSubscriber::new(
+                    network.clone(),
+                    kind,
+                ),
+            );
+            reach_warmup.push(((*id).to_owned(), crate::reach::warmup_spec(kind), handler));
+        }
+    }
+    let Services { bus, http, .. } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
     let mut names = Vec::new();
@@ -343,6 +634,60 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(sub.id.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = mail_inbound {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(MAIL_INBOUND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = reach_send {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(REACH_SEND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    for (name, spec, handler) in reach_warmup {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(name);
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

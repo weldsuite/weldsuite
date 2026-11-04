@@ -1944,11 +1944,12 @@ export const accounting = {
       autoReconcileAll: 'Auto-Reconcile All',
       running: 'Running...',
       autoReconciledCount: 'Auto-reconciled {count} transactions',
+      autoReconciledOfTotal: 'Auto-reconciled {count} of {total} transactions',
       unreconciledTransactions: 'Unreconciled Transactions ({count})',
       allReconciled: 'All transactions reconciled!',
       matchSuggestions: 'Match Suggestions',
       selectTransaction: 'Select a Transaction',
-      clickToSeeSuggestions: 'Click a transaction on the left to see matching suggestions.',
+      clickToSeeSuggestions: 'Click a transaction in the list to see matching suggestions.',
       noMatchesFound: 'No automatic matches found.',
       categorizeTitle: 'Not an invoice?',
       categorizeHint: 'For money that is not a customer payment — fee refunds, processor settlements, interest — pick a ledger account. Do not create an invoice to PayPal or your bank.',
@@ -2454,6 +2455,7 @@ export const accounting = {
       colTotal: 'Total',
       colStatus: 'Status',
       noInvoices: 'No invoices found',
+      emptyDescription: 'Create your first invoice to get started',
     },
 
     // Journal entry pages
@@ -2468,6 +2470,8 @@ export const accounting = {
       descriptionPlaceholder: 'Entry description',
       account: 'Account',
       selectAccount: 'Select account',
+      searchAccount: 'Search by code or name',
+      noAccountFound: 'No account found',
       linePlaceholder: 'Line description',
       debit: 'Debit',
       credit: 'Credit',
@@ -2500,12 +2504,14 @@ export const accounting = {
       colDescription: 'Description',
       colDebit: 'Debit',
       colCredit: 'Credit',
+      colStatus: 'Status',
       noEntries: 'No journal entries found',
     },
 
     // Reports pages
     reports: {
       title: 'Reports',
+      rangeReversed: 'The From date is after the To date. Pick a From date on or before the To date.',
       profitLoss: 'Profit & Loss',
       profitLossDesc: 'Revenue, expenses, and net profit for a period',
       balanceSheet: 'Balance Sheet',
@@ -2766,6 +2772,14 @@ export const accounting = {
       icpDeleteFailed: 'Could not delete the ICP declaration',
       icpRecalculated: 'The existing ICP declaration for this period was updated: {count} line(s), {total} total',
       invalidPeriod: 'The period end must not be before the period start.',
+      periodNotWhole: {
+        monthly: 'A monthly period runs from the first to the last day of one month.',
+        quarterly: 'A quarterly period runs from the first to the last day of one quarter (Jan–Mar, Apr–Jun, Jul–Sep or Oct–Dec).',
+        yearly: 'An annual period runs from 1 January to 31 December.',
+      },
+      periodYear: 'Year',
+      periodMonth: 'Month',
+      periodQuarter: 'Quarter',
       colStatus: 'Status',
       // VAT detail page
       filedSuccess: 'VAT return filed',
@@ -2835,6 +2849,7 @@ export const accounting = {
       groupProcessed: 'Processed',
       groupLinked: 'Linked',
       groupRejected: 'Rejected',
+      groupFailed: 'Failed',
       groupOther: 'Other',
       ocrSupplier: 'Supplier',
       ocrMatched: 'Matched',
@@ -2877,6 +2892,15 @@ export const accounting = {
       viewOcrResult: 'View OCR result',
       acceptedFormatsLabel: 'JPG, PNG, WEBP',
       ocrVatLine: 'VAT {rate}% over {amount}',
+      retryProcessing: 'Retry scan',
+      openFile: 'Open file',
+      enterManually: 'Enter manually',
+      deleteDocument: 'Delete document',
+      deleteConfirmTitle: 'Delete this document?',
+      deleteConfirmDescription: '{name} is removed from the inbox. A bill created from it keeps its data.',
+      deleting: 'Deleting…',
+      failedHint: 'This document could not be scanned. Retry the scan, or enter the bill by hand.',
+      insufficientCredits: 'Not enough AI credits to scan this document. Top up credits and retry, or enter it manually.',
     },
 
     // Entities page
@@ -3336,6 +3360,34 @@ export const accounting = {
     },
 
     // Lock dates + lock exceptions (entity edit page)
+    numbering: {
+      title: 'Numbering',
+      description:
+        'How invoices, credit notes, bills and journal entries are numbered. To continue the numbering from your previous software, set the next number.',
+      types: {
+        invoice: 'Invoices',
+        creditNote: 'Credit notes',
+        bill: 'Bills',
+        journal: 'Journal entries',
+      },
+      prefix: 'Prefix',
+      nextNumber: 'Next number',
+      digits: 'Digits',
+      preview: 'Next number: {number}',
+      gapNote:
+        'The next number can only go up, so no number is used twice. Raising it after documents have been numbered leaves a gap in the series.',
+      errors: {
+        prefix: 'Use at most 20 letters, digits, spaces or . _ / -',
+        nextValue: 'Enter a whole number of 1 or more.',
+        backwards: 'The next number can only go up: {number} or more.',
+        padding: 'Enter 0 to 10 digits.',
+      },
+      save: 'Save numbering',
+      saving: 'Saving…',
+      saved: 'Numbering updated',
+      saveFailed: 'Could not update the numbering',
+      noPermission: 'You need permission to update entities to change the numbering.',
+    },
     lockDates: {
       title: 'Lock dates',
       description:

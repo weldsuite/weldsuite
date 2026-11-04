@@ -60,6 +60,7 @@ import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { VatNotAvailable } from '@/app/weldbooks/vat/components/vat-not-available';
 import { accountingApi, type VatReturn } from '@/lib/api/domains/weldbooks';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -166,7 +167,7 @@ function VatReturnActions({
 
   return (
     <div className="flex items-center gap-0.5">
-      {canFileVatReturn(vr.status) && can('reports:update') ? (
+      {canFileVatReturn(vr.status) && can('reports:update') && isFeatureAvailable('vat-digipoort') ? (
         <Button
           size="sm"
           className="mr-1 h-7"
@@ -191,7 +192,7 @@ function VatReturnActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {filed ? (
+          {filed && isFeatureAvailable('vat-digipoort') ? (
             <DropdownMenuItem onClick={onCheckStatus} disabled={checkingStatus}>
               <ShieldCheck />
               {checkingStatus ? tv.checkingStatus : tv.checkStatus}

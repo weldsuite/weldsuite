@@ -53,9 +53,17 @@ function storageEnv(): Partial<Env> {
     httpMetadata: { contentType: 'application/octet-stream' },
     body: new Blob([objects.get(key)!]).stream(),
   });
+  // `put` and `delete` make it a bucket the conformance harness shares with
+  // the Rust server (bucket-bridge.ts); the routes only read it.
   const bucket = {
     get: async (key: string) => (objects.has(key) ? view(key) : null),
     head: async (key: string) => (objects.has(key) ? view(key) : null),
+    put: async (key: string, value: Uint8Array) => {
+      objects.set(key, new TextDecoder().decode(value));
+    },
+    delete: async (key: string) => {
+      objects.delete(key);
+    },
   };
   return { PRIVATE_STORAGE: bucket as unknown as R2Bucket };
 }

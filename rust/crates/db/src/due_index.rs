@@ -117,6 +117,33 @@ pub async fn list_due(
         .collect())
 }
 
+/// One workspace's row as it is now, to [`settle`] later (reach-api's
+/// `readSendDueRow`: read before the tenant is looked at, so a write that
+/// lands meanwhile is not lost).
+pub async fn read_due(
+    pool: &PgPool,
+    kind: &str,
+    workspace_id: &str,
+) -> Result<Option<DueRow>, sqlx::Error> {
+    let row: Option<(String, i32)> = sqlx::query_as(
+        "select to_char(next_due_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.USZ'), version
+         from workspace_due_index where kind = $1 and workspace_id = $2",
+    )
+    .bind(kind)
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.and_then(|(at, version)| {
+        OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339)
+            .ok()
+            .map(|next_due_at| DueRow {
+                workspace_id: workspace_id.to_owned(),
+                next_due_at,
+                version,
+            })
+    }))
+}
+
 /// Store a listed row's re-derived due time (`None`: nothing left, drop the
 /// row), unless a write touched it since it was listed (`settleWorkspaceDue`).
 /// Whether the write applied.

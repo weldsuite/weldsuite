@@ -24,6 +24,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   createContext,
   type HTMLAttributes,
+  type KeyboardEvent,
   type ReactNode,
   useContext,
   useMemo,
@@ -35,6 +36,14 @@ import { Card } from '@weldsuite/ui/components/card';
 import { cn } from '@weldsuite/ui/lib/utils';
 
 const t = tunnel();
+
+// dnd-kit starts a keyboard drag on Space or Enter by default; Enter is kept
+// for opening a card instead.
+const KANBAN_KEYBOARD_CODES = {
+  start: ['Space'],
+  cancel: ['Escape'],
+  end: ['Space', 'Enter'],
+};
 export type { DragEndEvent } from '@dnd-kit/core';
 
 export type KanbanItemProps = {
@@ -112,9 +121,29 @@ export const KanbanCard = <T extends KanbanItemProps = KanbanItemProps>({
     transform: CSS.Transform.toString(transform),
   };
 
+  // The card is focusable through dnd-kit's attributes. Space picks it up to
+  // move it (KANBAN_KEYBOARD_CODES); Enter opens it, like a click.
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (onClick && !isDragging && event.key === 'Enter') {
+      event.preventDefault();
+      onClick();
+      return;
+    }
+    listeners?.onKeyDown?.(event);
+  };
+
   return (
     <>
-      <div style={style} {...listeners} {...attributes} ref={setNodeRef}>
+      <div
+        // dnd-kit's attributes set these too; spelled out so the role is visible here.
+        role="button"
+        tabIndex={0}
+        style={style}
+        {...listeners}
+        {...attributes}
+        onKeyDown={handleKeyDown}
+        ref={setNodeRef}
+      >
         <Card
           className={cn(
             'cursor-grab gap-4 rounded-lg p-3',
@@ -220,7 +249,7 @@ export const KanbanProvider = <
         tolerance: 5,
       },
     }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { keyboardCodes: KANBAN_KEYBOARD_CODES }),
   );
 
   // Custom collision detection that prioritizes droppable columns

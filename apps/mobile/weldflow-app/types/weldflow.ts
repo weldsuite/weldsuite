@@ -283,3 +283,67 @@ export const LABEL_COLORS = [
   '#ec4899',
   '#6b7280',
 ] as const;
+
+// ============================================================================
+// Time tracking (`/api/time-entries`)
+// ============================================================================
+
+/** The caller's running timer (`GET /api/time-entries/timer`). One per user. */
+export interface RunningTimer {
+  id: string;
+  projectId: string | null;
+  taskId: string | null;
+  userId: string;
+  startedAt: string;
+  description: string | null;
+  activity?: string | null;
+  billable: boolean;
+}
+
+/** A recorded time entry. `duration` is minutes as a numeric string ("90.00"). */
+export interface TimeEntry {
+  id: string;
+  projectId: string | null;
+  taskId: string | null;
+  userId: string;
+  /** Calendar day, `YYYY-MM-DD`. */
+  date: string;
+  duration: string;
+  description: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  billable: boolean;
+  status: string;
+  task?: { id: string; title: string };
+  createdAt?: string;
+}
+
+export interface ListTimeEntriesQuery {
+  taskId?: string;
+  projectId?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface StartTimerInput {
+  projectId?: string;
+  taskId?: string;
+  description?: string;
+}
+
+export interface StopTimerInput {
+  description?: string;
+  /** IANA zone, so the entry lands on the day the timer started locally. */
+  timeZone?: string;
+}
+
+export interface CreateTimeEntryInput {
+  projectId?: string;
+  taskId?: string;
+  date: string;
+  /** Minutes. */
+  duration: number;
+  description?: string;
+}

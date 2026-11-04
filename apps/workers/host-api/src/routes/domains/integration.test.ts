@@ -235,4 +235,57 @@ describe('/api/domains · pglite integration', () => {
       .limit(1);
     expect(row?.deletedAt).not.toBeNull();
   });
+
+  it('GET /:id returns the TXT record of a pending external domain until it has a zone', async () => {
+    const created = await createTestApp('/api/domains', domainsRoutes, {
+      context: { permissions: permissions('domains:create'), tenantDb: db },
+    }).request('/api/domains/external', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: 'pending-external.com', registrar: 'GoDaddy' }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as {
+      data: { id: string; verificationRecord: { name: string; type: string; value: string } };
+    };
+    const { id, verificationRecord } = createdBody.data;
+    expect(verificationRecord.name).toBe('_weldhost-verify.pending-external.com');
+
+    const { request } = createTestApp('/api/domains', domainsRoutes, {
+      context: { permissions: permissions('domains:read'), tenantDb: db },
+    });
+    const pending = await request(`/api/domains/${id}`);
+    expect(pending.status).toBe(200);
+    const pendingBody = (await pending.json()) as { data: { verificationRecord: unknown } };
+    expect(pendingBody.data.verificationRecord).toEqual(verificationRecord);
+
+    await db.insert(schema.hostDnsZones).values({
+      id: 'zone_pending_external',
+      domainId: id,
+      name: 'pending-external.com',
+      provider: 'cloudflare',
+      externalZoneId: 'cf_zone_1',
+    });
+    const verified = await request(`/api/domains/${id}`);
+    const verifiedBody = (await verified.json()) as { data: { verificationRecord: unknown } };
+    expect(verifiedBody.data.verificationRecord).toBeNull();
+  });
+
+  it('GET /:id never returns a TXT record for a managed domain', async () => {
+    await db.insert(schema.hostDomains).values({
+      id: 'dom_managed_token',
+      name: 'managed-token',
+      tld: 'com',
+      fullDomain: 'managed-token.com',
+      status: 'active',
+      registrar: 'realtimeregister',
+      nameserverVerificationToken: 'abc123',
+    });
+    const { request } = createTestApp('/api/domains', domainsRoutes, {
+      context: { permissions: permissions('domains:read'), tenantDb: db },
+    });
+    const res = await request('/api/domains/dom_managed_token');
+    const body = (await res.json()) as { data: { verificationRecord: unknown } };
+    expect(body.data.verificationRecord).toBeNull();
+  });
 });

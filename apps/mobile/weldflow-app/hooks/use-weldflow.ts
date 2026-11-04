@@ -7,6 +7,10 @@ import type {
   UpdateTaskInput,
   UpdateTaskStatusInput,
   CreateLabelInput,
+  ListTimeEntriesQuery,
+  StartTimerInput,
+  StopTimerInput,
+  CreateTimeEntryInput,
 } from '@/types/weldflow';
 import api from '@/services/app-api';
 import { nextCursorParam, nextPageParam } from '@/lib/pagination';
@@ -39,6 +43,9 @@ export const qk = {
     ['weldflow', 'my-tasks', 'infinite', params ?? {}] as const,
   projectMembers: (projectId: string) => ['weldflow', 'project-members', projectId] as const,
   labels: () => ['weldflow', 'labels'] as const,
+  timer: () => ['weldflow', 'timer'] as const,
+  timeEntries: (params?: ListTimeEntriesQuery) =>
+    ['weldflow', 'time-entries', params ?? {}] as const,
 };
 
 export function useProjects(params: ListProjectsQuery = LIMIT_25) {
@@ -178,4 +185,57 @@ export function useCreateLabel() {
       queryClient.invalidateQueries({ queryKey: qk.labels() });
     },
   });
+}
+
+// ============================================================================
+// Time tracking
+// ============================================================================
+
+/** The caller's running timer (`null` when none runs). Shared by every screen. */
+export function useRunningTimer() {
+  return useQuery({
+    queryKey: qk.timer(),
+    queryFn: async () => (await api.weldflow.getRunningTimer()).data ?? null,
+    // A timer started on the web shows up once this goes stale and refetches.
+    staleTime: 30_000,
+  });
+}
+
+/** The caller's own time entries, e.g. one week (`fromDate`/`toDate`). */
+export function useTimeEntries(params: ListTimeEntriesQuery, enabled = true) {
+  return useQuery({
+    queryKey: qk.timeEntries(params),
+    queryFn: () => api.weldflow.listTimeEntries(params),
+    enabled,
+  });
+}
+
+/**
+ * Timer and entry writes change the timer, the entry lists and a task's logged
+ * time, so they refresh all of WeldFlow like the task mutations above.
+ */
+function useWeldflowMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['weldflow'] });
+    },
+  });
+}
+
+export function useStartTimer() {
+  return useWeldflowMutation((data: StartTimerInput) => api.weldflow.startTimer(data));
+}
+
+export function useStopTimer() {
+  return useWeldflowMutation((data: StopTimerInput) => api.weldflow.stopTimer(data));
+}
+
+export function useDiscardTimer() {
+  return useWeldflowMutation((_: void) => api.weldflow.discardTimer());
+}
+
+export function useCreateTimeEntry() {
+  return useWeldflowMutation((data: CreateTimeEntryInput) => api.weldflow.createTimeEntry(data));
 }

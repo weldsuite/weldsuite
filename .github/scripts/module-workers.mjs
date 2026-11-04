@@ -15,7 +15,7 @@
  * their own job BEFORE the other workers, because app-api's forwarder binds
  * to them.
  * With `--list` it prints the module workers that exist (ci.yml).
- * `--list --shard N --shards M` prints one round-robin slice (1-based).
+ * `--list --shard N --shards M` prints one slice (1-based), balanced by test time.
  * Needs Node 22.18+ (imports the TypeScript manifest with native type stripping).
  */
 
@@ -71,9 +71,63 @@ const existing = MODULE_WORKERS.map((m) => m.worker).filter((w) =>
 );
 
 /**
+ * Vitest wall-clock seconds per worker on a CI runner (develop run of
+ * 2026-11-03), used only to balance the ci.yml shards. Round-robin by
+ * manifest order put books, crm, connect, hr and reach in one shard
+ * (~12.5 min against a 15 min timeout, the others ~4 min). Rough numbers
+ * are enough; re-measure when a shard drifts well past the others. A worker
+ * missing here gets DEFAULT_TEST_SECONDS.
+ */
+const TEST_SECONDS = {
+  'books-api': 240,
+  'flow-api': 141,
+  'mail-api': 124,
+  'desk-api': 115,
+  'crm-api': 113,
+  'connect-api': 103,
+  'reach-api': 103,
+  'hr-api': 90,
+  'chat-api': 76,
+  'calendar-api': 43,
+  'meet-api': 39,
+  'pass-api': 30,
+  'commerce-api': 27,
+  'agent-api': 24,
+  'host-api': 24,
+  'sign-api': 22,
+  'docs-api': 22,
+  'sheets-api': 19,
+  'stash-api': 15,
+  'panel-api': 12,
+  'call-api': 11,
+  'know-api': 11,
+  'ads-api': 7,
+  'social-api': 5,
+  'data-api': 5,
+};
+const DEFAULT_TEST_SECONDS = 30;
+
+/**
+ * Splits workers into `shards` groups of similar total test time: longest
+ * first, each onto the shard with the least time so far (ties: lowest
+ * shard). Deterministic, so every matrix job computes the same split.
+ */
+function balancedShards(workers, shards) {
+  const seconds = (w) => TEST_SECONDS[w] ?? DEFAULT_TEST_SECONDS;
+  const ordered = [...workers].sort((a, b) => seconds(b) - seconds(a) || a.localeCompare(b));
+  const groups = Array.from({ length: shards }, () => ({ total: 0, workers: [] }));
+  for (const w of ordered) {
+    const lightest = groups.reduce((min, g) => (g.total < min.total ? g : min));
+    lightest.workers.push(w);
+    lightest.total += seconds(w);
+  }
+  return groups.map((g) => g.workers);
+}
+
+/**
  * `--list [--shard N --shards M]`: print module workers for CI.
- * Shards are 1-based and round-robin, so slow workers (clustered at the
- * front of the manifest) spread across jobs instead of landing in one.
+ * Shards are 1-based and balanced by TEST_SECONDS, so the slow workers
+ * spread across jobs instead of landing in one.
  */
 function listedWorkers() {
   const shardFlag = process.argv.indexOf('--shard');
@@ -95,7 +149,7 @@ function listedWorkers() {
     console.error(`Invalid shard ${process.argv[shardFlag + 1]} of ${process.argv[shardsFlag + 1]}`);
     process.exit(1);
   }
-  return existing.filter((_, index) => index % shards === shard - 1);
+  return balancedShards(existing, shards)[shard - 1];
 }
 
 if (process.argv.includes('--list')) {

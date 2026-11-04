@@ -15,7 +15,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 let db: Database;
@@ -31,7 +31,9 @@ const json = (body: unknown): RequestInit => ({
 
 function executeWorkflowBinding() {
   const create = vi.fn(async (_init: { params: Record<string, unknown> }) => ({ id: 'cf_inst_route' }));
-  return { binding: { create } as unknown as Workflow, create };
+  // `get` makes it a whole Workflow binding (the conformance bridge serves only those).
+  const get = vi.fn(async (_id: string) => ({ terminate: async () => undefined }));
+  return { binding: { create, get } as unknown as Workflow, create };
 }
 
 async function seedWorkflow(status: string) {
@@ -92,7 +94,9 @@ describe('PATCH /api/workflow-executions/:id/cancel', () => {
   function cancelBinding() {
     const terminate = vi.fn(async () => undefined);
     const get = vi.fn(async (_id: string) => ({ terminate }));
-    return { binding: { get } as unknown as Workflow, get, terminate };
+    // `create` makes it a whole Workflow binding (the conformance bridge serves only those).
+    const create = vi.fn(async () => ({ id: 'cf_inst_unused' }));
+    return { binding: { get, create } as unknown as Workflow, get, terminate };
   }
   const patch: RequestInit = { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' };
 

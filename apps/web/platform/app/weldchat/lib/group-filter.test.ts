@@ -6,6 +6,7 @@ import {
   getGroupDefaults,
   selectGroupRows,
   selectPeekRows,
+  sortChannels,
   withGroupHidden,
 } from './group-filter';
 
@@ -59,6 +60,14 @@ describe('getGroupDefaults', () => {
     expect(getGroupDefaults('section:default')).toBe(DEFAULT_GROUP_FILTER);
     expect(getGroupDefaults('channel:ch_1')).toBe(DEFAULT_GROUP_FILTER);
     expect(DEFAULT_GROUP_FILTER).toMatchObject({ topN: null, activityThreshold: 'any', hideWhenEmpty: false });
+  });
+
+  it('sinks an archived channel below the live ones by default, however recent', () => {
+    const channels = [
+      { id: 'archived', name: 'archived', isArchived: true, lastMessageAt: daysAgo(0) },
+      { id: 'live', name: 'live', lastMessageAt: daysAgo(3) },
+    ];
+    expect(sortChannels(channels, DEFAULT_GROUP_FILTER).map((c) => c.id)).toEqual(['live', 'archived']);
   });
 });
 

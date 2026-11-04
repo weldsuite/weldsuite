@@ -10,17 +10,24 @@ export function Stepper({
   current,
   completed,
   onSelect,
-}: Readonly<{ current: SetupStep; completed: ReadonlySet<SetupStep>; onSelect: (step: SetupStep) => void }>) {
+  steps = SETUP_STEPS,
+}: Readonly<{
+  current: SetupStep;
+  completed: ReadonlySet<SetupStep>;
+  onSelect: (step: SetupStep) => void;
+  /** The steps shown (`setupSteps`): without billing there is no payment step. */
+  steps?: readonly SetupStep[];
+}>) {
   const t = useTranslations();
-  const index = SETUP_STEPS.indexOf(current);
+  const index = steps.indexOf(current);
 
   return (
     <nav aria-label={t('reach.setup.title')}>
       <p className="text-sm font-medium sm:hidden">
-        {t('reach.setup.stepOf', { current: index + 1, total: SETUP_STEPS.length })}: {t(`reach.setup.steps.${current}`)}
+        {t('reach.setup.stepOf', { current: index + 1, total: steps.length })}: {t(`reach.setup.steps.${current}`)}
       </p>
       <ol className="hidden items-center gap-2 sm:flex">
-        {SETUP_STEPS.map((step, position) => {
+        {steps.map((step, position) => {
           const isCurrent = step === current;
           const isDone = completed.has(step) && !isCurrent;
           return (

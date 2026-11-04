@@ -322,6 +322,64 @@ describe('password manager · shared vaults', () => {
     expect((await as(ALICE).get(`/vaults/${vault.id}`)).status).toBe(404);
   });
 
+  it('shares a new vault with the teammates chosen when it is created', async () => {
+    const res = await as(ALICE).send('POST', '/vaults', {
+      name: 'Shared at birth',
+      members: [
+        { userId: BOB, role: 'viewer' },
+        { userId: CAROL, role: 'viewer' },
+        { userId: CAROL, role: 'editor' },
+        { userId: ALICE, role: 'viewer' },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const vault = await data<VaultBody>(res);
+    expect(vault.role).toBe('manager');
+    expect(vault.memberCount).toBe(3);
+
+    const roles = (await data<{ userId: string; role: string }[]>(
+      await as(ALICE).get(`/vaults/${vault.id}/members`),
+    ))
+      .map((member) => `${member.userId}:${member.role}`)
+      .sort();
+    expect(roles).toEqual([`${ALICE}:manager`, `${BOB}:viewer`, `${CAROL}:editor`]);
+
+    // The roles hold: Carol writes, Bob only reads.
+    await addItem(CAROL, vault.id, login('By Carol', 'carol-pw-123456'));
+    expect((await as(BOB).get(`/vaults/${vault.id}`)).status).toBe(200);
+    expect(
+      (await as(BOB).send('POST', `/vaults/${vault.id}/items`, login('By Bob', 'x'))).status,
+    ).toBe(403);
+
+    const trail = await data<{ action: string; targetLabel: string | null }[]>(
+      await as(ALICE).get(`/vaults/${vault.id}/activity`),
+    );
+    const added = trail.filter((event) => event.action === 'member.added');
+    expect(added.map((event) => event.targetLabel).sort()).toEqual([BOB, CAROL]);
+  });
+
+  it('creates nothing when a chosen member is not a teammate', async () => {
+    const res = await as(ALICE).send('POST', '/vaults', {
+      name: 'Half made',
+      members: [
+        { userId: BOB, role: 'viewer' },
+        { userId: 'user_nobody', role: 'viewer' },
+      ],
+    });
+    expect(res.status).toBe(404);
+
+    const vaults = await data<VaultBody[]>(await as(ALICE).get('/vaults'));
+    expect(vaults.some((vault) => vault.name === 'Half made')).toBe(false);
+  });
+
+  it('rejects an unknown role for a chosen member', async () => {
+    const res = await as(ALICE).send('POST', '/vaults', {
+      name: 'Bad role',
+      members: [{ userId: BOB, role: 'owner' }],
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('lets a member leave on their own', async () => {
     const vault = await createShared(ALICE, 'Leaving');
     await as(ALICE).send('POST', `/vaults/${vault.id}/members`, { userId: BOB, role: 'viewer' });

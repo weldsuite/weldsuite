@@ -18,6 +18,7 @@ import { BRAND } from '@/lib/brand';
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApiClient, appApi } from '@/services/app-api';
+import { stripFileTokens } from '@/lib/chat/mentions';
 
 interface BookmarkRecord {
   id: string;
@@ -69,7 +70,7 @@ export default function LaterScreen() {
             const ch: any = chRes.data ?? {};
             return {
               ...bm,
-              content: msg?.content ?? '(message unavailable)',
+              content: msg ? stripFileTokens(msg.content ?? '') : '(message unavailable)',
               authorName: msg?.authorName ?? 'Unknown',
               channelName: ch.name ?? 'Unknown channel',
               channelType: ch.type ?? 'public',

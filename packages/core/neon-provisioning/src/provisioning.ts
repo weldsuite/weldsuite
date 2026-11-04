@@ -15,7 +15,7 @@
  * that worker is deleted in W7.
  */
 
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
@@ -1021,8 +1021,7 @@ export class DatabaseProvisioningService {
   ): Promise<NeonSharedProject | null> {
     const onlyShard = eligibility.shardId ? sql`AND id = ${eligibility.shardId}` : sql``;
     const exceptShard = eligibility.excludeShardId ? sql`AND id <> ${eligibility.excludeShardId}` : sql``;
-
-    try {
+    const claim = async (lockOption: SQL) => {
       const result = await masterDb.execute(
         sql`UPDATE neon_shared_projects
             SET database_count = database_count + 1,
@@ -1037,12 +1036,19 @@ export class DatabaseProvisioningService {
                 ${exceptShard}
               ORDER BY database_count ASC
               LIMIT 1
-              FOR UPDATE SKIP LOCKED
+              FOR UPDATE ${lockOption}
             )
             RETURNING *`
       );
+      return result.rows?.[0] || result[0];
+    };
 
-      const row = result.rows?.[0] || result[0];
+    try {
+      // SKIP LOCKED keeps concurrent signups off each other's shard. When it
+      // finds nothing, the only shards with room may just be locked by a claim
+      // in flight: wait for them once (the Rust CNPG provisioner does the same)
+      // rather than creating a new shard or failing a pinned move.
+      const row = (await claim(sql`SKIP LOCKED`)) ?? (await claim(sql``));
       if (row) {
         console.log(`[Provisioning] Claimed slot on shared project ${row.neon_project_id} (shard ${row.id}, count now ${row.database_count})`);
         return this.mapSharedProject(row);

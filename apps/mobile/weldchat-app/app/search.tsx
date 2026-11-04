@@ -18,6 +18,7 @@ import { BRAND } from '@/lib/brand';
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
+import { stripFileTokens } from '@/lib/chat/mentions';
 import { SearchField } from '@/components/chat/SearchField';
 import type { ChatSearchResult } from '@weldsuite/app-api-client/domains/chat-search';
 
@@ -153,7 +154,7 @@ async function searchMembers(text: string): Promise<MemberResult[]> {
 function toSearchResult(m: ChatSearchResult): SearchResult {
   return {
     id: m.id,
-    content: m.content ?? '',
+    content: stripFileTokens(m.content ?? ''),
     authorName: m.authorName ?? 'Unknown',
     authorAvatar: m.authorAvatar ?? undefined,
     channelId: m.channelId,

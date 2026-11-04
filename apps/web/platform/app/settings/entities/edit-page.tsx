@@ -43,6 +43,7 @@ import {
 } from '@/lib/weldbooks/br-entity';
 import { WeldbooksEntitySettings } from '@/app/weldbooks/settings/entity-settings';
 import { LockDatesCard } from './components/lock-dates-card';
+import { NumberingCard } from './components/numbering-card';
 import { LockExceptionsCard } from './components/lock-exceptions-card';
 import { RemapTaxLinesDialog } from './components/remap-tax-lines-dialog';
 import { BrEntityCards } from './components/br-entity-cards';
@@ -377,6 +378,7 @@ export default function EditEntityPage() {
           usEntityTypes={jurisdiction?.entityTypes}
         />
 
+        <NumberingCard entityId={entity.id} canUpdate={canUpdate} />
         <LockDatesCard entity={entity} canUpdate={canUpdate} />
         <LockExceptionsCard entityId={entity.id} canUpdate={canUpdate} />
       </div>

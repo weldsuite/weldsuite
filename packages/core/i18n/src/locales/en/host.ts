@@ -659,6 +659,13 @@ export const host = {
       recordNamePlaceholder: '@ or subdomain',
       ttlSeconds: 'TTL (seconds)',
       priorityOptional: 'Priority (optional)',
+      // Pending external domain — pick up the TXT ownership check again
+      pendingVerificationTitle: 'Verify ownership of {domain}',
+      pendingVerificationDescription: 'This domain is waiting for its ownership check. Add this TXT record at your current DNS provider, then click Verify ownership. DNS records and nameservers become available once it is verified.',
+      verifyOwnership: 'Verify ownership',
+      verifyingOwnership: 'Verifying…',
+      ownershipVerified: 'Domain ownership verified',
+      ownershipVerifyFailed: 'Verification failed',
     },
 
     // SSL Certificates
@@ -835,6 +842,9 @@ export const host = {
       continue: 'Continue',
       errorEnterDomain: 'Please enter a domain name',
       errorReserveFailed: 'Failed to reserve domain',
+      errorInvalidDomain: 'Enter a valid domain name, for example example.com',
+      errorReservedTld: 'This domain ends in a reserved extension (.example, .test, .invalid, .localhost or .local) and can never be verified',
+      invalidDomain: 'Not a valid domain',
       // Step 2 — verify ownership
       verifyTitle: 'Verify Domain Ownership',
       verifySubtitle: 'Add a TXT record at your current DNS provider to prove you own this domain',

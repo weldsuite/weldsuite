@@ -60,6 +60,18 @@ describe('adaptCloudflareEmail', () => {
     expect(email.rawMessage).toBeUndefined();
   });
 
+  it('receives a message whose Date header V8 cannot read at the time it arrived', async () => {
+    // `new Date('Mon, 29 Oct 2026 12:00:00 CEST')` is an Invalid Date. Kept,
+    // it made `sentAt` NaN and the mailbox insert throw, so the message was
+    // never stored (storeEmail logs and returns null).
+    const raw = RAW_EMAIL.replace('Subject: Hello', 'Subject: Hello\r\nDate: Mon, 29 Oct 2026 12:00:00 CEST');
+    const before = Date.now();
+    const { email } = await adaptCloudflareEmail(fakeMessage(raw));
+
+    expect(Number.isNaN(email.receivedAt.getTime())).toBe(false);
+    expect(email.receivedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
   it('parses the envelope recipient and subject as before, unaffected by the raw-bytes fix', async () => {
     const { email } = await adaptCloudflareEmail(fakeMessage(RAW_EMAIL, 'recipient@example.com'));
 

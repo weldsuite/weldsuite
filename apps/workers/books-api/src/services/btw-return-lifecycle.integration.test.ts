@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { buildComplianceNotices } from '@weldsuite/books-domain/accounting-compliance';
@@ -169,6 +170,40 @@ describe('recalculating, deleting and period checks', () => {
     });
     expect(icp.status).toBe(400);
   });
+
+  it('rejects dates that are not exactly the month, quarter or year of the period type', async () => {
+    for (const body of [
+      { periodType: 'quarterly', periodStart: '2026-05-01', periodEnd: '2026-07-31' },
+      { periodType: 'quarterly', periodStart: '2026-10-01', periodEnd: '2026-12-30' },
+      { periodType: 'monthly', periodStart: '2026-10-02', periodEnd: '2026-10-31' },
+      { periodType: 'yearly', periodStart: '2027-01-01', periodEnd: '2027-06-30' },
+    ]) {
+      const vat = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', body);
+      expect(vat.status, JSON.stringify(body)).toBe(400);
+      const icp = await call('/api/icp-declarations', icpDeclarationsRoutes, '/api/icp-declarations/calculate', 'POST', body);
+      expect(icp.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('rejects a period that overlaps another return', async () => {
+    // Q2 2026 has a return (above): its months and the whole year overlap it.
+    const month = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', {
+      periodType: 'monthly',
+      periodStart: '2026-05-01',
+      periodEnd: '2026-05-31',
+    });
+    expect(month.status).toBe(400);
+    expect(month.error?.message).toContain('2026-04-01 to 2026-06-30');
+    const year = await call('/api/vat-returns', vatReturnsRoutes, '/api/vat-returns/calculate', 'POST', {
+      periodType: 'yearly',
+      periodStart: '2026-01-01',
+      periodEnd: '2026-12-31',
+    });
+    expect(year.status).toBe(400);
+
+    const rows = await db.select().from(schema.vatReturns).where(isNull(schema.vatReturns.deletedAt));
+    expect(rows.filter((r) => r.periodType !== 'quarterly')).toHaveLength(0);
+  });
 });
 
 describe('ICP: goods and services', () => {
@@ -231,7 +266,11 @@ describe('VIES outage during finalize', () => {
     const outage = vi.fn().mockImplementation(async () =>
       new Response(JSON.stringify({ valid: false, actionSucceed: false, errorWrappers: [{ error: 'MS_MAX_CONCURRENT_REQ' }] }), { status: 200 }),
     );
-    vi.stubGlobal('fetch', outage);
+    // Only VIES is stubbed: the conformance harness's own loopback calls go out as before.
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes('ec.europa.eu') ? outage(input, init) : realFetch(input, init),
+    );
 
     const created = await call('/api/invoices', invoicesRoutes, '/api/invoices', 'POST', {
       contactId: 'pty_fr',
@@ -243,8 +282,8 @@ describe('VIES outage during finalize', () => {
     const res = await call('/api/invoices', invoicesRoutes, `/api/invoices/${created.data.id}/finalize`, 'POST');
     expect(res.status).toBe(200);
     expect(JSON.stringify(res.data.warnings ?? [])).toContain('VIES is currently unavailable');
-    // Retried once on the throttling error, then given up on.
-    expect(outage).toHaveBeenCalledTimes(2);
+    // Retried once on the throttling error, then given up on (by each backend in a conformance run).
+    expect(outage).toHaveBeenCalledTimes(2 * (conformanceTarget() ? 2 : 1));
     const cached = await db.select().from(schema.viesChecks).where(eq(schema.viesChecks.vatNumber, 'FR12345678901'));
     expect(cached).toHaveLength(0);
   }, 20_000);

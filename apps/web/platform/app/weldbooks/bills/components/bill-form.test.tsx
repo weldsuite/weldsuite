@@ -146,6 +146,23 @@ describe('BillForm', { timeout: 30_000 }, () => {
     env.requests = [];
   });
 
+  describe('line inputs', () => {
+    it('replaces the default quantity when the user types over it', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
+
+      const qty = screen.getAllByLabelText('Qty')[0] as HTMLInputElement;
+      await user.click(qty);
+      await user.keyboard('3');
+      expect(qty.value).toBe('3');
+
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].items[0].quantity).toBe('3');
+    });
+  });
+
   describe('US bill', () => {
     it('shows the vendor tax as part of the cost, with the totals the server calculated', () => {
       renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={vi.fn()} />);

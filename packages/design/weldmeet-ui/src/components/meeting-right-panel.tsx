@@ -100,13 +100,88 @@ export function MeetingRightPanel({
   tools,
 }: Readonly<MeetingRightPanelProps>) {
   const isOpen = panel !== null;
-  const isMobile = useIsMobile();
 
   if (!isOpen) return null;
 
   const title = RIGHT_PANEL_TITLES[panel];
   // An open tool takes over the header: its name, and a way back to the list.
   const openTool = panel === 'tools' && tools ? tools.activeTool : null;
+
+  return (
+    <MeetingSidePanel
+      onClose={onClose}
+      header={
+        openTool && tools ? (
+          <div className="flex min-w-0 items-center gap-1.5 -ml-1.5">
+            <button
+              type="button"
+              onClick={() => tools.setActiveTool(null)}
+              aria-label={tools.labels.back}
+              title={tools.labels.back}
+              className="p-1.5 max-md:p-2.5 rounded-md hover:bg-muted transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+            </button>
+            <span className="truncate text-sm font-semibold">{toolTitle(openTool, tools.labels)}</span>
+          </div>
+        ) : (
+          <span className="text-sm font-semibold">{title}</span>
+        )
+      }
+    >
+      {panel === 'info' && (
+        <MeetingInfoPanel
+          meetingTitle={meetingTitle}
+          joinCode={joinCode}
+          shareUrl={shareUrl}
+          description={description}
+          scheduledStart={scheduledStart}
+          duration={duration}
+          durationLabel={durationLabel}
+          participantsCount={participants.length}
+        />
+      )}
+
+      {panel === 'people' && (
+        peoplePanelSlot ?? <PeoplePanel meeting={meeting} participants={participants} onClickDetails={onClickParticipantDetails} />
+      )}
+
+      {panel === 'settings' && (
+        hostControlsSlot ?? (
+          <div className="p-5 text-sm text-muted-foreground">
+            Host controls are not available in this view.
+          </div>
+        )
+      )}
+
+      {panel === 'tools' && (
+        <MeetingToolsPanel
+          isRecording={isRecording}
+          recordingState={recordingState}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          recordingAvailable={recordingAvailable}
+          recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+          recordingLabels={recordingLabels}
+          tools={tools}
+          showToolHeader={false}
+        />
+      )}
+    </MeetingSidePanel>
+  );
+}
+
+/**
+ * The dock a meeting panel opens in: 400px on the right on desktop, a sheet
+ * over the whole call view on phones, with a 53px header row and a close
+ * button. Other call screens (WeldCall) open their own panels in it.
+ */
+export function MeetingSidePanel({
+  header,
+  onClose,
+  children,
+}: Readonly<{ header: ReactNode; onClose: () => void; children: ReactNode }>) {
+  const isMobile = useIsMobile();
 
   return (
     <div
@@ -127,67 +202,13 @@ export function MeetingRightPanel({
         )}
       >
         <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
-          {openTool && tools ? (
-            <div className="flex min-w-0 items-center gap-1.5 -ml-1.5">
-              <button
-                type="button"
-                onClick={() => tools.setActiveTool(null)}
-                aria-label={tools.labels.back}
-                title={tools.labels.back}
-                className="p-1.5 max-md:p-2.5 rounded-md hover:bg-muted transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              <span className="truncate text-sm font-semibold">{toolTitle(openTool, tools.labels)}</span>
-            </div>
-          ) : (
-            <span className="text-sm font-semibold">{title}</span>
-          )}
+          {header}
           <button onClick={onClose} className="p-1 max-md:p-2.5 max-md:-mr-1.5 rounded-md hover:bg-muted transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {panel === 'info' && (
-            <MeetingInfoPanel
-              meetingTitle={meetingTitle}
-              joinCode={joinCode}
-              shareUrl={shareUrl}
-              description={description}
-              scheduledStart={scheduledStart}
-              duration={duration}
-              durationLabel={durationLabel}
-              participantsCount={participants.length}
-            />
-          )}
-
-          {panel === 'people' && (
-            peoplePanelSlot ?? <PeoplePanel meeting={meeting} participants={participants} onClickDetails={onClickParticipantDetails} />
-          )}
-
-          {panel === 'settings' && (
-            hostControlsSlot ?? (
-              <div className="p-5 text-sm text-muted-foreground">
-                Host controls are not available in this view.
-              </div>
-            )
-          )}
-
-          {panel === 'tools' && (
-            <MeetingToolsPanel
-              isRecording={isRecording}
-              recordingState={recordingState}
-              startRecording={startRecording}
-              stopRecording={stopRecording}
-              recordingAvailable={recordingAvailable}
-              recordingStartElapsedSeconds={recordingStartElapsedSeconds}
-              recordingLabels={recordingLabels}
-              tools={tools}
-              showToolHeader={false}
-            />
-          )}
-        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
       </div>
     </div>
   );

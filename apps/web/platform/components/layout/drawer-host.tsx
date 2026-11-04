@@ -3,7 +3,7 @@ import { GlobalNotificationsPanel } from '@/components/global-notifications-pane
 import { GlobalAgentShortcut } from '@/components/global-agent-shortcut';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 
 /**
  * Renders the top-nav drawers (calendar / notifications / agent) as in-flow
@@ -33,7 +33,7 @@ export function DrawerHost() {
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
-      {isModuleOffered('agent') && <GlobalAgentShortcut />}
+      {isModuleOffered('agent') && isFeatureAvailable('agent-ai') && <GlobalAgentShortcut />}
     </>
   );
 }

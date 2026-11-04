@@ -10,6 +10,28 @@ import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useUser, useOrganization, useOrganizationList } from '@/lib/auth';
 import { AppAccessGuard } from '@/components/app-access-guard';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
+
+/** The page content's landmark; the skip link moves focus here. */
+const MAIN_CONTENT_ID = 'main-content';
+
+function SkipToContentLink() {
+  const { t } = useI18n();
+  return (
+    <a
+      href={`#${MAIN_CONTENT_ID}`}
+      // Focus the landmark directly instead of following the hash, so the
+      // router never sees a location change.
+      onClick={(e) => {
+        e.preventDefault();
+        document.getElementById(MAIN_CONTENT_ID)?.focus();
+      }}
+      className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
+    >
+      {t.common.a11y.skipToContent}
+    </a>
+  );
+}
 
 interface PlatformShellProps {
   children: React.ReactNode;
@@ -65,6 +87,7 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
           'dark:[--shell-chrome:#282828]',
         )}
       >
+        <SkipToContentLink />
         {/* Global AppSidebar on the far left - fixed, hidden on mobile */}
         <div
           className={
@@ -103,11 +126,15 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
                     with it collapsed (offcanvas) face the chrome on the left
                     too, so they round. A border outlines the card; next to
                     the sidebar its left edge is the vertical divider. */}
-                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border">
+                <main
+                  id={MAIN_CONTENT_ID}
+                  tabIndex={-1}
+                  className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] outline-none md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border"
+                >
                   <AppAccessGuard>
                     {children}
                   </AppAccessGuard>
-                </div>
+                </main>
               </div>
             </div>
           </SidebarProvider>

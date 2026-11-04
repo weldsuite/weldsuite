@@ -71,7 +71,7 @@ const testRules = Object.fromEntries(recommended.filter(([rule]) => TEST_RULES.h
 // whose every rule does nothing.
 const noopRule = { meta: { schema: false }, create: () => ({}) };
 const standIn = { rules: new Proxy({}, { get: () => noopRule }) };
-const DIRECTIVE_NAMESPACES = ['@next/next', '@typescript-eslint', 'react-hooks'];
+const DIRECTIVE_NAMESPACES = ['@next/next', '@typescript-eslint', 'jsx-a11y', 'react-hooks'];
 
 // Reviewed, intentional findings, carried over from the SonarQube Cloud
 // cleanup (2026-10). Each entry turns ONE rule off for the files listed, for

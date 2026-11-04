@@ -9,6 +9,8 @@
  * 4. Check number (+ amount) against a recorded payment, and a deposit's
  *    total against an incoming line. A payment is compared at what reached
  *    the bank: its amount less any backup withholding.
+ * 5. The entity's reconciliation rules (services/accounting-reconciliation-rules):
+ *    a matching rule posts the line to its category account.
  *
  * Returns match suggestions with confidence scores.
  *
@@ -23,6 +25,8 @@ import { schema as tables, type Database } from '@weldsuite/worker-kit/db';
 import { reconcileBankTransactionToDocument, reconcileBankTransactionToPayment } from './accounting-bank-match';
 import { paymentNetAmount } from './accounting-payments';
 import { daysApart, nameConfidence, nameSimilarity } from './accounting-bank-similarity';
+import { categorizeBankTransaction } from './accounting-bank-categorize';
+import { findMatchingRule, loadActiveRules, recordRuleMatch, type ReconciliationRuleRow } from './accounting-reconciliation-rules';
 
 type BankTransactionRow = typeof tables.bankTransactions.$inferSelect;
 type InvoiceRow = typeof tables.invoices.$inferSelect;
@@ -36,10 +40,12 @@ type DepositRow = typeof tables.bankDeposits.$inferSelect;
 
 export interface ReconciliationSuggestion {
   type: 'invoice' | 'bill' | 'rule' | 'payment' | 'deposit';
-  /** The id of the invoice, bill, payment or deposit. */
+  /** The id of the invoice, bill, payment, deposit or rule. */
   entityId: string;
-  /** Invoice or bill number, the payment's check number or reference, the deposit's memo. */
+  /** Invoice or bill number, the payment's check number or reference, the deposit's memo, the rule's name. */
   entityNumber: string | null;
+  /** A rule's category account: picking the suggestion categorizes the line to it. */
+  categoryAccountId?: string;
   contactName: string | null;
   amount: string;
   confidence: number; // 0-1
@@ -76,6 +82,8 @@ export interface MatchCandidates {
   payments: PaymentRow[];
   deposits: DepositRow[];
   contacts: Map<string, { name: string | null; iban: string | null }>;
+  /** Active reconciliation rules, highest priority first. */
+  rules: ReconciliationRuleRow[];
 }
 
 // ============================================================================
@@ -111,7 +119,7 @@ export async function loadMatchCandidates(
     billWhere.push(between(sql`${bills.balanceDue}::numeric`, near[0], near[1]));
   }
 
-  const [openInvoices, openBills, unlinkedPayments, openDeposits] = await Promise.all([
+  const [openInvoices, openBills, unlinkedPayments, openDeposits, rules] = await Promise.all([
     db.select().from(invoices).where(and(...invoiceWhere)).limit(limit),
     db.select().from(bills).where(and(...billWhere)).limit(limit),
     args.entityId ? loadUnlinkedPayments(db, args.entityId, near, args.checkNumber, limit) : Promise.resolve([] as PaymentRow[]),
@@ -131,6 +139,7 @@ export async function loadMatchCandidates(
           )
           .limit(limit)
       : Promise.resolve([] as DepositRow[]),
+    args.entityId ? loadActiveRules(db, args.entityId) : Promise.resolve([] as ReconciliationRuleRow[]),
   ]);
 
   const contactIds = [
@@ -154,6 +163,7 @@ export async function loadMatchCandidates(
     payments: unlinkedPayments,
     deposits: openDeposits,
     contacts: new Map(contactRows.map((r) => [r.id, { name: r.name, iban: r.iban }])),
+    rules,
   };
 }
 
@@ -220,6 +230,8 @@ export async function findMatches(
           ...matchBills(pool, absAmount, transaction),
           ...matchPayments(pool, transaction, absAmount, 'sent'),
         ];
+  const rule = matchRule(pool, transaction);
+  if (rule) suggestions.push(rule);
 
   // Sort by confidence descending
   suggestions.sort((a, b) => b.confidence - a.confidence);
@@ -228,13 +240,15 @@ export async function findMatches(
 
 /**
  * Auto-reconcile a batch of unreconciled transactions.
- * Only auto-reconciles invoice / bill / payment matches with confidence >= 0.8;
+ * Auto-reconciles invoice / bill / payment matches with confidence >= 0.8;
  * an invoice or bill match records and posts a payment
  * (services/accounting-bank-match), so an automatic match settles the
  * document exactly like a manual one, and a payment match links the line to a
  * payment that was already recorded (a printed check clearing the bank). A
  * match that can't be posted (closed period, lock date, draft document) is
- * left as a suggestion.
+ * left as a suggestion. A line without such a match that a reconciliation
+ * rule matches is categorized to the rule's account, and the rule's match
+ * count goes up.
  */
 export async function autoReconcileBatch(
   db: Database,
@@ -266,50 +280,95 @@ export async function autoReconcileBatch(
 
   for (const txn of transactions) {
     const suggestions = await findMatches(db, schema, txn as MatchableTransaction, pool);
-    const bestMatch = suggestions[0];
-
     const result: ReconciliationResult = {
       transactionId: txn.id,
       suggestions,
       autoReconciled: false,
     };
 
-    const auto = bestMatch && bestMatch.confidence >= 0.8 ? bestMatch : undefined;
-    if (auto && (auto.type === 'invoice' || auto.type === 'bill' || auto.type === 'payment')) {
-      try {
-        if (auto.type === 'payment') {
-          await reconcileBankTransactionToPayment(db, {
-            txn: txn as BankTransactionRow,
-            paymentId: auto.entityId,
-            reconciliationType: 'auto',
-            userId,
-          });
-        } else {
-          await reconcileBankTransactionToDocument(db, {
-            txn: txn as BankTransactionRow,
-            type: auto.type,
-            documentId: auto.entityId,
-            reconciliationType: 'auto',
-            userId,
-          });
-        }
-        result.autoReconciled = true;
-        result.reconciledEntityType = auto.type;
-        result.reconciledEntityId = auto.entityId;
-        reconciledCount++;
-        // What was just used can't match the next line.
-        pool.invoices = pool.invoices.filter((i) => i.id !== auto.entityId);
-        pool.bills = pool.bills.filter((b) => b.id !== auto.entityId);
-        pool.payments = pool.payments.filter((p) => p.id !== auto.entityId);
-      } catch (err) {
-        console.warn(`[auto-reconcile] left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
-      }
+    const applied =
+      (await autoMatchDocument(db, txn as BankTransactionRow, suggestions[0], pool, userId)) ??
+      (await autoApplyRule(db, txn as BankTransactionRow, suggestions, pool, userId));
+    if (applied) {
+      result.autoReconciled = true;
+      result.reconciledEntityType = applied.type;
+      result.reconciledEntityId = applied.entityId;
+      reconciledCount++;
     }
 
     results.push(result);
   }
 
   return { reconciledCount, results };
+}
+
+/**
+ * Settle the line against its best invoice / bill / payment match when that
+ * match is confident enough (>= 0.8). Returns the match it used, or undefined
+ * when there was none or it couldn't be posted.
+ */
+async function autoMatchDocument(
+  db: Database,
+  txn: BankTransactionRow,
+  best: ReconciliationSuggestion | undefined,
+  pool: MatchCandidates,
+  userId: string | null,
+): Promise<ReconciliationSuggestion | undefined> {
+  if (!best || best.confidence < 0.8) return undefined;
+  if (best.type !== 'invoice' && best.type !== 'bill' && best.type !== 'payment') return undefined;
+  try {
+    if (best.type === 'payment') {
+      await reconcileBankTransactionToPayment(db, { txn, paymentId: best.entityId, reconciliationType: 'auto', userId });
+    } else {
+      await reconcileBankTransactionToDocument(db, {
+        txn,
+        type: best.type,
+        documentId: best.entityId,
+        reconciliationType: 'auto',
+        userId,
+      });
+    }
+  } catch (err) {
+    console.warn(`[auto-reconcile] left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
+  // What was just used can't match the next line.
+  pool.invoices = pool.invoices.filter((i) => i.id !== best.entityId);
+  pool.bills = pool.bills.filter((b) => b.id !== best.entityId);
+  pool.payments = pool.payments.filter((p) => p.id !== best.entityId);
+  return best;
+}
+
+/**
+ * Categorize the line with the reconciliation rule that matched it, applying
+ * the rule's tax rate and contact, and count the match. Returns the rule
+ * suggestion it used, or undefined.
+ */
+async function autoApplyRule(
+  db: Database,
+  txn: BankTransactionRow,
+  suggestions: readonly ReconciliationSuggestion[],
+  pool: MatchCandidates,
+  userId: string | null,
+): Promise<ReconciliationSuggestion | undefined> {
+  const ruleMatch = suggestions.find((s) => s.type === 'rule');
+  const rule = ruleMatch && pool.rules.find((r) => r.id === ruleMatch.entityId);
+  if (!ruleMatch?.categoryAccountId || !rule) return undefined;
+  try {
+    await categorizeBankTransaction(db, {
+      txn,
+      categoryAccountId: ruleMatch.categoryAccountId,
+      contactId: rule.actions?.contactId ?? null,
+      taxRateId: rule.actions?.taxRateId ?? null,
+      reconciliationType: 'auto',
+      userId,
+    });
+    await recordRuleMatch(db, rule.id);
+  } catch (err) {
+    console.warn(`[auto-reconcile] rule left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
+  return ruleMatch;
 }
 
 // ============================================================================
@@ -565,6 +624,18 @@ function matchPayments(
     }
   }
   return suggestions;
+}
+
+/** The highest-priority reconciliation rule that matches the line, as a suggestion to categorize it. */
+function matchRule(pool: MatchCandidates, transaction: MatchableTransaction): ReconciliationSuggestion | null {
+  const rule = findMatchingRule(transaction, pool.rules ?? []);
+  const categoryAccountId = rule?.actions?.categoryAccountId;
+  if (!rule || !categoryAccountId) return null;
+  const amount = Math.abs(Number.parseFloat(transaction.amount || '0')).toFixed(2);
+  return {
+    ...suggestion('rule', { entityId: rule.id, entityNumber: rule.name, contactName: null, amount }, 0.7, ['reconciliation rule matches']),
+    categoryAccountId,
+  };
 }
 
 /** Bank deposits whose total equals an incoming bank line; never auto-matched. */

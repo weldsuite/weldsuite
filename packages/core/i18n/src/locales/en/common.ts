@@ -1,5 +1,10 @@
 export const common = {
     ui: { pagination: { previous: 'Previous', next: 'Next', first: 'First', last: 'Last', page: 'Page', of: 'of', rows: 'rows', rowsPerPage: 'Rows per page', showing: 'Showing', to: 'to', results: 'results' }, table: { sortAscending: 'Sort ascending', sortDescending: 'Sort descending', unsorted: 'Unsorted', toggleColumns: 'Toggle columns', selectAll: 'Select all', selectRow: 'Select row', noResults: 'No results found', loading: 'Loading...' }, form: { required: 'Required', optional: 'Optional', select: 'Select...', selectOption: 'Select an option', clear: 'Clear', reset: 'Reset' } },
+    a11y: {
+      skipToContent: 'Skip to main content',
+      send: 'Send',
+      presence: { online: 'Available', busy: 'Busy', dnd: 'Do Not Disturb', away: 'Away', offline: 'Offline' },
+    },
     actions: {
       copyTaskNumber: 'Copy task number',
       save: 'Save',
@@ -692,6 +697,10 @@ export const common = {
       wrongAccountDescription: "You're signed in as {email}, but this invitation was sent to a different email address.",
       signingOut: 'Signing out...',
       signOutAndUseOtherAccount: 'Sign Out & Use Different Account',
+      alreadyMemberTitle: "You're already a member",
+      alreadyMemberDescription:
+        "You're signed in as {email}, which is already a member of this workspace. If this invitation was sent to a different email address, sign out and open the link again with that account.",
+      continueToWorkspace: 'Continue to workspace',
       invitationExpiredTitle: 'Invitation Expired',
       invitationExpiredDescription: 'This invitation has expired. Please contact your workspace administrator to request a new invitation.',
       invitationExpiredWithDate: 'This invitation has expired on {date}. Please contact your workspace administrator to request a new invitation.',

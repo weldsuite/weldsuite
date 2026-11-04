@@ -93,14 +93,14 @@ import {
   MessageSquareText,
   Signature,
   LayoutTemplate,
-  Shuffle,
+  UserX,
   ChartSpline,
-  Tags,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { getAppLogoConfig } from '@/lib/apps/app-registry';
+import { isFeatureAvailable } from '@/lib/edition';
 
 
 export interface ModuleSidebarConfig {
@@ -366,7 +366,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.domains,
         items: [
           { title: t.navigation.moduleSidebar.weldhost.myDomains, href: '/weldhost/domains', icon: Globe },
-          { title: t.navigation.moduleSidebar.weldhost.registerDomain, href: '/weldhost/domains/register', icon: Plus },
+          // Buying a domain is a Stripe checkout, which some editions lack.
+          ...(isFeatureAvailable('domain-purchase')
+            ? [{ title: t.navigation.moduleSidebar.weldhost.registerDomain, href: '/weldhost/domains/register', icon: Plus }]
+            : []),
           { title: t.navigation.moduleSidebar.weldhost.externalDomains, href: '/weldhost/domains/external', icon: SquareArrowOutUpRight },
         ],
       },
@@ -382,21 +385,37 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appName: 'WeldDesk',
     appIcon: Headphones,
     appLogo: getAppLogoConfig('welddesk'),
+    // Everyday work only. The configuration pages (channels, voice agents,
+    // ticket types, assignment) live in Settings → Apps → WeldDesk. The inbox
+    // views share a path, so `useWelddeskSidebarItems` marks the active one.
     getMenuItems: (t) => [
       {
-        group: '',
+        group: t.navigation.moduleSidebar.welddesk.groups.inbox,
         items: [
-          { title: t.navigation.moduleSidebar.welddesk.inbox, href: '/welddesk/inbox', icon: Inbox },
+          { title: t.navigation.moduleSidebar.welddesk.allOpen, href: '/welddesk/inbox', icon: Inbox },
+          { title: t.navigation.moduleSidebar.welddesk.assignedToMe, href: '/welddesk/inbox?assignee=mine', icon: User },
+          { title: t.navigation.moduleSidebar.welddesk.unassigned, href: '/welddesk/inbox?assignee=unassigned', icon: UserX },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.welddesk.groups.channels,
+        items: [
+          { title: t.navigation.moduleSidebar.welddesk.chat, href: '/welddesk/inbox/chat', icon: MessagesSquare },
+          { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/inbox/email', icon: Mail },
           { title: t.navigation.moduleSidebar.welddesk.phone, href: '/welddesk/inbox/phone', icon: Phone },
-          { title: t.navigation.moduleSidebar.welddesk.voiceAgents, href: '/welddesk/ai-agents', icon: Bot },
-          { title: t.navigation.moduleSidebar.welddesk.chatWidget, href: '/welddesk/chat-widget', icon: MessagesSquare },
-          { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/email', icon: Mail },
-          { title: t.navigation.moduleSidebar.welddesk.helpCenter, href: '/welddesk/help-center', icon: BookOpen },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.welddesk.groups.knowledge,
+        items: [
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
-          { title: t.navigation.moduleSidebar.welddesk.ticketTypes, href: '/welddesk/settings/ticket-types', icon: Tags },
-          { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/settings/saved-replies', icon: MessageSquareText },
-          { title: t.navigation.moduleSidebar.welddesk.assignment, href: '/welddesk/settings/assignment', icon: Shuffle },
-          { title: t.navigation.moduleSidebar.welddesk.phoneSettings, href: '/welddesk/settings/phone', icon: Settings },
+          { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/saved-replies', icon: MessageSquareText },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.groups.settings,
+        items: [
+          { title: t.navigation.moduleSidebar.welddesk.settings, href: '/settings/apps/welddesk', icon: Settings },
         ],
       },
     ],

@@ -137,6 +137,53 @@ describe('planChartQuery', () => {
     expect(points.map((p) => p.label)).toEqual(['2026-10-15', '2026-10-16']);
   });
 
+  describe('project statuses (TASK-1133)', () => {
+    const projects = { ...base, entity: 'projects', groupBy: 'status' };
+
+    it('leaves completed and cancelled projects out of active projects, in any spelling', () => {
+      const [sql] = planChartQuery('ws_1', { ...projects, metric: 'active_projects', groupBy: 'day' }).queries;
+      for (const status of ['Completed', 'completed', 'Cancelled', 'cancelled', 'canceled']) {
+        expect(sql).toContain(`'${status}'`);
+      }
+      expect(sql).toMatch(/status NOT IN \(/);
+    });
+
+    it('groups projects by their canonical status, then sorts and limits the merged slices', () => {
+      const plan = planChartQuery('ws_1', { ...projects, metric: 'projects_by_status', sortOrder: 'desc', limit: 2 });
+      expect(plan.queries[0]).not.toContain('LIMIT');
+
+      const points = plan.finish([
+        [
+          ['active', 2],
+          ['Active', 3],
+          ['ON_HOLD', 4],
+          ['Planning', 1],
+        ],
+      ]);
+      expect(points).toEqual([
+        { label: 'Active', value: 5 },
+        { label: 'On Hold', value: 4 },
+      ]);
+    });
+
+    it('merges ratio sides by canonical status too', () => {
+      const plan = planChartQuery('ws_1', { ...projects, metric: 'completion_rate' });
+      const points = plan.finish([
+        [
+          ['completed', 1, 1],
+          ['Completed', 1, 3],
+        ],
+      ]);
+      expect(points).toEqual([{ label: 'Completed', value: 50 }]);
+    });
+
+    it('keeps task statuses as stored', () => {
+      const plan = planChartQuery('ws_1', { ...base, metric: 'tasks_by_status', limit: 5 });
+      expect(plan.queries[0]).toContain('LIMIT 5');
+      expect(plan.finish([[['in_progress', 2]]])).toEqual([{ label: 'in_progress', value: 2 }]);
+    });
+  });
+
   describe('ratio metrics', () => {
     it('estimation accuracy divides actual by estimated hours over estimated tasks', () => {
       const plan = planChartQuery('ws_1', { ...base, metric: 'estimation_accuracy', groupBy: 'status' });

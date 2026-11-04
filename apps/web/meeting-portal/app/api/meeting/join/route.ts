@@ -9,6 +9,13 @@ import {
   type MeetingSessionParticipant,
 } from '@weldsuite/db/schema/meeting-sessions';
 import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
+import {
+  liveKitSettings,
+  mintLiveKitJoinToken,
+  selectsLiveKit,
+  type LiveKitParticipant,
+  type LiveKitSettings,
+} from '@weldsuite/meet-domain/livekit';
 import { findOrCreatePersonByEmail } from '@/lib/people';
 import { createGuestSessionToken } from '@/lib/guest-session';
 import { guestJoinInputSchema } from '@/lib/schemas';
@@ -200,6 +207,41 @@ async function saveSessionParticipant(
 }
 
 /**
+ * The LiveKit server guests join on the Kubernetes editions (VIDEO_PROVIDER /
+ * LIVEKIT_URL, read as the Rust backend reads them), or null for RealtimeKit
+ * (Global), whose presets are seeded here as before. Throws when LiveKit is
+ * picked without its URL or key pair.
+ */
+async function prepareGuestVideo(): Promise<LiveKitSettings | null> {
+  const livekit = liveKitSettings(process.env);
+  if (livekit) return livekit;
+  if (selectsLiveKit(process.env)) {
+    throw new Error('LiveKit is selected but LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET are missing');
+  }
+  await ensurePresets();
+  return null;
+}
+
+/**
+ * The guest's participant in the room: a LiveKit join token for the same room
+ * on the Kubernetes editions, else a RealtimeKit participant (Global).
+ */
+async function addGuestParticipant(
+  livekit: LiveKitSettings | null,
+  roomId: string,
+  params: LiveKitParticipant,
+): Promise<{ id: string; token: string }> {
+  if (!livekit) return addParticipant(roomId, params);
+  const joined = await mintLiveKitJoinToken(livekit, roomId, params);
+  return { id: joined.participantId, token: joined.token };
+}
+
+/** Tells the guest's client to join with LiveKit, and where; nothing for RealtimeKit. */
+function videoFields(livekit: LiveKitSettings | null) {
+  return livekit ? { videoProvider: 'livekit' as const, videoUrl: livekit.url } : {};
+}
+
+/**
  * POST /api/meeting/join
  * Guest joins a meeting session.
  */
@@ -271,7 +313,7 @@ export async function POST(request: NextRequest) {
       return apiError('INTERNAL', 'Session has no RTK meeting ID', 500);
     }
 
-    await ensurePresets();
+    const livekit = await prepareGuestVideo();
 
     // Match the guest's email against the workspace's identity layer (people)
     // so we can surface the person's avatar to every other participant via RTK.
@@ -297,7 +339,7 @@ export async function POST(request: NextRequest) {
     const customParticipantId = typeof colorSeed === 'string' && colorSeed.length > 0
       ? colorSeed
       : guestUserId;
-    const rtkParticipant = await addParticipant(session.cfAppId, {
+    const rtkParticipant = await addGuestParticipant(livekit, session.cfAppId, {
       name,
       customParticipantId,
       presetName: guestPreset,
@@ -334,6 +376,7 @@ export async function POST(request: NextRequest) {
         guestToken,
         meetingId: meeting.id,
         meetingTitle: meeting.title,
+        ...videoFields(livekit),
       },
     });
   } catch (err) {

@@ -66,10 +66,104 @@ pub struct RoomParticipant {
     pub created_at: String,
 }
 
+/// A room's recorder and post-meeting AI settings (`RtkMeetingOptions` of
+/// `@weldsuite/cloudflare-realtime`): `RealtimeKit`'s own recorder, transcript
+/// and summary. Every field is opt-in; `None`/`false` leaves it out of the
+/// request. Providers without them (`LiveKit`) ignore them on create.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RoomOptions {
+    /// Start recording as soon as someone joins.
+    pub record_on_start: Option<bool>,
+    /// Also export an audio-only MP3 next to the video (create only).
+    pub audio_export: bool,
+    pub transcribe_on_end: Option<bool>,
+    pub summarize_on_end: Option<bool>,
+    /// A `RealtimeKit` transcription language (`en-US`, `nl`, …); `None`
+    /// auto-detects.
+    pub transcription_language: Option<String>,
+    /// `plain_text` or `markdown`.
+    pub summary_text_format: Option<String>,
+}
+
+/// A webhook registration (`upsertWebhook`'s params).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebhookRegistration {
+    pub name: String,
+    pub url: String,
+    pub events: Vec<String>,
+    pub enabled: bool,
+}
+
+/// What `upsertWebhook` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebhookUpserted {
+    pub id: Option<String>,
+    /// `created` or `updated`.
+    pub action: &'static str,
+    pub removed_duplicates: u32,
+}
+
 /// The video provider.
 pub trait DynVideoRooms: Send + Sync {
     /// Create a room; its id.
     fn create_room<'a>(&'a self, title: &'a str) -> BoxFuture<'a, Result<String, VideoError>>;
+
+    /// Create a room with recorder / AI settings ([`RoomOptions`]); its id.
+    /// Providers without those settings create a plain room.
+    fn create_room_with<'a>(
+        &'a self,
+        title: &'a str,
+        options: &'a RoomOptions,
+    ) -> BoxFuture<'a, Result<String, VideoError>> {
+        let _ = options;
+        self.create_room(title)
+    }
+
+    /// Change a room's recorder / AI settings (`updateMeeting`). Providers
+    /// without them refuse.
+    fn update_room<'a>(
+        &'a self,
+        room_id: &'a str,
+        options: &'a RoomOptions,
+    ) -> BoxFuture<'a, Result<(), VideoError>> {
+        let _ = (room_id, options);
+        Box::pin(std::future::ready(Err(VideoError::new(
+            None,
+            "This video provider has no recorder or meeting AI settings",
+        ))))
+    }
+
+    /// The provider's recordings of a room (`getRecordings`), each the
+    /// object `@weldsuite/cloudflare-realtime`'s `toRecording` builds
+    /// (`id`, `status`, `download_url`, `file_size`, …). Providers without a
+    /// recorder report none.
+    fn list_recordings<'a>(
+        &'a self,
+        room_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<serde_json::Value>, VideoError>> {
+        let _ = room_id;
+        Box::pin(std::future::ready(Ok(Vec::new())))
+    }
+
+    /// Register the webhook receiver (`upsertWebhook`): overwrite the one
+    /// with this URL, else create one. Providers whose webhooks are server
+    /// configuration refuse.
+    fn upsert_webhook<'a>(
+        &'a self,
+        registration: &'a WebhookRegistration,
+    ) -> BoxFuture<'a, Result<WebhookUpserted, VideoError>> {
+        let _ = registration;
+        Box::pin(std::future::ready(Err(VideoError::new(
+            None,
+            "This video provider's webhooks are configured on its server",
+        ))))
+    }
+
+    /// Create the participant presets the join preset names refer to
+    /// (`seedPresets`). Providers without presets have nothing to do.
+    fn seed_presets(&self) -> BoxFuture<'_, Result<(), VideoError>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 
     /// Add a participant: their id and join token.
     fn add_participant<'a>(

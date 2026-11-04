@@ -15,13 +15,16 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("set by cargo"));
 
     let entity_events = read(&catalogs, "entity-events.json");
+    let event_order = read(&catalogs, "entity-event-order.json");
     let permissions = read(&catalogs, "permissions.json");
     let flags = read(&catalogs, "feature-flags.json");
     let origins = read(&catalogs, "first-party-origins.json");
     // Parsed here too, so a malformed file fails the build, not a request.
     read(&catalogs, "api-modules.json");
 
-    write(&out, "entity_events.rs", &entity_events_rs(&entity_events));
+    let mut events_code = entity_events_rs(&entity_events);
+    events_code.push_str(&event_order_rs(&event_order));
+    write(&out, "entity_events.rs", &events_code);
     write(
         &out,
         "permission_keys.rs",
@@ -104,6 +107,22 @@ fn entity_events_rs(catalog: &Value) -> String {
     )
     .expect("write to string");
     code
+}
+
+/// `ORDER`: the entity types as `ENTITY_EVENTS` declares them.
+fn event_order_rs(order: &Value) -> String {
+    let mut list = String::new();
+    for entity_type in order
+        .as_array()
+        .expect("entity-event-order.json is an array")
+    {
+        let entity_type = entity_type.as_str().expect("an entity type is a string");
+        write!(list, "{entity_type:?}, ").expect("write to string");
+    }
+    format!(
+        "/// The entity types in `ENTITY_EVENTS`' declaration order (`listAllEvents`).\n\
+         pub const ORDER: &[&str] = &[{list}];\n"
+    )
 }
 
 fn permission_keys_rs(catalog: &Value) -> String {

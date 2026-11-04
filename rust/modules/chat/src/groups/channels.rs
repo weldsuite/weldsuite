@@ -486,9 +486,12 @@ fn read_update(issues: &mut Issues, body: &Map<String, Value>) -> UpdateBody {
     if let Some(name) = &name {
         set.push(("name", Value::from(name.as_str())));
     }
+    // `null` clears the field, as an empty string does.
     for key in ["description", "topic"] {
-        if let Some(text) = issues.string(body, key, false, None, None) {
-            set.push((key, Value::from(text)));
+        match issues.text(body, key, Presence::Nullish, None, None) {
+            Field::Set(text) => set.push((key, Value::from(text))),
+            Field::Null => set.push((key, Value::Null)),
+            Field::Absent => {}
         }
     }
     if let Some(icon) = issues.string(body, "icon", false, None, Some(50)) {
@@ -607,8 +610,8 @@ async fn update_inner(
         "update chat_channels set
             updated_at = $2::timestamp,
             name = coalesce($3, name),
-            description = coalesce($4, description),
-            topic = coalesce($5, topic),
+            description = case when $19 then $4 else description end,
+            topic = case when $20 then $5 else topic end,
             icon = coalesce($6, icon),
             voice_calls_enabled = coalesce($7, voice_calls_enabled),
             video_calls_enabled = coalesce($8, video_calls_enabled),
@@ -644,6 +647,8 @@ async fn update_inner(
     .bind(update.contains_key("metadata"))
     .bind(field("metadata").cloned())
     .bind(text("slug"))
+    .bind(update.contains_key("description"))
+    .bind(update.contains_key("topic"))
     .execute(&caller.db)
     .await?;
     let updated = channel_row(&caller.db, id).await?;

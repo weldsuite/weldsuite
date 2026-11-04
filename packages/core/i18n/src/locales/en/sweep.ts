@@ -413,7 +413,10 @@ export const sweep = {
       "memberFallback": "Member"
     },
     "channelPage": {
-      "newMessage": "New message"
+      "archivedNotice": "This channel is archived. You can read its messages, but nobody can post in it.",
+      "newMessage": "New message",
+      "unarchive": "Unarchive",
+      "unarchiveFailed": "Could not unarchive the channel"
     },
     "chatFilters": {
       "removePerson": "Remove {name}"
@@ -1362,7 +1365,6 @@ export const sweep = {
     "failedToCreateWorkspace": "Failed to create workspace",
     "settingUpYourWorkspace": "Setting up your workspace",
     "usuallyTakesLessThanAMinute": "This usually takes less than a minute.",
-    "done": "Done",
     "takingLongerThanExpectedBefore": "This is taking longer than expected. You can",
     "refreshThePage": "refresh the page",
     "takingLongerThanExpectedAfter": "or contact support if this continues.",
@@ -1954,6 +1956,7 @@ export const sweep = {
     "searchThreadsPlaceholder": "Search threads",
     "searchingEllipsis": "Searching...",
     "selectCondition": "Select condition",
+    "selectFieldValue": "Select {field}",
     "selectPeople": "Select people",
     "selectedLabel": "selected",
     "clearSelection": "Clear selection",
@@ -1964,7 +1967,6 @@ export const sweep = {
     "setOwnerPlaceholder": "Set Owner…",
     "setStatusPlaceholder": "Set Status…",
     "sharedBy": "Shared by",
-    "showHideFields": "Show/Hide Fields",
     "showingLabel": "Showing",
     "showingXToYOfZItems": "Showing {start} to {end} of {total} items",
     "sort": "Sort",

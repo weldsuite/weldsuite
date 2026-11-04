@@ -19,12 +19,28 @@ publish = false
 # Shared dependency versions go here; crates use `dep = { workspace = true }`.
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-ads = { path = "modules/ads" }
+weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
+weldsuite-call = { path = "modules/call" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
+weldsuite-books = { path = "modules/books" }
+weldsuite-books-banking = { path = "modules/books-banking" }
+weldsuite-books-purchases = { path = "modules/books-purchases" }
+weldsuite-apps-domain = { path = "crates/apps-domain" }
+weldsuite-books-domain = { path = "crates/books-domain" }
+weldsuite-books-sales = { path = "modules/books-sales" }
+weldsuite-books-reports = { path = "modules/books-reports" }
+weldsuite-books-sales-tax = { path = "modules/books-sales-tax" }
+weldsuite-books-tax = { path = "modules/books-tax" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
+weldsuite-commerce = { path = "modules/commerce" }
+weldsuite-commerce-domain = { path = "crates/commerce-domain" }
+weldsuite-connect-domain = { path = "crates/connect-domain" }
+weldsuite-connect = { path = "modules/connect" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
@@ -34,35 +50,57 @@ weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
+weldsuite-data = { path = "modules/data" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-desk-widget = { path = "modules/desk-widget" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
+weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-host = { path = "modules/host" }
+weldsuite-hr = { path = "modules/hr" }
+weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-know-domain = { path = "crates/know-domain" }
+weldsuite-docs = { path = "modules/docs" }
+weldsuite-sheets = { path = "modules/sheets" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
+weldsuite-mail-inbound = { path = "crates/mail-inbound" }
+weldsuite-meet = { path = "modules/meet" }
+weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
+weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-social = { path = "modules/social" }
+weldsuite-social-domain = { path = "crates/social-domain" }
+weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
+weldsuite-personal = { path = "modules/personal" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
 weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
+weldsuite-reach = { path = "modules/reach" }
+weldsuite-reach-domain = { path = "crates/reach-domain" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }
 base64 = "0.22.1"
 bytes = "1.12.1"
+encoding_rs = "0.8.42"
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.31", default-features = false }
 getrandom = "0.4.3"
@@ -78,6 +116,8 @@ opentelemetry-otlp = { version = "0.33.1", default-features = false, features = 
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
 png = "0.18.1"
+# Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
+qrcodegen = "1.8.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
@@ -85,14 +125,17 @@ redis = { version = "1.8.0", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
 restate-sdk = { version = "0.13.0", default-features = false, features = ["http_server", "aws_lc_rs"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-platform-verifier = "0.7.1"
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 sha1 = "0.11.0"
 sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
 time = "0.3.55"
 tokio = "1.54.1"
+tokio-rustls = { version = "0.26.6", default-features = false }
 tokio-tungstenite = { version = "0.29.0", default-features = false }
 tokio-util = "0.7.19"
 tower = "0.5.3"
@@ -119,6 +162,13 @@ must_use_candidate = "allow"
 dbg_macro = "warn"
 todo = "warn"
 unwrap_used = "warn"
+
+# The binary links every module. With full debug info its test binary
+# outgrows what MSVC's linker writes into one PDB (LNK1318 on Windows), so it
+# keeps line tables only: backtraces still name files and lines. The crates
+# it links keep full debug info.
+[profile.dev.package.weldsuite]
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"

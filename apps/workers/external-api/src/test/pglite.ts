@@ -1,35 +1,18 @@
 /**
- * pglite-backed test database helper.
+ * pglite-backed test database helper: worker-kit's, so a test's database is
+ * one the conformance harness can serve to the Rust server
+ * (`pgliteClientOf`). One in-process PostgreSQL (WASM) with every journaled
+ * tenant migration applied, cached for the whole run (the vitest config shares
+ * one module registry across files).
  *
- * Builds an in-process PostgreSQL via WASM (`@electric-sql/pglite`),
- * wraps it with Drizzle's pglite adapter, and applies the WeldSuite
- * tenant migrations so route + service tests can run against a REAL DB.
- *
- * Usage:
- *
- *   const { db, close } = await createPgliteDb();
- *   try {
- *     // ... do test work; `db` is type-compatible with `Database`.
- *   } finally {
- *     await close();
- *   }
- *
- * Notes:
- *   - First call is slow (~3-5s) because pglite has to download the
- *     WASM, then every tenant migration is applied in sequence.
- *     Subsequent calls in the same Vitest worker are cached + fast.
- *   - The migration history isn't perfectly idempotent in a fresh DB,
- *     so "already exists"/"does not exist" errors are tolerated (Neon
- *     ignores them because the exact migration was marked applied;
- *     pglite sees them all in order).
- *
- * Mirrors packages/core/worker-kit/src/testing/pglite.ts.
+ *   const { db } = await createPgliteDb();
  */
 
 import type { Database } from '../db';
-
-let cached: { db: Database; close: () => Promise<void> } | null = null;
-let cachedError: Error | null = null;
+import {
+  createPgliteDb as createKitPgliteDb,
+  isPgliteAvailable,
+} from '@weldsuite/worker-kit/testing/pglite';
 
 interface PgliteHandle {
   db: Database;
@@ -37,93 +20,8 @@ interface PgliteHandle {
 }
 
 export async function createPgliteDb(): Promise<PgliteHandle> {
-  if (cached) return cached;
-  if (cachedError) throw cachedError;
-
-  try {
-    const [{ PGlite }, { vector }, { pg_trgm }, drizzlePg, schemaModule, fs, path, url] = await Promise.all([
-      import('@electric-sql/pglite'),
-      // pgvector is not compiled into the base pglite build — it ships as a
-      // separate extension bundle that has to be registered at construction.
-      // Without it, tenant migration 0175 fails with `extension "vector" is
-      // not available` and takes every pglite-backed test down with it.
-      import('@electric-sql/pglite/vector'),
-      // pg_trgm backs the CRM list search indexes (tenant migration 0219).
-      import('@electric-sql/pglite/contrib/pg_trgm'),
-      import('drizzle-orm/pglite'),
-      import('@weldsuite/db/schema'),
-      import('node:fs/promises'),
-      import('node:path'),
-      import('node:url'),
-    ]);
-
-    const client = new PGlite({ extensions: { vector, pg_trgm } });
-    const db = drizzlePg.drizzle(client, { schema: schemaModule });
-
-    // Apply tenant migrations in order. The SQL files live in the
-    // @weldsuite/db package and are the same ones the migrate-databases
-    // app runs against Neon.
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const migrationsDir = path.resolve(
-      here,
-      '../../../../../packages/core/db/drizzle/tenant-migrations',
-    );
-    // Apply exactly what the real runner (drizzle `migrate`) applies: the
-    // journal entries, in journal order. Reading every .sql file instead once
-    // masked migrations that were never journaled and never ran anywhere.
-    const journal = JSON.parse(
-      await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
-    ) as { entries: Array<{ idx: number; tag: string }> };
-    const files = [...journal.entries]
-      .sort((a, b) => a.idx - b.idx)
-      .map((entry) => `${entry.tag}.sql`);
-
-    for (const file of files) {
-      const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');
-      // Drizzle splits statements with `--> statement-breakpoint`.
-      const statements = raw
-        .split(/-->\s*statement-breakpoint/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      for (const stmt of statements) {
-        try {
-          await client.exec(stmt);
-        } catch (err) {
-          const msg = (err as Error).message;
-          if (/already exists/i.test(msg) || /does not exist/i.test(msg)) {
-            continue;
-          }
-          throw new Error(
-            `pglite failed on migration ${file}: ${msg}\nStatement: ${stmt.slice(0, 200)}…`,
-          );
-        }
-      }
-    }
-
-    cached = {
-      db: db as unknown as Database,
-      close: async () => {
-        await client.close();
-        cached = null;
-      },
-    };
-    return cached;
-  } catch (err) {
-    cachedError = err instanceof Error ? err : new Error(String(err));
-    throw cachedError;
-  }
+  const handle = await createKitPgliteDb();
+  return { db: handle.db as unknown as Database, close: handle.close };
 }
 
-/**
- * Check whether pglite could be loaded + migrated in this environment.
- * Tests that depend on a real DB use this to skip on platforms where the
- * WASM can't initialise.
- */
-export async function isPgliteAvailable(): Promise<boolean> {
-  try {
-    await createPgliteDb();
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { isPgliteAvailable };

@@ -32,7 +32,7 @@ export function BookingPageInfo({
   const host = hostName?.trim() || workspaceName;
   const showWorkspace = host !== workspaceName;
   return (
-    <div className="w-full md:w-[280px] shrink-0 md:border-r md:border-b-0 md:border-gray-200 dark:md:border-[#26262B] flex flex-col overflow-hidden">
+    <div className="w-full md:w-[200px] lg:w-[240px] xl:w-[280px] shrink-0 md:border-r md:border-b-0 md:border-gray-200 dark:md:border-[#26262B] flex flex-col overflow-hidden">
       <div className="flex flex-col flex-1 px-6 pt-6 pb-6">
         <div className="h-10 w-10 rounded-full overflow-hidden mb-[13px] shrink-0">
           {workspaceImage ? (

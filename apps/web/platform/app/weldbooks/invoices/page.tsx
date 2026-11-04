@@ -114,7 +114,7 @@ export default function InvoicesPage() {
             </EmptyStateIllustration>
           ),
           title: tip.noInvoices,
-          description: tip.searchPlaceholder,
+          description: tip.emptyDescription,
           action: {
             label: tip.newInvoice,
             onClick: newInvoice,

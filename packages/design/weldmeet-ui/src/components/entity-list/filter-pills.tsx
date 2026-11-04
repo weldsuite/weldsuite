@@ -8,7 +8,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { Plus, X, Check, Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
+import {
+  FilterAddButton,
+  FilterButton,
+  FilterMenuItem,
+  FilterPill,
+  FilterPillButton,
+  FilterPillDivider,
+  FilterPillLabel,
+  FilterPillRemove,
+} from '@weldsuite/ui/components/filter-button';
 import type { ActiveFilter, FilterConfig } from './types';
 
 interface FilterPillsProps {
@@ -249,9 +259,9 @@ export function FilterPills({
                 value={textInputValue}
                 onChange={(e) => setTextInputValue(e.target.value)}
                 placeholder={placeholderText}
-                className="h-8 text-sm"
+                className="h-8 text-sm shadow-none focus-visible:ring-0"
               />
-              <Button type="submit" size="sm" className="w-full mt-2 h-7 text-xs">
+              <Button type="submit" size="sm" className="w-full mt-2 h-8 text-sm">
                 Apply
               </Button>
             </form>
@@ -273,9 +283,9 @@ export function FilterPills({
                 value={textInputValue}
                 onChange={(e) => setTextInputValue(e.target.value)}
                 placeholder="Enter value"
-                className="h-8 text-sm"
+                className="h-8 text-sm shadow-none focus-visible:ring-0"
               />
-              <Button type="submit" size="sm" className="w-full mt-2 h-7 text-xs">
+              <Button type="submit" size="sm" className="w-full mt-2 h-8 text-sm">
                 Apply
               </Button>
             </form>
@@ -292,7 +302,7 @@ export function FilterPills({
               onChange={(e) => {
                 if (e.target.value) onSelect(e.target.value);
               }}
-              className="h-8 text-sm"
+              className="h-8 text-sm shadow-none focus-visible:ring-0"
             />
           </div>
         );
@@ -300,20 +310,14 @@ export function FilterPills({
       case 'boolean':
         return (
           <>
-            <button
-              onClick={() => onSelect('true')}
-              className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
+            <FilterMenuItem onClick={() => onSelect('true')}>
               <span>Yes</span>
               {currentValue === 'true' && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
-            <button
-              onClick={() => onSelect('false')}
-              className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
+            </FilterMenuItem>
+            <FilterMenuItem onClick={() => onSelect('false')}>
               <span>No</span>
               {currentValue === 'false' && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
+            </FilterMenuItem>
           </>
         );
 
@@ -352,19 +356,18 @@ export function FilterPills({
                 </div>
               ) : (
                 filtered.map((option) => (
-                  <button
+                  <FilterMenuItem
                     key={option.value}
                     onClick={() => {
                       onSelect(option.value);
                       setValueSearchQuery('');
                     }}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
                     <span>{option.label}</span>
                     {currentValue === option.value && (
                       <Check className="h-3.5 w-3.5 text-primary" />
                     )}
-                  </button>
+                  </FilterMenuItem>
                 ))
               )}
             </div>
@@ -376,20 +379,9 @@ export function FilterPills({
 
   let filterTrigger: ReactNode = null;
   if (filters.length > 0 && filters.length < maxFilters) {
-    filterTrigger = (
-      <button className="flex items-center justify-center h-[32px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    );
+    filterTrigger = <FilterAddButton aria-label={labels?.filter ?? 'Filter'} />;
   } else if (filters.length === 0) {
-    filterTrigger = (
-      <Button
-        variant="outline"
-        className="h-8 text-sm px-3 shadow-none text-muted-foreground"
-      >
-        {labels?.filter ?? 'Filter'}
-      </Button>
-    );
+    filterTrigger = <FilterButton>{labels?.filter ?? 'Filter'}</FilterButton>;
   }
 
   return (
@@ -400,18 +392,10 @@ export function FilterPills({
         const operators = getOperatorsForType(config?.filterType, operatorLabels);
 
         return (
-          <div
-            key={filter.id}
-            className="flex items-center h-[32px] bg-muted/50 rounded-md border border-border text-sm"
-          >
-            {/* Field name */}
-            <div className="flex items-center px-2 h-full">
-              <span className="text-muted-foreground capitalize">
-                {config?.label || filter.field}
-              </span>
-            </div>
+          <FilterPill key={filter.id}>
+            <FilterPillLabel>{config?.label || filter.field}</FilterPillLabel>
 
-            <div className="h-full w-px bg-border" />
+            <FilterPillDivider />
 
             {/* Operator popover */}
             <Popover
@@ -421,35 +405,28 @@ export function FilterPills({
               }
             >
               <PopoverTrigger asChild>
-                <button
-                  className={`px-2 h-full hover:bg-muted transition-colors ${
-                    filter.operator
-                      ? 'text-foreground'
-                      : 'text-muted-foreground/60'
-                  }`}
-                >
+                <FilterPillButton empty={!filter.operator}>
                   {filter.operator
                     ? getOperatorLabel(filter)
                     : (labels?.selectCondition ?? 'Select condition')}
-                </button>
+                </FilterPillButton>
               </PopoverTrigger>
               <PopoverContent align="start" className="w-auto min-w-28 p-1">
                 {operators.map((op) => (
-                  <button
+                  <FilterMenuItem
                     key={op.value}
                     onClick={() => updateFilterOperator(index, op.value)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
                     <span>{op.label}</span>
                     {filter.operator === op.value && (
                       <Check className="h-3.5 w-3.5 text-primary" />
                     )}
-                  </button>
+                  </FilterMenuItem>
                 ))}
               </PopoverContent>
             </Popover>
 
-            <div className="h-full w-px bg-border" />
+            <FilterPillDivider />
 
             {/* Value popover */}
             <Popover
@@ -466,17 +443,9 @@ export function FilterPills({
               }}
             >
               <PopoverTrigger asChild>
-                <button className="flex items-center px-2 h-full hover:bg-muted transition-colors">
-                  {filter.value ? (
-                    <span className="text-foreground">
-                      {getFilterDisplayValue(filter)}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/60">
-                      {getPlaceholder(filter.field)}
-                    </span>
-                  )}
-                </button>
+                <FilterPillButton empty={!filter.value}>
+                  {filter.value ? getFilterDisplayValue(filter) : getPlaceholder(filter.field)}
+                </FilterPillButton>
               </PopoverTrigger>
               <PopoverContent
                 align="start"
@@ -491,16 +460,10 @@ export function FilterPills({
               </PopoverContent>
             </Popover>
 
-            <div className="h-full w-px bg-border" />
+            <FilterPillDivider />
 
-            {/* Remove button */}
-            <button
-              onClick={() => removeFilter(index)}
-              className="px-[7px] text-muted-foreground hover:text-foreground hover:bg-muted h-full rounded-r-md transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
+            <FilterPillRemove onClick={() => removeFilter(index)} />
+          </FilterPill>
         );
       })}
 
@@ -522,13 +485,12 @@ export function FilterPills({
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {filterConfigs.map((config) => (
-            <button
+            <FilterMenuItem
               key={config.field}
               onClick={() => handlePickField(config.field)}
-              className="w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
             >
               {config.label}
-            </button>
+            </FilterMenuItem>
           ))}
         </PopoverContent>
       </Popover>

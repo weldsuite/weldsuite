@@ -11,12 +11,14 @@ const PAGE_PADDING_CLASS = 'px-4 md:px-6 pt-4 md:pt-[72px] pb-8';
 // Pick the content wrapper classes for the current settings page.
 function getContentWrapperClassName(pathname: string): string {
   // Member detail, integrations listing + detail, new number page, an entity's
-  // invoice templates + their designer: full width
+  // invoice templates + their designer, WeldDesk's settings pages (built as
+  // full-height app screens, the chat widget editor among them): full width
   if (
     /^\/settings\/team\/[^/]+$/.test(pathname) ||
     pathname === '/settings/integrations' ||
     /^\/settings\/integrations\/[^/]+$/.test(pathname) ||
     pathname === '/settings/apps/phone-numbers/new-number' ||
+    /^\/settings\/apps\/welddesk\/.+$/.test(pathname) ||
     /^\/settings\/entities\/[^/]+\/invoice-templates(\/[^/]+)?$/.test(pathname)
   ) {
     return FULL_WIDTH_CLASS;
@@ -62,7 +64,15 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
   const ts = t.settings;
   const pathname = usePathname();
 
-  const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu);
+  const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu, {
+    '/settings/apps/welddesk/chat-widget': ts.welddesk.chatWidgetTitle,
+    '/settings/apps/welddesk/email': ts.welddesk.emailTitle,
+    '/settings/apps/welddesk/phone': ts.welddesk.phoneTitle,
+    '/settings/apps/welddesk/help-center': ts.welddesk.helpCenterTitle,
+    '/settings/apps/welddesk/voice-agents': ts.welddesk.voiceAgentsTitle,
+    '/settings/apps/welddesk/ticket-types': ts.welddesk.ticketTypesTitle,
+    '/settings/apps/welddesk/assignment': ts.welddesk.assignmentTitle,
+  });
   const memberPanelWidth = useMemberPanelWidth();
 
   return (

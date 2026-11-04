@@ -1,0 +1,1563 @@
+{
+  "desk": [
+    {
+      "name": "round robin rotates past the last pick",
+      "picks": [
+        {
+          "now": 0,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_ann",
+                "open": 5
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 1000,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_ann",
+                "open": 5
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_bob",
+          "state": {
+            "lastUserId": "user_bob",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 1000
+              }
+            ]
+          }
+        },
+        {
+          "now": 2000,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_ann",
+                "open": 5
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_cy",
+          "state": {
+            "lastUserId": "user_cy",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 1000
+              },
+              {
+                "userId": "user_cy",
+                "at": 2000
+              }
+            ]
+          }
+        },
+        {
+          "now": 3000,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_ann",
+                "open": 5
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 1000
+              },
+              {
+                "userId": "user_cy",
+                "at": 2000
+              },
+              {
+                "userId": "user_ann",
+                "at": 3000
+              }
+            ]
+          }
+        },
+        {
+          "now": 4000,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_ann",
+                "open": 5
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_bob",
+          "state": {
+            "lastUserId": "user_bob",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 1000
+              },
+              {
+                "userId": "user_cy",
+                "at": 2000
+              },
+              {
+                "userId": "user_ann",
+                "at": 3000
+              },
+              {
+                "userId": "user_bob",
+                "at": 4000
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "round robin when the last pick left the roster",
+      "picks": [
+        {
+          "now": 0,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_bob",
+                "open": 0
+              },
+              {
+                "userId": "user_cy",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_bob",
+          "state": {
+            "lastUserId": "user_bob",
+            "recent": [
+              {
+                "userId": "user_bob",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 10,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 0
+              },
+              {
+                "userId": "user_cy",
+                "open": 0
+              },
+              {
+                "userId": "user_dee",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_cy",
+          "state": {
+            "lastUserId": "user_cy",
+            "recent": [
+              {
+                "userId": "user_bob",
+                "at": 0
+              },
+              {
+                "userId": "user_cy",
+                "at": 10
+              }
+            ]
+          }
+        },
+        {
+          "now": 20,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_bob",
+                "at": 0
+              },
+              {
+                "userId": "user_cy",
+                "at": 10
+              },
+              {
+                "userId": "user_ann",
+                "at": 20
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "balanced counts recent picks, which expire after 30 s",
+      "picks": [
+        {
+          "now": 0,
+          "request": {
+            "mode": "balanced",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              },
+              {
+                "userId": "user_cy",
+                "open": 2
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 5000,
+          "request": {
+            "mode": "balanced",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              },
+              {
+                "userId": "user_cy",
+                "open": 2
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_bob",
+          "state": {
+            "lastUserId": "user_bob",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 5000
+              }
+            ]
+          }
+        },
+        {
+          "now": 10000,
+          "request": {
+            "mode": "balanced",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              },
+              {
+                "userId": "user_cy",
+                "open": 2
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_cy",
+          "state": {
+            "lastUserId": "user_cy",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 5000
+              },
+              {
+                "userId": "user_cy",
+                "at": 10000
+              }
+            ]
+          }
+        },
+        {
+          "now": 29999,
+          "request": {
+            "mode": "balanced",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              },
+              {
+                "userId": "user_cy",
+                "open": 2
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              },
+              {
+                "userId": "user_bob",
+                "at": 5000
+              },
+              {
+                "userId": "user_cy",
+                "at": 10000
+              },
+              {
+                "userId": "user_ann",
+                "at": 29999
+              }
+            ]
+          }
+        },
+        {
+          "now": 40001,
+          "request": {
+            "mode": "balanced",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 1
+              },
+              {
+                "userId": "user_cy",
+                "open": 2
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_bob",
+          "state": {
+            "lastUserId": "user_bob",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 29999
+              },
+              {
+                "userId": "user_bob",
+                "at": 40001
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "the cap counts recent picks; nobody left gives null and keeps the pointer",
+      "picks": [
+        {
+          "now": 0,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 2
+              }
+            ],
+            "maxOpen": 2
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 1,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 2
+              }
+            ],
+            "maxOpen": 2
+          },
+          "userId": null,
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 2,
+          "request": {
+            "mode": "balanced",
+            "candidates": [],
+            "maxOpen": null
+          },
+          "userId": null,
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 30001,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_ann",
+                "open": 1
+              },
+              {
+                "userId": "user_bob",
+                "open": 2
+              }
+            ],
+            "maxOpen": 2
+          },
+          "userId": "user_ann",
+          "state": {
+            "lastUserId": "user_ann",
+            "recent": [
+              {
+                "userId": "user_ann",
+                "at": 30001
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ids order as localeCompare does",
+      "picks": [
+        {
+          "now": 0,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_2",
+          "state": {
+            "lastUserId": "user_2",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              }
+            ]
+          }
+        },
+        {
+          "now": 1,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_a",
+          "state": {
+            "lastUserId": "user_a",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              },
+              {
+                "userId": "user_a",
+                "at": 1
+              }
+            ]
+          }
+        },
+        {
+          "now": 2,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_A",
+          "state": {
+            "lastUserId": "user_A",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              },
+              {
+                "userId": "user_a",
+                "at": 1
+              },
+              {
+                "userId": "user_A",
+                "at": 2
+              }
+            ]
+          }
+        },
+        {
+          "now": 3,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_b",
+          "state": {
+            "lastUserId": "user_b",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              },
+              {
+                "userId": "user_a",
+                "at": 1
+              },
+              {
+                "userId": "user_A",
+                "at": 2
+              },
+              {
+                "userId": "user_b",
+                "at": 3
+              }
+            ]
+          }
+        },
+        {
+          "now": 4,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user_B",
+          "state": {
+            "lastUserId": "user_B",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              },
+              {
+                "userId": "user_a",
+                "at": 1
+              },
+              {
+                "userId": "user_A",
+                "at": 2
+              },
+              {
+                "userId": "user_b",
+                "at": 3
+              },
+              {
+                "userId": "user_B",
+                "at": 4
+              }
+            ]
+          }
+        },
+        {
+          "now": 5,
+          "request": {
+            "mode": "round_robin",
+            "candidates": [
+              {
+                "userId": "user_B",
+                "open": 0
+              },
+              {
+                "userId": "user_a",
+                "open": 0
+              },
+              {
+                "userId": "user_2",
+                "open": 0
+              },
+              {
+                "userId": "user-x",
+                "open": 0
+              },
+              {
+                "userId": "user_A",
+                "open": 0
+              },
+              {
+                "userId": "user_b",
+                "open": 0
+              }
+            ],
+            "maxOpen": null
+          },
+          "userId": "user-x",
+          "state": {
+            "lastUserId": "user-x",
+            "recent": [
+              {
+                "userId": "user_2",
+                "at": 0
+              },
+              {
+                "userId": "user_a",
+                "at": 1
+              },
+              {
+                "userId": "user_A",
+                "at": 2
+              },
+              {
+                "userId": "user_b",
+                "at": 3
+              },
+              {
+                "userId": "user_B",
+                "at": 4
+              },
+              {
+                "userId": "user-x",
+                "at": 5
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "department": [
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "round_robin"
+      },
+      "status": 200,
+      "body": {
+        "error": "no_agents_available"
+      },
+      "state": null
+    },
+    {
+      "op": {
+        "op": "release",
+        "departmentId": "dep_1",
+        "agentId": "a1"
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": null
+    },
+    {
+      "op": {
+        "op": "sync",
+        "departmentId": "dep_1",
+        "agents": [
+          {
+            "agentId": "a1",
+            "userId": "u1",
+            "name": "Zed",
+            "maxActive": 2,
+            "currentActive": 0,
+            "isOnline": true,
+            "isAvailable": true,
+            "extra": "kept"
+          },
+          {
+            "agentId": "a2",
+            "userId": "u2",
+            "name": "amy",
+            "maxActive": 1,
+            "currentActive": 0,
+            "isOnline": true,
+            "isAvailable": true
+          },
+          {
+            "agentId": "a3",
+            "userId": "u3",
+            "name": "Bea",
+            "maxActive": 3,
+            "currentActive": 1,
+            "isOnline": false,
+            "isAvailable": true
+          },
+          {
+            "agentId": "a4",
+            "userId": "u4",
+            "name": "Cal",
+            "maxActive": 3,
+            "currentActive": 0,
+            "isOnline": true,
+            "isAvailable": false
+          }
+        ]
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 0,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 0,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": -1
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "round_robin"
+      },
+      "status": 200,
+      "body": {
+        "agentId": "a2",
+        "userId": "u2",
+        "name": "amy"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 0,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "round_robin"
+      },
+      "status": 200,
+      "body": {
+        "agentId": "a1",
+        "userId": "u1",
+        "name": "Zed"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 1,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "round_robin"
+      },
+      "status": 200,
+      "body": {
+        "agentId": "a1",
+        "userId": "u1",
+        "name": "Zed"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "least_busy"
+      },
+      "status": 200,
+      "body": {
+        "error": "no_agents_available"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "release",
+        "departmentId": "dep_1",
+        "agentId": "a2"
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 0,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "release",
+        "departmentId": "dep_1",
+        "agentId": "a2"
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 0,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "release",
+        "departmentId": "dep_1",
+        "agentId": "zz"
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 2,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a2",
+            "currentActive": 0,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "amy",
+            "userId": "u2"
+          },
+          {
+            "agentId": "a3",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": false,
+            "maxActive": 3,
+            "name": "Bea",
+            "userId": "u3"
+          },
+          {
+            "agentId": "a4",
+            "currentActive": 0,
+            "isAvailable": false,
+            "isOnline": true,
+            "maxActive": 3,
+            "name": "Cal",
+            "userId": "u4"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "sync",
+        "departmentId": "dep_1",
+        "agents": [
+          {
+            "agentId": "a1",
+            "userId": "u1",
+            "name": "Zed",
+            "maxActive": 5,
+            "currentActive": 0,
+            "isOnline": true,
+            "isAvailable": true,
+            "extra": "kept"
+          },
+          {
+            "agentId": "a9",
+            "userId": "u9",
+            "name": "New",
+            "maxActive": 1,
+            "currentActive": 0,
+            "isOnline": true,
+            "isAvailable": true
+          }
+        ]
+      },
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 5,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a9",
+            "currentActive": 0,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "New",
+            "userId": "u9"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "least_busy"
+      },
+      "status": 200,
+      "body": {
+        "agentId": "a9",
+        "userId": "u9",
+        "name": "New"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 2,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 5,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a9",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "New",
+            "userId": "u9"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_1",
+        "mode": "other"
+      },
+      "status": 200,
+      "body": {
+        "agentId": "a1",
+        "userId": "u1",
+        "name": "Zed"
+      },
+      "state": {
+        "agents": [
+          {
+            "agentId": "a1",
+            "currentActive": 3,
+            "extra": "kept",
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 5,
+            "name": "Zed",
+            "userId": "u1"
+          },
+          {
+            "agentId": "a9",
+            "currentActive": 1,
+            "isAvailable": true,
+            "isOnline": true,
+            "maxActive": 1,
+            "name": "New",
+            "userId": "u9"
+          }
+        ],
+        "departmentId": "dep_1",
+        "lastAssignedIndex": 0
+      }
+    },
+    {
+      "op": {
+        "op": "assign",
+        "departmentId": "dep_2",
+        "mode": "least_busy"
+      },
+      "status": 200,
+      "body": {
+        "error": "no_agents_available"
+      },
+      "state": null
+    }
+  ]
+}

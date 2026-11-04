@@ -59,6 +59,9 @@ beforeAll(async () => {
   const created = await call('/api/accounting-entities', accountingEntitiesRoutes, '/api/accounting-entities', 'POST', {
     name: 'Dashboard BV',
     jurisdictionCode: 'NL',
+    // The route counts "this month" in the entity's time zone and this test in UTC: a Dutch
+    // default (Europe/Amsterdam) puts the two in different months around midnight on the 1st.
+    timezone: 'UTC',
     vatNumber: 'NL123456789B01',
     taxIdentifiers: { registrationNumber: '12345678' },
     bankDetails: { iban: 'NL91ABNA0417164300' },

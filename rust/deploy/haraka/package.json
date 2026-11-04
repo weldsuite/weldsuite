@@ -1,0 +1,18 @@
+{
+  "name": "weldsuite-haraka",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Haraka as WeldMail's MX on the Kubernetes editions (ADR MAIL-010): the RCPT TO check against weldsuite serve, SPF/DKIM/DMARC into Authentication-Results, and the hand-off to S3 and NATS.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@nats-io/jetstream": "3.4.0",
+    "@nats-io/transport-node": "3.4.0",
+    "haraka": "3.3.5",
+    "haraka-dsn": "1.2.1",
+    "haraka-plugin-dkim": "1.3.1",
+    "haraka-plugin-spf": "1.3.0",
+    "haraka-tld": "1.3.6"
+  }
+}

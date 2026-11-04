@@ -411,6 +411,9 @@ export const weldpass = {
       nameRequired: 'Enter a name.',
       description: 'Description',
       descriptionPlaceholder: 'Optional',
+      accessTitle: 'Who has access',
+      accessOnlyYou: 'Only you, as its manager. Add teammates now or later in the vault settings.',
+      accessYou: 'You',
     },
 
     settings: {

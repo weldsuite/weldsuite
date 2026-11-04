@@ -553,7 +553,7 @@ export function SettingsClient({ initialSettings }: Readonly<SettingsClientProps
                 </p>
               </div>
               <Button variant="outline" size="sm" asChild>
-                <Link href="/welddesk/settings/saved-replies">{ts.manage}</Link>
+                <Link href="/welddesk/saved-replies">{ts.manage}</Link>
               </Button>
             </div>
 
@@ -577,7 +577,7 @@ export function SettingsClient({ initialSettings }: Readonly<SettingsClientProps
                 </p>
               </div>
               <Button variant="outline" size="sm" asChild>
-                <Link href="/welddesk/chat-widget">{ts.configure}</Link>
+                <Link href="/settings/apps/welddesk/chat-widget">{ts.configure}</Link>
               </Button>
             </div>
           </div>

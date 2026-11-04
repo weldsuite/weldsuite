@@ -15,10 +15,15 @@ conformance = ["dep:base64", "dep:form_urlencoded", "dep:serde"]
 
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
+weldsuite-ads = { workspace = true }
 weldsuite-auth = { workspace = true }
+weldsuite-call = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-chat = { workspace = true }
+weldsuite-commerce = { workspace = true }
+weldsuite-commerce-domain = { workspace = true }
+weldsuite-connect = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-onboarding = { workspace = true }
@@ -26,28 +31,54 @@ weldsuite-core-files = { workspace = true }
 weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-crm = { workspace = true }
+weldsuite-data = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-desk-widget = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
+weldsuite-books = { workspace = true }
+weldsuite-books-banking = { workspace = true }
+weldsuite-books-purchases = { workspace = true }
+weldsuite-books-domain = { workspace = true }
+weldsuite-books-sales = { workspace = true }
+weldsuite-books-reports = { workspace = true }
+weldsuite-books-sales-tax = { workspace = true }
+weldsuite-books-tax = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-host = { workspace = true }
+weldsuite-hr = { workspace = true }
+weldsuite-external-api = { workspace = true }
+weldsuite-integrations = { workspace = true }
+weldsuite-mcp = { workspace = true }
 weldsuite-know = { workspace = true }
+weldsuite-docs = { workspace = true }
+weldsuite-sheets = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
+weldsuite-mail-inbound = { workspace = true }
+weldsuite-meet = { workspace = true }
+weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }
+weldsuite-reach = { workspace = true }
+weldsuite-social = { workspace = true }
+weldsuite-stash = { workspace = true }
+weldsuite-personal = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 weldsuite-realtime = { workspace = true }
 weldsuite-ports = { workspace = true }
 weldsuite-subscribers = { workspace = true }
-axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
+weldsuite-video-rooms = { workspace = true }
+async-nats = { workspace = true }
+axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio", "ws"] }
 base64 = { workspace = true, optional = true }
 form_urlencoded = { workspace = true, optional = true }
+futures-util = { workspace = true, features = ["sink"] }
 http = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -58,8 +89,9 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 tower = { workspace = true, features = ["util"] }
-tower-http = { workspace = true, features = ["fs", "trace"] }
+tower-http = { workspace = true, features = ["cors", "fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }

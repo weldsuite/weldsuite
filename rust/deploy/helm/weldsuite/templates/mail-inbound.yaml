@@ -1,0 +1,229 @@
+{{- if .Values.mailInbound.enabled }}
+{{- if not .Values.consume.enabled }}
+{{- fail "mailInbound.enabled needs consume.enabled: weldsuite consume stores what Haraka receives" }}
+{{- end }}
+{{- if not .Values.config.files.endpoint }}
+{{- fail "mailInbound.enabled needs config.files.endpoint: Haraka spools to the mail bucket on that store" }}
+{{- end }}
+{{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "MAIL_INBOUND_SECRET")) }}
+{{- fail "mailInbound.enabled needs MAIL_INBOUND_SECRET in the Secret (secret.values or secret.existingSecret): Haraka and the server share it" }}
+{{- end }}
+{{- with .Values.mailInbound.haraka }}
+# WeldMail's MX (ADR MAIL-010): Haraka checks each RCPT TO with the server,
+# verifies SPF, DKIM and DMARC, spools the message to the mail bucket and
+# publishes its key on NATS; `weldsuite consume` stores it. No mailbox state
+# and no database credentials here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "weldsuite.mx.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mx.labels" $ | nindent 4 }}
+data:
+  {{- include "weldsuite.mx.config" $ | nindent 2 }}
+---
+{{- if and .tls.enabled (not .tls.existingSecret) }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "weldsuite.mx.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mx.labels" $ | nindent 4 }}
+spec:
+  secretName: {{ include "weldsuite.mx.tlsSecret" $ }}
+  dnsNames:
+    - {{ .hostname | quote }}
+  issuerRef:
+    {{- toYaml .tls.issuerRef | nindent 4 }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weldsuite.mx.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mx.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ .replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.mx.selectorLabels" $ | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "weldsuite.mx.config" $ | sha256sum }}
+      labels:
+        {{- include "weldsuite.mx.labels" $ | nindent 8 }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      # SMTP sessions get this long to finish after SIGTERM.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        # The image's `node` user.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: haraka
+          image: "{{ .image.repository }}:{{ .image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ .image.pullPolicy }}
+          ports:
+            - name: smtp
+              containerPort: 2525
+              protocol: TCP
+          env:
+            - name: WELDSUITE_RCPT_URL
+              value: {{ printf "http://%s.%s.svc:%v/internal/mail-inbound/recipients" (include "weldsuite.fullname" $) $.Release.Namespace $.Values.service.port | quote }}
+            - name: WELDSUITE_RCPT_TIMEOUT_MS
+              value: {{ .rcptTimeoutMs | quote }}
+            - name: MAIL_INBOUND_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: MAIL_INBOUND_SECRET
+            {{- with $.Values.config.files }}
+            - name: S3_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: S3_REGION
+              value: {{ .region | quote }}
+            - name: S3_FORCE_PATH_STYLE
+              value: {{ .forcePathStyle | toString | quote }}
+            {{- end }}
+            - name: S3_BUCKET_MAIL
+              value: {{ $.Values.mailInbound.bucket | quote }}
+            {{- range list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ . }}
+            {{- end }}
+            {{- range list "NATS_URL" "NATS_USER" "NATS_PASSWORD" "NATS_TOKEN" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "weldsuite.secretName" $ }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+            - name: NATS_MAIL_INBOUND_SUBJECT
+              value: {{ $.Values.mailInbound.subject | quote }}
+          volumeMounts:
+            {{- range list "me" "plugins" "connection.ini" }}
+            - name: config
+              mountPath: /app/config/{{ . }}
+              subPath: {{ . }}
+            {{- end }}
+            {{- if .tls.enabled }}
+            - name: tls
+              mountPath: /app/config/tls
+              readOnly: true
+            {{- end }}
+            - name: queue
+              mountPath: /app/queue
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            tcpSocket: { port: smtp }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket: { port: smtp }
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket: { port: smtp }
+            periodSeconds: 10
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "weldsuite.mx.fullname" $ }}
+        {{- if .tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "weldsuite.mx.tlsSecret" $ }}
+        {{- end }}
+        - name: queue
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- if $.Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "weldsuite.mx.selectorLabels" $ | nindent 14 }}
+      {{- end }}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Port 25 from the internet. A LoadBalancer passing TCP through with the
+# PROXY protocol (Hetzner: load-balancer.hetzner.cloud/uses-proxyprotocol) and
+# externalTrafficPolicy Local; list its addresses in proxyProtocolHosts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.mx.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mx.labels" $ | nindent 4 }}
+  {{- with .service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .service.type }}
+  {{- if and (eq .service.type "LoadBalancer") .service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .service.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+    - name: smtp
+      port: {{ .service.port }}
+      targetPort: smtp
+      protocol: TCP
+  selector:
+    {{- include "weldsuite.mx.selectorLabels" $ | nindent 4 }}
+{{- if gt (int .replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weldsuite.mx.fullname" $ }}
+  labels:
+    {{- include "weldsuite.mx.labels" $ | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.mx.selectorLabels" $ | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -296,6 +296,8 @@ export const reach = {
       title: 'Maak je mailboxen',
       description:
         'Elke mailbox verstuurt vanaf een eigen adres en met een eigen naam. Maak er een paar: hoe meer mailboxen, hoe meer je veilig kunt versturen. Verspreid ze over meerdere domeinen: het opwarmen begint zodra de mailboxen minstens {domains} domeinen beslaan. Elke mailbox kost {price} per maand.',
+      descriptionUnbilled:
+        'Elke mailbox verstuurt vanaf een eigen adres en met een eigen naam. Maak er een paar: hoe meer mailboxen, hoe meer je veilig kunt versturen. Verspreid ze over meerdere domeinen: het opwarmen begint zodra de mailboxen minstens {domains} domeinen beslaan.',
       noDomains: 'Koppel eerst een domein in de vorige stap.',
       created: 'Mailbox gemaakt. Hij begint nu met opwarmen.',
       createdList: 'Je mailboxen',

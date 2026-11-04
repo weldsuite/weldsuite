@@ -413,7 +413,10 @@ export const sweep = {
       "memberFallback": "Lid"
     },
     "channelPage": {
-      "newMessage": "Nieuw bericht"
+      "archivedNotice": "Dit kanaal is gearchiveerd. Je kunt de berichten lezen, maar niemand kan er nog in posten.",
+      "newMessage": "Nieuw bericht",
+      "unarchive": "Uit archief halen",
+      "unarchiveFailed": "Het kanaal kon niet uit het archief worden gehaald"
     },
     "chatFilters": {
       "removePerson": "{name} verwijderen"
@@ -1362,7 +1365,6 @@ export const sweep = {
     "failedToCreateWorkspace": "Werkruimte aanmaken mislukt",
     "settingUpYourWorkspace": "Uw werkruimte wordt ingesteld",
     "usuallyTakesLessThanAMinute": "Dit duurt meestal minder dan een minuut.",
-    "done": "Voltooid",
     "takingLongerThanExpectedBefore": "Dit duurt langer dan verwacht. U kunt de pagina",
     "refreshThePage": "vernieuwen",
     "takingLongerThanExpectedAfter": "of contact opnemen met support als dit aanhoudt.",
@@ -1954,6 +1956,7 @@ export const sweep = {
     "searchThreadsPlaceholder": "Threads zoeken",
     "searchingEllipsis": "Zoeken...",
     "selectCondition": "Voorwaarde selecteren",
+    "selectFieldValue": "{field} selecteren",
     "selectPeople": "Personen selecteren",
     "selectedLabel": "geselecteerd",
     "clearSelection": "Selectie wissen",
@@ -1964,7 +1967,6 @@ export const sweep = {
     "setOwnerPlaceholder": "Eigenaar instellen…",
     "setStatusPlaceholder": "Status instellen…",
     "sharedBy": "Gedeeld door",
-    "showHideFields": "Velden tonen/verbergen",
     "showingLabel": "Toont",
     "showingXToYOfZItems": "Toont {start} tot {end} van {total} items",
     "sort": "Sorteren",

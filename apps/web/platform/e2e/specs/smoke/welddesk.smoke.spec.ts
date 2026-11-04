@@ -1,5 +1,5 @@
 /**
- * Smoke spec for WeldDesk v1 — inbox + chat widget only.
+ * Smoke spec for WeldDesk v1 — inbox, saved replies and the WeldDesk settings.
  */
 
 import { test } from '../../fixtures';
@@ -8,7 +8,9 @@ import { smokeRoute } from '../../helpers/smoke';
 const routes = [
   '/welddesk',
   '/welddesk/inbox',
-  '/welddesk/chat-widget',
+  '/welddesk/saved-replies',
+  '/settings/apps/welddesk',
+  '/settings/apps/welddesk/chat-widget',
 ];
 
 test.describe('WeldDesk · smoke', () => {

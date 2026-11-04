@@ -444,6 +444,16 @@ describe('MISC filing and deleting a draft', () => {
     const draftCsv = await api(`/filings/${id}/iris-csv`, { perms: TAX_FILE_REVEAL });
     expect(draftCsv.status).toBe(409);
 
+    // Notes: set, cleared, and refused without the permission or the field.
+    const noted = await api(`/filings/${id}`, { method: 'PATCH', body: { notes: 'Landlord only' }, perms: ['taxes:update'] });
+    expect(noted.status).toBe(200);
+    expect(noted.data.filing.notes).toBe('Landlord only');
+    expect(events.some((e) => e.eventType === 'form_1099_filing:updated' && e.entityId === id)).toBe(true);
+    const cleared = await api(`/filings/${id}`, { method: 'PATCH', body: { notes: null }, perms: ['taxes:update'] });
+    expect(cleared.data.filing.notes).toBeNull();
+    expect((await api(`/filings/${id}`, { method: 'PATCH', body: {}, perms: ['taxes:update'] })).status).toBe(400);
+    expect((await api(`/filings/${id}`, { method: 'PATCH', body: { notes: 'x' }, perms: ['taxes:read'] })).status).toBe(403);
+
     const del = await api(`/filings/${id}`, { method: 'DELETE', perms: ['taxes:delete'] });
     expect(del.status).toBe(204);
     expect((await api(`/filings/${id}`, { perms: ['taxes:read'] })).status).toBe(404);

@@ -8,9 +8,11 @@
 //! | [`WebhooksSubscriber`] | `apps/workers/integration-webhook-worker` (`entity-webhooks-consumer.ts`) | signed POSTs, `webhook_deliveries`, `external_webhooks` counters |
 //! | [`RealtimeSubscriber`] | `apps/workers/realtime-worker` (`entity-realtime-consumer.ts`) | `WorkspaceHub` publishes through the realtime port |
 //!
-//! Analytics (Cloudflare Pipelines into Iceberg), WeldConnect and WeldAgent
-//! have no consumer on Kubernetes yet; [`registry::SUBSCRIBERS`] says which
-//! are ported. Each subscriber implements `weldsuite_ports::BatchHandler`:
+//! WeldConnect's (`weldconnect`, workflow-worker's
+//! `entity-workflows-consumer.ts`) lives with its module, in
+//! `weldsuite_connect::EntityWorkflowsSubscriber`. Analytics (Cloudflare
+//! Pipelines into Iceberg) and WeldAgent have no consumer on Kubernetes
+//! yet; [`registry::SUBSCRIBERS`] says which are ported. Each subscriber implements `weldsuite_ports::BatchHandler`:
 //! it decides per delivery (ack, retry, defer), and the bus adapter does the
 //! acking, the backoff and the dead letters.
 
@@ -85,4 +87,8 @@ pub use realtime::RealtimeSubscriber;
 pub use registry::{SUBSCRIBERS, Subscriber, filter_subject, subscriber, topic_matches};
 pub use search::SearchSubscriber;
 pub use tenants::{ResolvedTenant, StaticTenants, TenantError, Tenants, WorkspaceTenants};
-pub use webhooks::{WebhookHttp, WebhooksSubscriber, run_webhook_retry_sweep};
+pub use webhooks::{
+    DeliverInput, DeliveryAttempts, DeliveryOutcome, OutboundAttempts, WEBHOOK_RETRY_KIND,
+    WebhookHttp, WebhookRow, WebhooksSubscriber, deliver_webhook_event_with,
+    run_webhook_retry_sweep,
+};

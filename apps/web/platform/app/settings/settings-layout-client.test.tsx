@@ -5,7 +5,7 @@ import { SettingsLayoutClient } from './settings-layout-client';
 
 vi.mock('@/lib/router', () => ({ usePathname: () => '/settings/team' }));
 vi.mock('@/lib/i18n/provider', () => ({
-  useI18n: () => ({ t: { settings: { title: 'Settings', menu: {} } } }),
+  useI18n: () => ({ t: { settings: { title: 'Settings', menu: {}, welddesk: {} } } }),
 }));
 vi.mock('./breadcrumbs', () => ({ buildBreadcrumbSegments: () => [] }));
 vi.mock('@/components/breadcrumb-header', () => ({ BreadcrumbHeader: () => null }));

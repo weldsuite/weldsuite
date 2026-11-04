@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useRouter } from '@/lib/router';
 import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2, CheckCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -1116,42 +1117,29 @@ export function MessageList({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn(
-            'h-8 text-sm px-3 shadow-none gap-1.5',
-            activeFilterCount > 0 ? 'text-foreground' : 'text-muted-foreground'
-          )}
-        >
-          {t.mail.messageList.filter}
-          {activeFilterCount > 0 && (
-            <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
-              {activeFilterCount}
-            </span>
-          )}
-        </Button>
+        <FilterButton count={activeFilterCount}>{t.mail.messageList.filter}</FilterButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[460px] p-4">
         <div className="space-y-3">
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterFromLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterFromLabel} onKeyDown={applyOnEnter} value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterToLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterToLabel} onKeyDown={applyOnEnter} value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterSubjectLabel}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterSubjectLabel} onKeyDown={applyOnEnter} value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterHasWords}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterHasWords} onKeyDown={applyOnEnter} value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterDoesntHave}</span>
-            <Input onKeyDown={applyOnEnter} value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
+            <Input aria-label={t.mail.messageList.filterDoesntHave} onKeyDown={applyOnEnter} value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
           </div>
 
           {/* Size */}
@@ -1165,7 +1153,7 @@ export function MessageList({
                   <SelectItem value="lt">{t.mail.messageList.filterSizeLess}</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
+              <Input aria-label={t.mail.messageList.filterSize}
                 onKeyDown={applyOnEnter}
                 type="number"
                 min={0}

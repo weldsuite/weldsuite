@@ -20,6 +20,7 @@ import {
   type ListSweepCase,
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import type { Env, Variables } from '../types';
 import { carriersRoutes } from './carriers';
 import { categoriesRoutes } from './categories';
@@ -72,7 +73,9 @@ describe('entity-event coverage', () => {
   });
 });
 
-describe.skipIf(AUTH_CASES.length === 0).each(AUTH_CASES)('$mount · auth gates', (c) => {
+// The gates run on a mock database, which the Rust server cannot reach; each
+// route's own tests check its 403s on both backends.
+describe.skipIf(AUTH_CASES.length === 0 || Boolean(conformanceTarget())).each(AUTH_CASES)('$mount · auth gates', (c) => {
   it('refuses every standard CRUD call without its permission', async () => {
     for (const r of await authGateStatuses(c)) expect(r.status, r.label).toBe(403);
   });

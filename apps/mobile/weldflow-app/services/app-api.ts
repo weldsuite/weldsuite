@@ -18,6 +18,8 @@
  *   listMyTasks                      → /api/my-tasks (offset page/pageSize)
  *   listProjectMembers               → /api/project-members?projectId=
  *   listLabels/createLabel           → /api/project-labels
+ *   timer / time entries             → /api/time-entries (+ /timer, /timer/start,
+ *                                       /timer/stop)
  *
  * The raw `@weldsuite/app-api-client` projects/tasks domain clients are not
  * used here because their row/query types are narrower than what the WeldFlow
@@ -47,6 +49,12 @@ import type {
   UpdateTaskInput,
   UpdateTaskStatusInput,
   CreateLabelInput,
+  RunningTimer,
+  TimeEntry,
+  ListTimeEntriesQuery,
+  StartTimerInput,
+  StopTimerInput,
+  CreateTimeEntryInput,
 } from '@/types/weldflow';
 
 const LIMIT_25 = { limit: 25 } as const;
@@ -172,6 +180,42 @@ const weldflow = {
 
   createLabel(data: CreateLabelInput): Promise<DataResponse<ProjectLabel>> {
     return client.post<DataResponse<ProjectLabel>>('/project-labels', data);
+  },
+
+  /** The caller's running timer, `{ data: null }` when none runs. */
+  getRunningTimer(): Promise<DataResponse<RunningTimer | null>> {
+    return client.get<DataResponse<RunningTimer | null>>('/time-entries/timer');
+  },
+
+  /** 409 when a timer already runs: stop that one first. */
+  startTimer(data: StartTimerInput): Promise<DataResponse<RunningTimer>> {
+    return client.post<DataResponse<RunningTimer>>('/time-entries/timer/start', data);
+  },
+
+  /** Stops the running timer and records it as a draft time entry. */
+  stopTimer(
+    data: StopTimerInput = {},
+  ): Promise<DataResponse<{ id: string; duration: string }>> {
+    return client.post<DataResponse<{ id: string; duration: string }>>(
+      '/time-entries/timer/stop',
+      data,
+    );
+  },
+
+  /** Throws the running timer away without recording anything. */
+  discardTimer(): Promise<unknown> {
+    return client.delete('/time-entries/timer');
+  },
+
+  /** The caller's own entries (offset-paged, newest day first). */
+  listTimeEntries(params: ListTimeEntriesQuery = LIMIT_50): Promise<ListResponse<TimeEntry>> {
+    return client.get<ListResponse<TimeEntry>>(
+      `/time-entries${buildQueryString(params as Record<string, unknown>)}`,
+    );
+  },
+
+  createTimeEntry(data: CreateTimeEntryInput): Promise<DataResponse<{ id: string }>> {
+    return client.post<DataResponse<{ id: string }>>('/time-entries', data);
   },
 };
 

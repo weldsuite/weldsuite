@@ -18,7 +18,8 @@
     "{\"eventType\":\"meeting_session:some-new_thing\",\"entityType\":\"meeting_session\",\"entityId\":\"ms_1\",\"action\":\"some-new_thing\",\"data\":{\"title\":\"  Ünïcødé ✓ review  \"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a11\"}",
     "{\"eventType\":\"company:updated\",\"entityType\":\"company\",\"entityId\":\"co_1\",\"action\":\"updated\",\"data\":{\"displayName\":\"\",\"name\":\"Acme Holding\",\"tradingName\":\"Acme\"},\"metadata\":{\"workspaceId\":\"org_fx\",\"userId\":\"fx_user_1\",\"timestamp\":\"2026-10-29T12:00:00.000Z\",\"source\":\"web\"},\"id\":\"evt_fx_a12\",\"changes\":{\"tradingName\":{\"old\":\"A\",\"new\":\"Acme\"},\"website_url\":{\"old\":null}}}",
     "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_missing\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a13\"}",
-    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_locked\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a14\"}"
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_locked\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a14\"}",
+    "{\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"fx_entity\",\"action\":\"created\",\"data\":{},\"metadata\":{\"workspaceId\":\"ws_readonly\",\"userId\":\"fx_user_1\",\"timestamp\":\"t\",\"source\":\"web\"},\"id\":\"evt_fx_a15\"}"
   ],
   "outcomes": [
     "ack",
@@ -29,11 +30,14 @@
     "ack",
     "ack",
     "ack",
-    "ack",
+    "retry",
     "ack",
     "ack",
     "ack",
     "retry",
+    {
+      "defer": 60
+    },
     {
       "defer": 60
     }

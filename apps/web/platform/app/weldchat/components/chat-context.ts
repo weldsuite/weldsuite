@@ -59,6 +59,24 @@ export interface ChatContextValue {
   closeAgentProfile: () => void;
 }
 
+/** Window event that moves focus back to a composer (see MessageInput). */
+export const FOCUS_INPUT_EVENT = 'weldchat-focus-input';
+
+export interface FocusInputDetail {
+  /** Only the composer of this thread takes focus (`null`: the channel composer). */
+  parentId: string | null;
+}
+
+/**
+ * Ask one composer for focus once the menu or popover that triggered this has
+ * closed. Without a detail every mounted composer reacts, as before.
+ */
+export function requestComposerFocus(parentId: string | null) {
+  requestAnimationFrame(() =>
+    window.dispatchEvent(new CustomEvent<FocusInputDetail>(FOCUS_INPUT_EVENT, { detail: { parentId } })),
+  );
+}
+
 export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export const useChatContext = () => {

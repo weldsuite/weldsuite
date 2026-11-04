@@ -22,15 +22,43 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { FileText, Eye, Scan, FileCheck, Loader2, UserPlus, X, Receipt, Ban } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@weldsuite/ui/components/alert-dialog';
+import {
+  FileText,
+  Eye,
+  Scan,
+  FileCheck,
+  FileWarning,
+  Loader2,
+  UserPlus,
+  X,
+  Receipt,
+  Ban,
+  RotateCcw,
+  Trash2,
+  ExternalLink,
+  PencilLine,
+} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { RESCANNABLE_STATUSES, documentFileUrl, processErrorMessage } from './document-actions';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   ContactCell,
   RowAmount,
@@ -98,6 +126,7 @@ interface DocumentRow {
   type?: string | null;
   source?: string | null;
   status: string;
+  fileKey?: string | null;
   matchedContactId?: string | null;
   mimeType?: string | null;
   ocrResult?: OcrResult | null;
@@ -181,9 +210,15 @@ export default function DocumentInboxPage() {
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
   const [supplierDialog, setSupplierDialog] = useState<DocumentRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
 
   const processDoc = useMutation({
     mutationFn: (id: string) => accountingApi.processDocument(id),
+    // A failed scan still moved the document to "failed" on the server.
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
+    },
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
       void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
@@ -208,6 +243,26 @@ export default function DocumentInboxPage() {
       setSelectedDoc(null);
     },
   });
+
+  const deleteDoc = useMutation({
+    mutationFn: (id: string) => accountingApi.deleteDocument(id),
+    onSuccess: (_res, id) => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
+      setDeleteTarget(null);
+      setSelectedDoc((current) => (current?.id === id ? null : current));
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : st('sweep.weldbooks.common.unknownError'));
+    },
+  });
+
+  /** Re-runs the scan of a pending or failed document, with the failure as a toast. */
+  const retryDoc = (id: string) => {
+    processDoc.mutate(id, {
+      onError: (err) => toast.error(processErrorMessage(err, { insufficientCredits: td.insufficientCredits, fallback: st('sweep.weldbooks.common.unknownError') })),
+    });
+  };
 
   const rematchDoc = useMutation({
     mutationFn: (id: string) => accountingApi.rematchDocument(id),
@@ -271,18 +326,20 @@ export default function DocumentInboxPage() {
           continue;
         }
 
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
         void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
-
-        await processDoc.mutateAsync(docId);
+        // Editions without OCR keep the upload as a pending document to book by hand.
+        if (isFeatureAvailable('books-ocr')) {
+          setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
+          await processDoc.mutateAsync(docId);
+        }
 
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done' } : it));
       } catch (err) {
-        const message = err instanceof Error ? err.message : st('sweep.weldbooks.common.unknownError');
+        const message = processErrorMessage(err, { insufficientCredits: td.insufficientCredits, fallback: st('sweep.weldbooks.common.unknownError') });
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: message } : it));
       }
     }
-  }, [fileUpload, processDoc, qc, st, td.unsupportedFileType]);
+  }, [fileUpload, processDoc, qc, st, td]);
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -314,8 +371,9 @@ export default function DocumentInboxPage() {
           { id: 'review', label: td.groupReview, sortOrder: 3, filter: (d) => d.status === 'review' },
           { id: 'processed', label: td.groupProcessed, sortOrder: 4, filter: (d) => d.status === 'processed' },
           { id: 'linked', label: td.groupLinked, sortOrder: 5, filter: (d) => d.status === 'linked' },
-          { id: 'rejected', label: td.groupRejected, sortOrder: 6, filter: (d) => d.status === 'rejected' || d.status === 'failed' },
-          { id: 'other', label: td.groupOther, sortOrder: 7, filter: (d) => !knownDocStatuses.has(d.status) },
+          { id: 'failed', label: td.groupFailed, sortOrder: 6, filter: (d) => d.status === 'failed' },
+          { id: 'rejected', label: td.groupRejected, sortOrder: 7, filter: (d) => d.status === 'rejected' },
+          { id: 'other', label: td.groupOther, sortOrder: 8, filter: (d) => !knownDocStatuses.has(d.status) },
         ]
       : undefined;
 
@@ -362,30 +420,44 @@ export default function DocumentInboxPage() {
     {
       id: 'actions',
       header: '',
-      width: 'w-[80px] justify-end gap-1',
+      width: 'w-[112px] justify-end gap-1',
       render: (doc) => (
         <>
-          {doc.status === 'pending' && (
+          {RESCANNABLE_STATUSES.has(doc.status) && isFeatureAvailable('books-ocr') && (
             <Button
               size="sm"
               variant="ghost"
               className="h-7 w-7 p-0"
-              onClick={() => processDoc.mutate(doc.id)}
+              onClick={() => retryDoc(doc.id)}
               disabled={processDoc.isPending}
-              title={td.processWithOcr}
+              title={doc.status === 'failed' ? td.retryProcessing : td.processWithOcr}
+              aria-label={doc.status === 'failed' ? td.retryProcessing : td.processWithOcr}
             >
-              <Scan className="h-4 w-4" />
+              {doc.status === 'failed' ? <RotateCcw className="h-4 w-4" /> : <Scan className="h-4 w-4" />}
             </Button>
           )}
-          {(doc.status === 'processed' || doc.status === 'linked') && doc.ocrResult && (
+          {(doc.ocrResult || doc.status === 'failed') && (
             <Button
               size="sm"
               variant="ghost"
               className="h-7 w-7 p-0"
               onClick={() => setSelectedDoc(doc)}
               title={td.viewOcrResult}
+              aria-label={td.viewOcrResult}
             >
               <Eye className="h-4 w-4" />
+            </Button>
+          )}
+          {doc.status !== 'linked' && doc.status !== 'processing' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              onClick={() => setDeleteTarget(doc)}
+              title={td.deleteDocument}
+              aria-label={td.deleteDocument}
+            >
+              <Trash2 className="h-4 w-4" />
             </Button>
           )}
         </>
@@ -439,7 +511,7 @@ export default function DocumentInboxPage() {
               }
             >
               <CardContent className="pt-4 pb-3">
-                <p className="text-xs text-muted-foreground capitalize">{s.status}</p>
+                <p className="text-xs text-muted-foreground">{statusLabels[s.status] ?? s.status}</p>
                 <p className="text-xl font-semibold">{s.count}</p>
               </CardContent>
             </Card>
@@ -473,23 +545,50 @@ export default function DocumentInboxPage() {
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileCheck className="h-5 w-5" />
-              {td.ocrResult} — {selectedDoc?.fileName}
+              {selectedDoc?.ocrResult ? <FileCheck className="h-5 w-5" /> : <FileWarning className="h-5 w-5" />}
+              {selectedDoc?.ocrResult ? `${td.ocrResult} — ` : ''}{selectedDoc?.fileName}
             </DialogTitle>
           </DialogHeader>
-          {selectedDoc?.ocrResult && (
+          {selectedDoc?.ocrResult ? (
             <OcrResultView result={selectedDoc.ocrResult} matchedContactId={selectedDoc.matchedContactId ?? null} td={td} />
+          ) : (
+            selectedDoc && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+                <FileWarning className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                <span>{td.failedHint}</span>
+              </div>
+            )
+          )}
+          {selectedDoc?.fileKey && (
+            <div>
+              <Button variant="link" className="h-auto p-0" asChild>
+                <a href={documentFileUrl(selectedDoc.fileKey)} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  {td.openFile}
+                </a>
+              </Button>
+            </div>
           )}
           {selectedDoc && (
             <DialogFooter className="gap-2 sm:justify-between">
-              <Button
-                variant="ghost"
-                onClick={() => rejectDoc.mutate(selectedDoc.id)}
-                disabled={rejectDoc.isPending || selectedDoc.status === 'rejected'}
-              >
-                <Ban className="h-4 w-4 mr-1" />
-                {td.reject}
-              </Button>
+              <div className="flex gap-2">
+                {selectedDoc.ocrResult ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => rejectDoc.mutate(selectedDoc.id)}
+                    disabled={rejectDoc.isPending || selectedDoc.status === 'rejected'}
+                  >
+                    <Ban className="h-4 w-4 mr-1" />
+                    {td.reject}
+                  </Button>
+                ) : null}
+                {selectedDoc.status !== 'linked' && (
+                  <Button variant="ghost" onClick={() => setDeleteTarget(selectedDoc)}>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    {td.deleteDocument}
+                  </Button>
+                )}
+              </div>
               <div className="flex gap-2">
                 {!selectedDoc.matchedContactId && selectedDoc.ocrResult?.vendor?.name && (
                   <Button variant="outline" onClick={() => setSupplierDialog(selectedDoc)}>
@@ -497,7 +596,21 @@ export default function DocumentInboxPage() {
                     {td.createSupplier}
                   </Button>
                 )}
-                <CreateBillButton doc={selectedDoc} label={td.createBill} />
+                {!selectedDoc.ocrResult && RESCANNABLE_STATUSES.has(selectedDoc.status) && isFeatureAvailable('books-ocr') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => retryDoc(selectedDoc.id)}
+                    disabled={processDoc.isPending}
+                  >
+                    {processDoc.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+                    {td.retryProcessing}
+                  </Button>
+                )}
+                <CreateBillButton
+                  doc={selectedDoc}
+                  label={selectedDoc.ocrResult ? td.createBill : td.enterManually}
+                  icon={selectedDoc.ocrResult ? Receipt : PencilLine}
+                />
               </div>
             </DialogFooter>
           )}
@@ -517,11 +630,43 @@ export default function DocumentInboxPage() {
         }}
         td={td}
       />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{td.deleteConfirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {td.deleteConfirmDescription.replace('{name}', deleteTarget?.fileName ?? '')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{td.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteDoc.isPending}
+              onClick={(e) => {
+                // Keep the dialog open until the delete has gone through.
+                e.preventDefault();
+                if (deleteTarget) deleteDoc.mutate(deleteTarget.id);
+              }}
+            >
+              {deleteDoc.isPending ? td.deleting : td.deleteDocument}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function CreateBillButton({ doc, label }: Readonly<{ doc: DocumentRow; label: string }>) {
+/**
+ * Opens the bill form for a document: pre-filled from its OCR result, or empty
+ * ("enter manually") when the scan failed. Either way the bill is linked to it.
+ */
+function CreateBillButton({
+  doc,
+  label,
+  icon: Icon = Receipt,
+}: Readonly<{ doc: DocumentRow; label: string; icon?: typeof Receipt }>) {
   const navigate = useNavigate();
   return (
     <Button
@@ -529,7 +674,7 @@ function CreateBillButton({ doc, label }: Readonly<{ doc: DocumentRow; label: st
         void navigate({ to: '/weldbooks/bills/add', search: { fromDocument: doc.id } });
       }}
     >
-      <Receipt className="h-4 w-4 mr-1" />
+      <Icon className="h-4 w-4 mr-1" />
       {label}
     </Button>
   );

@@ -2,7 +2,9 @@
  * Audit Log Writer — Writes audit log entries from entity events
  *
  * Called by the event processor to persist audit logs for every entity mutation.
- * Failures are caught and logged so they never block event forwarding.
+ * A failed write throws, so the batch processor can wait out a tenant database
+ * locked by a move, or retry the event and dead-letter it in the end, instead
+ * of acking it without an audit row (TASK-1256).
  *
  * Idempotency (Phase 2): skips insert when `metadata.eventId` already matches
  * `event.id` (hub retries re-fan out the same message). No unique index yet —
@@ -254,63 +256,58 @@ function transformChanges(
 }
 
 /**
- * Write an audit log entry from an entity event message.
- * Wrapped in try/catch so failures never block event forwarding.
+ * Write an audit log entry from an entity event message. Throws when the write
+ * fails: the batch processor decides between a lock wait, a retry and the DLQ.
  *
- * @returns `'written'` | `'duplicate'` | `'error'`
+ * @returns `'written'` | `'duplicate'`
  */
 export async function writeAuditLogFromEvent(
   db: Database,
   event: EntityEventMessage,
-): Promise<'written' | 'duplicate' | 'error'> {
-  try {
-    // Phase 2 idempotency: hub (and queue) retries reuse the same event.id.
-    const [existing] = await db
-      .select({ id: schema.auditLogs.id })
-      .from(schema.auditLogs)
-      .where(sql`${schema.auditLogs.metadata}->>'eventId' = ${event.id}`)
-      .limit(1);
-    if (existing) {
-      console.log(`[AuditLogWriter] Skipping duplicate event ${event.id}`);
-      return 'duplicate';
-    }
-
-    const data = event.data as Record<string, unknown>;
-    const entityName = getEntityDisplayName(event.entityType, data);
-    const displayType = stripModulePrefix(event.entityType);
-    const userName = await getUserName(db, event.metadata.userId);
-
-    await db.insert(schema.auditLogs).values({
-      id: generateId('aud'),
-      entityType: event.entityType,
-      entityId: event.entityId,
-      action: event.action,
-      description: buildDescription(
-        event.action,
-        event.entityType,
-        entityName,
-        userName,
-        event.changes ? Object.keys(event.changes) : null,
-      ),
-      changes: transformChanges(event.changes),
-      data,
-      performedBy: event.metadata.userId,
-      performedByName: userName,
-      metadata: {
-        source: event.metadata.source,
-        workspaceId: event.metadata.workspaceId,
-        eventId: event.id,
-        translationKey: `audit.${event.action}`,
-        translationParams: {
-          entityType: displayType,
-          entityName,
-          changedFields: event.changes ? Object.keys(event.changes) : undefined,
-        },
-      },
-    });
-    return 'written';
-  } catch (err) {
-    console.error('[AuditLogWriter] Failed to write audit log:', err);
-    return 'error';
+): Promise<'written' | 'duplicate'> {
+  // Phase 2 idempotency: hub (and queue) retries reuse the same event.id.
+  const [existing] = await db
+    .select({ id: schema.auditLogs.id })
+    .from(schema.auditLogs)
+    .where(sql`${schema.auditLogs.metadata}->>'eventId' = ${event.id}`)
+    .limit(1);
+  if (existing) {
+    console.log(`[AuditLogWriter] Skipping duplicate event ${event.id}`);
+    return 'duplicate';
   }
+
+  const data = event.data as Record<string, unknown>;
+  const entityName = getEntityDisplayName(event.entityType, data);
+  const displayType = stripModulePrefix(event.entityType);
+  const userName = await getUserName(db, event.metadata.userId);
+
+  await db.insert(schema.auditLogs).values({
+    id: generateId('aud'),
+    entityType: event.entityType,
+    entityId: event.entityId,
+    action: event.action,
+    description: buildDescription(
+      event.action,
+      event.entityType,
+      entityName,
+      userName,
+      event.changes ? Object.keys(event.changes) : null,
+    ),
+    changes: transformChanges(event.changes),
+    data,
+    performedBy: event.metadata.userId,
+    performedByName: userName,
+    metadata: {
+      source: event.metadata.source,
+      workspaceId: event.metadata.workspaceId,
+      eventId: event.id,
+      translationKey: `audit.${event.action}`,
+      translationParams: {
+        entityType: displayType,
+        entityName,
+        changedFields: event.changes ? Object.keys(event.changes) : undefined,
+      },
+    },
+  });
+  return 'written';
 }

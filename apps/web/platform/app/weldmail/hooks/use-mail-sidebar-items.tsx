@@ -83,14 +83,17 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
 function KeywordTagInput({
+  id,
   value,
   onChange,
   placeholder,
 }: Readonly<{
+  id: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
 }>) {
+  const { t } = useI18n();
   const [inputValue, setInputValue] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -158,6 +161,7 @@ function KeywordTagInput({
         >
           {tag}
           <Button
+            aria-label={t.mail.a11y.removeKeyword.replace('{keyword}', tag)}
             type="button"
             variant="ghost"
             size="icon"
@@ -172,13 +176,14 @@ function KeywordTagInput({
         </Badge>
       ))}
       <input
+        id={id}
         ref={inputRef}
         value={inputValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={() => { if (inputValue.trim()) addTag(inputValue); }}
         placeholder={tags.length === 0 ? placeholder : ''}
-        className="flex-1 min-w-[80px] bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+        className="flex-1 min-w-[80px] bg-transparent outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 text-sm placeholder:text-muted-foreground"
       />
     </div>
   );
@@ -699,7 +704,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 </SidebarMenuButton>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button
+                    <Button aria-label={t.mail.a11y.labelOptions}
                       variant="ghost"
                       size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 rounded-md hidden group-hover/label:flex data-[state=open]:flex"
@@ -815,7 +820,7 @@ export function useMailSidebarItems(isActive: boolean): {
     <>
     {/* Edit Label Dialog */}
     <Dialog open={showEditLabelDialog} onOpenChange={resetEditLabelDialog}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
           // Radix would focus the first control (the colour button).
           e.preventDefault();
@@ -832,7 +837,7 @@ export function useMailSidebarItems(isActive: boolean): {
             <div className="flex items-center gap-2">
               <Popover open={showEditPalette} onOpenChange={setShowEditPalette}>
                 <PopoverTrigger asChild>
-                  <Button
+                  <Button aria-label={t.mail.a11y.labelColor}
                     type="button"
                     variant="ghost"
                     className="w-9 h-9 rounded-md border border-input flex items-center justify-center flex-shrink-0 hover:bg-accent transition-colors"
@@ -891,6 +896,7 @@ export function useMailSidebarItems(isActive: boolean): {
                   <div className="space-y-2">
                     <Label htmlFor="sidebar-edit-ai-keywords">{t.mail.sidebar.labelKeywords}</Label>
                     <KeywordTagInput
+                      id="sidebar-edit-ai-keywords"
                       value={editAiKeywords}
                       onChange={setEditAiKeywords}
                       placeholder={t.mail.sidebar.typeAndPressComma}
@@ -939,7 +945,7 @@ export function useMailSidebarItems(isActive: boolean): {
 
     {/* Create Label Dialog */}
     <Dialog open={showCreateLabelDialog} onOpenChange={resetLabelDialog}>
-      <DialogContent>
+      <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t.mail.sidebar.createLabel}</DialogTitle>
         </DialogHeader>
@@ -949,7 +955,7 @@ export function useMailSidebarItems(isActive: boolean): {
             <div className="flex items-center gap-2">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button
+                  <Button aria-label={t.mail.a11y.labelColor}
                     type="button"
                     variant="ghost"
                     className="w-9 h-9 rounded-md border border-input flex items-center justify-center flex-shrink-0 hover:bg-accent transition-colors"
@@ -1006,7 +1012,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 </Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                    <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                       <Info className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
@@ -1026,7 +1032,7 @@ export function useMailSidebarItems(isActive: boolean): {
                       <Label htmlFor="sidebar-ai-keywords">{t.mail.sidebar.labelKeywords}</Label>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                          <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                             <Info className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
@@ -1036,6 +1042,7 @@ export function useMailSidebarItems(isActive: boolean): {
                       </Tooltip>
                     </div>
                     <KeywordTagInput
+                      id="sidebar-ai-keywords"
                       value={aiKeywords}
                       onChange={setAiKeywords}
                       placeholder={t.mail.sidebar.typeAndPressComma}
@@ -1046,7 +1053,7 @@ export function useMailSidebarItems(isActive: boolean): {
                       <Label htmlFor="sidebar-ai-description">{t.mail.sidebar.labelAiDescription}</Label>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                          <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                             <Info className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
@@ -1070,7 +1077,7 @@ export function useMailSidebarItems(isActive: boolean): {
                         <Label>{t.mail.sidebar.labelMinConfidence}</Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
+                            <Button aria-label={t.mail.a11y.moreInfo} type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-auto w-auto p-0">
                               <Info className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>

@@ -1,7 +1,9 @@
 /**
  * Billing summary: mailboxes x price, status (a failed payment is called out),
  * whether a payment method is on file, and "Update payment method", which goes
- * through Stripe Checkout in setup mode.
+ * through Stripe Checkout in setup mode. Nothing where billing is off (the
+ * settings page leaves it out without the `billing` feature, and a backend
+ * that reports no subscription answers null).
  */
 
 import { CreditCard, Loader2 } from 'lucide-react';
@@ -30,6 +32,8 @@ export function BillingSection() {
   const canUpdate = can('reach_settings:update');
   const billing = useReachBilling(can('reach_settings:read'));
   const paymentSetup = usePaymentMethodSetup('/weldreach/settings');
+
+  if (billing.data === null) return null;
 
   return (
     <SectionCard title={t('reach.settings.billing.title')} description={t('reach.settings.billing.description')}>

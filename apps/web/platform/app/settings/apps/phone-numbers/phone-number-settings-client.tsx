@@ -61,6 +61,7 @@ import {
 import { usePortingOrders, type PortingOrderStatus } from '@/hooks/use-porting';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 import { PendingNumberDocuments } from './pending-number-documents';
+import { isFeatureAvailable } from '@/lib/edition';
 
 interface PhoneNumberSettingsClientProps {
   phoneNumbers: VoipPhoneNumber[];
@@ -490,24 +491,29 @@ export function PhoneNumberSettingsClient({
 
           <div className="flex items-center gap-2">
             <ExpandingSearchInput value={searchQuery} onChange={setSearchQuery} placeholder={tp.searchPlaceholder} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              disabled={!isConfigured}
-              onClick={() => router.push('/settings/apps/phone-numbers/port')}
-            >
-              {tp.portButton}
-            </Button>
-            <Button
-              size="sm"
-              className="h-8"
-              disabled={!isConfigured}
-              onClick={() => router.push('/settings/apps/phone-numbers/new-number')}
-            >
-              <Plus className="h-4 w-4 mr-0.5" />
-              {tp.buyButton}
-            </Button>
+            {/* Buying and porting numbers are Stripe checkouts (Global only). */}
+            {isFeatureAvailable('phone-number-purchase') && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={!isConfigured}
+                  onClick={() => router.push('/settings/apps/phone-numbers/port')}
+                >
+                  {tp.portButton}
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  disabled={!isConfigured}
+                  onClick={() => router.push('/settings/apps/phone-numbers/new-number')}
+                >
+                  <Plus className="h-4 w-4 mr-0.5" />
+                  {tp.buyButton}
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

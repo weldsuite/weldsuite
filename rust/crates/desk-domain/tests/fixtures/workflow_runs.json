@@ -1,0 +1,5158 @@
+{
+  "clear": [
+    "delete from helpdesk_workflow_executions",
+    "delete from helpdesk_conversation_messages",
+    "delete from helpdesk_satisfaction_surveys",
+    "delete from helpdesk_conversations",
+    "delete from helpdesk_workflows",
+    "delete from helpdesk_agents",
+    "delete from helpdesk_articles",
+    "delete from helpdesk_channel_integrations"
+  ],
+  "cases": [
+    {
+      "name": "no workflow matches",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_web', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Web only', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\",\"channels\":[\"web\"]}}]'::jsonb, '[{\"id\":\"s\",\"type\":\"send_message\",\"name\":\"x\",\"inputs\":{\"message\":\"x\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "no_workflows"
+        }
+      },
+      "changes": {},
+      "publishes": [],
+      "http": []
+    },
+    {
+      "name": "draft and deleted workflows are left out; sort order decides; results are shared",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_agents\n  (id, created_at, updated_at, user_id, name, email, status, department_id, current_active_tickets, tickets_assigned)\n  values\n  ('hag_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_ann', 'Ann', 'ann@example.com', 'active', 'dep_1', 3, 10),\n  ('hag_2', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_bob', 'Bob', 'bob@example.com', 'active', 'dep_1', 1, 12),\n  ('hag_3', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_cy', 'Cy', 'cy@example.com', 'active', 'dep_2', 0, 4),\n  ('hag_4', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'user_dee', 'Dee', 'dee@example.com', 'inactive', 'dep_1', 0, 0)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_b', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Second', 'active', 1, 20, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"tag\",\"type\":\"tag_conversation\",\"name\":\"Tag\",\"order\":1,\"inputs\":{\"tags\":[\"{{steps.greet.content}}\"]}},{\"id\":\"prio\",\"type\":\"change_priority\",\"name\":\"Prio\",\"order\":2,\"inputs\":{\"priority\":\"high\"}}]'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_a', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'First', 'active', 1, 10, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\",\"channels\":[\"chat\"]}}]'::jsonb, '[{\"id\":\"assign\",\"type\":\"assign_conversation\",\"name\":\"Assign\",\"order\":2,\"inputs\":{\"strategy\":\"round_robin\",\"departmentId\":\"dep_1\"}},{\"id\":\"greet\",\"type\":\"send_message\",\"name\":\"Greet\",\"order\":1,\"inputs\":{\"message\":\"Hi {{trigger.customerName}}\"}},{\"id\":\"skip\",\"type\":\"send_message\",\"name\":\"Skip\",\"order\":3,\"inputs\":{\"message\":\"never\"},\"condition\":{\"field\":\"trigger.vip\",\"operator\":\"eq\",\"value\":true}}]'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_draft', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Draft', 'draft', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"x\",\"type\":\"close_conversation\",\"name\":\"x\"}]'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_gone', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', '2026-10-02T09:00:00Z',\n    'Gone', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"x\",\"type\":\"close_conversation\",\"name\":\"x\"}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat",
+            "customerName": "Jane"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat",
+              "customerName": "Jane"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_a"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_a-0-greet"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_a-1-assign"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_a-2-skip"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_a"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_b"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_b-0-tag"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_b-1-prio"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_b"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 2
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": "user_ann",
+              "assignee_name": "Ann",
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "high",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip",
+                "{{steps.greet.content}}"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "system",
+              "author_name": "System",
+              "author_type": "system",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Ann has joined the conversation.",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": null,
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Hi Jane",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_a",
+              "id": "<id:wex>",
+              "output": {
+                "assign": {
+                  "assigneeId": "user_ann",
+                  "assigneeName": "Ann",
+                  "conversationId": "hc_1",
+                  "strategy": "round_robin",
+                  "success": true,
+                  "updatedAt": "<ts>"
+                },
+                "greet": {
+                  "content": "Hi Jane",
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "success": true
+                },
+                "skip": {
+                  "skipped": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 3,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "customerName": "Jane",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "First",
+              "workflow_version": 1
+            },
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_b",
+              "id": "<id:wex>",
+              "output": {
+                "assign": {
+                  "assigneeId": "user_ann",
+                  "assigneeName": "Ann",
+                  "conversationId": "hc_1",
+                  "strategy": "round_robin",
+                  "success": true,
+                  "updatedAt": "<ts>"
+                },
+                "greet": {
+                  "content": "Hi Jane",
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "success": true
+                },
+                "prio": {
+                  "conversationId": "hc_1",
+                  "priority": "high",
+                  "success": true
+                },
+                "skip": {
+                  "skipped": true
+                },
+                "tag": {
+                  "conversationId": "hc_1",
+                  "mode": "add",
+                  "success": true,
+                  "tags": [
+                    "vip",
+                    "{{steps.greet.content}}"
+                  ]
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 2,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "customerName": "Jane",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Second",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_agents": {
+          "added": [
+            {
+              "availability": "offline",
+              "avatar": null,
+              "average_resolution_time": null,
+              "average_response_time": null,
+              "can_access_all_tickets": false,
+              "can_manage_knowledge": false,
+              "created_at": "2026-10-01T09:00:00",
+              "current_active_tickets": 4,
+              "deleted_at": null,
+              "department_id": "dep_1",
+              "email": "ann@example.com",
+              "expertise": null,
+              "id": "hag_1",
+              "is_online": false,
+              "languages": null,
+              "last_seen_at": null,
+              "max_active_tickets": 10,
+              "name": "Ann",
+              "notification_preferences": null,
+              "permissions": null,
+              "role": "agent",
+              "satisfaction_score": null,
+              "signature": null,
+              "skills": null,
+              "status": "active",
+              "team_ids": null,
+              "tickets_assigned": 11,
+              "tickets_resolved": 0,
+              "timezone": null,
+              "updated_at": "<ts>",
+              "user_id": "user_ann",
+              "working_hours": null
+            }
+          ],
+          "removed": [
+            {
+              "availability": "offline",
+              "avatar": null,
+              "average_resolution_time": null,
+              "average_response_time": null,
+              "can_access_all_tickets": false,
+              "can_manage_knowledge": false,
+              "created_at": "2026-10-01T09:00:00",
+              "current_active_tickets": 3,
+              "deleted_at": null,
+              "department_id": "dep_1",
+              "email": "ann@example.com",
+              "expertise": null,
+              "id": "hag_1",
+              "is_online": false,
+              "languages": null,
+              "last_seen_at": null,
+              "max_active_tickets": 10,
+              "name": "Ann",
+              "notification_preferences": null,
+              "permissions": null,
+              "role": "agent",
+              "satisfaction_score": null,
+              "signature": null,
+              "skills": null,
+              "status": "active",
+              "team_ids": null,
+              "tickets_assigned": 10,
+              "tickets_resolved": 0,
+              "timezone": null,
+              "updated_at": "2026-10-01T09:00:00",
+              "user_id": "user_ann",
+              "working_hours": null
+            }
+          ]
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "content": "Ann has joined the conversation.",
+            "id": "<id:msg>",
+            "senderId": "system",
+            "senderName": "System",
+            "senderType": "system",
+            "ts": "<ms>",
+            "type": "message"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "data": {
+              "agentId": "user_ann",
+              "agentName": "Ann",
+              "assignedAt": "<ts>",
+              "conversationId": "hc_1"
+            },
+            "event": "agent_assigned",
+            "ts": "<ms>",
+            "type": "system"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "assigneeId": "user_ann",
+              "assigneeName": "Ann",
+              "conversationId": "hc_1",
+              "updatedAt": "<ts>"
+            },
+            "event": "conversation_updated",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "data": {
+              "conversation": {
+                "assigneeAvatar": null,
+                "assigneeId": "user_ann",
+                "assigneeName": "Ann",
+                "channel": "chat",
+                "contactId": "con_1",
+                "conversationNumber": "C-1001",
+                "customerEmail": "jane@example.com",
+                "customerName": "Jane Doe",
+                "departmentId": null,
+                "id": "hc_1",
+                "isRead": false,
+                "messageCount": 2,
+                "priority": "high",
+                "status": "open",
+                "subject": "Order missing",
+                "tags": [
+                  "vip",
+                  "{{steps.greet.content}}"
+                ],
+                "unreadCount": 1
+              },
+              "conversationId": "hc_1"
+            },
+            "event": "system:conversation_state_changed",
+            "ts": "<ms>",
+            "type": "system"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "a failing step stops its workflow unless it may fail",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_fail', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Fails', 'active', 1, 1, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"ai\",\"type\":\"ai_auto_reply\",\"name\":\"AI\",\"order\":1},{\"id\":\"after\",\"type\":\"send_message\",\"name\":\"After\",\"order\":2,\"inputs\":{\"message\":\"not sent\"}}]'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_soft', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Soft', 'active', 1, 2, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"ai2\",\"type\":\"ai_agent\",\"name\":\"AI\",\"order\":1,\"continueOnError\":true},{\"id\":\"csat\",\"type\":\"trigger_csat\",\"name\":\"CSAT\",\"order\":2},{\"id\":\"close\",\"type\":\"close_conversation\",\"name\":\"Close\",\"order\":3}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_fail"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_fail-0-ai"
+        },
+        {
+          "kind": "do",
+          "name": "fail-hwfl_fail"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_fail"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_soft"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_soft-0-ai2"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_soft-1-csat"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_soft-2-close"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_soft"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 2
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": "<ts>",
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "closed",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": {
+                "message": "AI is currently unavailable"
+              },
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_fail",
+              "id": "<id:wex>",
+              "output": null,
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "failed",
+              "total_steps": 2,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Fails",
+              "workflow_version": 1
+            },
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_soft",
+              "id": "<id:wex>",
+              "output": {
+                "ai": {
+                  "error": "AI is currently unavailable",
+                  "escalated": true,
+                  "success": false
+                },
+                "ai2": {
+                  "error": "AI is currently unavailable",
+                  "escalated": true,
+                  "success": false
+                },
+                "close": {
+                  "conversationId": "hc_1",
+                  "success": true
+                },
+                "csat": {
+                  "conversationId": "hc_1",
+                  "success": true,
+                  "surveyId": "<id:csat>"
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 3,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Soft",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_satisfaction_surveys": {
+          "added": [
+            {
+              "comment": null,
+              "counterparty_id": null,
+              "created_at": "<ts>",
+              "customer_id": "con_1",
+              "deleted_at": null,
+              "expires_at": "<ts>",
+              "follow_up_notes": null,
+              "follow_up_required": false,
+              "id": "<id:csat>",
+              "rating": null,
+              "responded_at": null,
+              "responses": null,
+              "sent_at": "<ts>",
+              "status": "pending",
+              "ticket_id": "hc_1",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "choices, an answer, and the chosen branch",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_choices', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Triage', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"ask\",\"type\":\"send_choices\",\"name\":\"Ask\",\"order\":1,\"inputs\":{\"message\":\"What do you need?\",\"options\":[{\"label\":\"Billing\",\"value\":\"billing\"},{\"label\":\"Other\",\"value\":\"other\"}]}},{\"id\":\"b1\",\"type\":\"add_internal_note\",\"name\":\"Note\",\"order\":2,\"parentBranchId\":\"ask_branch_billing\",\"inputs\":{\"content\":\"Billing: {{steps.ask.selectedLabel}}\"}},{\"id\":\"b0\",\"type\":\"send_message\",\"name\":\"Ack\",\"order\":1,\"parentBranchId\":\"ask_branch_billing\",\"inputs\":{\"message\":\"Billing it is\"}},{\"id\":\"o1\",\"type\":\"add_internal_note\",\"name\":\"Note\",\"order\":1,\"parentBranchId\":\"ask_branch_other\",\"inputs\":{\"content\":\"Other\"}},{\"id\":\"bye\",\"type\":\"send_message\",\"name\":\"Bye\",\"order\":2,\"inputs\":{\"message\":\"Thanks!\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [
+          {
+            "respond": {
+              "stepId": "ask",
+              "selectedValue": "billing",
+              "selectedLabel": "Billing"
+            }
+          }
+        ],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "<id:wex>",
+            "selectedLabel": "Billing",
+            "selectedValue": "billing",
+            "stepId": "ask",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_choices-0-ask"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_choices-0"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_choices-0",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_choices-0"
+        },
+        {
+          "kind": "do",
+          "name": "branch-hwfl_choices-0-0-b0"
+        },
+        {
+          "kind": "do",
+          "name": "branch-hwfl_choices-0-1-b1"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_choices-1-bye"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "system",
+              "author_name": "System",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Billing: Billing",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": true,
+              "is_public": false,
+              "is_read": false,
+              "metadata": null,
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "note",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Billing it is",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Thanks!",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "What do you need?",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "interactiveType": "choices",
+                "options": [
+                  {
+                    "id": "opt_billing",
+                    "label": "Billing",
+                    "value": "billing"
+                  },
+                  {
+                    "id": "opt_other",
+                    "label": "Other",
+                    "value": "other"
+                  }
+                ],
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "ask"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": "ask",
+              "current_step_index": 1,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "stepResults": {
+                  "ask": {
+                    "conversationId": "hc_1",
+                    "messageId": "<id:msg>",
+                    "responded": true,
+                    "selectedLabel": "Billing",
+                    "selectedValue": "billing",
+                    "stepId": "ask"
+                  }
+                },
+                "variables": {}
+              },
+              "helpdesk_workflow_id": "hwfl_choices",
+              "id": "<id:wex>",
+              "output": {
+                "ask": {
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "responded": true,
+                  "selectedLabel": "Billing",
+                  "selectedValue": "billing",
+                  "stepId": "ask"
+                },
+                "b0": {
+                  "content": "Billing it is",
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "success": true
+                },
+                "b1": {
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "success": true
+                },
+                "bye": {
+                  "content": "Thanks!",
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 2,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Triage",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "an answer without a choice runs no branch",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_choices', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Triage', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"ask\",\"type\":\"send_choices\",\"name\":\"Ask\",\"order\":1,\"inputs\":{\"message\":\"Rate us\",\"options\":[{\"label\":\"Good\",\"value\":\"good\"}]}},{\"id\":\"g\",\"type\":\"send_message\",\"name\":\"G\",\"order\":1,\"parentBranchId\":\"ask_branch_good\",\"inputs\":{\"message\":\"Yay\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [
+          {
+            "respond": {
+              "stepId": "ask",
+              "rating": 4,
+              "feedback": "ok"
+            }
+          }
+        ],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "<id:wex>",
+            "feedback": "ok",
+            "rating": 4,
+            "stepId": "ask",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_choices-0-ask"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_choices-0"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_choices-0",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_choices-0"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Rate us",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "interactiveType": "choices",
+                "options": [
+                  {
+                    "id": "opt_good",
+                    "label": "Good",
+                    "value": "good"
+                  }
+                ],
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "ask"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": "ask",
+              "current_step_index": 1,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "stepResults": {
+                  "ask": {
+                    "conversationId": "hc_1",
+                    "feedback": "ok",
+                    "messageId": "<id:msg>",
+                    "rating": 4,
+                    "responded": true,
+                    "stepId": "ask"
+                  }
+                },
+                "variables": {}
+              },
+              "helpdesk_workflow_id": "hwfl_choices",
+              "id": "<id:wex>",
+              "output": {
+                "ask": {
+                  "conversationId": "hc_1",
+                  "feedback": "ok",
+                  "messageId": "<id:msg>",
+                  "rating": 4,
+                  "responded": true,
+                  "stepId": "ask"
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 1,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Triage",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "a form, its answer, then a second question that times out",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_form', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Form', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"form\",\"type\":\"collect_input\",\"name\":\"Form\",\"order\":1,\"inputs\":{\"message\":\"Details?\",\"fields\":[{\"id\":\"email\",\"label\":\"Email\",\"type\":\"email\",\"required\":true}]}},{\"id\":\"echo\",\"type\":\"send_message\",\"name\":\"Echo\",\"order\":2,\"inputs\":{\"message\":\"Got {{steps.form.submittedData.email}}\"}},{\"id\":\"again\",\"type\":\"send_choices\",\"name\":\"Again\",\"order\":3,\"inputs\":{\"message\":\"More?\",\"options\":[{\"label\":\"No\",\"value\":\"no\"}]}},{\"id\":\"end\",\"type\":\"send_message\",\"name\":\"End\",\"order\":4,\"inputs\":{\"message\":\"never\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [
+          {
+            "respond": {
+              "stepId": "form",
+              "submittedData": {
+                "email": "jane@example.com"
+              }
+            }
+          },
+          {
+            "timeout": true
+          }
+        ],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "<id:wex>",
+            "stepId": "form",
+            "submittedData": {
+              "email": "jane@example.com"
+            },
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_form"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_form-0-form"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_form-0"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_form-0",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_form-0"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_form-1-echo"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_form-2-again"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_form-2"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_form-2",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        }
+      ],
+      "outcome": {
+        "error": "waitForEvent timed out waiting"
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": true,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Details?",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "fields": [
+                  {
+                    "id": "email",
+                    "label": "Email",
+                    "required": true,
+                    "type": "email"
+                  }
+                ],
+                "interactiveType": "collect_input",
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "form"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Got jane@example.com",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "More?",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "interactiveType": "choices",
+                "options": [
+                  {
+                    "id": "opt_no",
+                    "label": "No",
+                    "value": "no"
+                  }
+                ],
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "again"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": null,
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": "again",
+              "current_step_index": 3,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>",
+                "stepResults": {
+                  "again": {
+                    "conversationId": "hc_1",
+                    "messageId": "<id:msg>"
+                  },
+                  "echo": {
+                    "content": "Got jane@example.com",
+                    "conversationId": "hc_1",
+                    "messageId": "<id:msg>",
+                    "success": true
+                  },
+                  "form": {
+                    "conversationId": "hc_1",
+                    "messageId": "<id:msg>",
+                    "responded": true,
+                    "stepId": "form",
+                    "submittedData": {
+                      "email": "jane@example.com"
+                    }
+                  }
+                },
+                "variables": {},
+                "waitingStepId": "again"
+              },
+              "helpdesk_workflow_id": "hwfl_form",
+              "id": "<id:wex>",
+              "output": null,
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "waiting_for_input",
+              "total_steps": 4,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Form",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "a second event while the run waits is busy; respond without a waiting run is 404",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_choices', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Triage', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"ask\",\"type\":\"send_choices\",\"name\":\"Ask\",\"order\":1,\"inputs\":{\"message\":\"Pick\",\"options\":[{\"label\":\"A\",\"value\":\"a\"}]}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [
+          {
+            "event": {
+              "type": "message_received",
+              "conversationId": "hc_1",
+              "workspaceId": "org_1",
+              "data": {
+                "content": "hello?"
+              }
+            }
+          },
+          {
+            "respond": {
+              "stepId": "ask",
+              "selectedValue": "a"
+            }
+          }
+        ],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "content": "hello?"
+            },
+            "type": "message_received",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "busy",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "<id:wex>",
+            "selectedValue": "a",
+            "stepId": "ask",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_choices-0-ask"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_choices-0"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_choices-0",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_choices-0"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_choices"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Pick",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "interactiveType": "choices",
+                "options": [
+                  {
+                    "id": "opt_a",
+                    "label": "A",
+                    "value": "a"
+                  }
+                ],
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "ask"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "chat",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": "ask",
+              "current_step_index": 1,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "stepResults": {
+                  "ask": {
+                    "conversationId": "hc_1",
+                    "messageId": "<id:msg>",
+                    "responded": true,
+                    "selectedValue": "a",
+                    "stepId": "ask"
+                  }
+                },
+                "variables": {}
+              },
+              "helpdesk_workflow_id": "hwfl_choices",
+              "id": "<id:wex>",
+              "output": {
+                "ask": {
+                  "conversationId": "hc_1",
+                  "messageId": "<id:msg>",
+                  "responded": true,
+                  "selectedValue": "a",
+                  "stepId": "ask"
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 1,
+              "trigger_data": {
+                "channel": "chat",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Triage",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "a delay step and suggested articles on the web channel",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_articles\n  (id, created_at, updated_at, title, slug, content, excerpt, author_id, status)\n  values\n  ('har_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Reset your password', 'reset-password', 'x', 'Forgot it? 100% fixable', 'user_ann', 'published'),\n  ('har_2', '2026-10-02T09:00:00Z', '2026-10-02T09:00:00Z', 'Shipping times', 'shipping', 'x', null, 'user_ann', 'published'),\n  ('har_3', '2026-10-03T09:00:00Z', '2026-10-03T09:00:00Z', 'Password policy (draft)', 'policy', 'x', 'password rules', 'user_ann', 'draft')",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_kb', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'KB', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"wait\",\"type\":\"delay\",\"name\":\"Wait\",\"order\":1,\"inputs\":{\"duration\":0.003}},{\"id\":\"kb\",\"type\":\"suggest_articles\",\"name\":\"KB\",\"order\":2,\"inputs\":{\"query\":\"{{trigger.content}}\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "content": "password"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "content": "password"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_kb"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_kb-0-wait"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_kb-1-kb"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_kb"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "chat",
+              "closed_at": null,
+              "contact_id": "con_1",
+              "conversation_number": "C-1001",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": "jane@example.com",
+              "customer_name": "Jane Doe",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_1",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 2,
+              "metadata": {},
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": "medium",
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Order missing",
+              "tags": [
+                "vip"
+              ],
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 1,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "web",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_1",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_kb",
+              "id": "<id:wex>",
+              "output": {
+                "kb": {
+                  "articleCount": 1,
+                  "success": true
+                },
+                "wait": {
+                  "durationMs": 3,
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 2,
+              "trigger_data": {
+                "content": "password",
+                "conversationId": "hc_1",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "KB",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_1",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_1"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "discord gets the bot messages",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, customer_name, subject, status, channel,\n   message_count, metadata)\n  values ('hc_2', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1002', 'Bob', 'Login help',\n   'open', 'discord', 0, '{\"discordChannelId\":\"dc_77\",\"slackChannelId\":\"sc_88\",\"slackThreadTs\":\"171.5\"}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_dc', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Discord', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"hi\",\"type\":\"send_message\",\"name\":\"Hi\",\"order\":1,\"inputs\":{\"message\":\"Hello from the bot\"}},{\"id\":\"kb\",\"type\":\"suggest_articles\",\"name\":\"KB\",\"order\":2,\"inputs\":{}},{\"id\":\"ask\",\"type\":\"send_choices\",\"name\":\"Ask\",\"order\":3,\"inputs\":{\"message\":\"Pick\",\"options\":[{\"label\":\"A\",\"value\":\"a\"}]}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_2",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "discord"
+          }
+        },
+        "actions": [
+          {
+            "respond": {
+              "stepId": "ask",
+              "selectedValue": "a"
+            }
+          }
+        ],
+        "discordToken": true
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "data": {
+              "channel": "discord"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "<id:wex>",
+            "selectedValue": "a",
+            "stepId": "ask",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_dc"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_dc-0-hi"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_dc-1-kb"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_dc-2-ask"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_dc-2"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_dc-2",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_dc-2"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_dc"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Hello from the bot",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Pick",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "interactiveType": "choices",
+                "options": [
+                  {
+                    "id": "opt_a",
+                    "label": "A",
+                    "value": "a"
+                  }
+                ],
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "ask"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "discord",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "current_step_id": "ask",
+              "current_step_index": 3,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "stepResults": {
+                  "ask": {
+                    "conversationId": "hc_2",
+                    "messageId": "<id:msg>",
+                    "responded": true,
+                    "selectedValue": "a",
+                    "stepId": "ask"
+                  },
+                  "hi": {
+                    "content": "Hello from the bot",
+                    "conversationId": "hc_2",
+                    "messageId": "<id:msg>",
+                    "success": true
+                  },
+                  "kb": {
+                    "articleCount": 0,
+                    "success": true
+                  }
+                },
+                "variables": {}
+              },
+              "helpdesk_workflow_id": "hwfl_dc",
+              "id": "<id:wex>",
+              "output": {
+                "ask": {
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "responded": true,
+                  "selectedValue": "a",
+                  "stepId": "ask"
+                },
+                "hi": {
+                  "content": "Hello from the bot",
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "success": true
+                },
+                "kb": {
+                  "articleCount": 0,
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 3,
+              "trigger_data": {
+                "channel": "discord",
+                "conversationId": "hc_2",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Discord",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_2"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": [
+        {
+          "body": {
+            "content": "Hello from the bot"
+          },
+          "headers": [
+            [
+              "Authorization",
+              "Bot bot-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "method": "POST",
+          "url": "https://discord.com/api/v10/channels/dc_77/messages"
+        },
+        {
+          "body": {
+            "components": [
+              {
+                "components": [],
+                "type": 1
+              }
+            ],
+            "embeds": [
+              {
+                "color": 5793266,
+                "description": "Please select an option:"
+              }
+            ]
+          },
+          "headers": [
+            [
+              "Authorization",
+              "Bot bot-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "method": "POST",
+          "url": "https://discord.com/api/v10/channels/dc_77/messages"
+        }
+      ]
+    },
+    {
+      "name": "discord without a bot token sends nothing",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, customer_name, subject, status, channel,\n   message_count, metadata)\n  values ('hc_2', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1002', 'Bob', 'Login help',\n   'open', 'discord', 0, '{\"discordChannelId\":\"dc_77\",\"slackChannelId\":\"sc_88\",\"slackThreadTs\":\"171.5\"}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_dc', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Discord', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"hi\",\"type\":\"send_message\",\"name\":\"Hi\",\"order\":1,\"inputs\":{\"message\":\"Hello\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_2",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "discord"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "data": {
+              "channel": "discord"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_dc"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_dc-0-hi"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_dc"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Hello",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "discord",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_dc",
+              "id": "<id:wex>",
+              "output": {
+                "hi": {
+                  "content": "Hello",
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 1,
+              "trigger_data": {
+                "channel": "discord",
+                "conversationId": "hc_2",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Discord",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_2"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "slack gets the bot messages in the thread",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, customer_name, subject, status, channel,\n   message_count, metadata)\n  values ('hc_2', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1002', 'Bob', 'Login help',\n   'open', 'discord', 0, '{\"discordChannelId\":\"dc_77\",\"slackChannelId\":\"sc_88\",\"slackThreadTs\":\"171.5\"}'::jsonb)",
+          "insert into helpdesk_channel_integrations\n  (id, created_at, updated_at, provider, name, status, config)\n  values ('hci_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'slack', 'Slack', 'connected',\n   '{\"botToken\":\"xoxb-test\"}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_sl', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Slack', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"hi\",\"type\":\"send_message\",\"name\":\"Hi\",\"order\":1,\"inputs\":{\"message\":\"Hello from the bot\"}},{\"id\":\"form\",\"type\":\"collect_input\",\"name\":\"Form\",\"order\":2,\"inputs\":{\"message\":\"Details\",\"fields\":[{\"id\":\"n\",\"label\":\"Name\",\"type\":\"text\"}]}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_2",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "slack"
+          }
+        },
+        "actions": [
+          {
+            "respond": {
+              "stepId": "form",
+              "submittedData": {
+                "n": "Bob"
+              }
+            }
+          }
+        ],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "data": {
+              "channel": "slack"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "<id:wex>",
+            "stepId": "form",
+            "submittedData": {
+              "n": "Bob"
+            },
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "action": "event_sent",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_sl"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_sl-0-hi"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_sl-1-form"
+        },
+        {
+          "kind": "do",
+          "name": "pause-hwfl_sl-1"
+        },
+        {
+          "kind": "wait",
+          "name": "wait-hwfl_sl-1",
+          "type": "customer_response",
+          "timeout": "30 minutes"
+        },
+        {
+          "kind": "do",
+          "name": "resume-hwfl_sl-1"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_sl"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Details",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "fields": [
+                  {
+                    "id": "n",
+                    "label": "Name",
+                    "type": "text"
+                  }
+                ],
+                "interactiveType": "collect_input",
+                "source": "workflow",
+                "workflowExecutionId": "<id:wex>",
+                "workflowStepId": "form"
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            },
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Hello from the bot",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "slack",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "current_step_id": "form",
+              "current_step_index": 2,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "stepResults": {
+                  "form": {
+                    "conversationId": "hc_2",
+                    "messageId": "<id:msg>",
+                    "responded": true,
+                    "stepId": "form",
+                    "submittedData": {
+                      "n": "Bob"
+                    }
+                  },
+                  "hi": {
+                    "content": "Hello from the bot",
+                    "conversationId": "hc_2",
+                    "messageId": "<id:msg>",
+                    "success": true
+                  }
+                },
+                "variables": {}
+              },
+              "helpdesk_workflow_id": "hwfl_sl",
+              "id": "<id:wex>",
+              "output": {
+                "form": {
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "responded": true,
+                  "stepId": "form",
+                  "submittedData": {
+                    "n": "Bob"
+                  }
+                },
+                "hi": {
+                  "content": "Hello from the bot",
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 2,
+              "trigger_data": {
+                "channel": "slack",
+                "conversationId": "hc_2",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Slack",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_2"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": [
+        {
+          "body": {
+            "channel": "sc_88",
+            "text": "Hello from the bot",
+            "thread_ts": "171.5"
+          },
+          "headers": [
+            [
+              "Authorization",
+              "Bearer xoxb-test"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "method": "POST",
+          "url": "https://slack.com/api/chat.postMessage"
+        },
+        {
+          "body": {
+            "blocks": [
+              {
+                "text": {
+                  "text": "Please provide the following information:",
+                  "type": "mrkdwn"
+                },
+                "type": "section"
+              },
+              {
+                "text": {
+                  "text": "- \n\n_Please reply in this thread._",
+                  "type": "mrkdwn"
+                },
+                "type": "section"
+              }
+            ],
+            "channel": "sc_88",
+            "text": "New message from support",
+            "thread_ts": "171.5"
+          },
+          "headers": [
+            [
+              "Authorization",
+              "Bearer xoxb-test"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "method": "POST",
+          "url": "https://slack.com/api/chat.postMessage"
+        }
+      ]
+    },
+    {
+      "name": "email conversations dispatch nothing",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, customer_name, subject, status, channel,\n   message_count, metadata)\n  values ('hc_2', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1002', 'Bob', 'Login help',\n   'open', 'discord', 0, '{\"discordChannelId\":\"dc_77\",\"slackChannelId\":\"sc_88\",\"slackThreadTs\":\"171.5\"}'::jsonb)",
+          "insert into helpdesk_channel_integrations\n  (id, created_at, updated_at, provider, name, status, config)\n  values ('hci_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'slack', 'Slack', 'connected',\n   '{\"botToken\":\"xoxb-test\"}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_em', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'Email', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[{\"id\":\"hi\",\"type\":\"send_message\",\"name\":\"Hi\",\"order\":1,\"inputs\":{\"message\":\"Hello\"}}]'::jsonb)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_2",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "email"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "data": {
+              "channel": "email"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "workflow_started",
+            "instanceId": "<instance>",
+            "success": true
+          },
+          "status": 200
+        },
+        {
+          "body": {
+            "conversationId": "hc_2",
+            "executionId": "none",
+            "stepId": "late",
+            "workspaceId": "org_1"
+          },
+          "path": "/respond",
+          "response": {
+            "error": "No waiting execution found",
+            "success": false
+          },
+          "status": 404
+        }
+      ],
+      "steps": [
+        {
+          "kind": "do",
+          "name": "match-triggers"
+        },
+        {
+          "kind": "do",
+          "name": "set-active"
+        },
+        {
+          "kind": "do",
+          "name": "exec-create-hwfl_em"
+        },
+        {
+          "kind": "do",
+          "name": "step-hwfl_em-0-hi"
+        },
+        {
+          "kind": "do",
+          "name": "complete-hwfl_em"
+        },
+        {
+          "kind": "do",
+          "name": "finalize"
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "action": "completed",
+          "success": true,
+          "workflowCount": 1
+        }
+      },
+      "changes": {
+        "helpdesk_conversations": {
+          "added": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "<ts>",
+              "visitor_location": null
+            }
+          ],
+          "removed": [
+            {
+              "assignee_avatar": null,
+              "assignee_id": null,
+              "assignee_name": null,
+              "attachment_count": 0,
+              "breached_at": null,
+              "category": null,
+              "channel": "discord",
+              "closed_at": null,
+              "contact_id": null,
+              "conversation_number": "C-1002",
+              "counterparty_id": null,
+              "created_at": "2026-10-01T09:00:00",
+              "custom_fields": null,
+              "customer_avatar": null,
+              "customer_company": null,
+              "customer_email": null,
+              "customer_name": "Bob",
+              "customer_phone": null,
+              "deleted_at": null,
+              "department_id": null,
+              "first_response_at": null,
+              "has_active_workflow": false,
+              "has_attachments": false,
+              "id": "hc_2",
+              "is_archived": false,
+              "is_escalated": false,
+              "is_read": false,
+              "is_spam": false,
+              "is_starred": false,
+              "is_ticket": false,
+              "labels": null,
+              "last_agent_message_at": null,
+              "last_customer_message_at": null,
+              "last_message": null,
+              "last_message_at": null,
+              "merged_conversation_ids": null,
+              "message_count": 0,
+              "metadata": {
+                "discordChannelId": "dc_77",
+                "slackChannelId": "sc_88",
+                "slackThreadTs": "171.5"
+              },
+              "parent_conversation_id": null,
+              "person_id": null,
+              "preview": null,
+              "priority": null,
+              "reference": null,
+              "related_conversation_ids": null,
+              "reopened_at": null,
+              "resolution_deadline": null,
+              "resolution_time": null,
+              "resolved_at": null,
+              "response_deadline": null,
+              "response_time": null,
+              "satisfaction_comment": null,
+              "satisfaction_rating": null,
+              "severity": null,
+              "sla_id": null,
+              "sla_status": null,
+              "snoozed_until": null,
+              "source": null,
+              "source_email": null,
+              "source_url": null,
+              "status": "open",
+              "subcategory": null,
+              "subject": "Login help",
+              "tags": null,
+              "ticket_number": null,
+              "ticket_type": null,
+              "ticket_type_id": null,
+              "unread_count": 0,
+              "updated_at": "2026-10-01T09:00:00",
+              "visitor_location": null
+            }
+          ]
+        },
+        "helpdesk_conversation_messages": {
+          "added": [
+            {
+              "attachments": null,
+              "author_avatar": null,
+              "author_email": null,
+              "author_id": "workflow",
+              "author_name": "Bot",
+              "author_type": "agent",
+              "bcc": null,
+              "block_responses": null,
+              "blocks": null,
+              "cc": null,
+              "content": "Hello",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "deleted_at": null,
+              "email_message_id": null,
+              "has_attachments": false,
+              "html_content": null,
+              "id": "<id:msg>",
+              "in_reply_to": null,
+              "is_internal": false,
+              "is_public": true,
+              "is_read": false,
+              "metadata": {
+                "isBot": true,
+                "source": "workflow",
+                "workflowId": ""
+              },
+              "plain_content": null,
+              "read_at": null,
+              "status": "sent",
+              "subject": null,
+              "type": "message",
+              "updated_at": "<ts>"
+            }
+          ],
+          "removed": []
+        },
+        "helpdesk_workflow_executions": {
+          "added": [
+            {
+              "channel": "email",
+              "completed_at": "<ts>",
+              "conversation_id": "hc_2",
+              "created_at": "<ts>",
+              "current_step_id": null,
+              "current_step_index": 0,
+              "duration": null,
+              "error": null,
+              "execution_context": {
+                "cfInstanceId": "<instance>"
+              },
+              "helpdesk_workflow_id": "hwfl_em",
+              "id": "<id:wex>",
+              "output": {
+                "hi": {
+                  "content": "Hello",
+                  "conversationId": "hc_2",
+                  "messageId": "<id:msg>",
+                  "success": true
+                }
+              },
+              "parent_execution_id": null,
+              "retry_count": 0,
+              "started_at": "<ts>",
+              "status": "completed",
+              "total_steps": 1,
+              "trigger_data": {
+                "channel": "email",
+                "conversationId": "hc_2",
+                "timestamp": "<ts>",
+                "workspaceId": "org_1"
+              },
+              "trigger_id": null,
+              "trigger_type": "entity_event",
+              "triggered_by": "system",
+              "updated_at": "<ts>",
+              "workflow_name": "Email",
+              "workflow_version": 1
+            }
+          ],
+          "removed": []
+        }
+      },
+      "publishes": [
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "conversation:hc_2",
+          "payload": {
+            "ts": "<ms>",
+            "type": "refetch"
+          }
+        },
+        {
+          "channel": "workspace:org_1",
+          "payload": {
+            "data": {
+              "conversationId": "hc_2"
+            },
+            "event": "conversation_new",
+            "topic": "helpdesk",
+            "userId": "system",
+            "workspaceId": "org_1"
+          }
+        }
+      ],
+      "http": []
+    },
+    {
+      "name": "an event while an execution runs is busy",
+      "input": {
+        "seed": [
+          "insert into helpdesk_conversations\n  (id, created_at, updated_at, conversation_number, contact_id, customer_name, customer_email, subject,\n   status, priority, assignee_id, assignee_name, department_id, channel, message_count, unread_count,\n   tags, is_read, metadata)\n  values ('hc_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'C-1001', 'con_1', 'Jane Doe',\n   'jane@example.com', 'Order missing', 'open', 'medium', null, null, null, 'chat', 2, 1,\n   '[\"vip\"]'::jsonb, false, '{}'::jsonb)",
+          "insert into helpdesk_workflows (id, created_at, updated_at, deleted_at, name, status, version, sort_order, triggers, steps)\n    values ('hwfl_1', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', null,\n    'W', 'active', 1, 0, '[{\"id\":\"trg_1\",\"type\":\"entity_event\",\"isEnabled\":true,\"config\":{\"entityType\":\"helpdesk_conversation\",\"eventType\":\"created\"}}]'::jsonb, '[]'::jsonb)",
+          "insert into helpdesk_workflow_executions (id, helpdesk_workflow_id, workflow_name, status, conversation_id, channel, execution_context)\n    values ('wex_seed', 'hwfl_1', 'Seeded', 'running', 'hc_1', 'chat', null)"
+        ],
+        "event": {
+          "type": "conversation_created",
+          "conversationId": "hc_1",
+          "workspaceId": "org_1",
+          "data": {
+            "channel": "chat"
+          }
+        },
+        "actions": [],
+        "discordToken": false
+      },
+      "calls": [
+        {
+          "body": {
+            "conversationId": "hc_1",
+            "data": {
+              "channel": "chat"
+            },
+            "type": "conversation_created",
+            "workspaceId": "org_1"
+          },
+          "path": "/event",
+          "response": {
+            "action": "busy",
+            "success": true
+          },
+          "status": 200
+        }
+      ],
+      "steps": [],
+      "outcome": null,
+      "changes": {},
+      "publishes": [],
+      "http": []
+    }
+  ]
+}

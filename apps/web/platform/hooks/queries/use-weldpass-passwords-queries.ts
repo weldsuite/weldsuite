@@ -60,7 +60,7 @@ export function useCreateWeldPassVault() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: { name: string; description?: string | null }) =>
+    mutationFn: (input: Parameters<typeof weldpassPasswords.createVault>[0]) =>
       weldpassPasswords.createVault(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: weldpassPasswordKeys.vaults() });

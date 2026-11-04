@@ -37,6 +37,15 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldmail/settings/labels')).toBe(true);
   });
 
+  it('hides buying and porting phone numbers without the feature, and only those', () => {
+    expect(routeRequirement('/settings/apps/phone-numbers/new-number')).toEqual({ modules: ['call'], feature: 'phone-number-purchase' });
+    expect(routeRequirement('/settings/apps/phone-numbers/port/vpo_1')).toEqual({ modules: ['call'], feature: 'phone-number-purchase' });
+    setRuntimeConfig({ backend: 'rust', modules: ['call'], unavailableFeatures: ['phone-number-purchase'] });
+    expect(isRouteOffered('/settings/apps/phone-numbers/new-number')).toBe(false);
+    expect(isRouteOffered('/settings/apps/phone-numbers/port')).toBe(false);
+    expect(isRouteOffered('/settings/apps/phone-numbers')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();

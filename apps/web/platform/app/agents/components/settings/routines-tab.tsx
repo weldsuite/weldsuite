@@ -8,6 +8,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { isFeatureAvailable } from '@/lib/edition';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { getLocale, getTranslations } from '@/lib/i18n';
 import type { AgentWithRuns } from '@/hooks/queries/use-agent-queries';
@@ -72,21 +73,23 @@ function RoutineCard({ agentId, routine }: Readonly<{ agentId: string; routine: 
       <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{routine.instructions}</p>
       <div className="mt-2.5 flex items-center gap-1">
         {routine.requireApproval && <Badge variant="outline" className="mr-auto text-[10px]">{t.routines.approvalBadge}</Badge>}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto h-7 gap-1.5 px-2 text-xs"
-          disabled={test.isPending}
-          onClick={() =>
-            test.mutate(routine.id, {
-              onSuccess: () => toast.success(t.routines.testStarted),
-              onError: (err) => toast.error(t.routines.testFailed.replace('{error}', errorMessage(err, ''))),
-            })
-          }
-        >
-          <FlaskConical className="h-3.5 w-3.5" />
-          {test.isPending ? t.routines.testing : t.routines.test}
-        </Button>
+        {isFeatureAvailable('agent-ai') && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-7 gap-1.5 px-2 text-xs"
+            disabled={test.isPending}
+            onClick={() =>
+              test.mutate(routine.id, {
+                onSuccess: () => toast.success(t.routines.testStarted),
+                onError: (err) => toast.error(t.routines.testFailed.replace('{error}', errorMessage(err, ''))),
+              })
+            }
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            {test.isPending ? t.routines.testing : t.routines.test}
+          </Button>
+        )}
         <Button
           size="icon"
           variant="ghost"

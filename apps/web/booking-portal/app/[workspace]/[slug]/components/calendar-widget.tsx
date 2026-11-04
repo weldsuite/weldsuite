@@ -178,7 +178,7 @@ export function CalendarWidget({
       >
         <div
           role="row"
-          className="grid mt-4 grid-cols-7 md:grid-cols-[repeat(7,59px)] gap-1 md:gap-1.5 md:justify-center"
+          className="grid mt-4 grid-cols-7 md:grid-cols-[repeat(7,minmax(0,59px))] gap-1 md:gap-1.5 md:justify-center"
         >
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
             <div
@@ -193,7 +193,7 @@ export function CalendarWidget({
 
         <div
           role="row"
-          className="grid grid-cols-7 md:grid-cols-[repeat(7,59px)] gap-1 md:gap-1.5 md:justify-center"
+          className="grid grid-cols-7 md:grid-cols-[repeat(7,minmax(0,59px))] gap-1 md:gap-1.5 md:justify-center"
         >
           {cells.map(({ key, date: day }) => {
             if (!day) {
@@ -201,7 +201,7 @@ export function CalendarWidget({
                 <div
                   key={key}
                   role="gridcell"
-                  className="aspect-square md:aspect-auto md:h-[59px]"
+                  className="aspect-square"
                 />
               );
             }
@@ -275,7 +275,7 @@ function DayCell({
           onClick={onSelect}
           aria-label={format(day, 'EEEE, MMMM d, yyyy')}
           className={`
-            relative flex items-center justify-center rounded-lg text-[14px] tabular-nums transition-colors w-full aspect-square md:aspect-auto md:w-[59px] md:h-[59px]
+            relative flex items-center justify-center rounded-lg text-[14px] tabular-nums transition-colors w-full aspect-square
             ${isSelected || isToday ? 'font-semibold' : 'font-medium'}
             ${
               isSelected
@@ -302,7 +302,7 @@ function DayCell({
       ) : (
         <span
           aria-hidden="true"
-          className={`relative text-[14px] tabular-nums text-gray-300 dark:text-[#3F3F46] select-none flex items-center justify-center w-full aspect-square md:aspect-auto md:w-[59px] md:h-[59px] ${
+          className={`relative text-[14px] tabular-nums text-gray-300 dark:text-[#3F3F46] select-none flex items-center justify-center w-full aspect-square ${
             isToday ? 'font-semibold' : 'font-medium'
           }`}
         >

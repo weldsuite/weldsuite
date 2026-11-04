@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import { Toggle } from '@weldsuite/ui/components/toggle';
 import {
   Popover,
@@ -241,20 +242,7 @@ export function ConversationList({
   const filterContent = (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn(
-            'h-8 text-sm px-3 shadow-none gap-1.5',
-            activeFilterCount > 0 ? 'text-foreground' : 'text-muted-foreground',
-          )}
-        >
-          {t.list.filter}
-          {activeFilterCount > 0 && (
-            <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
-              {activeFilterCount}
-            </span>
-          )}
-        </Button>
+        <FilterButton count={activeFilterCount}>{t.list.filter}</FilterButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[280px] p-3 space-y-3">
         <div>
