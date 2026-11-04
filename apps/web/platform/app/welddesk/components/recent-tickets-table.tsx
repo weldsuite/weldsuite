@@ -71,8 +71,8 @@ type DashboardLabels = ReturnType<typeof useI18n>['t']['helpdesk']['dashboard']
 function CustomerCell({ row }: Readonly<{ row: ActivityRow }>) {
   return (
     <div className="flex items-center gap-3">
-      <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">
-        <AvatarFallback className={cn('text-[11px] text-white font-medium rounded-md', row.avatarColor)}>
+      <Avatar className="h-7 w-7 flex-shrink-0">
+        <AvatarFallback className={cn('text-[11px] text-white font-medium', row.avatarColor)}>
           {row.customerInitial}
         </AvatarFallback>
       </Avatar>

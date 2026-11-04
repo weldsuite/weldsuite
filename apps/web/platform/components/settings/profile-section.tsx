@@ -6,7 +6,7 @@ import { Button } from "@weldsuite/ui/components/button"
 import { Input } from "@weldsuite/ui/components/input"
 import { Label } from "@weldsuite/ui/components/label"
 import { Textarea } from "@weldsuite/ui/components/textarea"
-import { Avatar, AvatarFallback } from "@weldsuite/ui/components/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar"
 import { Popover, PopoverContent, PopoverTrigger } from "@weldsuite/ui/components/popover"
 import {
   Command,
@@ -74,14 +74,13 @@ export function ProfileSection({
           {/* Avatar Upload Section */}
           <div className="flex items-center gap-4 mb-6">
             <div className="relative">
-              <Avatar className="h-20 w-20 rounded-[1.25rem]">
-                {profileData.avatar ? (
-                  <img src={profileData.avatar} alt={t('sweep.settings.profile.avatarAlt')} className="object-cover" />
-                ) : (
-                  <AvatarFallback className="text-2xl rounded-[1.25rem]">
-                    {profileData.name ? profileData.name.charAt(0).toUpperCase() : 'U'}
-                  </AvatarFallback>
+              <Avatar className="h-20 w-20">
+                {profileData.avatar && (
+                  <AvatarImage src={profileData.avatar} alt={t('sweep.settings.profile.avatarAlt')} />
                 )}
+                <AvatarFallback className="text-2xl">
+                  {profileData.name ? profileData.name.charAt(0).toUpperCase() : 'U'}
+                </AvatarFallback>
               </Avatar>
             </div>
             <div className="flex-1">

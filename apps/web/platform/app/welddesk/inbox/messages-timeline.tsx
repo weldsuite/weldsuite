@@ -12,6 +12,7 @@ import type {
   DeskSlaMetric,
 } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
+import { Avatar as UiAvatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { formatFileSize } from './attachments';
 
 interface MessagesTimelineProps {
@@ -234,16 +235,16 @@ function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
 }
 
 function Avatar({ label, picture, isBot }: Readonly<{ label: string; picture?: string | null; isBot?: boolean }>) {
-  if (picture) {
-    return <img src={picture} alt={label} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />;
-  }
   return (
-    <div
-      className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
-      style={{ backgroundColor: getAvatarColor(label) }}
-    >
-      {isBot ? <Bot className="h-3.5 w-3.5" /> : label.slice(0, 1).toUpperCase()}
-    </div>
+    <UiAvatar className="w-7 h-7 flex-shrink-0">
+      {picture && <AvatarImage src={picture} alt={label} />}
+      <AvatarFallback
+        className="text-white font-semibold text-xs"
+        style={{ backgroundColor: getAvatarColor(label) }}
+      >
+        {isBot ? <Bot className="h-3.5 w-3.5" /> : label.slice(0, 1).toUpperCase()}
+      </AvatarFallback>
+    </UiAvatar>
   );
 }
 

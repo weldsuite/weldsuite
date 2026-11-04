@@ -28,17 +28,28 @@ export const Fallback: Story = {
   ),
 };
 
+// The corner radius scales with the size, so every avatar has the same shape.
+// Set only the size; never a rounded-* class.
 export const Sizes: Story = {
   render: () => (
     <div className="flex items-center gap-4">
-      <Avatar className="h-6 w-6">
-        <AvatarFallback className="text-xs">S</AvatarFallback>
+      <Avatar className="size-4">
+        <AvatarFallback className="text-[8px]">XS</AvatarFallback>
+      </Avatar>
+      <Avatar className="size-5">
+        <AvatarFallback className="text-[9px]">S</AvatarFallback>
+      </Avatar>
+      <Avatar className="h-[26px] w-[26px]">
+        <AvatarFallback className="text-[11px]">M</AvatarFallback>
       </Avatar>
       <Avatar>
         <AvatarFallback>MD</AvatarFallback>
       </Avatar>
       <Avatar className="h-14 w-14">
         <AvatarFallback className="text-lg">LG</AvatarFallback>
+      </Avatar>
+      <Avatar className="h-20 w-20">
+        <AvatarFallback className="text-2xl">XL</AvatarFallback>
       </Avatar>
     </div>
   ),

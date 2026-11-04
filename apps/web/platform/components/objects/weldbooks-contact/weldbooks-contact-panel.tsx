@@ -12,6 +12,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Link } from '@tanstack/react-router';
 import {
   Archive,
@@ -116,9 +117,11 @@ function ContactAvatar({ contact }: Readonly<{ contact?: Customer }>) {
   if (contact?.kind === 'person') content = <User className="size-3" aria-hidden />;
   else if (!contact?.kind && contact?.name) content = contact.name.charAt(0).toUpperCase();
   return (
-    <div className="flex size-[22px] flex-shrink-0 items-center justify-center rounded-[8px] bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">
-      {content}
-    </div>
+    <Avatar className="size-[22px] flex-shrink-0">
+      <AvatarFallback className="bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">
+        {content}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 

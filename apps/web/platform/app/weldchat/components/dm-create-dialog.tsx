@@ -41,9 +41,9 @@ const memberKey = (m: DmMember) => m.userId || m.id;
 
 function MemberAvatar({ member }: Readonly<{ member: DmMember }>) {
   return (
-    <Avatar className="size-5 flex-shrink-0 !rounded-[6px]">
-      {member.picture && <AvatarImage src={member.picture} alt={member.name} className="!rounded-[6px]" />}
-      <AvatarFallback className="text-[10px] !rounded-[6px]">
+    <Avatar className="size-5 flex-shrink-0">
+      {member.picture && <AvatarImage src={member.picture} alt={member.name} />}
+      <AvatarFallback className="text-[10px]">
         {(member.name || member.email || '?')[0].toUpperCase()}
       </AvatarFallback>
     </Avatar>

@@ -217,9 +217,9 @@ function SearchField({
             key={chip.id}
             className="inline-flex items-center gap-1.5 rounded-md border bg-muted/60 py-0.5 pl-1 pr-1 text-sm"
           >
-            <Avatar className="size-5 rounded">
-              <AvatarImage src={chip.avatarUrl ?? undefined} className="rounded object-cover" />
-              <AvatarFallback className="rounded bg-muted text-[9px] font-medium">
+            <Avatar className="size-5">
+              <AvatarImage src={chip.avatarUrl ?? undefined} className="object-cover" />
+              <AvatarFallback className="bg-muted text-[9px] font-medium">
                 {initialOf(chip.label)}
               </AvatarFallback>
             </Avatar>
@@ -275,9 +275,9 @@ function ResultRow({ entity, onSelect }: Readonly<{ entity: PickedEntity; onSele
       onClick={() => onSelect(entity)}
       className="group flex w-full items-center gap-2.5 rounded-md px-0 py-1.5 text-left transition-colors h-auto justify-start"
     >
-      <Avatar className="size-7 rounded-md">
-        <AvatarImage src={entity.avatarUrl ?? undefined} className="rounded-md object-cover" />
-        <AvatarFallback className="rounded-md bg-muted text-[11px] font-medium">
+      <Avatar className="size-7">
+        <AvatarImage src={entity.avatarUrl ?? undefined} className="object-cover" />
+        <AvatarFallback className="bg-muted text-[11px] font-medium">
           {initialOf(entity.label)}
         </AvatarFallback>
       </Avatar>

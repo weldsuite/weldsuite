@@ -108,10 +108,10 @@ export function NoteEditorModal({
                   onClick={() => router.push(`/weldflow/companies/${note.linkedCompany?.id}`)}
                   className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-secondary px-2 py-1 -ml-2 rounded-md transition-colors"
                 >
-                  <Avatar className="h-[22px] w-[22px] rounded">
+                  <Avatar className="h-[22px] w-[22px]">
                     <AvatarImage src={note.linkedCompany.logoUrl} />
                     <AvatarFallback
-                      className="rounded text-[7.5px] font-medium text-white"
+                      className="text-[7.5px] font-medium text-white"
                       style={{
                         backgroundColor: note.linkedCompany.color || '#6B7280'
                       }}

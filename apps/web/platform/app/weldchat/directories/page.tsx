@@ -106,11 +106,11 @@ export default function DirectoriesPage() {
       >
         <span className="flex-1 min-w-0 flex items-center gap-3">
           <span className="relative flex-shrink-0">
-            <Avatar className="h-6 w-6 !rounded-[8px]">
+            <Avatar className="h-6 w-6">
               {item.picture && (
-                <AvatarImage src={item.picture} className="!rounded-[8px]" />
+                <AvatarImage src={item.picture} />
               )}
-              <AvatarFallback className="text-[10px] !rounded-[8px]">
+              <AvatarFallback className="text-[10px]">
                 {(item.name || item.email || '?')[0]?.toUpperCase()}
               </AvatarFallback>
             </Avatar>

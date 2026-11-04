@@ -16,6 +16,7 @@ import { Loader2, Plus, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { useCan } from '@weldsuite/permissions/react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@weldsuite/ui/components/command';
@@ -247,16 +248,14 @@ function SuggestedRecipients({ envelope }: Readonly<{ envelope: SignEnvelopeDeta
 /** A recipient's initial on their colour, the colour their fields have on the pages. */
 function RecipientAvatar({ label, color, small = false }: Readonly<{ label: string; color: RecipientColor; small?: boolean }>) {
   return (
-    <span
-      aria-hidden
-      className={cn(
-        'flex shrink-0 items-center justify-center font-medium',
-        small ? 'size-[18px] rounded-[6px] text-[9px]' : 'size-6 rounded-[8px] text-xs',
-      )}
-      style={{ background: color.fill, color: color.border }}
-    >
-      {(label.trim()[0] ?? '?').toUpperCase()}
-    </span>
+    <Avatar aria-hidden className={cn('shrink-0', small ? 'size-[18px]' : 'size-6')}>
+      <AvatarFallback
+        className={cn('font-medium', small ? 'text-[9px]' : 'text-xs')}
+        style={{ background: color.fill, color: color.border }}
+      >
+        {(label.trim()[0] ?? '?').toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -691,12 +690,11 @@ function AddRecipient({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) 
 function CandidateItem({ candidate, onSelect }: Readonly<{ candidate: Candidate; onSelect: () => void }>) {
   return (
     <CommandItem value={candidate.key} onSelect={onSelect}>
-      <span
-        aria-hidden
-        className="flex size-6 shrink-0 items-center justify-center rounded-[8px] bg-gray-200 text-xs font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground"
-      >
-        {(candidate.name.trim()[0] ?? '?').toUpperCase()}
-      </span>
+      <Avatar aria-hidden className="size-6 shrink-0">
+        <AvatarFallback className="bg-gray-200 text-xs font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">
+          {(candidate.name.trim()[0] ?? '?').toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
       <span className="min-w-0">
         <span className="block truncate text-sm">{candidate.name}</span>
         <span className="block truncate text-xs text-muted-foreground">{candidate.email}</span>

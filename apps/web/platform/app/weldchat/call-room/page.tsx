@@ -9,6 +9,7 @@
 import RealtimeKitClient, { type RTKParticipant, type RTKSelf } from '@cloudflare/realtimekit';
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { currentPeers } from '../lib/call-peers';
@@ -78,9 +79,11 @@ function ParticipantTile({ participant, isSelf }: Readonly<{ participant: RTKPar
         />
       ) : (
         <div className="flex flex-col items-center gap-2">
-          <div className="h-16 w-16 rounded-full bg-zinc-700 flex items-center justify-center text-white text-2xl font-semibold">
-            {name[0]?.toUpperCase() ?? '?'}
-          </div>
+          <Avatar className="h-16 w-16">
+            <AvatarFallback className="bg-zinc-700 text-white text-2xl font-semibold">
+              {name[0]?.toUpperCase() ?? '?'}
+            </AvatarFallback>
+          </Avatar>
         </div>
       )}
       <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded">

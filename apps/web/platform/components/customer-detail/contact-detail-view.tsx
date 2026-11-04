@@ -6,6 +6,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   User, Mail, Phone, Smartphone, Minimize, Maximize, Loader2, X,
   LayoutGrid, MessageSquare, FileText, Globe, MapPin, Type, Tag,
@@ -214,21 +215,16 @@ function ContactDetailHeader() {
                 variant="ghost"
                 onClick={handleAvatarClick}
                 disabled={isUploading}
-                className="relative w-7 h-7 rounded-lg flex-shrink-0 group overflow-hidden"
+                className="relative w-7 h-7 rounded-[32%] flex-shrink-0 group overflow-hidden"
                 title={t('sweep.weldcrm.contactDetailView.uploadAvatar')}
               >
-                {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt={contactName}
-                    className="w-full h-full object-cover rounded-lg"
-                  />
-                ) : (
-                  <div className="w-full h-full rounded-lg bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
+                <Avatar className="w-full h-full">
+                  {avatarUrl && <AvatarImage src={avatarUrl} alt={contactName} />}
+                  <AvatarFallback className="bg-emerald-100 dark:bg-emerald-900">
                     <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                )}
-                <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  </AvatarFallback>
+                </Avatar>
+                <div className="absolute inset-0 bg-black/50 rounded-[32%] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   {isUploading ? (
                     <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
                   ) : (
@@ -242,7 +238,7 @@ function ContactDetailHeader() {
             </>
           ) : (
             <>
-              <div className="w-7 h-7 rounded-lg bg-muted animate-pulse flex-shrink-0" />
+              <div className="w-7 h-7 rounded-[32%] bg-muted animate-pulse flex-shrink-0" />
               <div className="h-4 w-32 rounded bg-muted animate-pulse" />
             </>
           )}
@@ -752,9 +748,11 @@ function CommentsSection({ contactId, contactName }: Readonly<{ contactId: strin
           comments.map((comment) => (
             <div key={comment.id} className={cn('flex gap-2 items-end', comment.isCurrentUser ? 'justify-end' : 'justify-start')}>
               {!comment.isCurrentUser && (
-                <div className="h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-semibold text-white flex-shrink-0" style={{ backgroundColor: comment.author.color }}>
-                  {comment.author.initials}
-                </div>
+                <Avatar className="h-6 w-6 flex-shrink-0">
+                  <AvatarFallback className="text-[10px] font-semibold text-white" style={{ backgroundColor: comment.author.color }}>
+                    {comment.author.initials}
+                  </AvatarFallback>
+                </Avatar>
               )}
               {comment.isCurrentUser ? (
                 <div className="max-w-[85%]">

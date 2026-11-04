@@ -15,6 +15,7 @@ import type {
   DriveShareRole,
 } from '@weldsuite/core-api-client/schemas/drive-shares';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDriveItemSharing } from '@/hooks/queries/use-drive-queries';
@@ -51,12 +52,16 @@ export function personLabel(person: Pick<DriveSharePerson, 'name' | 'email' | 'u
 export function PersonAvatar({ person, className }: Readonly<{ person: Pick<DriveSharePerson, 'picture' | 'name' | 'email' | 'userId'>; className?: string }>) {
   const name = personLabel(person);
   if (person.picture) {
-    return <img src={person.picture} alt="" className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />;
+    return (
+      <Avatar className={cn('size-[22px] shrink-0', className)}>
+        <AvatarImage src={person.picture} alt="" />
+      </Avatar>
+    );
   }
   return (
-    <div className={cn('w-[22px] h-[22px] rounded-[8px] flex items-center justify-center shrink-0 bg-muted text-muted-foreground', className)}>
-      <span className="text-[10px] font-semibold">{initials(name)}</span>
-    </div>
+    <Avatar className={cn('size-[22px] shrink-0', className)}>
+      <AvatarFallback className="bg-muted text-muted-foreground text-[10px] font-semibold">{initials(name)}</AvatarFallback>
+    </Avatar>
   );
 }
 

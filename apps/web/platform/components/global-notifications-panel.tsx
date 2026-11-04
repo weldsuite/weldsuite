@@ -1,5 +1,6 @@
 
 import { useMemo } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Bell, Check, CheckCheck, Trash2, X, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
@@ -275,20 +276,17 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                   <div className="flex items-start gap-2.5">
                     {/* Avatar */}
                     <div className="relative flex-shrink-0 mt-[3px]">
-                      {notification.actorImageUrl ? (
-                        <img
-                          src={notification.actorImageUrl}
-                          alt={displayName}
-                          className="w-7 h-7 rounded-[10px] object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="w-7 h-7 rounded-[10px] flex items-center justify-center text-white font-semibold text-xs"
+                      <Avatar className="w-7 h-7">
+                        {notification.actorImageUrl && (
+                          <AvatarImage src={notification.actorImageUrl} alt={displayName} />
+                        )}
+                        <AvatarFallback
+                          className="text-white font-semibold text-xs"
                           style={{ backgroundColor: getAvatarColor(avatarSeed) }}
                         >
                           {initial}
-                        </div>
-                      )}
+                        </AvatarFallback>
+                      </Avatar>
                       {hasUnread && (
                         <div className="absolute top-1/2 -translate-y-1/2 -left-2.5 w-1.5 h-1.5 rounded-full bg-blue-600" />
                       )}

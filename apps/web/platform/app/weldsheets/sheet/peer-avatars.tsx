@@ -26,10 +26,9 @@ export function PeerAvatars({ peers, onSelect }: { peers: Peer[]; onSelect: (pee
                   type="button"
                   onClick={() => onSelect(peer)}
                   aria-label={label}
-                  className="rounded-full border-2 border-background"
-                  style={{ boxShadow: `0 0 0 2px ${peer.color}` }}
+                  className="rounded-[32%]"
                 >
-                  <Avatar className="size-6">
+                  <Avatar className="size-7 border-2 border-background" style={{ boxShadow: `0 0 0 2px ${peer.color}` }}>
                     {peer.picture && <AvatarImage src={peer.picture} alt="" />}
                     <AvatarFallback className="text-[10px] font-medium text-white" style={{ backgroundColor: peer.color }}>
                       {initials(peer.name)}
@@ -42,9 +41,9 @@ export function PeerAvatars({ peers, onSelect }: { peers: Peer[]; onSelect: (pee
           );
         })}
         {more > 0 && (
-          <span className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium ring-2 ring-background">
-            +{more}
-          </span>
+          <Avatar className="size-6 ring-2 ring-background">
+            <AvatarFallback className="bg-muted text-[10px] font-medium">+{more}</AvatarFallback>
+          </Avatar>
         )}
       </div>
     </TooltipProvider>

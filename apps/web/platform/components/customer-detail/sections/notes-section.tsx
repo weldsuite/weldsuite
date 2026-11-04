@@ -345,11 +345,11 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
           <div className="flex items-center gap-1.5 w-[140px] flex-shrink-0">
             {note.authorName && (
               <>
-                <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0" title={note.authorName}>
+                <Avatar className="h-5 w-5 flex-shrink-0" title={note.authorName}>
                   {note.authorAvatar && (
-                    <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[7px]" />
+                    <AvatarImage src={note.authorAvatar} alt={note.authorName} />
                   )}
-                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                  <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                     {note.authorName.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>

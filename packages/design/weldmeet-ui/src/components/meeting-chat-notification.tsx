@@ -164,8 +164,8 @@ export function MeetingChatNotification({
             initials={getInitials(note.authorName || '?')}
             picture={note.authorAvatar}
             colorSeed={note.authorId}
-            className="h-8 w-8 flex-shrink-0 !rounded-[10px]"
-            innerClassName="text-[10px] !rounded-[10px]"
+            className="h-8 w-8 flex-shrink-0"
+            innerClassName="text-[10px]"
           />
 
           <div className="min-w-0 flex-1">

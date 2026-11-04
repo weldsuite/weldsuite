@@ -1435,11 +1435,11 @@ export function MyTasksClient({
                             const avatar = (
                               <Avatar
                                 key={a.id}
-                                className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                                className="h-5 w-5 ring-1 ring-background"
                                 title={multiple ? undefined : a.name}
                               >
-                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-                                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} />}
+                                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {(a.name || '?').charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
@@ -1492,11 +1492,11 @@ export function MyTasksClient({
                         className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                       >
                         <span className="flex items-center gap-2">
-                          <Avatar className="h-5 w-5 !rounded-[7px]">
+                          <Avatar className="h-5 w-5">
                             {member.avatar && (
-                              <AvatarImage src={member.avatar} alt={member.name} className="!rounded-[7px]" />
+                              <AvatarImage src={member.avatar} alt={member.name} />
                             )}
-                            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                            <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                               {member.name.charAt(0).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>

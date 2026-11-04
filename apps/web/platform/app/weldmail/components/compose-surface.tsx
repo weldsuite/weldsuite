@@ -136,8 +136,8 @@ function FromAccountLabel({ account }: Readonly<{ account: MailAccountOption }>)
   const name = accountDisplayName(account);
   return (
     <span className="flex items-center gap-1.5 min-w-0">
-      <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
-        <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+      <Avatar className="h-4 w-4 flex-shrink-0">
+        <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
           {name.charAt(0).toUpperCase()}
         </AvatarFallback>
       </Avatar>

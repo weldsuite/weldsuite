@@ -172,11 +172,11 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
         className="flex-1 min-w-0 flex items-start gap-3 pl-4 pr-4 py-3 text-left cursor-pointer"
       >
         <div className="relative flex-shrink-0 mt-0.5">
-          <Avatar className="h-6 w-6 !rounded-[8px]">
+          <Avatar className="h-6 w-6">
             {bk.messageAuthorAvatar && (
-              <AvatarImage src={bk.messageAuthorAvatar} className="!rounded-[8px]" />
+              <AvatarImage src={bk.messageAuthorAvatar} />
             )}
-            <AvatarFallback className="text-[10px] !rounded-[8px]">
+            <AvatarFallback className="text-[10px]">
               {(bk.messageAuthorName || '?')[0]?.toUpperCase()}
             </AvatarFallback>
           </Avatar>

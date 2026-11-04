@@ -353,15 +353,14 @@ export function MembersClient({
               >
                 <TableCell className="py-1.5">
                   <div className="flex items-center gap-2">
-                    <Avatar className="h-6 w-6 rounded-md">
+                    <Avatar className="h-6 w-6">
                       {member.user?.avatar && (
                         <AvatarImage
                           src={member.user.avatar}
                           alt={member.user.name || member.user.email}
-                          className="rounded-md"
                         />
                       )}
-                      <AvatarFallback className="rounded-md text-xs">
+                      <AvatarFallback className="text-xs">
                         {(member.user?.name || member.user?.email || '??')[0]?.toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
@@ -513,11 +512,11 @@ export function MembersClient({
                               }}
                               className={cn(isSelected && 'bg-muted')}
                             >
-                              <Avatar className="h-5 w-5 !rounded-[7px] shrink-0">
+                              <Avatar className="h-5 w-5 shrink-0">
                                 {u.image && (
-                                  <AvatarImage src={u.image} alt={label} className="!rounded-[7px]" />
+                                  <AvatarImage src={u.image} alt={label} />
                                 )}
-                                <AvatarFallback className="!rounded-[7px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {label.charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
@@ -548,11 +547,11 @@ export function MembersClient({
                         variant="secondary"
                         className="gap-1.5 pl-1 pr-1.5 py-1 !rounded-md"
                       >
-                        <Avatar className="h-[18px] w-[18px] !rounded-[6px]">
+                        <Avatar className="h-[18px] w-[18px]">
                           {u?.image && (
-                            <AvatarImage src={u.image} alt={displayName} className="!rounded-[6px]" />
+                            <AvatarImage src={u.image} alt={displayName} />
                           )}
-                          <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                          <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                             {displayName.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>

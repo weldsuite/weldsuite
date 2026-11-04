@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -277,9 +278,9 @@ export function SupportTeamClient({
         {/* Member */}
         <div className="flex-1 min-w-[250px] flex items-center gap-3">
           <div className="relative">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-medium text-primary-foreground">{member.avatar}</span>
-            </div>
+            <Avatar className="w-8 h-8 flex-shrink-0">
+              <AvatarFallback className="bg-primary text-xs font-medium text-primary-foreground">{member.avatar}</AvatarFallback>
+            </Avatar>
             <div className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-background", status.dot)} />
           </div>
           <div className="min-w-0">

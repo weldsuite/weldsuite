@@ -77,9 +77,9 @@ export function EditableEntityAvatar({
         className,
       )}
     >
-      <Avatar className="size-[22px] !rounded-[8px]">
-        {src && <AvatarImage src={src} className="!rounded-[8px] object-cover" />}
-        <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+      <Avatar className="size-[22px]">
+        {src && <AvatarImage src={src} className="object-cover" />}
+        <AvatarFallback className="bg-muted text-[10px] font-medium">
           {initial}
         </AvatarFallback>
       </Avatar>

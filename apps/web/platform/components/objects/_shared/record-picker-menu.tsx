@@ -57,11 +57,11 @@ export function RecordPickerItem<T extends RecordPickerOption>({
       onSelect={() => onSelect(option)}
       className={className}
     >
-      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+      <Avatar className="h-5 w-5 flex-shrink-0">
         {option.avatarUrl && (
-          <AvatarImage src={option.avatarUrl} alt={option.name} className="!rounded-[7px] object-cover" />
+          <AvatarImage src={option.avatarUrl} alt={option.name} className="object-cover" />
         )}
-        <AvatarFallback className="!rounded-[7px] bg-gray-200 dark:bg-muted-foreground/25">
+        <AvatarFallback className="bg-gray-200 dark:bg-muted-foreground/25">
           <FallbackIcon className="size-2.5" />
         </AvatarFallback>
       </Avatar>

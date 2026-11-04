@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useBlocker } from '@tanstack/react-router';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useI18n } from '@/lib/i18n/provider';
 import { Trans } from '@/lib/i18n/trans';
 import { ChevronLeft, X, Clock, Link2, Globe, CalendarClock, AlertTriangle, Settings2 } from 'lucide-react';
@@ -485,11 +486,11 @@ export default function BookingPageDetailPage() {
             {/* Banner */}
             <div className="relative h-[90px] bg-gray-100 dark:bg-muted shrink-0">
               <div className="absolute -bottom-5 left-6">
-                <div className="h-10 w-10 rounded-full bg-white dark:bg-background border-2 border-white dark:border-background overflow-hidden">
-                  <div className="h-full w-full bg-gray-200 dark:bg-muted flex items-center justify-center text-sm font-semibold text-gray-500 dark:text-muted-foreground">
+                <Avatar className="h-10 w-10 bg-white dark:bg-background border-2 border-white dark:border-background">
+                  <AvatarFallback className="bg-gray-200 dark:bg-muted text-sm font-semibold text-gray-500 dark:text-muted-foreground">
                     {(name || 'B').charAt(0).toUpperCase()}
-                  </div>
-                </div>
+                  </AvatarFallback>
+                </Avatar>
               </div>
             </div>
 
@@ -665,13 +666,12 @@ export default function BookingPageDetailPage() {
                 <p className="text-xs text-muted-foreground">{tc.bookingDetail.bookingPagePhotoNameHint}</p>
               </div>
               <div className="flex items-center gap-2">
-                {userAvatar ? (
-                  <img src={userAvatar} alt={userName} className="h-6 w-6 rounded-[7px] object-cover shrink-0" />
-                ) : (
-                  <div className="h-6 w-6 rounded-[7px] bg-primary/80 flex items-center justify-center text-[10px] font-semibold text-primary-foreground shrink-0">
+                <Avatar className="h-6 w-6 shrink-0">
+                  {userAvatar && <AvatarImage src={userAvatar} alt={userName} />}
+                  <AvatarFallback className="bg-primary/80 text-[10px] font-semibold text-primary-foreground">
                     {userName.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                  </AvatarFallback>
+                </Avatar>
                 <p className="text-sm font-medium">{userName}</p>
               </div>
               <p className="text-xs text-muted-foreground">

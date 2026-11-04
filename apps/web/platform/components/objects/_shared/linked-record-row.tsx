@@ -98,9 +98,9 @@ export function LinkedRecordRow({
   return (
     <TabListRow label={name} onOpen={onOpen} menuLabel={menuLabel} menu={menu}>
       <div className={cn(COLUMN.name, 'flex items-center gap-2')}>
-        <Avatar className="h-[18px] w-[18px] !rounded-[6px] flex-shrink-0">
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className="!rounded-[6px] object-cover" />}
-          <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+        <Avatar className="h-[18px] w-[18px] flex-shrink-0">
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className="object-cover" />}
+          <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
             {(name.trim()[0] ?? '?').toUpperCase()}
           </AvatarFallback>
         </Avatar>

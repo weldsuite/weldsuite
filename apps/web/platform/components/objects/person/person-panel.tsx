@@ -133,7 +133,7 @@ function personGravatar(email: string | null | undefined): string | undefined {
 }
 
 function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload?: (url: string) => void }>) {
-  if (!person) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+  if (!person) return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
   const initial = personInitial(person);
   // Treat empty strings as "no avatar" so the fallback initial renders.
   const explicit = person.avatarUrl && person.avatarUrl.length > 0 ? person.avatarUrl : undefined;
@@ -150,9 +150,9 @@ function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload
     );
   }
   return (
-    <Avatar className="size-[22px] !rounded-[8px]">
-      {src && <AvatarImage src={src} className="!rounded-[8px] object-cover" />}
-      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+    <Avatar className="size-[22px]">
+      {src && <AvatarImage src={src} className="object-cover" />}
+      <AvatarFallback className="bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>

@@ -163,9 +163,9 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
               disabled={!openPanel}
               title={t.weldchat.channelHeader.showMemberDetails}
             >
-              <Avatar className="h-[26px] w-[26px] flex-shrink-0 !rounded-lg">
-                {dmOther?.picture && <AvatarImage src={dmOther.picture} className="!rounded-lg" />}
-                <AvatarFallback className="text-[11px] !rounded-lg">
+              <Avatar className="h-[26px] w-[26px] flex-shrink-0">
+                {dmOther?.picture && <AvatarImage src={dmOther.picture} />}
+                <AvatarFallback className="text-[11px]">
                   {(dmOther?.name || dmOther?.email || '?')[0].toUpperCase()}
                 </AvatarFallback>
               </Avatar>

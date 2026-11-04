@@ -56,9 +56,9 @@ function AttendeeRow({ attendee }: Readonly<{ attendee: AttendeeRow }>) {
 
   const inner = (
     <>
-      <Avatar className="h-7 w-7 !rounded-[8px]">
-        {attendee.avatar && <AvatarImage src={attendee.avatar} className="!rounded-[8px]" />}
-        <AvatarFallback className="text-[10px] !rounded-[8px]">{initials}</AvatarFallback>
+      <Avatar className="h-7 w-7">
+        {attendee.avatar && <AvatarImage src={attendee.avatar} />}
+        <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

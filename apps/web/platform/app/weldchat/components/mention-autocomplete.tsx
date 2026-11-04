@@ -458,13 +458,15 @@ export function MentionAutocomplete({
         }}
       >
         {s.isAgent ? (
-          <div className="h-5 w-5 rounded-[7px] bg-muted flex items-center justify-center text-[11px]">
-            {s.agentIcon || <Bot className="h-3 w-3 text-muted-foreground" />}
-          </div>
+          <Avatar className="h-5 w-5">
+            <AvatarFallback className="bg-muted text-[11px]">
+              {s.agentIcon || <Bot className="h-3 w-3 text-muted-foreground" />}
+            </AvatarFallback>
+          </Avatar>
         ) : (
-          <Avatar className="h-5 w-5 rounded-[7px]">
-            {s.picture && <AvatarImage src={s.picture} className="rounded-[7px]" />}
-            <AvatarFallback className="text-[10px] rounded-[7px]">
+          <Avatar className="h-5 w-5">
+            {s.picture && <AvatarImage src={s.picture} />}
+            <AvatarFallback className="text-[10px]">
               {(s.name || '?')[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>

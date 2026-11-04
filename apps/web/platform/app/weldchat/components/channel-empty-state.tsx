@@ -46,11 +46,11 @@ function CreatorChip({ creator }: Readonly<{ creator: Creator }>) {
       onClick={() => openUserProfile(creator.userId)}
       className="inline-flex items-center gap-1.5 h-auto p-2 -ml-2 align-middle cursor-pointer focus-visible:outline-none"
     >
-      <Avatar className="h-4 w-4 rounded-[5.5px]">
+      <Avatar className="h-4 w-4">
         {creator.picture && (
-          <AvatarImage src={creator.picture} alt={creator.name} className="rounded-[5.5px]" />
+          <AvatarImage src={creator.picture} alt={creator.name} />
         )}
-        <AvatarFallback className="rounded-[5.5px] text-[8px] font-medium">
+        <AvatarFallback className="text-[8px] font-medium">
           {creator.name[0]!.toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -100,9 +100,9 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
               <MessageCircle className="h-4 w-4 text-muted-foreground" />
             </div>
           ) : (
-            <Avatar className="h-8 w-8 !rounded-lg">
-              {other?.picture && <AvatarImage src={other.picture} className="!rounded-lg" />}
-              <AvatarFallback className="!rounded-lg text-xs">
+            <Avatar className="h-8 w-8">
+              {other?.picture && <AvatarImage src={other.picture} />}
+              <AvatarFallback className="text-xs">
                 {(displayName || '?')[0].toUpperCase()}
               </AvatarFallback>
             </Avatar>

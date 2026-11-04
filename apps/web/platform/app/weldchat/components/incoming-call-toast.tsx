@@ -25,11 +25,11 @@ export function IncomingCallToast() {
       className="fixed top-4 right-4 z-[60] w-80 rounded-lg border bg-background p-4 text-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2"
     >
       <div className="flex items-center gap-3">
-        <Avatar className="size-10 !rounded-[12px]">
+        <Avatar className="size-10">
           {incomingCall.callerAvatar && (
-            <AvatarImage src={incomingCall.callerAvatar} className="!rounded-[12px]" />
+            <AvatarImage src={incomingCall.callerAvatar} />
           )}
-          <AvatarFallback className="!rounded-[12px] text-sm font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          <AvatarFallback className="text-sm font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
             {incomingCall.callerName[0]?.toUpperCase() ?? '?'}
           </AvatarFallback>
         </Avatar>

@@ -1058,17 +1058,12 @@ function ExpandedMemberContent({
         <div className="flex items-center justify-between h-[53px] px-4">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              {member.avatar ? (
-                <img
-                  src={member.avatar}
-                  alt={member.name || ''}
-                  className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
+              <Avatar className="w-7 h-7 flex-shrink-0">
+                {member.avatar && <AvatarImage src={member.avatar} alt={member.name || ''} />}
+                <AvatarFallback className="bg-purple-100 dark:bg-purple-900">
                   <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                </div>
-              )}
+                </AvatarFallback>
+              </Avatar>
               <span className="text-[17px] font-semibold text-foreground truncate max-w-[200px] translate-y-[0.5px]">
                 {member.name || t('projects.memberDetails.unknown')}
               </span>
@@ -1635,11 +1630,11 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
           h-7 w-7 rounded-lg with a border, and a muted initial as the fallback
           rather than a tinted generic user glyph. */}
       <div className="relative flex-shrink-0">
-        <Avatar className="h-7 w-7 rounded-lg border border-border">
+        <Avatar className="h-7 w-7 border border-border">
           {member.avatar && (
-            <AvatarImage src={member.avatar} alt={member.name ?? ''} className="rounded-lg object-cover" />
+            <AvatarImage src={member.avatar} alt={member.name ?? ''} className="object-cover" />
           )}
-          <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+          <AvatarFallback className="bg-muted text-[12px] font-medium">
             {(member.name?.trim()?.[0] ?? '#').toUpperCase()}
           </AvatarFallback>
         </Avatar>

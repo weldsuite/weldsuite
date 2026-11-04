@@ -74,9 +74,9 @@ function RecordChip({
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {name && (
-        <Avatar className="h-[18px] w-[18px] !rounded-[6px] flex-shrink-0">
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className="!rounded-[6px] object-cover" />}
-          <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+        <Avatar className="h-[18px] w-[18px] flex-shrink-0">
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className="object-cover" />}
+          <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
             {name.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>

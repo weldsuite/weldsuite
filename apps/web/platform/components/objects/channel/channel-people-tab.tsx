@@ -247,9 +247,9 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
           className={`group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer ${isOffline ? 'opacity-60' : ''}`}
         >
           <div className="relative flex-shrink-0">
-            <Avatar className="h-7 w-7 !rounded-[10px]">
-              {r.picture && <AvatarImage src={r.picture} className="!rounded-[10px]" />}
-              <AvatarFallback className="text-[9px] !rounded-[10px]">
+            <Avatar className="h-7 w-7">
+              {r.picture && <AvatarImage src={r.picture} />}
+              <AvatarFallback className="text-[9px]">
                 {isAgent
                   ? r.agentIcon || (r.name[0] ?? '?').toUpperCase()
                   : (r.name[0] ?? '?').toUpperCase()}

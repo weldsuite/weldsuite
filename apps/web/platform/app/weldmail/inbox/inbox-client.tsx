@@ -727,9 +727,11 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
     <div className="pl-[18px] pr-[18px] py-4">
     <div className="flex items-start justify-between">
       <div className="flex items-center">
-        <div className="w-7 h-7 rounded-md bg-[#fbbf24] flex items-center justify-center text-white font-semibold text-xs">
-          {fromDisplayString(selectedEmail.from).charAt(0).toUpperCase()}
-        </div>
+        <Avatar className="w-7 h-7">
+          <AvatarFallback className="bg-[#fbbf24] text-white font-semibold text-xs">
+            {fromDisplayString(selectedEmail.from).charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
         <div className="ml-1">
           {!isEmailCollapsed && (
             <div className="flex items-center">
@@ -2875,12 +2877,14 @@ export function InboxClient({
                         {!email.isRead && selectedEmail?.id !== email.id && (
                           <div className="absolute -left-[11px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-600 z-50 pointer-events-none" />
                         )}
-                        <div
-                          className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-[10px]"
-                          style={{ backgroundColor: getAvatarColor(fromDisplayString(email.from)) }}
-                        >
-                          {fromDisplayString(email.from).charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-6 h-6">
+                          <AvatarFallback
+                            className="text-white font-semibold text-[10px]"
+                            style={{ backgroundColor: getAvatarColor(fromDisplayString(email.from)) }}
+                          >
+                            {fromDisplayString(email.from).charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                       </div>
 
                     <div className="flex-1 min-w-0">

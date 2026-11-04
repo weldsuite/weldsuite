@@ -45,7 +45,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -735,22 +735,16 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
   fallbackChar: string;
   fallbackClassName: string;
 }>) {
-  if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={extractName(sender)}
-        className="w-6 h-6 rounded-md object-cover flex-shrink-0"
-      />
-    );
-  }
   return (
-    <div
-      className={fallbackClassName}
-      style={{ backgroundColor: getAvatarColor(sender) }}
-    >
-      {(sender || fallbackChar).charAt(0).toUpperCase()}
-    </div>
+    <Avatar className="size-6 flex-shrink-0">
+      {avatarUrl && <AvatarImage src={avatarUrl} alt={extractName(sender)} />}
+      <AvatarFallback
+        className={fallbackClassName}
+        style={{ backgroundColor: getAvatarColor(sender) }}
+      >
+        {(sender || fallbackChar).charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -954,7 +948,7 @@ function ThreadMessageCard({
               avatarUrl={getSenderAvatarUrl(threadMsg)}
               sender={fromDisplayString(threadMsg.from)}
               fallbackChar="U"
-              fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
+              fallbackClassName="text-white text-xs font-medium"
             />
             <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
               {fromDisplayString(threadMsg.from)}
@@ -2586,7 +2580,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 avatarUrl={getSenderAvatarUrl(newestMessage)}
                 sender={fromDisplayString(newestMessage.from)}
                 fallbackChar="?"
-                fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
+                fallbackClassName="text-white font-semibold text-xs"
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
