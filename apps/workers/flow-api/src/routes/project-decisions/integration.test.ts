@@ -345,7 +345,7 @@ describe('GET /:id', () => {
     await seedProject('prj_dec_get2');
     const created = await createDecision('prj_dec_get2');
     const missing = await manager()('GET', '/dec_nope');
-    expect([missing.status, (await errorOf(missing)).message]).toEqual([404, 'Decision with ID 'dec_nope' not found']);
+    expect([missing.status, (await errorOf(missing)).message]).toEqual([404, "Decision with ID 'dec_nope' not found"]);
     const outsider = await as(OUTSIDER)('GET', `/${created.id}`);
     expect([outsider.status, (await errorOf(outsider)).message]).toEqual([403, 'You are not a member of this project']);
     expect((await as(MANAGER, ['tasks:read'])('GET', `/${created.id}`)).status).toBe(403);
