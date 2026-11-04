@@ -663,6 +663,12 @@ cron:
       enabled: true
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldFlow: the weekly project finance snapshot of every workspace the
+    # `finance_snapshot` due index lists (FLOW-019).
+    flow-finance-snapshot:
+      enabled: true
+      schedule: "45 3 * * *"
+      activeDeadlineSeconds: 900
     # WeldBooks' bank feeds whose next sync is due (the master
     # bank_feed_connection_index): the polled providers' syncs and the daily
     # safety net for the ones with webhooks (integration-sync-worker's cron).

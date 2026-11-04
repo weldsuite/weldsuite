@@ -18,6 +18,9 @@
 //!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `flow-finance-snapshot` (daily, 03:45 UTC): WeldFlow's weekly project finance
+//!   snapshot, for the workspaces the `finance_snapshot` due index lists
+//!   (`apps/workers/flow-api/src/cron/finance-snapshot.ts`).
 //! - `domain-auto-renew` (daily, 04:00 UTC): WeldHost's auto-renew sweep
 //!   (`apps/workers/host-api/src/cron/domain-auto-renew.ts`). It charges
 //!   through Stripe, which stays with Global, so here it does what the
@@ -84,7 +87,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -96,6 +99,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "mail-outbound-ledgers"
         | "calendar-replan"
         | "flow-file-purge"
+        | "flow-finance-snapshot"
         | "books-sweep"
         | "domain-auto-renew"
         | "desk-sla-sweep"
@@ -143,6 +147,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
+            "flow-finance-snapshot" => flow_finance_snapshot(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
             "books-sweep" => books_sweep(config).await,
             "domain-auto-renew" => {
@@ -409,6 +414,43 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
         })
     );
     tracker.close();
+    Ok(())
+}
+
+/// `flow-finance-snapshot`: the due workspaces' weekly project finance snapshot.
+async fn flow_finance_snapshot(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tenants: weldsuite_flow::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let (sweep, snapshots) =
+        weldsuite_flow::project_finance::run_finance_snapshots(&master, &tenants, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-finance-snapshot",
+            "result": {
+                "due": sweep.due,
+                "processed": sweep.processed,
+                "failed": sweep.failed,
+                "snapshots": snapshots,
+            },
+        })
+    );
     Ok(())
 }
 

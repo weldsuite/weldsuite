@@ -28,8 +28,9 @@ import {
   manualForecastBodySchema,
 } from '@weldsuite/app-api-client/schemas/project-finance';
 import type { ProjectFinanceSettings } from '@weldsuite/db/schema/project-settings';
-import { roundMoney } from '@weldsuite/flow-domain/finance';
+import { isoWeekKey, roundMoney } from '@weldsuite/flow-domain/finance';
 import type { Env, Variables } from '../../types';
+import { markFinanceSnapshotDue } from '../../cron/finance-snapshot';
 import { canAccessProject, canManageProject } from '../../lib/project-access';
 import { parseLimit } from '../../lib/query-params';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
@@ -161,6 +162,16 @@ app.get('/:projectId', requirePermission('projects:read'), async (c) => {
     const visible = await mayDecideAmounts(c, projectId);
     const now = new Date();
     const model = await computeFinance(c.get('tenantDb'), project, now);
+    // A baselined project with no snapshot yet this week brings the weekly sweep to this workspace.
+    if (model.baseline && c.env.SCHEDULE_INDEX) {
+      const [have] = await c
+        .get('tenantDb')
+        .select({ week: schema.projectFinanceSnapshots.week })
+        .from(schema.projectFinanceSnapshots)
+        .where(and(eq(schema.projectFinanceSnapshots.projectId, projectId), eq(schema.projectFinanceSnapshots.week, isoWeekKey(now.getTime()))))
+        .limit(1);
+      if (!have) markFinanceSnapshotDue(c);
+    }
     return success(c, presentFinance(project, model, now, visible));
   } catch (err) {
     console.error('[flow-api/project-finance] figures failed:', err);

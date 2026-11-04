@@ -264,7 +264,8 @@ export async function computeFinance(db: Database, project: ProjectRow, now: Dat
     db
       .select({ deliverableId: tasks.deliverableId, status: tasks.status, hours: tasks.estimatedHours })
       .from(tasks)
-      .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt), sql`${tasks.status} <> 'cancelled'`)),
+      .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt), sql`${tasks.status} <> 'cancelled'`))
+      .orderBy(tasks.id),
     sourceTotals(db, projectId, currency),
   ]);
   const baseline = baselineRows[0] ?? null;

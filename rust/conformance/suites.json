@@ -1579,6 +1579,26 @@
       ]
     },
     {
+      "name": "flow: finance",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-finance/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-finance"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-finance/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-finance.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "core: dashboard",
       "module": "core",
       "workspace": "apps/workers/app-api",

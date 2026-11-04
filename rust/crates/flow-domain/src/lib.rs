@@ -6,6 +6,7 @@
 pub mod access;
 pub mod analytics;
 pub mod day_bounds;
+pub mod finance;
 pub mod js;
 pub mod numbering;
 pub mod raid;

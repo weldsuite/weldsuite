@@ -59,7 +59,7 @@ mod project_changes;
 mod project_close;
 mod project_decisions;
 mod project_deliverables;
-mod project_finance;
+pub mod project_finance;
 mod project_lessons;
 mod project_phases;
 mod project_requests;
