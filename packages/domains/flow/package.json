@@ -11,6 +11,8 @@
     "./approvals": "./src/approvals.ts",
     "./baselines": "./src/baselines.ts",
     "./changes": "./src/changes.ts",
+    "./capacity": "./src/capacity.ts",
+    "./intake": "./src/intake.ts",
     "./project-access": "./src/project-access.ts",
     "./project-closing": "./src/project-closing.ts",
     "./project-templates": "./src/project-templates.ts",
