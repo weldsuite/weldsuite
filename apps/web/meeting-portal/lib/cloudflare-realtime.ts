@@ -19,7 +19,7 @@ import {
   type RtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
 
-export { type RtkParticipant, RTK_PRESETS } from '@weldsuite/cloudflare-realtime';
+export { type RtkParticipant, RTK_PRESETS, rtkPreset } from '@weldsuite/cloudflare-realtime';
 
 export function realtimeEnv(): CloudflareRealtimeEnv {
   return {

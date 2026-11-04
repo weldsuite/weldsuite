@@ -1,6 +1,6 @@
 import {
   Shield, Mic, VideoIcon, Hand, MessageSquare, ImageIcon, MonitorOff,
-  Circle, DoorOpen, Users,
+  Circle, DoorOpen, Users, Captions,
 } from 'lucide-react';
 import { Switch } from '@weldsuite/ui/components/switch';
 import type { LucideIcon } from 'lucide-react';
@@ -13,7 +13,12 @@ import type { MeetingClient } from '../types';
  * keep `weldmeet-ui` free of core-api-client coupling; the platform passes
  * the shape down directly.
  *
- * NB: Several fields below (allowAnnotations, enableCaptions, noiseCancellation,
+ * `enableCaptions` is live captions: RealtimeKit transcribes a participant
+ * only when they join on a transcribing preset, chosen from this flag (see
+ * `rtkPreset` in @weldsuite/cloudflare-realtime). It is billed per speaker
+ * minute, so it stays off unless the host turns it on.
+ *
+ * NB: Several fields below (allowAnnotations, noiseCancellation,
  * lockAfterStart, autoEndOnInactivity, accessType, allowThirdPartyAccess) are
  * NOT rendered in the panel — the underlying DB columns and broadcast path
  * remain so callers that read these fields elsewhere keep working. They were
@@ -84,6 +89,23 @@ function SettingRow({ icon: Icon, label, description, checked, onCheckedChange, 
       />
     </div>
   );
+}
+
+/**
+ * Switch live transcription for the people already in the call. Everyone who
+ * joins later gets it from their preset; this patches the presets of those
+ * connected now. Best effort: the policy is persisted either way, and anyone
+ * the patch misses picks it up when they rejoin. The host's own preset is not
+ * in `joined`, so their speech follows the preset they joined with.
+ */
+function applyLiveCaptions(meeting: MeetingClient | null | undefined, on: boolean): void {
+  try {
+    const ids = meeting?.participants?.joined?.toArray().map((p) => p.id) ?? [];
+    if (ids.length === 0) return;
+    void meeting?.participants?.updatePermissions(ids, { transcriptionEnabled: on }).catch(() => undefined);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Readonly<HostControlsPanelProps>) {
@@ -183,6 +205,17 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           description="Only the host can record when off."
           checked={controls.allowParticipantRecord}
           onCheckedChange={(v) => onChange({ allowParticipantRecord: v })}
+        />
+        <SettingRow
+          readOnly={readOnly}
+          icon={Captions}
+          label="Live captions"
+          description="Transcribes what people say for captions, translation and the live transcript. Someone already in the call may need to rejoin."
+          checked={controls.enableCaptions}
+          onCheckedChange={(v) => {
+            onChange({ enableCaptions: v });
+            applyLiveCaptions(meeting, v);
+          }}
         />
       </div>
 

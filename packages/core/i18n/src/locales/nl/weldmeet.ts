@@ -124,6 +124,7 @@ export const weldmeet = {
         livestreamDescription: 'Stream naar kijkers die alleen meekijken',
         livestreamLive: 'Nu live',
         livestreamUnavailable: 'Niet ingeschakeld voor deze vergadering',
+        liveCaptionsOff: 'Live ondertiteling staat uit in Hostinstellingen',
         breakout: 'Aparte vergaderruimtes',
         breakoutDescription: 'Splits op in kleinere groepen',
         breakoutActive: 'Open ruimtes: {count}',

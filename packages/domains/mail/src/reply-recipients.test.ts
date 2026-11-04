@@ -4,7 +4,9 @@
  *
  * A plain reply goes to the sender alone; a reply-all also keeps everyone on
  * the original To/Cc lines — Cc recipients staying on Cc — minus the mailbox
- * doing the replying. The WeldMail "Reply all" button shows that same set in
+ * doing the replying. Following up on mail the mailbox sent itself goes to the
+ * people it was sent to, never back to the mailbox (unless it only ever went
+ * there). The WeldMail "Reply all" button shows that same set in
  * its To field, so a drift here is a drift between what the user sees and who
  * actually receives the mail.
  *
@@ -123,5 +125,64 @@ describe('replyAndPersist · recipients (pglite, dryRun)', () => {
     const result = await replyAndPersist(env, db, ORG, USER, id, { body: 'Hi', replyAll: true }, { dryRun: true });
 
     expect(await sentRecipients(result.messageId)).toEqual({ to: ['solo@example.com'], cc: [] });
+  });
+});
+
+describe('replyAndPersist · following up on our own sent mail (pglite, dryRun)', () => {
+  /** A message this mailbox sent, as the SENT copy stores it. */
+  async function seedSent(accountId: string, to: string[], cc: string[] = []): Promise<string> {
+    const id = generateId('mmsg');
+    await db.insert(mailMessages).values({
+      id,
+      accountId,
+      messageId: `<${id}@test.dev>`,
+      // Stored with different casing than the account, as a display name typed by hand might be.
+      from: { email: 'Me@Test.dev', name: 'Me' },
+      to: to.map((email) => ({ email })),
+      cc: cc.map((email) => ({ email })),
+      subject: 'Proposal',
+      sentDate: new Date(),
+      source: 'sent',
+      labels: ['SENT'],
+    });
+    return id;
+  }
+
+  it('a plain reply goes to the people the mail was sent to, not back to us', async () => {
+    const accountId = await seedAccount();
+    const original = await seedSent(accountId, ['client@example.com'], ['boss@example.com']);
+
+    const result = await replyAndPersist(env, db, ORG, USER, original, { body: 'Any news?' }, { dryRun: true });
+
+    expect(await sentRecipients(result.messageId)).toEqual({ to: ['client@example.com'], cc: [] });
+  });
+
+  it('reply-all keeps the original To and Cc lines and leaves us off', async () => {
+    const accountId = await seedAccount();
+    const original = await seedSent(accountId, ['client@example.com', SELF], ['boss@example.com']);
+
+    const result = await replyAndPersist(
+      env,
+      db,
+      ORG,
+      USER,
+      original,
+      { body: 'Any news?', replyAll: true },
+      { dryRun: true },
+    );
+
+    expect(await sentRecipients(result.messageId)).toEqual({
+      to: ['client@example.com'],
+      cc: ['boss@example.com'],
+    });
+  });
+
+  it('a note we sent only to ourselves is answered to ourselves', async () => {
+    const accountId = await seedAccount();
+    const original = await seedSent(accountId, [SELF]);
+
+    const result = await replyAndPersist(env, db, ORG, USER, original, { body: 'Reminder' }, { dryRun: true });
+
+    expect(await sentRecipients(result.messageId)).toEqual({ to: ['Me@Test.dev'], cc: [] });
   });
 });

@@ -30,7 +30,7 @@ export const RTK_ENV = {
 };
 
 /** The KV marker that tells `ensurePresets` the presets are seeded. */
-export const RTK_PRESETS_SEEDED = { 'rtk-presets-seeded-v7': '1' };
+export const RTK_PRESETS_SEEDED = { 'rtk-presets-seeded-v8': '1' };
 
 /** What a fake RealtimeKit call did. */
 export type RtkCallKind =
@@ -187,10 +187,14 @@ export function fakeRtkApi() {
         return json(200, {
           success: true,
           data: [
-            { name: 'group_call_host_v3' },
-            { name: 'group_call_participant_v2' },
-            { name: 'group_call_guest_v2' },
-            { name: 'group_call_guest_waiting_v2' },
+            { name: 'group_call_host_v4' },
+            { name: 'group_call_participant_v3' },
+            { name: 'group_call_guest_v3' },
+            { name: 'group_call_guest_waiting_v3' },
+            { name: 'group_call_host_captions_v1' },
+            { name: 'group_call_participant_captions_v1' },
+            { name: 'group_call_guest_captions_v1' },
+            { name: 'group_call_guest_waiting_captions_v1' },
           ],
         });
       case 'webhooks':

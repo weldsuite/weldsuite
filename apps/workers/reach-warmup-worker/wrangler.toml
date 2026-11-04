@@ -8,7 +8,13 @@
 #
 # Master DB only: this worker never opens a tenant database.
 #
-#   "* * * * *"     dispatch: due sends → reach-warmup-send, due engagements → reach-warmup-engage
+# TURNED OFF (2026-11-04): nobody uses the warmup network, so every env has
+# `crons = []` and the worker never runs (an empty list makes `wrangler deploy`
+# remove the schedules). New WeldReach mailboxes therefore stay in `warming`.
+# To turn it back on, restore these three crons in [triggers] and each
+# [env.*.triggers]:
+#
+#   "* * * * *"   dispatch: due sends → reach-warmup-send, due engagements → reach-warmup-engage
 #   "*/30 * * * *"  planner: today's warmup messages per mailbox (business hours, own timezone)
 #   "30 2 * * *"    daily: pool transitions + ramp, stats rollup, cleanup, corpus refresh (monthly)
 #
@@ -74,7 +80,7 @@ max_retries = 2
 dead_letter_queue = "reach-warmup-engage-dlq-dev"
 
 [triggers]
-crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+crons = []
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -87,7 +93,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 
 [env.test.triggers]
-crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+crons = []
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -139,7 +145,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 
 [env.production.triggers]
-crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+crons = []
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

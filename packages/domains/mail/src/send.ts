@@ -1453,27 +1453,52 @@ export async function forwardAndPersist(
 }
 
 /**
- * Who a reply goes to: the original sender, and with reply-all everyone who was
- * on the original To/Cc lines — Cc recipients stay on Cc — minus this mailbox,
- * which is already the sender.
+ * Who a reply goes to. Answering someone else's mail: the original sender, and
+ * with reply-all everyone who was on the original To/Cc lines — Cc recipients
+ * stay on Cc. Following up on mail this mailbox sent itself: the people it went
+ * to (its To line, plus Cc with reply-all), the way Gmail and Outlook do it —
+ * addressing the sender there would only send the reply back to ourselves.
+ * This mailbox is never a recipient, except for a note it sent only to itself.
+ * Addresses compare case-insensitively.
+ *
+ * The WeldMail client shows the same set in its To field
+ * (`buildReplyRecipients` in the platform's message-detail.tsx) and the Rust
+ * port has `reply_recipients`; keep all three in step.
  */
-function replyRecipients(
-  original: OriginalMessage,
+export function replyRecipients(
+  original: { from: unknown; to: unknown; cc: unknown },
   mailbox: string,
   replyAll: boolean,
 ): { to: string[]; cc: string[] } {
-  const originalFrom = original.from as { email?: string; name?: string } | null;
-  const to: string[] = originalFrom?.email ? [originalFrom.email] : [];
+  const self = mailbox.trim().toLowerCase();
+  const fromEmail = (original.from as { email?: string } | null)?.email?.trim() || undefined;
+  const toLine = ((original.to as { email?: string }[] | null) ?? []).map((a) => a.email);
+  const ccLine = ((original.cc as { email?: string }[] | null) ?? []).map((a) => a.email);
+
+  const to: string[] = [];
   const cc: string[] = [];
+  const seen = new Set<string>();
+  const add = (list: string[], email: string | undefined) => {
+    const trimmed = email?.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (key === self || seen.has(key)) return;
+    seen.add(key);
+    list.push(trimmed);
+  };
+
+  if (fromEmail && fromEmail.toLowerCase() === self) {
+    for (const email of toLine) add(to, email);
+    if (replyAll) for (const email of ccLine) add(cc, email);
+    // A note to yourself stays one.
+    if (to.length === 0 && cc.length === 0) to.push(fromEmail);
+    return { to, cc };
+  }
+
+  add(to, fromEmail);
   if (!replyAll) return { to, cc };
-  const isNew = (email: string | undefined): email is string =>
-    !!email && email !== mailbox && !to.includes(email) && !cc.includes(email);
-  for (const addr of (original.to as { email?: string }[] | null) ?? []) {
-    if (isNew(addr.email)) to.push(addr.email);
-  }
-  for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
-    if (isNew(addr.email)) cc.push(addr.email);
-  }
+  for (const email of toLine) add(to, email);
+  for (const email of ccLine) add(cc, email);
   return { to, cc };
 }
 

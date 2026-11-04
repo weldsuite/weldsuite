@@ -16,7 +16,7 @@
  * Signs with WebCrypto (HS256), so it runs on Node and on Workers alike.
  */
 
-import { RTK_PRESETS } from '@weldsuite/cloudflare-realtime';
+import { rtkPresetRole } from '@weldsuite/cloudflare-realtime';
 
 /** The participant attribute that keeps a guest in the waiting room (Rust's `WAITING_ATTRIBUTE`). */
 export const LIVEKIT_WAITING_ATTRIBUTE = 'weldsuite.waiting';
@@ -98,8 +98,10 @@ export async function mintLiveKitJoinToken(
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<LiveKitJoinToken> {
   const identity = `${participant.customParticipantId}~${randomHex(6)}`;
-  const isHost = participant.presetName === RTK_PRESETS.HOST;
-  const waiting = participant.presetName === RTK_PRESETS.GUEST_WAITING;
+  // Either variant of a preset (with or without live captions) is the same role.
+  const role = rtkPresetRole(participant.presetName);
+  const isHost = role === 'HOST';
+  const waiting = role === 'GUEST_WAITING';
   const metadata: Record<string, string> = { customParticipantId: participant.customParticipantId };
   if (participant.picture) metadata.picture = participant.picture;
   const attributes: Record<string, string> = { customParticipantId: participant.customParticipantId };

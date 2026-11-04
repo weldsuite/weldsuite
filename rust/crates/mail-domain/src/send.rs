@@ -974,35 +974,13 @@ pub async fn reply_and_persist(
         ));
     };
 
-    // `replyRecipients(original, mailbox, replyAll)`.
-    let email_of = |v: &Value| {
-        v.get("email")
-            .and_then(Value::as_str)
-            .filter(|e| !e.is_empty())
-            .map(str::to_owned)
-    };
-    let mut to_list: Vec<String> = from.as_ref().and_then(email_of).into_iter().collect();
-    let mut cc_list: Vec<String> = Vec::new();
-    if data.reply_all {
-        for addr in to.as_ref().and_then(Value::as_array).into_iter().flatten() {
-            if let Some(email) = email_of(addr)
-                && email != mailbox
-                && !to_list.contains(&email)
-                && !cc_list.contains(&email)
-            {
-                to_list.push(email);
-            }
-        }
-        for addr in cc.as_ref().and_then(Value::as_array).into_iter().flatten() {
-            if let Some(email) = email_of(addr)
-                && email != mailbox
-                && !to_list.contains(&email)
-                && !cc_list.contains(&email)
-            {
-                cc_list.push(email);
-            }
-        }
-    }
+    let (to_list, cc_list) = reply_recipients(
+        from.as_ref(),
+        to.as_ref(),
+        cc.as_ref(),
+        &mailbox,
+        data.reply_all,
+    );
     let mut refs: Vec<String> = references
         .as_ref()
         .and_then(Value::as_array)
@@ -1039,6 +1017,76 @@ pub async fn reply_and_persist(
     };
     let result = send_and_persist(deps, org, user_id, &account_id, &input, &options).await?;
     Ok((result, original_id.to_owned()))
+}
+
+/// `replyRecipients(original, mailbox, replyAll)`: who a reply goes to, as
+/// `(to, cc)`. Answering someone else's mail: the original sender, plus with
+/// reply-all the original To and Cc lines (Cc stays Cc). Following up on mail
+/// this mailbox sent itself: the people it went to (To, plus Cc with
+/// reply-all). The mailbox is never a recipient, except for a note it sent
+/// only to itself. Addresses compare case-insensitively.
+fn reply_recipients(
+    from: Option<&Value>,
+    to: Option<&Value>,
+    cc: Option<&Value>,
+    mailbox: &str,
+    reply_all: bool,
+) -> (Vec<String>, Vec<String>) {
+    let email_of = |v: &Value| {
+        v.get("email")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .map(str::to_owned)
+    };
+    let line = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(email_of)
+            .collect()
+    };
+    let me = mailbox.trim().to_lowercase();
+    let from_email = from.and_then(email_of);
+    let mut seen: Vec<String> = Vec::new();
+    let mut add = |list: &mut Vec<String>, email: String| {
+        let key = email.to_lowercase();
+        if key != me && !seen.contains(&key) {
+            seen.push(key);
+            list.push(email);
+        }
+    };
+    let mut to_list: Vec<String> = Vec::new();
+    let mut cc_list: Vec<String> = Vec::new();
+
+    if let Some(own) = from_email.as_ref().filter(|f| f.to_lowercase() == me) {
+        for email in line(to) {
+            add(&mut to_list, email);
+        }
+        if reply_all {
+            for email in line(cc) {
+                add(&mut cc_list, email);
+            }
+        }
+        // A note to yourself stays one.
+        if to_list.is_empty() && cc_list.is_empty() {
+            to_list.push(own.clone());
+        }
+        return (to_list, cc_list);
+    }
+
+    if let Some(sender) = from_email {
+        add(&mut to_list, sender);
+    }
+    if reply_all {
+        for email in line(to) {
+            add(&mut to_list, email);
+        }
+        for email in line(cc) {
+            add(&mut cc_list, email);
+        }
+    }
+    (to_list, cc_list)
 }
 
 /// `subject.replace(/^Re:\s*/i, '')`.
@@ -1144,5 +1192,65 @@ mod tests {
         );
         assert_eq!(none.rfc_message_id, "<built@acme.test>");
         assert_eq!(none.external_message_id, "<built@acme.test>");
+    }
+
+    fn addrs(emails: &[&str]) -> Value {
+        Value::Array(emails.iter().map(|e| json!({ "email": e })).collect())
+    }
+
+    fn recipients(
+        from: &str,
+        to: &[&str],
+        cc: &[&str],
+        reply_all: bool,
+    ) -> (Vec<String>, Vec<String>) {
+        reply_recipients(
+            Some(&json!({ "email": from })),
+            Some(&addrs(to)),
+            Some(&addrs(cc)),
+            "Me@Test.dev",
+            reply_all,
+        )
+    }
+
+    #[test]
+    fn reply_to_someone_else() {
+        let to = ["me@test.dev", "teammate@example.com"];
+        let cc = ["watcher@example.com", "ME@test.dev"];
+        assert_eq!(
+            recipients("sender@example.com", &to, &cc, false),
+            (vec!["sender@example.com".to_owned()], vec![])
+        );
+        assert_eq!(
+            recipients("sender@example.com", &to, &cc, true),
+            (
+                vec![
+                    "sender@example.com".to_owned(),
+                    "teammate@example.com".to_owned()
+                ],
+                vec!["watcher@example.com".to_owned()]
+            )
+        );
+    }
+
+    #[test]
+    fn reply_to_own_sent_mail_goes_to_its_recipients() {
+        let to = ["client@example.com", "me@test.dev"];
+        let cc = ["boss@example.com"];
+        assert_eq!(
+            recipients("me@test.dev", &to, &cc, false),
+            (vec!["client@example.com".to_owned()], vec![])
+        );
+        assert_eq!(
+            recipients("me@test.dev", &to, &cc, true),
+            (
+                vec!["client@example.com".to_owned()],
+                vec!["boss@example.com".to_owned()]
+            )
+        );
+        assert_eq!(
+            recipients("me@test.dev", &["me@test.dev"], &[], true),
+            (vec!["me@test.dev".to_owned()], vec![])
+        );
     }
 }

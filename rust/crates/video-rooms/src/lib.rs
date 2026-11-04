@@ -30,7 +30,9 @@ use std::sync::Arc;
 pub use livekit::{LiveKit, LiveKitConfig, WAITING_ATTRIBUTE};
 pub use livekit_webhook::{WebhookRejected, verify_livekit_webhook};
 pub use realtimekit::{
-    GUEST_PRESET, GUEST_WAITING_PRESET, HOST_PRESET, MEMBER_PRESET, RealtimeKit, RealtimeKitConfig,
+    GUEST_CAPTIONS_PRESET, GUEST_PRESET, GUEST_WAITING_CAPTIONS_PRESET, GUEST_WAITING_PRESET,
+    HOST_CAPTIONS_PRESET, HOST_PRESET, MEMBER_CAPTIONS_PRESET, MEMBER_PRESET, RealtimeKit,
+    RealtimeKitConfig, member_preset,
 };
 use weldsuite_ports::OutboundHttp;
 pub use weldsuite_ports::video_rooms::{
