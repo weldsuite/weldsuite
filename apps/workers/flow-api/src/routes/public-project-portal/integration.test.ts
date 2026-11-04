@@ -191,7 +191,7 @@ describe('sign-in', () => {
     expect((await p.send('POST', '/auth/request-code', { workspace: SLUG, email: 'nobody@client.test' })).status).toBe(204);
     expect((await p.send('POST', '/auth/request-code', { workspace: SLUG, email: 'other@client.test' })).status).toBe(204);
     expect(p.mail.sent.map((m) => m.to).sort()).toEqual(['femke@client.test', 'other@client.test']);
-    expect(p.kv.keys().length).toBe(2);
+    expect(p.kv.keys()).toHaveLength(2);
   });
 
   it('does not send for a contact whose portal access is off', async () => {

@@ -300,6 +300,37 @@ app.post('/', requirePermission('projects:create'), async (c) => {
 
 // ── Edit ────────────────────────────────────────────────────────────────────
 
+type UpdateDecisionInput = z.infer<typeof updateDecisionSchema>;
+
+/** The columns an edit sets: only the fields it sent. */
+function decisionUpdateSet(
+  input: UpdateDecisionInput,
+  options: ReturnType<typeof normalizeOptions> | undefined,
+  now: Date,
+): Partial<typeof t.$inferInsert> {
+  const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
+  if (input.title !== undefined) set.title = input.title;
+  if (input.context !== undefined) set.context = input.context;
+  if (options !== undefined) set.options = options;
+  if (input.consequences !== undefined) set.consequences = input.consequences;
+  if (input.deciderId !== undefined) set.deciderId = input.deciderId;
+  if (input.decisionDueAt !== undefined) set.decisionDueAt = toDate(input.decisionDueAt);
+  return set;
+}
+
+/** Whether an edit of a proposed decision changes who decides or by when, so the asking starts over. */
+function editNeedsRerouting(existing: DecisionRow, input: UpdateDecisionInput, approvals: Awaited<ReturnType<typeof listSubjectApprovals>>): boolean {
+  if (existing.status !== 'proposed') return false;
+  if (input.deciderId === undefined && input.decisionDueAt === undefined) return false;
+  return needsRerouting({
+    existingDeciderId: existing.deciderId,
+    nextDeciderId: input.deciderId !== undefined ? input.deciderId : existing.deciderId,
+    existingDueAt: existing.decisionDueAt,
+    nextDueAt: input.decisionDueAt !== undefined ? toDate(input.decisionDueAt) : existing.decisionDueAt,
+    approvals,
+  });
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -321,27 +352,10 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
 
   try {
     const now = new Date();
-    const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
-    if (input.title !== undefined) set.title = input.title;
-    if (input.context !== undefined) set.context = input.context;
-    if (options !== undefined) set.options = options;
-    if (input.consequences !== undefined) set.consequences = input.consequences;
-    if (input.deciderId !== undefined) set.deciderId = input.deciderId;
-    if (input.decisionDueAt !== undefined) set.decisionDueAt = toDate(input.decisionDueAt);
+    const set = decisionUpdateSet(input, options, now);
 
     const existingApprovals = existing.status === 'proposed' ? await listSubjectApprovals(db, 'decision', id) : [];
-    const nextDeciderId = input.deciderId !== undefined ? input.deciderId : existing.deciderId;
-    const nextDueAt = input.decisionDueAt !== undefined ? toDate(input.decisionDueAt) : existing.decisionDueAt;
-    const reroute =
-      existing.status === 'proposed' &&
-      (input.deciderId !== undefined || input.decisionDueAt !== undefined) &&
-      needsRerouting({
-        existingDeciderId: existing.deciderId,
-        nextDeciderId,
-        existingDueAt: existing.decisionDueAt,
-        nextDueAt,
-        approvals: existingApprovals,
-      });
+    const reroute = editNeedsRerouting(existing, input, existingApprovals);
 
     await atomically(db, (handle) => [handle.update(t).set(set).where(and(eq(t.id, id), isNull(t.deletedAt)))]);
     const row = await findDecision(db, id);

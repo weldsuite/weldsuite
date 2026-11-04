@@ -33,7 +33,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   PROJECT_REQUEST_STATUSES,
   convertProjectRequestSchema,
@@ -318,6 +318,25 @@ app.get('/settings', requirePermission('portfolio:read'), async (c) => {
   }
 });
 
+/** The open requests whose score changes under a new scoring model. */
+async function rescoredRequests(
+  db: Database,
+  scoringModel: Parameters<typeof scoreRequest>[0],
+): Promise<Array<{ row: ProjectRequestRow; score: number | null }>> {
+  const rescored: Array<{ row: ProjectRequestRow; score: number | null }> = [];
+  const open = await db
+    .select()
+    .from(t)
+    .where(and(isNull(t.deletedAt), inArray(t.status, ['new', 'assessing'])))
+    .orderBy(asc(t.number));
+  for (const row of open) {
+    const score = scoreRequest(scoringModel, row.scores);
+    const before = row.score === null ? null : Number(row.score);
+    if (score !== before) rescored.push({ row, score });
+  }
+  return rescored;
+}
+
 app.put('/settings', requirePermission('portfolio:manage'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -336,19 +355,7 @@ app.put('/settings', requirePermission('portfolio:manage'), async (c) => {
     const limit = input.expenseApprovalLimit === undefined ? undefined : amountText(input.expenseApprovalLimit);
 
     // A new model re-ranks every open request: the stored scores follow it.
-    const rescored: Array<{ row: ProjectRequestRow; score: number | null }> = [];
-    if (input.scoringModel) {
-      const open = await db
-        .select()
-        .from(t)
-        .where(and(isNull(t.deletedAt), inArray(t.status, ['new', 'assessing'])))
-        .orderBy(asc(t.number));
-      for (const row of open) {
-        const score = scoreRequest(input.scoringModel, row.scores);
-        const before = row.score === null ? null : Number(row.score);
-        if (score !== before) rescored.push({ row, score });
-      }
-    }
+    const rescored = input.scoringModel ? await rescoredRequests(db, input.scoringModel) : [];
 
     await atomically(db, (handle) => [
       handle

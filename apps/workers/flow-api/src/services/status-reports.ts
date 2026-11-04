@@ -155,30 +155,13 @@ function dateOf(value: string | null | undefined): Date | null {
   return value ? new Date(value) : null;
 }
 
-/** Read the project's data as of `now` and compute the five areas, the lists and the snapshot. */
-export async function computeReport(
-  db: Database,
-  project: ReportProject,
-  now: Date,
-  windowDays: number,
-): Promise<ComputedReport> {
-  const projectId = project.id;
-  const sinceDone = addDays(startOfDay(now), -windowDays);
-  const untilNext = addDays(startOfDay(now), windowDays + 1);
-  const riskItems = schema.projectRaidItems;
+type ReportRows = Awaited<ReturnType<typeof loadReportRows>>;
+type FrozenPlan = NonNullable<ReportRows[0][0]>['snapshot'] | null;
 
-  const [
-    [baseline],
-    milestoneRows,
-    deliverableRows,
-    [finance],
-    pendingChanges,
-    openRiskRows,
-    benefitRows,
-    proposedDecisions,
-    doneTasks,
-    nextTasks,
-  ] = await Promise.all([
+/** Everything a report reads from the database, in one round trip. */
+async function loadReportRows(db: Database, projectId: string, now: Date, sinceDone: Date, untilNext: Date) {
+  const riskItems = schema.projectRaidItems;
+  return Promise.all([
     db.select().from(schema.projectBaselines).where(eq(schema.projectBaselines.projectId, projectId)).orderBy(desc(schema.projectBaselines.version)).limit(1),
     db.select().from(schema.milestones).where(and(eq(schema.milestones.projectId, projectId), isNull(schema.milestones.deletedAt))),
     db.select().from(schema.projectDeliverables).where(and(eq(schema.projectDeliverables.projectId, projectId), isNull(schema.projectDeliverables.deletedAt))),
@@ -240,9 +223,10 @@ export async function computeReport(
         ),
       ),
   ]);
+}
 
-  // Schedule: the latest baseline against the plan as it stands.
-  const frozen = baseline?.snapshot ?? null;
+/** The milestones with the date the baseline froze, then those the baseline does not have. */
+function milestoneItems(frozen: FrozenPlan, milestoneRows: ReportRows[1]): ScheduleItem[] {
   const items: ScheduleItem[] = [];
   const liveMilestones = new Map(milestoneRows.map((row) => [row.id, row]));
   const seenMilestones = new Set<string>();
@@ -263,6 +247,12 @@ export async function computeReport(
     if (seenMilestones.has(live.id)) continue;
     items.push({ kind: 'milestone', id: live.id, name: live.name, baseline: null, current: live.dueDate, done: live.completedAt !== null || live.status === 'completed' });
   }
+  return items;
+}
+
+/** The deliverables with the date the baseline froze, then those with an end date the baseline does not have. */
+function deliverableItems(frozen: FrozenPlan, deliverableRows: ReportRows[2]): ScheduleItem[] {
+  const items: ScheduleItem[] = [];
   const liveDeliverables = new Map(deliverableRows.map((row) => [row.id, row]));
   const seenDeliverables = new Set<string>();
   const deliverableName = (row: { number: number; title: string }) => `D${row.number} ${row.title}`;
@@ -283,10 +273,107 @@ export async function computeReport(
     if (seenDeliverables.has(live.id) || !live.plannedEnd) continue;
     items.push({ kind: 'deliverable', id: live.id, name: deliverableName(live), baseline: null, current: live.plannedEnd, done: live.status === 'accepted' });
   }
+  return items;
+}
+
+/** The latest measurement of each open benefit. */
+async function latestMeasurements(db: Database, benefitIds: string[]): Promise<Map<string, string>> {
+  const measurementRows = benefitIds.length
+    ? await db
+        .select({ benefitId: schema.projectBenefitMeasurements.benefitId, value: schema.projectBenefitMeasurements.value })
+        .from(schema.projectBenefitMeasurements)
+        .where(inArray(schema.projectBenefitMeasurements.benefitId, benefitIds))
+        .orderBy(desc(schema.projectBenefitMeasurements.period))
+    : [];
+  const latest = new Map<string, string>();
+  for (const row of measurementRows) if (!latest.has(row.benefitId)) latest.set(row.benefitId, row.value);
+  return latest;
+}
+
+/** The score each risk had at the assessment before its latest one. */
+async function previousRiskScores(db: Database, topRows: ReadonlyArray<{ id: string }>): Promise<Map<string, number>> {
+  const previous = new Map<string, number>();
+  if (topRows.length === 0) return previous;
+  const assessmentRows = await db
+    .select({ itemId: schema.projectRaidAssessments.itemId, probability: schema.projectRaidAssessments.probability, impact: schema.projectRaidAssessments.impact })
+    .from(schema.projectRaidAssessments)
+    .where(inArray(schema.projectRaidAssessments.itemId, topRows.map((row) => row.id)))
+    .orderBy(desc(schema.projectRaidAssessments.assessedAt), desc(schema.projectRaidAssessments.id));
+  const seen = new Map<string, number>();
+  for (const row of assessmentRows) {
+    const count = (seen.get(row.itemId) ?? 0) + 1;
+    seen.set(row.itemId, count);
+    if (count === 2) previous.set(row.itemId, row.probability * row.impact);
+  }
+  return previous;
+}
+
+/** Done: tasks completed and deliverables accepted in the window, newest first. */
+function doneItems(doneTasks: ReportRows[8], deliverableRows: ReportRows[2], sinceDone: Date): schema.StatusReportItem[] {
+  return [
+    ...doneTasks.map((row) => ({
+      taskId: row.id,
+      text: row.title,
+      code: row.number !== null ? `TASK-${row.number}` : 'TASK',
+      date: (row.completedDate ?? row.updatedAt).toISOString(),
+    })),
+    ...deliverableRows
+      .filter((row) => row.status === 'accepted' && row.acceptedAt && row.acceptedAt >= sinceDone)
+      .map((row) => ({ taskId: null, text: row.title, code: `D${row.number}`, date: (row.acceptedAt as Date).toISOString() })),
+  ]
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (a.code ?? '').localeCompare(b.code ?? ''))
+    .slice(0, ITEMS_LISTED);
+}
+
+/** Next: tasks due and decisions due in the coming window, soonest first. */
+function nextItems(nextTasks: ReportRows[9], proposedDecisions: ReportRows[7], now: Date, untilNext: Date): schema.StatusReportItem[] {
+  return [
+    ...nextTasks.map((row) => ({
+      taskId: row.id,
+      text: row.title,
+      code: row.number !== null ? `TASK-${row.number}` : 'TASK',
+      date: (row.dueDate as Date).toISOString(),
+    })),
+    ...proposedDecisions
+      .filter((row) => row.decisionDueAt && row.decisionDueAt >= startOfDay(now) && row.decisionDueAt <= untilNext)
+      .map((row) => ({ taskId: null, text: row.title, code: `DEC-${row.number}`, date: (row.decisionDueAt as Date).toISOString() })),
+  ]
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || (a.code ?? '').localeCompare(b.code ?? ''))
+    .slice(0, ITEMS_LISTED);
+}
+
+/** Read the project's data as of `now` and compute the five areas, the lists and the snapshot. */
+export async function computeReport(
+  db: Database,
+  project: ReportProject,
+  now: Date,
+  windowDays: number,
+): Promise<ComputedReport> {
+  const projectId = project.id;
+  const sinceDone = addDays(startOfDay(now), -windowDays);
+  const untilNext = addDays(startOfDay(now), windowDays + 1);
+
+  const [
+    [baseline],
+    milestoneRows,
+    deliverableRows,
+    [finance],
+    pendingChanges,
+    openRiskRows,
+    benefitRows,
+    proposedDecisions,
+    doneTasks,
+    nextTasks,
+  ] = await loadReportRows(db, projectId, now, sinceDone, untilNext);
+
+  // Schedule: the latest baseline against the plan as it stands.
+  const frozen = baseline?.snapshot ?? null;
+  const items = [...milestoneItems(frozen, milestoneRows), ...deliverableItems(frozen, deliverableRows)];
   const goLiveBaseline = dateOf(frozen?.goLive);
   if (goLiveBaseline || project.endDate) {
     items.push({ kind: 'go_live', id: null, name: 'Go-live', baseline: goLiveBaseline, current: project.endDate, done: false });
   }
+
   const schedule = scheduleArea(baseline ? baseline.version : null, items, now);
 
   // Budget: the latest weekly finance snapshot.
@@ -318,16 +405,7 @@ export async function computeReport(
   );
 
   // Benefits: the latest measurement of each open benefit.
-  const benefitIds = benefitRows.map((row) => row.id);
-  const measurementRows = benefitIds.length
-    ? await db
-        .select({ benefitId: schema.projectBenefitMeasurements.benefitId, value: schema.projectBenefitMeasurements.value })
-        .from(schema.projectBenefitMeasurements)
-        .where(inArray(schema.projectBenefitMeasurements.benefitId, benefitIds))
-        .orderBy(desc(schema.projectBenefitMeasurements.period))
-    : [];
-  const latest = new Map<string, string>();
-  for (const row of measurementRows) if (!latest.has(row.benefitId)) latest.set(row.benefitId, row.value);
+  const latest = await latestMeasurements(db, benefitRows.map((row) => row.id));
   const benefits = benefitsArea(
     benefitRows.map((row) => ({
       code: `B-${row.number}`,
@@ -346,20 +424,7 @@ export async function computeReport(
 
   // The lists: top risks with the score they had at the assessment before.
   const topRows = openRisks.slice(0, TOP_RISKS).map(({ row }) => row);
-  const previous = new Map<string, number>();
-  if (topRows.length) {
-    const assessmentRows = await db
-      .select({ itemId: schema.projectRaidAssessments.itemId, probability: schema.projectRaidAssessments.probability, impact: schema.projectRaidAssessments.impact })
-      .from(schema.projectRaidAssessments)
-      .where(inArray(schema.projectRaidAssessments.itemId, topRows.map((row) => row.id)))
-      .orderBy(desc(schema.projectRaidAssessments.assessedAt), desc(schema.projectRaidAssessments.id));
-    const seen = new Map<string, number>();
-    for (const row of assessmentRows) {
-      const count = (seen.get(row.itemId) ?? 0) + 1;
-      seen.set(row.itemId, count);
-      if (count === 2) previous.set(row.itemId, row.probability * row.impact);
-    }
-  }
+  const previous = await previousRiskScores(db, topRows);
   const topRisks = topRows.map((row) => ({
     id: row.id,
     code: raidCode('risk', row.number),
@@ -385,35 +450,8 @@ export async function computeReport(
     scheduleDeltaDays: row.scheduleDeltaDays ?? null,
   }));
 
-  // Done: tasks completed and deliverables accepted in the window, newest first.
-  const done: schema.StatusReportItem[] = [
-    ...doneTasks.map((row) => ({
-      taskId: row.id,
-      text: row.title,
-      code: row.number !== null ? `TASK-${row.number}` : 'TASK',
-      date: (row.completedDate ?? row.updatedAt).toISOString(),
-    })),
-    ...deliverableRows
-      .filter((row) => row.status === 'accepted' && row.acceptedAt && row.acceptedAt >= sinceDone)
-      .map((row) => ({ taskId: null, text: row.title, code: `D${row.number}`, date: (row.acceptedAt as Date).toISOString() })),
-  ]
-    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (a.code ?? '').localeCompare(b.code ?? ''))
-    .slice(0, ITEMS_LISTED);
-
-  // Next: tasks due and decisions due in the coming window, soonest first.
-  const next: schema.StatusReportItem[] = [
-    ...nextTasks.map((row) => ({
-      taskId: row.id,
-      text: row.title,
-      code: row.number !== null ? `TASK-${row.number}` : 'TASK',
-      date: (row.dueDate as Date).toISOString(),
-    })),
-    ...proposedDecisions
-      .filter((row) => row.decisionDueAt && row.decisionDueAt >= startOfDay(now) && row.decisionDueAt <= untilNext)
-      .map((row) => ({ taskId: null, text: row.title, code: `DEC-${row.number}`, date: (row.decisionDueAt as Date).toISOString() })),
-  ]
-    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || (a.code ?? '').localeCompare(b.code ?? ''))
-    .slice(0, ITEMS_LISTED);
+  const done = doneItems(doneTasks, deliverableRows, sinceDone);
+  const next = nextItems(nextTasks, proposedDecisions, now, untilNext);
 
   const snapshot: schema.StatusReportSnapshot = {
     version: SNAPSHOT_VERSION,

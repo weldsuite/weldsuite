@@ -83,7 +83,8 @@ export async function identitiesOf(db: Database, rows: readonly StakeholderRow[]
   ]);
   const out = new Map<string, StakeholderIdentity>();
   for (const row of rows) {
-    const found = row.memberId ? members.get(row.memberId) : row.crmContactId ? contacts.get(row.crmContactId) : undefined;
+    const contact = row.crmContactId ? contacts.get(row.crmContactId) : undefined;
+    const found = row.memberId ? members.get(row.memberId) : contact;
     out.set(row.id, found ?? NOBODY);
   }
   return out;

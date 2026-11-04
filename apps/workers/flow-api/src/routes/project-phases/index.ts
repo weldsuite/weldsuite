@@ -293,6 +293,27 @@ app.post('/reorder', requirePermission('projects:update'), async (c) => {
 
 // ── Edit ────────────────────────────────────────────────────────────────────
 
+/** A date an edit sends: kept when it is not sent, cleared when it is empty. */
+function editedDate(sent: string | null | undefined, current: Date | null): Date | null {
+  if (sent === undefined) return current;
+  return sent ? new Date(sent) : null;
+}
+
+/** The new gate criteria of an edit (none when it sends none), or the refusal for them. */
+async function editedCriteria(
+  c: ScheduleContext,
+  existing: PhaseRow,
+  sent: readonly unknown[] | undefined,
+): Promise<{ criteria: GateCriterion[] | undefined } | { refusal: Response }> {
+  if (sent === undefined) return { criteria: undefined };
+  const criteria = sent.map((criterion) => normalizeCriterion(criterion as GateCriterion));
+  const refusal = await criteriaRefusal(c, existing.projectId, criteria);
+  if (refusal) return { refusal };
+  // A gate that is waiting for approval was approved on these criteria.
+  if (existing.gateRequestedAt !== null) return { refusal: error.conflict(c, GATE_MESSAGES.alreadyRequested) };
+  return { criteria };
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -304,17 +325,12 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const input = body.data;
 
   if (existing.status === 'passed') return error.conflict(c, GATE_MESSAGES.phasePassed);
-  const plannedStart = input.plannedStart === undefined ? existing.plannedStart : input.plannedStart ? new Date(input.plannedStart) : null;
-  const plannedEnd = input.plannedEnd === undefined ? existing.plannedEnd : input.plannedEnd ? new Date(input.plannedEnd) : null;
+  const plannedStart = editedDate(input.plannedStart, existing.plannedStart);
+  const plannedEnd = editedDate(input.plannedEnd, existing.plannedEnd);
   if (datesReversed(plannedStart, plannedEnd)) return error.badRequest(c, DATES_REVERSED);
-  let criteria: GateCriterion[] | undefined;
-  if (input.gateCriteria !== undefined) {
-    criteria = input.gateCriteria.map((criterion) => normalizeCriterion(criterion as GateCriterion));
-    const refusal = await criteriaRefusal(c, existing.projectId, criteria);
-    if (refusal) return refusal;
-    // A gate that is waiting for approval was approved on these criteria.
-    if (existing.gateRequestedAt !== null) return error.conflict(c, GATE_MESSAGES.alreadyRequested);
-  }
+  const edited = await editedCriteria(c, existing, input.gateCriteria);
+  if ('refusal' in edited) return edited.refusal;
+  const { criteria } = edited;
 
   try {
     const now = new Date();

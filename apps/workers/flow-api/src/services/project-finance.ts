@@ -80,6 +80,11 @@ function ms(value: Date | null | undefined): number | null {
   return value ? value.getTime() : null;
 }
 
+/** A date frozen in a baseline snapshot (an ISO string), in milliseconds. */
+function frozenMs(value: string | null | undefined): number | null {
+  return value ? Date.parse(value) : null;
+}
+
 /** The currency the figures are in: the project's `budget_currency`, upper case; null when it has none. */
 export function projectCurrency(project: Pick<ProjectRow, 'budgetCurrency'>): string | null {
   const raw = project.budgetCurrency?.trim();
@@ -284,8 +289,8 @@ export async function computeFinance(db: Database, project: ProjectRow, now: Dat
 
   const items: EvmItem[] = deliverables.map((d) => {
     const frozen = baselineDates.get(d.id);
-    const start = frozen ? (frozen.plannedStart ? Date.parse(frozen.plannedStart) : null) : ms(d.plannedStart);
-    const end = frozen ? (frozen.plannedEnd ? Date.parse(frozen.plannedEnd) : null) : ms(d.plannedEnd);
+    const start = frozen ? frozenMs(frozen.plannedStart) : ms(d.plannedStart);
+    const end = frozen ? frozenMs(frozen.plannedEnd) : ms(d.plannedEnd);
     return {
       id: d.id,
       plannedHours: hoursOf(d.id),
@@ -571,10 +576,238 @@ function afterCursor(w: Window, cursor: string | undefined): SQL | undefined {
 
 function compareLines(a: CostLine, b: CostLine): number {
   if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  if (a.id < b.id) return 1;
+  return a.id > b.id ? -1 : 0;
 }
 
 const SOURCES: readonly CostSource[] = ['time', 'bill', 'journal', 'purchase_order', 'declaration'];
+
+/** What one source of cost lines contributes: its page of lines and how many lines it has in all. */
+interface SourceLines {
+  lines: CostLine[];
+  count: number;
+}
+
+interface SourceQuery {
+  db: Database;
+  projectId: string;
+  currency: string | null;
+  q: CostLineQuery;
+  fetchCount: number;
+}
+
+async function timeLines({ db, projectId, currency, q, fetchCount }: SourceQuery): Promise<SourceLines> {
+  const lines: CostLine[] = [];
+  const w: Window = { date: sql`to_char(max(${timeEntries.date}), 'YYYY-MM-DD')`, uid: sql`'time:' || to_char(${timeEntries.date}, 'IYYY"-W"IW')` };
+  const weekKey = sql<string>`to_char(${timeEntries.date}, 'IYYY"-W"IW')`;
+  const base = and(
+    eq(timeEntries.projectId, projectId),
+    isNull(timeEntries.deletedAt),
+    inArray(timeEntries.status, [...COUNTED_TIME_STATUSES]),
+  );
+  const having: SQL[] = [];
+  if (q.from) having.push(sql`${w.date} >= ${q.from}`);
+  if (q.to) having.push(sql`${w.date} <= ${q.to}`);
+  const cursorCondition = afterCursor({ date: w.date, uid: sql`'time:' || ${weekKey}` }, q.cursor);
+  if (cursorCondition) having.push(cursorCondition);
+  const rows = await db
+    .select({
+      week: weekKey,
+      date: sql<string>`${w.date}`,
+      cost: sql<string>`coalesce(sum(coalesce(${timeEntries.cost}, 0)), 0)::text`,
+      minutes: sql<string>`coalesce(sum(${timeEntries.duration}), 0)::text`,
+      people: sql<number>`count(distinct ${timeEntries.userId})`.mapWith(Number),
+    })
+    .from(timeEntries)
+    .where(base)
+    .groupBy(weekKey)
+    .having(having.length ? and(...having) : undefined)
+    .orderBy(sql`${w.date} desc`, sql`'time:' || ${weekKey} collate "C" desc`)
+    .limit(fetchCount);
+  for (const row of rows) {
+    lines.push({
+      id: `time:${row.week}`,
+      source: 'time',
+      date: row.date,
+      title: row.week,
+      reference: null,
+      status: 'approved',
+      amount: moneyString(num(row.cost)),
+      committed: '0.00',
+      hours: Math.round((num(row.minutes) / 60) * 100) / 100,
+      people: row.people,
+    });
+  }
+  const [count] = await db
+    .select({ n: sql<number>`count(distinct to_char(${timeEntries.date}, 'IYYY-IW'))`.mapWith(Number) })
+    .from(timeEntries)
+    .where(
+      and(
+        base,
+        ...(q.from ? [sql`${timeEntries.date} >= ${q.from}`] : []),
+        ...(q.to ? [sql`${timeEntries.date} <= ${q.to}`] : []),
+      ),
+    );
+  return { lines, count: count?.n ?? 0 };
+}
+
+async function billLines({ db, projectId, currency, q, fetchCount }: SourceQuery): Promise<SourceLines> {
+  const billOk = inCurrency(bills.currency, currency);
+  const lines: CostLine[] = [];
+  const date = day(bills.issueDate);
+  const uid = sql`'bill:' || ${billItems.id}`;
+  const w = { date, uid };
+  const where = and(
+    eq(billItems.projectId, projectId),
+    isNull(billItems.deletedAt),
+    isNull(bills.deletedAt),
+    inArray(bills.status, [...COUNTED_BILL_STATUSES]),
+    billOk,
+    ...windowOf(w, q),
+  );
+  const cursorCondition = afterCursor(w, q.cursor);
+  const rows = await db
+    .select({
+      id: billItems.id,
+      date,
+      title: billItems.description,
+      reference: bills.billNumber,
+      status: bills.status,
+      type: bills.type,
+      amount: sql<string>`coalesce(${billItems.lineTotal}, 0)::text`,
+    })
+    .from(billItems)
+    .innerJoin(bills, eq(bills.id, billItems.billId))
+    .where(cursorCondition ? and(where, cursorCondition) : where)
+    .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
+    .limit(fetchCount);
+  for (const row of rows) {
+    const signed = row.type === 'credit_note' ? -num(row.amount) : num(row.amount);
+    lines.push({ id: `bill:${row.id}`, source: 'bill', date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(signed), committed: '0.00', hours: null, people: null });
+  }
+  const [count] = await db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(billItems)
+    .innerJoin(bills, eq(bills.id, billItems.billId))
+    .where(where);
+  return { lines, count: count?.n ?? 0 };
+}
+
+async function journalLineItems({ db, projectId, currency, q, fetchCount }: SourceQuery): Promise<SourceLines> {
+  const journalOk = inCurrency(sql`coalesce(${schema.entities.baseCurrency}, '')`, currency);
+  const lines: CostLine[] = [];
+  const date = day(journalEntries.date);
+  const uid = sql`'journal:' || ${journalLines.id}`;
+  const w = { date, uid };
+  const where = and(
+    eq(journalLines.projectId, projectId),
+    isNull(journalLines.deletedAt),
+    isNull(journalEntries.deletedAt),
+    inArray(journalEntries.status, [...COUNTED_JOURNAL_STATUSES]),
+    eq(schema.accounts.type, 'expense'),
+    journalOk,
+    ...windowOf(w, q),
+  );
+  const cursorCondition = afterCursor(w, q.cursor);
+  const joined = () =>
+    db
+      .select({
+        id: journalLines.id,
+        date,
+        title: sql<string | null>`coalesce(${journalLines.description}, ${journalEntries.description})`,
+        reference: journalEntries.entryNumber,
+        status: journalEntries.status,
+        amount: sql<string>`(coalesce(${journalLines.debit}, 0) - coalesce(${journalLines.credit}, 0))::text`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
+      .innerJoin(schema.accounts, eq(schema.accounts.id, journalLines.accountId))
+      .leftJoin(schema.entities, eq(schema.entities.id, journalLines.entityId));
+  const rows = await joined()
+    .where(cursorCondition ? and(where, cursorCondition) : where)
+    .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
+    .limit(fetchCount);
+  for (const row of rows) {
+    lines.push({ id: `journal:${row.id}`, source: 'journal', date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.amount)), committed: '0.00', hours: null, people: null });
+  }
+  const [count] = await db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
+    .innerJoin(schema.accounts, eq(schema.accounts.id, journalLines.accountId))
+    .leftJoin(schema.entities, eq(schema.entities.id, journalLines.entityId))
+    .where(where);
+  return { lines, count: count?.n ?? 0 };
+}
+
+async function purchaseOrderLines({ db, projectId, currency, q, fetchCount }: SourceQuery): Promise<SourceLines> {
+  const poOk = inCurrency(purchaseOrders.currency, currency);
+  const lines: CostLine[] = [];
+  const date = day(sql`coalesce(${poItems.lastReceivedDate}, ${purchaseOrders.orderDate}, ${poItems.createdAt})`);
+  const uid = sql`'purchase_order:' || ${poItems.id}`;
+  const w = { date, uid };
+  const received = sql<string>`(${poNet} * ${poReceivedQty}::numeric / ${poOrdered})::text`;
+  const open = sql<string>`(case when ${purchaseOrders.status} in (${poCommittedStatuses}) then ${poNet} * ${poOpenQty}::numeric / ${poOrdered} else 0 end)::text`;
+  const where = and(
+    eq(poItems.projectId, projectId),
+    isNull(purchaseOrders.deletedAt),
+    sql`${poItems.quantityOrdered} > 0`,
+    poOk,
+    sql`(${purchaseOrders.status} <> 'cancelled' or ${purchaseOrders.status} in (${poCommittedStatuses}))`,
+    ...windowOf(w, q),
+  );
+  const cursorCondition = afterCursor(w, q.cursor);
+  const rows = await db
+    .select({ id: poItems.id, date, title: poItems.name, reference: purchaseOrders.poNumber, status: purchaseOrders.status, received, open })
+    .from(poItems)
+    .innerJoin(purchaseOrders, eq(purchaseOrders.id, poItems.purchaseOrderId))
+    .where(cursorCondition ? and(where, cursorCondition) : where)
+    .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
+    .limit(fetchCount);
+  for (const row of rows) {
+    lines.push({ id: `purchase_order:${row.id}`, source: 'purchase_order', date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.received)), committed: moneyString(num(row.open)), hours: null, people: null });
+  }
+  const [count] = await db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(poItems)
+    .innerJoin(purchaseOrders, eq(purchaseOrders.id, poItems.purchaseOrderId))
+    .where(where);
+  return { lines, count: count?.n ?? 0 };
+}
+
+async function declarationLines({ db, projectId, currency, q, fetchCount }: SourceQuery): Promise<SourceLines> {
+  const declOk = inCurrency(declarations.currency, currency);
+  const lines: CostLine[] = [];
+  const date = day(declarations.expenseDate);
+  const uid = sql`'declaration:' || ${declarations.id}`;
+  const w = { date, uid };
+  const where = and(
+    eq(declarations.projectId, projectId),
+    inArray(declarations.status, [...COUNTED_DECLARATION_STATUSES]),
+    declOk,
+    ...windowOf(w, q),
+  );
+  const cursorCondition = afterCursor(w, q.cursor);
+  const rows = await db
+    .select({ id: declarations.id, date, title: declarations.description, reference: declarations.category, status: declarations.status, amount: sql<string>`${declarations.amount}::text` })
+    .from(declarations)
+    .where(cursorCondition ? and(where, cursorCondition) : where)
+    .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
+    .limit(fetchCount);
+  for (const row of rows) {
+    lines.push({ id: `declaration:${row.id}`, source: 'declaration', date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.amount)), committed: '0.00', hours: null, people: null });
+  }
+  const [count] = await db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(declarations).where(where);
+  return { lines, count: count?.n ?? 0 };
+}
+
+const SOURCE_LINES: Record<CostSource, (query: SourceQuery) => Promise<SourceLines>> = {
+  time: timeLines,
+  bill: billLines,
+  journal: journalLineItems,
+  purchase_order: purchaseOrderLines,
+  declaration: declarationLines,
+};
 
 /**
  * The cost lines behind the figures, newest first, over every source (or one).
@@ -584,216 +817,15 @@ const SOURCES: readonly CostSource[] = ['time', 'bill', 'journal', 'purchase_ord
  */
 export async function listCostLines(db: Database, projectId: string, currency: string | null, q: CostLineQuery): Promise<CostLinePage> {
   const wanted = q.source ? [q.source] : SOURCES;
-  const fetchCount = q.limit + 1;
-  const billOk = inCurrency(bills.currency, currency);
-  const poOk = inCurrency(purchaseOrders.currency, currency);
-  const declOk = inCurrency(declarations.currency, currency);
-  const journalOk = inCurrency(sql`coalesce(${schema.entities.baseCurrency}, '')`, currency);
+  const query: SourceQuery = { db, projectId, currency, q, fetchCount: q.limit + 1 };
 
   const merged: CostLine[] = [];
   let total = 0;
-
-  const run = async (source: CostSource): Promise<void> => {
-    if (source === 'time') {
-      const w: Window = { date: sql`to_char(max(${timeEntries.date}), 'YYYY-MM-DD')`, uid: sql`'time:' || to_char(${timeEntries.date}, 'IYYY"-W"IW')` };
-      const weekKey = sql<string>`to_char(${timeEntries.date}, 'IYYY"-W"IW')`;
-      const base = and(
-        eq(timeEntries.projectId, projectId),
-        isNull(timeEntries.deletedAt),
-        inArray(timeEntries.status, [...COUNTED_TIME_STATUSES]),
-      );
-      const having: SQL[] = [];
-      if (q.from) having.push(sql`${w.date} >= ${q.from}`);
-      if (q.to) having.push(sql`${w.date} <= ${q.to}`);
-      const cursorCondition = afterCursor({ date: w.date, uid: sql`'time:' || ${weekKey}` }, q.cursor);
-      if (cursorCondition) having.push(cursorCondition);
-      const rows = await db
-        .select({
-          week: weekKey,
-          date: sql<string>`${w.date}`,
-          cost: sql<string>`coalesce(sum(coalesce(${timeEntries.cost}, 0)), 0)::text`,
-          minutes: sql<string>`coalesce(sum(${timeEntries.duration}), 0)::text`,
-          people: sql<number>`count(distinct ${timeEntries.userId})`.mapWith(Number),
-        })
-        .from(timeEntries)
-        .where(base)
-        .groupBy(weekKey)
-        .having(having.length ? and(...having) : undefined)
-        .orderBy(sql`${w.date} desc`, sql`'time:' || ${weekKey} collate "C" desc`)
-        .limit(fetchCount);
-      for (const row of rows) {
-        merged.push({
-          id: `time:${row.week}`,
-          source,
-          date: row.date,
-          title: row.week,
-          reference: null,
-          status: 'approved',
-          amount: moneyString(num(row.cost)),
-          committed: '0.00',
-          hours: Math.round((num(row.minutes) / 60) * 100) / 100,
-          people: row.people,
-        });
-      }
-      const [count] = await db
-        .select({ n: sql<number>`count(distinct to_char(${timeEntries.date}, 'IYYY-IW'))`.mapWith(Number) })
-        .from(timeEntries)
-        .where(
-          and(
-            base,
-            ...(q.from ? [sql`${timeEntries.date} >= ${q.from}`] : []),
-            ...(q.to ? [sql`${timeEntries.date} <= ${q.to}`] : []),
-          ),
-        );
-      total += count?.n ?? 0;
-      return;
-    }
-
-    if (source === 'bill') {
-      const date = day(bills.issueDate);
-      const uid = sql`'bill:' || ${billItems.id}`;
-      const w = { date, uid };
-      const where = and(
-        eq(billItems.projectId, projectId),
-        isNull(billItems.deletedAt),
-        isNull(bills.deletedAt),
-        inArray(bills.status, [...COUNTED_BILL_STATUSES]),
-        billOk,
-        ...windowOf(w, q),
-      );
-      const cursorCondition = afterCursor(w, q.cursor);
-      const rows = await db
-        .select({
-          id: billItems.id,
-          date,
-          title: billItems.description,
-          reference: bills.billNumber,
-          status: bills.status,
-          type: bills.type,
-          amount: sql<string>`coalesce(${billItems.lineTotal}, 0)::text`,
-        })
-        .from(billItems)
-        .innerJoin(bills, eq(bills.id, billItems.billId))
-        .where(cursorCondition ? and(where, cursorCondition) : where)
-        .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
-        .limit(fetchCount);
-      for (const row of rows) {
-        const signed = row.type === 'credit_note' ? -num(row.amount) : num(row.amount);
-        merged.push({ id: `bill:${row.id}`, source, date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(signed), committed: '0.00', hours: null, people: null });
-      }
-      const [count] = await db
-        .select({ n: sql<number>`count(*)`.mapWith(Number) })
-        .from(billItems)
-        .innerJoin(bills, eq(bills.id, billItems.billId))
-        .where(where);
-      total += count?.n ?? 0;
-      return;
-    }
-
-    if (source === 'journal') {
-      const date = day(journalEntries.date);
-      const uid = sql`'journal:' || ${journalLines.id}`;
-      const w = { date, uid };
-      const where = and(
-        eq(journalLines.projectId, projectId),
-        isNull(journalLines.deletedAt),
-        isNull(journalEntries.deletedAt),
-        inArray(journalEntries.status, [...COUNTED_JOURNAL_STATUSES]),
-        eq(schema.accounts.type, 'expense'),
-        journalOk,
-        ...windowOf(w, q),
-      );
-      const cursorCondition = afterCursor(w, q.cursor);
-      const joined = () =>
-        db
-          .select({
-            id: journalLines.id,
-            date,
-            title: sql<string | null>`coalesce(${journalLines.description}, ${journalEntries.description})`,
-            reference: journalEntries.entryNumber,
-            status: journalEntries.status,
-            amount: sql<string>`(coalesce(${journalLines.debit}, 0) - coalesce(${journalLines.credit}, 0))::text`,
-          })
-          .from(journalLines)
-          .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
-          .innerJoin(schema.accounts, eq(schema.accounts.id, journalLines.accountId))
-          .leftJoin(schema.entities, eq(schema.entities.id, journalLines.entityId));
-      const rows = await joined()
-        .where(cursorCondition ? and(where, cursorCondition) : where)
-        .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
-        .limit(fetchCount);
-      for (const row of rows) {
-        merged.push({ id: `journal:${row.id}`, source, date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.amount)), committed: '0.00', hours: null, people: null });
-      }
-      const [count] = await db
-        .select({ n: sql<number>`count(*)`.mapWith(Number) })
-        .from(journalLines)
-        .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
-        .innerJoin(schema.accounts, eq(schema.accounts.id, journalLines.accountId))
-        .leftJoin(schema.entities, eq(schema.entities.id, journalLines.entityId))
-        .where(where);
-      total += count?.n ?? 0;
-      return;
-    }
-
-    if (source === 'purchase_order') {
-      const date = day(sql`coalesce(${poItems.lastReceivedDate}, ${purchaseOrders.orderDate}, ${poItems.createdAt})`);
-      const uid = sql`'purchase_order:' || ${poItems.id}`;
-      const w = { date, uid };
-      const received = sql<string>`(${poNet} * ${poReceivedQty}::numeric / ${poOrdered})::text`;
-      const open = sql<string>`(case when ${purchaseOrders.status} in (${poCommittedStatuses}) then ${poNet} * ${poOpenQty}::numeric / ${poOrdered} else 0 end)::text`;
-      const where = and(
-        eq(poItems.projectId, projectId),
-        isNull(purchaseOrders.deletedAt),
-        sql`${poItems.quantityOrdered} > 0`,
-        poOk,
-        sql`(${purchaseOrders.status} <> 'cancelled' or ${purchaseOrders.status} in (${poCommittedStatuses}))`,
-        ...windowOf(w, q),
-      );
-      const cursorCondition = afterCursor(w, q.cursor);
-      const rows = await db
-        .select({ id: poItems.id, date, title: poItems.name, reference: purchaseOrders.poNumber, status: purchaseOrders.status, received, open })
-        .from(poItems)
-        .innerJoin(purchaseOrders, eq(purchaseOrders.id, poItems.purchaseOrderId))
-        .where(cursorCondition ? and(where, cursorCondition) : where)
-        .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
-        .limit(fetchCount);
-      for (const row of rows) {
-        merged.push({ id: `purchase_order:${row.id}`, source, date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.received)), committed: moneyString(num(row.open)), hours: null, people: null });
-      }
-      const [count] = await db
-        .select({ n: sql<number>`count(*)`.mapWith(Number) })
-        .from(poItems)
-        .innerJoin(purchaseOrders, eq(purchaseOrders.id, poItems.purchaseOrderId))
-        .where(where);
-      total += count?.n ?? 0;
-      return;
-    }
-
-    const date = day(declarations.expenseDate);
-    const uid = sql`'declaration:' || ${declarations.id}`;
-    const w = { date, uid };
-    const where = and(
-      eq(declarations.projectId, projectId),
-      inArray(declarations.status, [...COUNTED_DECLARATION_STATUSES]),
-      declOk,
-      ...windowOf(w, q),
-    );
-    const cursorCondition = afterCursor(w, q.cursor);
-    const rows = await db
-      .select({ id: declarations.id, date, title: declarations.description, reference: declarations.category, status: declarations.status, amount: sql<string>`${declarations.amount}::text` })
-      .from(declarations)
-      .where(cursorCondition ? and(where, cursorCondition) : where)
-      .orderBy(sql`${date} desc`, sql`${uid} collate "C" desc`)
-      .limit(fetchCount);
-    for (const row of rows) {
-      merged.push({ id: `declaration:${row.id}`, source, date: row.date, title: row.title, reference: row.reference, status: row.status, amount: moneyString(num(row.amount)), committed: '0.00', hours: null, people: null });
-    }
-    const [count] = await db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(declarations).where(where);
-    total += count?.n ?? 0;
-  };
-
-  for (const source of wanted) await run(source);
+  for (const source of wanted) {
+    const result = await SOURCE_LINES[source](query);
+    merged.push(...result.lines);
+    total += result.count;
+  }
 
   merged.sort(compareLines);
   const hasMore = merged.length > q.limit;

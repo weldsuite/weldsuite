@@ -46,6 +46,11 @@ const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
 /** Project statuses (lower-cased) that no longer get reports. */
 const FINISHED_STATUSES = ['closed', 'completed', 'archived', 'cancelled'];
 
+const FINISHED_STATUS_LIST = sql.join(
+  FINISHED_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+);
+
 /** The projects of a tenant that have a status report schedule and are still running. */
 async function scheduledProjects(db: Database): Promise<ReportProject[]> {
   const p = schema.projects;
@@ -64,7 +69,7 @@ async function scheduledProjects(db: Database): Promise<ReportProject[]> {
       and(
         isNull(p.deletedAt),
         sql`jsonb_typeof(${p.settings} -> 'statusReport') = 'object'`,
-        sql`lower(${p.status}) not in (${sql.join(FINISHED_STATUSES.map((status) => sql`${status}`), sql`, `)})`,
+        sql`lower(${p.status}) not in (${FINISHED_STATUS_LIST})`,
       ),
     );
 }

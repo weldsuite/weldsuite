@@ -260,6 +260,28 @@ app.post('/', requirePermission('projects:create'), async (c) => {
 
 // ── Edit ────────────────────────────────────────────────────────────────────
 
+/** The columns an edit sets: only the fields it sent. */
+function deliverableUpdateSet(
+  input: z.infer<typeof updateDeliverableSchema>,
+  existingCriteria: Parameters<typeof applyCriteria>[0],
+  dates: { plannedStart: Date | null; plannedEnd: Date | null },
+  now: Date,
+): Partial<typeof t.$inferInsert> {
+  const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
+  if (input.title !== undefined) set.title = input.title;
+  if (input.description !== undefined) set.description = input.description;
+  if (input.ownerId !== undefined) set.ownerId = input.ownerId;
+  if (input.status !== undefined) set.status = input.status;
+  if (input.plannedStart !== undefined) set.plannedStart = dates.plannedStart;
+  if (input.plannedEnd !== undefined) set.plannedEnd = dates.plannedEnd;
+  if (input.acceptanceCriteria !== undefined) {
+    set.acceptanceCriteria = applyCriteria(existingCriteria, input.acceptanceCriteria, now);
+  }
+  if (input.clientVisible !== undefined) set.clientVisible = input.clientVisible;
+  if (input.position !== undefined) set.position = input.position;
+  return set;
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -280,18 +302,7 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
 
   try {
     const now = new Date();
-    const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
-    if (input.title !== undefined) set.title = input.title;
-    if (input.description !== undefined) set.description = input.description;
-    if (input.ownerId !== undefined) set.ownerId = input.ownerId;
-    if (input.status !== undefined) set.status = input.status;
-    if (input.plannedStart !== undefined) set.plannedStart = plannedStart;
-    if (input.plannedEnd !== undefined) set.plannedEnd = plannedEnd;
-    if (input.acceptanceCriteria !== undefined) {
-      set.acceptanceCriteria = applyCriteria(existing.acceptanceCriteria, input.acceptanceCriteria, now);
-    }
-    if (input.clientVisible !== undefined) set.clientVisible = input.clientVisible;
-    if (input.position !== undefined) set.position = input.position;
+    const set = deliverableUpdateSet(input, existing.acceptanceCriteria, { plannedStart, plannedEnd }, now);
 
     await atomically(db, (handle) => [handle.update(t).set(set).where(and(eq(t.id, id), isNull(t.deletedAt)))]);
     const row = await findDeliverable(db, id);

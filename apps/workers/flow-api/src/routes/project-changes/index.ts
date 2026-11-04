@@ -338,6 +338,19 @@ app.post('/', requirePermission('projects:create'), async (c) => {
 
 // ── Edit ────────────────────────────────────────────────────────────────────
 
+/** The columns an edit sets: only the fields it sent. */
+function changeUpdateSet(data: z.infer<typeof updateChangeRequestSchema>, now: Date): Partial<typeof t.$inferInsert> {
+  const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
+  if (data.title !== undefined) set.title = data.title;
+  if (data.description !== undefined) set.description = data.description;
+  if (data.costDelta !== undefined) set.costDelta = money(data.costDelta);
+  if (data.scheduleDeltaDays !== undefined) set.scheduleDeltaDays = data.scheduleDeltaDays;
+  if (data.planChanges !== undefined) set.planChanges = data.planChanges;
+  if (data.scopeChanges !== undefined) set.scopeChanges = data.scopeChanges;
+  if (data.clientVisible !== undefined) set.clientVisible = data.clientVisible;
+  return set;
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -360,14 +373,7 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
     }
 
     const now = new Date();
-    const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
-    if (data.title !== undefined) set.title = data.title;
-    if (data.description !== undefined) set.description = data.description;
-    if (data.costDelta !== undefined) set.costDelta = money(data.costDelta);
-    if (data.scheduleDeltaDays !== undefined) set.scheduleDeltaDays = data.scheduleDeltaDays;
-    if (data.planChanges !== undefined) set.planChanges = data.planChanges;
-    if (data.scopeChanges !== undefined) set.scopeChanges = data.scopeChanges;
-    if (data.clientVisible !== undefined) set.clientVisible = data.clientVisible;
+    const set = changeUpdateSet(data, now);
 
     // Editing what the approvers weigh, once it is with them, starts the approval over (FLOW-013).
     const reroute = existing.status === 'awaiting_approval' && impactChanged(existing, data);

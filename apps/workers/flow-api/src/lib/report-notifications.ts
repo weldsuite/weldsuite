@@ -82,6 +82,81 @@ export interface SendOutcome {
  * Send a published report. `contactIds` maps a stakeholder id to the CRM
  * contact behind it, for the targets that are not members.
  */
+/** What the delivery of one published report shares between its recipients. */
+interface ReportDelivery {
+  ctx: NotifyContext;
+  report: StatusReportRow;
+  project: ReportProject;
+  overall: 'green' | 'amber' | 'red';
+  summary: string;
+  publisherName: string | null;
+  appBase: string;
+  portalBase: string;
+  workspaceName: string | null;
+  languages: Map<string, string | null>;
+  contactIds: Map<string, string>;
+}
+
+/** A member: the app, an in-app notification plus the email their preferences allow. */
+async function notifyMember(d: ReportDelivery, target: RecipientCandidate & { userId: string }): Promise<'sent' | 'skipped'> {
+  const { ctx, report, project, overall } = d;
+  if (target.userId === ctx.actorId) return 'skipped';
+  const locale = resolveEmailLocale();
+  const path = reportAppPath(project.id, report.id);
+  await createAndDeliverNotification({
+    db: ctx.db,
+    env: ctx.env,
+    workspaceId: ctx.clerkOrgId,
+    userId: target.userId,
+    title: `Status report: ${project.name}`,
+    body: `${periodLabel(locale, report.period)}: ${overall}`,
+    category: 'projects',
+    notificationType: 'project_updated',
+    entityType: 'project_status_report',
+    entityId: report.id,
+    actionUrl: path,
+    severity: 'info',
+    actorType: ctx.actorId ? 'user' : 'system',
+    actorId: ctx.actorId,
+    email: {
+      template: 'flow.status-report',
+      props: {
+        recipientName: target.name,
+        projectName: project.name,
+        periodLabel: periodLabel(locale, report.period),
+        overall,
+        summary: d.summary,
+        publishedBy: d.publisherName,
+        url: d.appBase ? workspaceAppUrl(d.appBase, ctx.clerkOrgId, path) : path,
+      },
+    },
+  });
+  return 'sent';
+}
+
+/** A client contact: only a report shared with clients, only with portal access and an address. */
+async function mailContact(d: ReportDelivery, target: RecipientCandidate): Promise<'sent' | 'skipped'> {
+  const { ctx, report, project, overall } = d;
+  if (!report.clientVisible || !target.portalAccess || !target.email || !d.portalBase) return 'skipped';
+  const contactId = target.stakeholderId ? d.contactIds.get(target.stakeholderId) : undefined;
+  const locale = resolveEmailLocale(contactId ? d.languages.get(contactId) : null);
+  const mailed = await sendStatusReportEmail(ctx.env, {
+    to: target.email,
+    locale,
+    brand: { kind: 'workspace', name: d.workspaceName ?? 'WeldSuite' },
+    props: {
+      recipientName: target.name,
+      projectName: project.name,
+      periodLabel: periodLabel(locale, report.period),
+      overall,
+      summary: d.summary,
+      publishedBy: d.publisherName,
+      url: projectPortalUrl(d.portalBase, ctx.workspaceId, project.id),
+    },
+  });
+  return mailed ? 'sent' : 'skipped';
+}
+
 export async function sendPublishedReport(
   ctx: NotifyContext,
   input: {
@@ -95,77 +170,25 @@ export async function sendPublishedReport(
   const outcome: SendOutcome = { sent: 0, skipped: 0 };
   const overall = report.overall;
   if (overall !== 'green' && overall !== 'amber' && overall !== 'red') return outcome;
-  const summary = report.summary ?? '';
   const publisher = report.publishedBy ? (await memberIdentities(ctx.db, [report.publishedBy])).get(report.publishedBy) : undefined;
-  const appBase = ctx.env.PUBLIC_APP_URL ?? '';
-  const portalBase = ctx.env.PROJECT_PORTAL_URL ?? '';
-  const workspaceName = await workspaceNameOf(ctx);
-  const languages = await contactLanguages(ctx.db, [...input.contactIds.values()]);
+  const delivery: ReportDelivery = {
+    ctx,
+    report,
+    project,
+    overall,
+    summary: report.summary ?? '',
+    publisherName: publisher?.name ?? null,
+    appBase: ctx.env.PUBLIC_APP_URL ?? '',
+    portalBase: ctx.env.PROJECT_PORTAL_URL ?? '',
+    workspaceName: await workspaceNameOf(ctx),
+    languages: await contactLanguages(ctx.db, [...input.contactIds.values()]),
+    contactIds: input.contactIds,
+  };
 
   for (const target of targets) {
     try {
-      if (target.userId) {
-        // A member: the app, an in-app notification plus the email their preferences allow.
-        if (target.userId === ctx.actorId) {
-          outcome.skipped += 1;
-          continue;
-        }
-        const locale = resolveEmailLocale();
-        const path = reportAppPath(project.id, report.id);
-        await createAndDeliverNotification({
-          db: ctx.db,
-          env: ctx.env,
-          workspaceId: ctx.clerkOrgId,
-          userId: target.userId,
-          title: `Status report: ${project.name}`,
-          body: `${periodLabel(locale, report.period)}: ${overall}`,
-          category: 'projects',
-          notificationType: 'project_updated',
-          entityType: 'project_status_report',
-          entityId: report.id,
-          actionUrl: path,
-          severity: 'info',
-          actorType: ctx.actorId ? 'user' : 'system',
-          actorId: ctx.actorId,
-          email: {
-            template: 'flow.status-report',
-            props: {
-              recipientName: target.name,
-              projectName: project.name,
-              periodLabel: periodLabel(locale, report.period),
-              overall,
-              summary,
-              publishedBy: publisher?.name ?? null,
-              url: appBase ? workspaceAppUrl(appBase, ctx.clerkOrgId, path) : path,
-            },
-          },
-        });
-        outcome.sent += 1;
-        continue;
-      }
-      // A client contact: only a report shared with clients, only with portal access and an address.
-      if (!report.clientVisible || !target.portalAccess || !target.email || !portalBase) {
-        outcome.skipped += 1;
-        continue;
-      }
-      const contactId = target.stakeholderId ? input.contactIds.get(target.stakeholderId) : undefined;
-      const locale = resolveEmailLocale(contactId ? languages.get(contactId) : null);
-      const mailed = await sendStatusReportEmail(ctx.env, {
-        to: target.email,
-        locale,
-        brand: { kind: 'workspace', name: workspaceName ?? 'WeldSuite' },
-        props: {
-          recipientName: target.name,
-          projectName: project.name,
-          periodLabel: periodLabel(locale, report.period),
-          overall,
-          summary,
-          publishedBy: publisher?.name ?? null,
-          url: projectPortalUrl(portalBase, ctx.workspaceId, project.id),
-        },
-      });
-      if (mailed) outcome.sent += 1;
-      else outcome.skipped += 1;
+      const result = target.userId ? await notifyMember(delivery, { ...target, userId: target.userId }) : await mailContact(delivery, target);
+      outcome[result] += 1;
     } catch (err) {
       outcome.skipped += 1;
       console.error('[flow-api/status-reports] sending the report failed:', err);

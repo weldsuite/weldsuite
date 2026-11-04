@@ -67,9 +67,15 @@ export async function taskProgressForDeliverables(db: Database, ids: string[]): 
  */
 export async function raidForDeliverables(db: Database, ids: string[]): Promise<Map<string, DeliverableRaid[]>> {
   const out = new Map<string, DeliverableRaid[]>(ids.map((id) => [id, []]));
-  if (ids.length === 0) return out;
+  for (const row of ids.length === 0 ? [] : await raidLinkRows(db, ids)) {
+    out.get(row.deliverableId)?.push({ id: row.id, kind: row.kind, code: raidCode(row.kind, row.number), title: row.title });
+  }
+  return out;
+}
+
+async function raidLinkRows(db: Database, ids: string[]) {
   const items = schema.projectRaidItems;
-  const rows = await db
+  return db
     .select({
       deliverableId: links.toId,
       id: items.id,
@@ -89,10 +95,6 @@ export async function raidForDeliverables(db: Database, ids: string[]): Promise<
       ),
     )
     .orderBy(asc(links.createdAt), asc(links.id));
-  for (const row of rows) {
-    out.get(row.deliverableId)?.push({ id: row.id, kind: row.kind, code: raidCode(row.kind, row.number), title: row.title });
-  }
-  return out;
 }
 
 /** The insert values of a new deliverable. */

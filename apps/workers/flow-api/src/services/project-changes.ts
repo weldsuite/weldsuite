@@ -84,34 +84,34 @@ function publishDecision(c: AppContext, row: NonNullable<AppliedChange['decision
   publishEntityEvent({ c, entityType: 'project_decision', entityId: row.id, action: 'decided', data: decisionEventData(row) });
 }
 
-/** The events of an approved change: the change, what it moved and added, the project, the baseline and the decision. */
-async function publishApplied(c: AppContext, change: ChangeRequestRow, result: AppliedChange): Promise<void> {
-  const db = c.get('tenantDb');
-  publishChange(c, 'approved', change);
-
-  const planChanges = change.planChanges ?? {};
-  const scopeChanges = change.scopeChanges ?? {};
-  const moved = (planChanges.milestones ?? []).map((move) => move.milestoneId);
-  if (moved.length > 0) {
-    const rows = await db
-      .select({ id: schema.milestones.id, name: schema.milestones.name, status: schema.milestones.status })
-      .from(schema.milestones)
-      .where(and(eq(schema.milestones.projectId, change.projectId), isNull(schema.milestones.deletedAt)));
-    for (const id of moved) {
-      const row = rows.find((m) => m.id === id);
-      if (row) {
-        publishEntityEvent({
-          c,
-          entityType: 'project_milestone',
-          entityId: id,
-          action: 'updated',
-          data: { id, projectId: change.projectId, name: row.name, status: row.status },
-        });
-      }
+/** An `updated` event for each milestone the change moved. */
+async function publishMovedMilestones(c: AppContext, change: ChangeRequestRow, moved: string[]): Promise<void> {
+  if (moved.length === 0) return;
+  const rows = await c
+    .get('tenantDb')
+    .select({ id: schema.milestones.id, name: schema.milestones.name, status: schema.milestones.status })
+    .from(schema.milestones)
+    .where(and(eq(schema.milestones.projectId, change.projectId), isNull(schema.milestones.deletedAt)));
+  for (const id of moved) {
+    const row = rows.find((m) => m.id === id);
+    if (row) {
+      publishEntityEvent({
+        c,
+        entityType: 'project_milestone',
+        entityId: id,
+        action: 'updated',
+        data: { id, projectId: change.projectId, name: row.name, status: row.status },
+      });
     }
   }
+}
 
-  const deliverableRows = await db
+/** The deliverables the change adds, moves and removes, each as one event. */
+async function publishChangedDeliverables(c: AppContext, change: ChangeRequestRow): Promise<void> {
+  const planChanges = change.planChanges ?? {};
+  const scopeChanges = change.scopeChanges ?? {};
+  const deliverableRows = await c
+    .get('tenantDb')
     .select({
       id: schema.projectDeliverables.id,
       number: schema.projectDeliverables.number,
@@ -135,6 +135,16 @@ async function publishApplied(c: AppContext, change: ChangeRequestRow, result: A
   for (const item of scopeChanges.add ?? []) if (item.deliverableId) deliverableEvent(item.deliverableId, 'created');
   for (const move of planChanges.deliverables ?? []) deliverableEvent(move.deliverableId, 'updated');
   for (const id of scopeChanges.remove ?? []) deliverableEvent(id, 'deleted');
+}
+
+/** The events of an approved change: the change, what it moved and added, the project, the baseline and the decision. */
+async function publishApplied(c: AppContext, change: ChangeRequestRow, result: AppliedChange): Promise<void> {
+  const db = c.get('tenantDb');
+  publishChange(c, 'approved', change);
+
+  const planChanges = change.planChanges ?? {};
+  await publishMovedMilestones(c, change, (planChanges.milestones ?? []).map((move) => move.milestoneId));
+  await publishChangedDeliverables(c, change);
 
   if (planChanges.goLive || (change.costDelta !== null && Number(change.costDelta) !== 0)) {
     const [project] = await db.select().from(schema.projects).where(eq(schema.projects.id, change.projectId)).limit(1);

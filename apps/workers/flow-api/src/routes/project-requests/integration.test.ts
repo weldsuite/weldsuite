@@ -587,7 +587,7 @@ describe('POST /:id/submit', () => {
     const again = await as(REQUESTER)('POST', `/${request.id}/submit`);
     expect(again.status).toBe(409);
     expect((await errorOf(again)).message).toBe('Only a new request can be submitted');
-    expect((await reviewsOf(request.id)).length).toBe(2);
+    expect(await reviewsOf(request.id)).toHaveLength(2);
   });
 
   it('settles the request as approved when every board member approves, and as rejected at the first rejection', async () => {

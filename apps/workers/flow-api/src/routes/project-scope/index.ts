@@ -54,18 +54,10 @@ async function findScope(db: Database, projectId: string): Promise<ScopeRow | nu
   return row ?? null;
 }
 
-/**
- * What the out-of-scope links of a project resolve to, by `type:id`. A decision
- * or change request counts only in this project; another project only when the
- * caller can read it (its name is not for everyone). Links that do not resolve
- * are left out.
- */
-async function resolveScopeLinks(
-  c: AppContext,
-  projectId: string,
-  items: ReadonlyArray<{ linkType?: string | null; linkId?: string | null }>,
-): Promise<Map<string, ScopeLinkTarget>> {
-  const db = c.get('tenantDb');
+type ScopeLinkItem = { linkType?: string | null; linkId?: string | null };
+
+/** The ids the out-of-scope links point at, by type, each once. */
+function wantedLinkIds(items: ReadonlyArray<ScopeLinkItem>): Record<ScopeLinkType, string[]> {
   const wanted: Record<ScopeLinkType, string[]> = { decision: [], change_request: [], project: [] };
   for (const item of items) {
     const key = scopeLinkKey({ linkType: item.linkType ?? null, linkId: item.linkId ?? null });
@@ -73,54 +65,87 @@ async function resolveScopeLinks(
     const list = wanted[item.linkType as ScopeLinkType];
     if (list && !list.includes(item.linkId)) list.push(item.linkId);
   }
-  const out = new Map<string, ScopeLinkTarget>();
-  if (wanted.decision.length > 0) {
-    const rows = await db
-      .select()
-      .from(schema.projectDecisions)
-      .where(
-        and(
-          inArray(schema.projectDecisions.id, wanted.decision),
-          eq(schema.projectDecisions.projectId, projectId),
-          isNull(schema.projectDecisions.deletedAt),
-        ),
-      );
-    for (const row of rows) {
-      out.set(`decision:${row.id}`, { type: 'decision', id: row.id, code: decisionCode(row.number), title: row.title, status: row.status });
-    }
+  return wanted;
+}
+
+type ScopeLinkTargets = Map<string, ScopeLinkTarget>;
+
+async function addDecisionTargets(db: Database, projectId: string, ids: string[], out: ScopeLinkTargets): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = await db
+    .select()
+    .from(schema.projectDecisions)
+    .where(
+      and(
+        inArray(schema.projectDecisions.id, ids),
+        eq(schema.projectDecisions.projectId, projectId),
+        isNull(schema.projectDecisions.deletedAt),
+      ),
+    );
+  for (const row of rows) {
+    out.set(`decision:${row.id}`, { type: 'decision', id: row.id, code: decisionCode(row.number), title: row.title, status: row.status });
   }
-  if (wanted.change_request.length > 0) {
-    const rows = await db
-      .select()
-      .from(schema.projectChangeRequests)
-      .where(
-        and(
-          inArray(schema.projectChangeRequests.id, wanted.change_request),
-          eq(schema.projectChangeRequests.projectId, projectId),
-          isNull(schema.projectChangeRequests.deletedAt),
-        ),
-      );
-    for (const row of rows) {
-      out.set(`change_request:${row.id}`, {
-        type: 'change_request',
-        id: row.id,
-        code: `CR-${row.number}`,
-        title: row.title,
-        status: row.status,
-      });
-    }
+}
+
+async function addChangeRequestTargets(db: Database, projectId: string, ids: string[], out: ScopeLinkTargets): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = await db
+    .select()
+    .from(schema.projectChangeRequests)
+    .where(
+      and(
+        inArray(schema.projectChangeRequests.id, ids),
+        eq(schema.projectChangeRequests.projectId, projectId),
+        isNull(schema.projectChangeRequests.deletedAt),
+      ),
+    );
+  for (const row of rows) {
+    out.set(`change_request:${row.id}`, {
+      type: 'change_request',
+      id: row.id,
+      code: `CR-${row.number}`,
+      title: row.title,
+      status: row.status,
+    });
   }
-  if (wanted.project.length > 0) {
-    const rows = await db
-      .select({ id: schema.projects.id, name: schema.projects.name, status: schema.projects.status })
-      .from(schema.projects)
-      .where(and(inArray(schema.projects.id, wanted.project), isNull(schema.projects.deletedAt)));
-    for (const row of rows) {
-      if (!(await canAccessProject(c, row.id))) continue;
-      out.set(`project:${row.id}`, { type: 'project', id: row.id, code: null, title: row.name, status: row.status });
-    }
+}
+
+async function addProjectTargets(c: AppContext, ids: string[], out: ScopeLinkTargets): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = await c
+    .get('tenantDb')
+    .select({ id: schema.projects.id, name: schema.projects.name, status: schema.projects.status })
+    .from(schema.projects)
+    .where(and(inArray(schema.projects.id, ids), isNull(schema.projects.deletedAt)));
+  for (const row of rows) {
+    if (!(await canAccessProject(c, row.id))) continue;
+    out.set(`project:${row.id}`, { type: 'project', id: row.id, code: null, title: row.name, status: row.status });
   }
+}
+
+/**
+ * What the out-of-scope links of a project resolve to, by `type:id`. A decision
+ * or change request counts only in this project; another project only when the
+ * caller can read it (its name is not for everyone). Links that do not resolve
+ * are left out.
+ */
+async function resolveScopeLinks(c: AppContext, projectId: string, items: ReadonlyArray<ScopeLinkItem>): Promise<Map<string, ScopeLinkTarget>> {
+  const db = c.get('tenantDb');
+  const wanted = wantedLinkIds(items);
+  const out: ScopeLinkTargets = new Map();
+  await addDecisionTargets(db, projectId, wanted.decision, out);
+  await addChangeRequestTargets(db, projectId, wanted.change_request, out);
+  await addProjectTargets(c, wanted.project, out);
   return out;
+}
+
+/** Whether some out-of-scope link points at something that does not resolve. */
+async function hasUnresolvedLink(c: AppContext, projectId: string, outOfScope: ReadonlyArray<ScopeLinkItem>): Promise<boolean> {
+  const targets = await resolveScopeLinks(c, projectId, outOfScope);
+  return outOfScope.some((item) => {
+    const key = scopeLinkKey(item);
+    return key !== null && key !== '' && !targets.has(key);
+  });
 }
 
 app.get('/:projectId', requirePermission('projects:read'), async (c) => {
@@ -154,13 +179,7 @@ app.put('/:projectId', requirePermission('projects:update'), async (c) => {
 
   try {
     const outOfScope = input.outOfScope ? normalizeOutOfScope(input.outOfScope) : undefined;
-    if (outOfScope) {
-      const targets = await resolveScopeLinks(c, projectId, outOfScope);
-      for (const item of outOfScope) {
-        const key = scopeLinkKey(item);
-        if (key && !targets.has(key)) return error.badRequest(c, SCOPE_MESSAGES.linkNotFound);
-      }
-    }
+    if (outOfScope && (await hasUnresolvedLink(c, projectId, outOfScope))) return error.badRequest(c, SCOPE_MESSAGES.linkNotFound);
 
     const now = new Date();
     const existing = await findScope(db, projectId);

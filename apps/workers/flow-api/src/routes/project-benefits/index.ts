@@ -323,6 +323,31 @@ app.post('/', requirePermission('projects:create'), async (c) => {
 
 // ── Edit ────────────────────────────────────────────────────────────────────
 
+/** The columns an edit sets: only the fields it sent, and the closing date a status change implies. */
+function benefitUpdateSet(
+  input: z.infer<typeof updateBenefitSchema>,
+  nextParams: Record<string, unknown> | undefined,
+  closedAt: Date | null,
+  now: Date,
+): Partial<typeof t.$inferInsert> {
+  const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
+  if (input.title !== undefined) set.title = input.title;
+  if (input.description !== undefined) set.description = input.description;
+  if (input.ownerId !== undefined) set.ownerId = input.ownerId;
+  if (input.goalRef !== undefined) set.goalRef = input.goalRef;
+  if (input.metric !== undefined) set.metric = input.metric;
+  if (nextParams !== undefined) set.metricParams = nextParams;
+  if (input.unit !== undefined) set.unit = input.unit;
+  if (input.baselineValue !== undefined) set.baselineValue = numeric(input.baselineValue);
+  if (input.targetValue !== undefined) set.targetValue = numeric(input.targetValue);
+  if (input.realiseBy !== undefined) set.realiseBy = toDate(input.realiseBy);
+  if (input.status !== undefined) {
+    set.status = input.status;
+    set.closedAt = benefitClosedAtFor(input.status, closedAt, now);
+  }
+  return set;
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -345,21 +370,7 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
 
   try {
     const now = new Date();
-    const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
-    if (input.title !== undefined) set.title = input.title;
-    if (input.description !== undefined) set.description = input.description;
-    if (input.ownerId !== undefined) set.ownerId = input.ownerId;
-    if (input.goalRef !== undefined) set.goalRef = input.goalRef;
-    if (input.metric !== undefined) set.metric = input.metric;
-    if (nextParams !== undefined) set.metricParams = nextParams;
-    if (input.unit !== undefined) set.unit = input.unit;
-    if (input.baselineValue !== undefined) set.baselineValue = numeric(input.baselineValue);
-    if (input.targetValue !== undefined) set.targetValue = numeric(input.targetValue);
-    if (input.realiseBy !== undefined) set.realiseBy = toDate(input.realiseBy);
-    if (input.status !== undefined) {
-      set.status = input.status;
-      set.closedAt = benefitClosedAtFor(input.status, existing.closedAt, now);
-    }
+    const set = benefitUpdateSet(input, nextParams, existing.closedAt, now);
 
     await atomically(db, (handle) => [handle.update(t).set(set).where(and(eq(t.id, id), isNull(t.deletedAt)))]);
     const row = await findBenefit(db, id);

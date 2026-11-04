@@ -25,7 +25,6 @@ import type {
   TaskDependency,
 } from '@weldsuite/app-api-client/schemas/project-schedule';
 import {
-  computeSchedule,
   dateOf,
   normalizeCalendar,
   projectDeliverables,
@@ -171,11 +170,11 @@ export async function loadScheduleData(db: Database, project: ProjectRow): Promi
   ]);
 
   const baselineGoLive = baseline?.goLive ?? null;
-  const goLive: ScheduleGoLive = baselineGoLive
-    ? { date: baselineGoLive, source: 'baseline', baselineVersion: baseline?.version ?? null }
-    : dateOf(project.endDate)
-      ? { date: dateOf(project.endDate), source: 'project', baselineVersion: baseline?.version ?? null }
-      : { date: null, source: null, baselineVersion: baseline?.version ?? null };
+  const baselineVersion = baseline?.version ?? null;
+  const projectEnd = dateOf(project.endDate);
+  let goLive: ScheduleGoLive = { date: null, source: null, baselineVersion };
+  if (baselineGoLive) goLive = { date: baselineGoLive, source: 'baseline', baselineVersion };
+  else if (projectEnd) goLive = { date: projectEnd, source: 'project', baselineVersion };
 
   return {
     project,

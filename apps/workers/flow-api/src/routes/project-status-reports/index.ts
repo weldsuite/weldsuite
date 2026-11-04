@@ -25,6 +25,7 @@
  */
 
 import { Hono } from 'hono';
+import type { z } from 'zod';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -149,6 +150,17 @@ app.get('/settings/:projectId', requirePermission('projects:read'), async (c) =>
   }
 });
 
+/** A merge write of only the keys sent: `settings` carries other features' keys. */
+function mergedSettings(input: z.infer<typeof putStatusReportSettingsSchema>) {
+  const patch: Record<string, unknown> = {};
+  if (input.statusReport) patch.statusReport = input.statusReport;
+  if (input.riskAppetite !== undefined) patch.riskAppetite = input.riskAppetite;
+  let merged = sql`coalesce(${schema.projects.settings}, '{}'::jsonb)`;
+  if (input.statusReport === null) merged = sql`(${merged} - 'statusReport')`;
+  if (Object.keys(patch).length > 0) merged = sql`(${merged} || ${JSON.stringify(patch)}::jsonb)`;
+  return merged;
+}
+
 app.put('/settings/:projectId', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const projectId = c.req.param('projectId');
@@ -163,13 +175,7 @@ app.put('/settings/:projectId', requirePermission('projects:update'), async (c) 
   }
 
   try {
-    // A merge write of only the keys sent: `settings` carries other features' keys.
-    const patch: Record<string, unknown> = {};
-    if (input.statusReport) patch.statusReport = input.statusReport;
-    if (input.riskAppetite !== undefined) patch.riskAppetite = input.riskAppetite;
-    let merged = sql`coalesce(${schema.projects.settings}, '{}'::jsonb)`;
-    if (input.statusReport === null) merged = sql`(${merged} - 'statusReport')`;
-    if (Object.keys(patch).length > 0) merged = sql`(${merged} || ${JSON.stringify(patch)}::jsonb)`;
+    const merged = mergedSettings(input);
     const touched = input.statusReport !== undefined || input.riskAppetite !== undefined;
     const now = new Date();
     if (touched) {
@@ -287,6 +293,40 @@ app.post('/', requirePermission('projects:update'), async (c) => {
 
 // ── Edit a draft ────────────────────────────────────────────────────────────
 
+type UpdateReportInput = z.infer<typeof updateStatusReportSchema>;
+
+/** The areas after an edit: an override sets one by hand, no override hands it back to the computed colour. */
+function editedAreas(existing: StatusReportRow, edits: NonNullable<UpdateReportInput['areas']>): StatusReportRow['areas'] {
+  const computed = snapshotComputedAreas(existing.snapshot);
+  const areas = existing.areas.map((area) => ({ ...area }));
+  for (const edit of edits) {
+    const index = areas.findIndex((area) => area.key === edit.key);
+    if (index === -1) continue;
+    areas[index] = edit.override
+      ? { key: edit.key, colour: edit.override.colour, reason: edit.override.reason, auto: false }
+      : { key: edit.key, colour: computed?.[edit.key]?.colour ?? areas[index].colour, reason: null, auto: true };
+  }
+  return areas;
+}
+
+function editedRecipients(recipients: NonNullable<UpdateReportInput['recipients']> | null): Partial<typeof t.$inferInsert>['recipients'] {
+  if (recipients === null) return null;
+  return recipients.stakeholderIds ? { stakeholderIds: recipients.stakeholderIds } : {};
+}
+
+/** The columns an edit sets: only the fields it sent. */
+function reportUpdateSet(existing: StatusReportRow, input: UpdateReportInput, now: Date): Partial<typeof t.$inferInsert> {
+  const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
+  if (input.summary !== undefined) set.summary = input.summary ? input.summary : null;
+  if (input.overall !== undefined) set.overall = input.overall;
+  if (input.areas !== undefined) set.areas = editedAreas(existing, input.areas);
+  if (input.done !== undefined) set.done = input.done.map(storedItem);
+  if (input.next !== undefined) set.next = input.next.map(storedItem);
+  if (input.clientVisible !== undefined) set.clientVisible = input.clientVisible;
+  if (input.recipients !== undefined) set.recipients = editedRecipients(input.recipients);
+  return set;
+}
+
 app.patch('/:id', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -303,27 +343,7 @@ app.patch('/:id', requirePermission('projects:update'), async (c) => {
 
   try {
     const now = new Date();
-    const set: Partial<typeof t.$inferInsert> = { updatedAt: now };
-    if (input.summary !== undefined) set.summary = input.summary ? input.summary : null;
-    if (input.overall !== undefined) set.overall = input.overall;
-    if (input.areas !== undefined) {
-      const computed = snapshotComputedAreas(existing.snapshot);
-      const areas = existing.areas.map((area) => ({ ...area }));
-      for (const edit of input.areas) {
-        const index = areas.findIndex((area) => area.key === edit.key);
-        if (index === -1) continue;
-        areas[index] = edit.override
-          ? { key: edit.key, colour: edit.override.colour, reason: edit.override.reason, auto: false }
-          : { key: edit.key, colour: computed?.[edit.key]?.colour ?? areas[index].colour, reason: null, auto: true };
-      }
-      set.areas = areas;
-    }
-    if (input.done !== undefined) set.done = input.done.map(storedItem);
-    if (input.next !== undefined) set.next = input.next.map(storedItem);
-    if (input.clientVisible !== undefined) set.clientVisible = input.clientVisible;
-    if (input.recipients !== undefined) {
-      set.recipients = input.recipients === null ? null : input.recipients.stakeholderIds ? { stakeholderIds: input.recipients.stakeholderIds } : {};
-    }
+    const set = reportUpdateSet(existing, input, now);
     await db.update(t).set(set).where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.status, 'draft')));
     const row = await findReport(db, id);
     if (!row) return error.notFound(c, REPORT_LABEL, id);

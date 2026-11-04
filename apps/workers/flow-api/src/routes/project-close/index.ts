@@ -24,7 +24,7 @@ import { hasContextPermission, requirePermission } from '@weldsuite/permissions/
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { handoverSchema, requestCloseSchema } from '@weldsuite/app-api-client/schemas/project-closing';
 import { cancelPendingApprovals, listSubjectApprovals, requestApprovals, sponsorOf } from '@weldsuite/flow-domain/approvals';
 import { CLOSING_MESSAGES } from '@weldsuite/flow-domain/project-closing';
@@ -61,6 +61,85 @@ app.get('/:projectId', requirePermission('projects:read'), async (c) => {
 
 // ── Hand over ───────────────────────────────────────────────────────────────
 
+/** The live, open register items of a project among `ids`. */
+async function openRaidItems(db: Database, projectId: string, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(schema.projectRaidItems)
+    .where(
+      and(
+        inArray(schema.projectRaidItems.id, ids),
+        eq(schema.projectRaidItems.projectId, projectId),
+        isNull(schema.projectRaidItems.deletedAt),
+        isNull(schema.projectRaidItems.closedAt),
+      ),
+    );
+}
+
+/** The live, not yet closed benefits of a project among `ids`. */
+async function openBenefits(db: Database, projectId: string, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(schema.projectBenefits)
+    .where(
+      and(
+        inArray(schema.projectBenefits.id, ids),
+        eq(schema.projectBenefits.projectId, projectId),
+        isNull(schema.projectBenefits.deletedAt),
+        ne(schema.projectBenefits.status, 'closed'),
+      ),
+    );
+}
+
+/** In the order the request named them; an owner that did not change publishes nothing. */
+function publishHandoverEvents(
+  c: AppContext,
+  handover: {
+    projectId: string;
+    now: Date;
+    raidRows: Awaited<ReturnType<typeof openRaidItems>>;
+    raidOwner: ReadonlyMap<string, string>;
+    benefitRows: Awaited<ReturnType<typeof openBenefits>>;
+    benefitOwner: ReadonlyMap<string, string>;
+  },
+): void {
+  const { projectId, now } = handover;
+  const raidBefore = new Map(handover.raidRows.map((row) => [row.id, row]));
+  for (const [id, ownerId] of handover.raidOwner) {
+    const before = raidBefore.get(id);
+    if (!before || ownerId === before.ownerId) continue;
+    publishEntityEvent({
+      c,
+      entityType: 'project_raid_item',
+      entityId: id,
+      action: 'updated',
+      data: raidEventData({ ...before, ownerId, updatedAt: now }),
+    });
+  }
+  const benefitBefore = new Map(handover.benefitRows.map((row) => [row.id, row]));
+  for (const [id, ownerId] of handover.benefitOwner) {
+    const before = benefitBefore.get(id);
+    if (!before || ownerId === before.ownerId) continue;
+    publishEntityEvent({
+      c,
+      entityType: 'project_benefit',
+      entityId: id,
+      action: 'updated',
+      data: {
+        id,
+        projectId,
+        number: before.number,
+        code: `B-${before.number}`,
+        title: before.title,
+        status: before.status,
+        ownerId,
+      },
+    });
+  }
+}
+
 app.post('/:projectId/handover', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -77,36 +156,10 @@ app.post('/:projectId/handover', requirePermission('projects:update'), async (c)
   try {
     // Every item has to be a live, open item of this project.
     const raidIds = [...new Set(raidEntries.map((entry) => entry.id))];
-    const raidRows =
-      raidIds.length === 0
-        ? []
-        : await db
-            .select()
-            .from(schema.projectRaidItems)
-            .where(
-              and(
-                inArray(schema.projectRaidItems.id, raidIds),
-                eq(schema.projectRaidItems.projectId, projectId),
-                isNull(schema.projectRaidItems.deletedAt),
-                isNull(schema.projectRaidItems.closedAt),
-              ),
-            );
+    const raidRows = await openRaidItems(db, projectId, raidIds);
     if (raidRows.length !== raidIds.length) return error.badRequest(c, CLOSING_MESSAGES.handoverRaidItem);
     const benefitIds = [...new Set(benefitEntries.map((entry) => entry.id))];
-    const benefitRows =
-      benefitIds.length === 0
-        ? []
-        : await db
-            .select()
-            .from(schema.projectBenefits)
-            .where(
-              and(
-                inArray(schema.projectBenefits.id, benefitIds),
-                eq(schema.projectBenefits.projectId, projectId),
-                isNull(schema.projectBenefits.deletedAt),
-                ne(schema.projectBenefits.status, 'closed'),
-              ),
-            );
+    const benefitRows = await openBenefits(db, projectId, benefitIds);
     if (benefitRows.length !== benefitIds.length) return error.badRequest(c, CLOSING_MESSAGES.handoverBenefit);
 
     // The last entry for an item wins.
@@ -143,39 +196,7 @@ app.post('/:projectId/handover', requirePermission('projects:update'), async (c)
         : []),
     ]);
 
-    // In the order the request named them; an owner that did not change publishes nothing.
-    const raidBefore = new Map(raidRows.map((row) => [row.id, row]));
-    for (const [id, ownerId] of raidOwner) {
-      const before = raidBefore.get(id);
-      if (!before || ownerId === before.ownerId) continue;
-      publishEntityEvent({
-        c,
-        entityType: 'project_raid_item',
-        entityId: id,
-        action: 'updated',
-        data: raidEventData({ ...before, ownerId, updatedAt: now }),
-      });
-    }
-    const benefitBefore = new Map(benefitRows.map((row) => [row.id, row]));
-    for (const [id, ownerId] of benefitOwner) {
-      const before = benefitBefore.get(id);
-      if (!before || ownerId === before.ownerId) continue;
-      publishEntityEvent({
-        c,
-        entityType: 'project_benefit',
-        entityId: id,
-        action: 'updated',
-        data: {
-          id,
-          projectId,
-          number: before.number,
-          code: `B-${before.number}`,
-          title: before.title,
-          status: before.status,
-          ownerId,
-        },
-      });
-    }
+    publishHandoverEvents(c, { projectId, now, raidRows, raidOwner, benefitRows, benefitOwner });
     if (raidOwner.size > 0) {
       const updated = await findLiveProject(db, projectId);
       if (updated) {

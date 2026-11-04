@@ -26,7 +26,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   createTaskDependencySchema,
   listTaskDependenciesQuerySchema,
@@ -83,6 +83,34 @@ function publishLinkedTask(c: ScheduleContext, id: string, current: LinkedTask, 
 
 // ── List ────────────────────────────────────────────────────────────────────
 
+/** The conditions of the list's scope (a project, a task), or the refusal when the caller may not see it. */
+async function scopeConditions(
+  c: ScheduleContext,
+  db: Database,
+  q: { projectId?: string; taskId?: string },
+): Promise<{ ok: true; data: SQL[] } | { ok: false; response: Response }> {
+  const conditions: SQL[] = [];
+  if (q.projectId) {
+    if (!(await canAccessProject(c, q.projectId))) return { ok: false, response: error.forbidden(c, PROJECT_DENIED) };
+    conditions.push(eq(deps.projectId, q.projectId));
+  }
+  if (q.taskId) {
+    const [task] = await findTasksForLink(db, [q.taskId]);
+    if (!task) return { ok: false, response: error.notFound(c, 'Task', q.taskId) };
+    if (!task.projectId || !(await canAccessProject(c, task.projectId))) return { ok: false, response: error.forbidden(c, PROJECT_DENIED) };
+    conditions.push(or(eq(deps.predecessorId, q.taskId), eq(deps.successorId, q.taskId)) as SQL);
+  }
+  return { ok: true, data: conditions };
+}
+
+/** The keyset condition for the rows after the cursor, or null (no cursor, or it names no row). */
+async function cursorCondition(db: Database, cursor: string | undefined): Promise<SQL | null> {
+  if (!cursor) return null;
+  const [cur] = await db.select({ createdAt: deps.createdAt, id: deps.id }).from(deps).where(eq(deps.id, cursor)).limit(1);
+  if (!cur) return null;
+  return sql`(${deps.createdAt} < ${cur.createdAt} OR (${deps.createdAt} = ${cur.createdAt} AND ${deps.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
   const query = readQuery(c, listTaskDependenciesQuerySchema);
@@ -91,24 +119,12 @@ app.get('/', requirePermission('projects:read'), async (c) => {
   if (!q.projectId && !q.taskId) return error.badRequest(c, DEPENDENCY_MESSAGES.listScope);
   const limit = parseLimit(q.limit, 100, 500);
 
-  const conditions: SQL[] = [];
-  if (q.projectId) {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
-    conditions.push(eq(deps.projectId, q.projectId));
-  }
-  if (q.taskId) {
-    const [task] = await findTasksForLink(db, [q.taskId]);
-    if (!task) return error.notFound(c, 'Task', q.taskId);
-    if (!task.projectId || !(await canAccessProject(c, task.projectId))) return error.forbidden(c, PROJECT_DENIED);
-    conditions.push(or(eq(deps.predecessorId, q.taskId), eq(deps.successorId, q.taskId)) as SQL);
-  }
+  const scoped = await scopeConditions(c, db, q);
+  if (!scoped.ok) return scoped.response;
+  const conditions = scoped.data;
   const countWhere = and(...conditions);
-  if (q.cursor) {
-    const [cur] = await db.select({ createdAt: deps.createdAt, id: deps.id }).from(deps).where(eq(deps.id, q.cursor)).limit(1);
-    if (cur) {
-      conditions.push(sql`(${deps.createdAt} < ${cur.createdAt} OR (${deps.createdAt} = ${cur.createdAt} AND ${deps.id} < ${cur.id}))`);
-    }
-  }
+  const afterCursor = await cursorCondition(db, q.cursor);
+  if (afterCursor) conditions.push(afterCursor);
 
   try {
     const [rows, countRes] = await Promise.all([

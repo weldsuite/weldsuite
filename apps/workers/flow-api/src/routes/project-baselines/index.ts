@@ -36,6 +36,7 @@ import {
   loadPlanState,
   presentBaseline,
   type BaselineRow,
+  type PlanState,
 } from '@weldsuite/flow-domain/baselines';
 import { changeCode, listPendingChanges } from '@weldsuite/flow-domain/changes';
 import type { Env, Variables } from '../../types';
@@ -125,6 +126,68 @@ app.get('/', requirePermission('projects:read'), async (c) => {
   }
 });
 
+type CompareQuery = z.infer<typeof compareBaselinesQuerySchema>;
+
+/** The version the comparison starts from: `from`, else the latest of the project. */
+async function resolveFrom(c: AppContext, db: Database, q: CompareQuery): Promise<Parsed<BaselineRow>> {
+  let from: BaselineRow | null;
+  if (q.from) {
+    from = await findBaseline(db, q.from);
+    if (!from) return { ok: false, response: error.notFound(c, ITEM_LABEL, q.from) };
+  } else {
+    if (!(await canAccessProject(c, q.projectId as string))) return { ok: false, response: error.forbidden(c, PROJECT_DENIED) };
+    from = await latestBaseline(db, q.projectId as string);
+    if (!from) return { ok: false, response: error.notFound(c, ITEM_LABEL) };
+  }
+  if (!(await canAccessProject(c, from.projectId))) return { ok: false, response: error.forbidden(c, PROJECT_DENIED) };
+  return { ok: true, data: from };
+}
+
+/** The version compared against, or null for the live plan. */
+async function resolveTo(c: AppContext, db: Database, q: CompareQuery, from: BaselineRow): Promise<Parsed<BaselineRow | null>> {
+  if (!q.to || q.to === 'current') return { ok: true, data: null };
+  const to = await findBaseline(db, q.to);
+  if (!to) return { ok: false, response: error.notFound(c, ITEM_LABEL, q.to) };
+  if (to.projectId !== from.projectId) return { ok: false, response: error.badRequest(c, BASELINE_MESSAGES.differentProjects) };
+  return { ok: true, data: to };
+}
+
+function snapshotToCompare(to: BaselineRow | null, plan: PlanState | null, from: BaselineRow): BaselineRow['snapshot'] {
+  if (to) return to.snapshot;
+  return plan ? buildSnapshot(plan) : { ...from.snapshot, milestones: [], deliverables: [] };
+}
+
+const isoOrNull = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : null);
+
+/** What open change requests would do to the live plan, for the dashed previews. */
+async function pendingPreviews(db: Database, projectId: string, plan: PlanState) {
+  const pending = [];
+  for (const change of await listPendingChanges(db, projectId)) {
+    pending.push({
+      changeRequestId: change.id,
+      code: changeCode(change.number),
+      title: change.title,
+      status: change.status as 'assessing' | 'awaiting_approval',
+      milestones: (change.planChanges?.milestones ?? []).flatMap((move) => {
+        const current = plan.milestones.find((m) => m.id === move.milestoneId);
+        return current
+          ? [{ milestoneId: move.milestoneId, name: current.name, from: current.dueDate.toISOString(), to: new Date(move.to).toISOString() }]
+          : [];
+      }),
+      deliverables: (change.planChanges?.deliverables ?? []).map((move) => {
+        const current = plan.deliverables.find((d) => d.id === move.deliverableId);
+        return {
+          deliverableId: move.deliverableId,
+          plannedStart: move.plannedStart !== undefined ? isoOrNull(move.plannedStart) : isoOrNull(current?.plannedStart),
+          plannedEnd: move.plannedEnd !== undefined ? isoOrNull(move.plannedEnd) : isoOrNull(current?.plannedEnd),
+        };
+      }),
+      goLive: isoOrNull(change.planChanges?.goLive),
+    });
+  }
+  return pending;
+}
+
 // MUST be before /:id.
 app.get('/compare', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -134,54 +197,16 @@ app.get('/compare', requirePermission('projects:read'), async (c) => {
   if (!q.projectId && !q.from) return error.badRequest(c, BASELINE_MESSAGES.needsProjectOrFrom);
 
   try {
-    let from: BaselineRow | null;
-    if (q.from) {
-      from = await findBaseline(db, q.from);
-      if (!from) return error.notFound(c, ITEM_LABEL, q.from);
-    } else {
-      if (!(await canAccessProject(c, q.projectId as string))) return error.forbidden(c, PROJECT_DENIED);
-      from = await latestBaseline(db, q.projectId as string);
-      if (!from) return error.notFound(c, ITEM_LABEL);
-    }
-    if (!(await canAccessProject(c, from.projectId))) return error.forbidden(c, PROJECT_DENIED);
+    const resolvedFrom = await resolveFrom(c, db, q);
+    if (!resolvedFrom.ok) return resolvedFrom.response;
+    const from = resolvedFrom.data;
+    const resolvedTo = await resolveTo(c, db, q, from);
+    if (!resolvedTo.ok) return resolvedTo.response;
+    const to = resolvedTo.data;
 
-    let to: BaselineRow | null = null;
-    if (q.to && q.to !== 'current') {
-      to = await findBaseline(db, q.to);
-      if (!to) return error.notFound(c, ITEM_LABEL, q.to);
-      if (to.projectId !== from.projectId) return error.badRequest(c, BASELINE_MESSAGES.differentProjects);
-    }
     const plan = to ? null : await loadPlanState(db, from.projectId);
-    const toSnapshot = to ? to.snapshot : plan ? buildSnapshot(plan) : { ...from.snapshot, milestones: [], deliverables: [] };
-
-    // What open change requests would do to the live plan, for the dashed previews.
-    const pending = [];
-    if (!to && plan) {
-      for (const change of await listPendingChanges(db, from.projectId)) {
-        pending.push({
-          changeRequestId: change.id,
-          code: changeCode(change.number),
-          title: change.title,
-          status: change.status as 'assessing' | 'awaiting_approval',
-          milestones: (change.planChanges?.milestones ?? []).flatMap((move) => {
-            const current = plan.milestones.find((m) => m.id === move.milestoneId);
-            return current
-              ? [{ milestoneId: move.milestoneId, name: current.name, from: current.dueDate.toISOString(), to: new Date(move.to).toISOString() }]
-              : [];
-          }),
-          deliverables: (change.planChanges?.deliverables ?? []).map((move) => {
-            const current = plan.deliverables.find((d) => d.id === move.deliverableId);
-            const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : null);
-            return {
-              deliverableId: move.deliverableId,
-              plannedStart: move.plannedStart !== undefined ? iso(move.plannedStart) : iso(current?.plannedStart),
-              plannedEnd: move.plannedEnd !== undefined ? iso(move.plannedEnd) : iso(current?.plannedEnd),
-            };
-          }),
-          goLive: change.planChanges?.goLive ? new Date(change.planChanges.goLive).toISOString() : null,
-        });
-      }
-    }
+    const toSnapshot = snapshotToCompare(to, plan, from);
+    const pending = !to && plan ? await pendingPreviews(db, from.projectId, plan) : [];
     return success(c, {
       from: await presentOne(db, from),
       to: to ? await presentOne(db, to) : null,

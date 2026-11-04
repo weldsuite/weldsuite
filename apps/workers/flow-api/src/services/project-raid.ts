@@ -112,6 +112,157 @@ export interface ResolvedEnd extends LinkEnd {
   dueDate: Date | null;
 }
 
+type EndLoader = (db: Database, ids: string[]) => Promise<ResolvedEnd[]>;
+
+const loadRaidItemEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select()
+    .from(items)
+    .where(and(inArray(items.id, ids), isNull(items.deletedAt)));
+  return rows.map((row) => ({
+    type: 'raid_item',
+    id: row.id,
+    projectId: row.projectId,
+    kind: row.kind,
+    title: row.title,
+    status: row.status,
+    code: raidCode(row.kind, row.number),
+    ownerId: row.ownerId,
+    dueDate: row.dueAt,
+  }));
+};
+
+const loadTaskEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select({
+      id: schema.tasks.id,
+      projectId: schema.tasks.projectId,
+      title: schema.tasks.title,
+      status: schema.tasks.status,
+      assigneeId: schema.tasks.assigneeId,
+      dueDate: schema.tasks.dueDate,
+    })
+    .from(schema.tasks)
+    .where(and(inArray(schema.tasks.id, ids), isNull(schema.tasks.deletedAt)));
+  const ends: ResolvedEnd[] = [];
+  for (const row of rows) {
+    if (!row.projectId) continue;
+    ends.push({
+      type: 'task',
+      id: row.id,
+      projectId: row.projectId,
+      title: row.title,
+      status: row.status,
+      code: null,
+      ownerId: row.assigneeId,
+      dueDate: row.dueDate,
+    });
+  }
+  return ends;
+};
+
+const loadDecisionEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select()
+    .from(schema.projectDecisions)
+    .where(and(inArray(schema.projectDecisions.id, ids), isNull(schema.projectDecisions.deletedAt)));
+  return rows.map((row) => ({
+    type: 'decision',
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    status: row.status,
+    code: decisionCode(row.number),
+    ownerId: row.deciderId ?? row.decidedBy,
+    dueDate: row.decisionDueAt,
+  }));
+};
+
+const loadChangeRequestEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select()
+    .from(schema.projectChangeRequests)
+    .where(and(inArray(schema.projectChangeRequests.id, ids), isNull(schema.projectChangeRequests.deletedAt)));
+  return rows.map((row) => ({
+    type: 'change_request',
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    status: row.status,
+    code: `CR-${row.number}`,
+    ownerId: row.requestedBy,
+    dueDate: null,
+  }));
+};
+
+const loadDeliverableEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select()
+    .from(schema.projectDeliverables)
+    .where(and(inArray(schema.projectDeliverables.id, ids), isNull(schema.projectDeliverables.deletedAt)));
+  return rows.map((row) => ({
+    type: 'deliverable',
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    status: row.status,
+    code: deliverableCode(row.number),
+    ownerId: row.ownerId,
+    dueDate: row.plannedEnd,
+  }));
+};
+
+const loadBenefitEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select()
+    .from(schema.projectBenefits)
+    .where(and(inArray(schema.projectBenefits.id, ids), isNull(schema.projectBenefits.deletedAt)));
+  return rows.map((row) => ({
+    type: 'benefit',
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    status: row.status,
+    code: benefitCode(row.number),
+    ownerId: row.ownerId,
+    dueDate: row.realiseBy,
+  }));
+};
+
+const loadMilestoneEnds: EndLoader = async (db, ids) => {
+  const rows = await db
+    .select({
+      id: schema.milestones.id,
+      projectId: schema.milestones.projectId,
+      name: schema.milestones.name,
+      status: schema.milestones.status,
+      ownerId: schema.milestones.ownerId,
+      dueDate: schema.milestones.dueDate,
+    })
+    .from(schema.milestones)
+    .where(and(inArray(schema.milestones.id, ids), isNull(schema.milestones.deletedAt)));
+  return rows.map((row) => ({
+    type: 'milestone',
+    id: row.id,
+    projectId: row.projectId,
+    title: row.name,
+    status: row.status,
+    code: null,
+    ownerId: row.ownerId,
+    dueDate: row.dueDate,
+  }));
+};
+
+const END_LOADERS: Record<ControlLinkType, EndLoader> = {
+  raid_item: loadRaidItemEnds,
+  task: loadTaskEnds,
+  decision: loadDecisionEnds,
+  change_request: loadChangeRequestEnds,
+  deliverable: loadDeliverableEnds,
+  benefit: loadBenefitEnds,
+  milestone: loadMilestoneEnds,
+};
+
 /**
  * Look up objects of one type. A task without a project cannot be part of
  * project control, so it is treated like a missing one.
@@ -119,142 +270,7 @@ export interface ResolvedEnd extends LinkEnd {
 async function resolveEnds(db: Database, type: ControlLinkType, ids: string[]): Promise<Map<string, ResolvedEnd>> {
   const out = new Map<string, ResolvedEnd>();
   if (ids.length === 0) return out;
-  if (type === 'raid_item') {
-    const rows = await db
-      .select()
-      .from(items)
-      .where(and(inArray(items.id, ids), isNull(items.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        kind: row.kind,
-        title: row.title,
-        status: row.status,
-        code: raidCode(row.kind, row.number),
-        ownerId: row.ownerId,
-        dueDate: row.dueAt,
-      });
-    }
-  } else if (type === 'task') {
-    const rows = await db
-      .select({
-        id: schema.tasks.id,
-        projectId: schema.tasks.projectId,
-        title: schema.tasks.title,
-        status: schema.tasks.status,
-        assigneeId: schema.tasks.assigneeId,
-        dueDate: schema.tasks.dueDate,
-      })
-      .from(schema.tasks)
-      .where(and(inArray(schema.tasks.id, ids), isNull(schema.tasks.deletedAt)));
-    for (const row of rows) {
-      if (!row.projectId) continue;
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.title,
-        status: row.status,
-        code: null,
-        ownerId: row.assigneeId,
-        dueDate: row.dueDate,
-      });
-    }
-  } else if (type === 'decision') {
-    const rows = await db
-      .select()
-      .from(schema.projectDecisions)
-      .where(and(inArray(schema.projectDecisions.id, ids), isNull(schema.projectDecisions.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.title,
-        status: row.status,
-        code: decisionCode(row.number),
-        ownerId: row.deciderId ?? row.decidedBy,
-        dueDate: row.decisionDueAt,
-      });
-    }
-  } else if (type === 'change_request') {
-    const rows = await db
-      .select()
-      .from(schema.projectChangeRequests)
-      .where(and(inArray(schema.projectChangeRequests.id, ids), isNull(schema.projectChangeRequests.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.title,
-        status: row.status,
-        code: `CR-${row.number}`,
-        ownerId: row.requestedBy,
-        dueDate: null,
-      });
-    }
-  } else if (type === 'deliverable') {
-    const rows = await db
-      .select()
-      .from(schema.projectDeliverables)
-      .where(and(inArray(schema.projectDeliverables.id, ids), isNull(schema.projectDeliverables.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.title,
-        status: row.status,
-        code: deliverableCode(row.number),
-        ownerId: row.ownerId,
-        dueDate: row.plannedEnd,
-      });
-    }
-  } else if (type === 'benefit') {
-    const rows = await db
-      .select()
-      .from(schema.projectBenefits)
-      .where(and(inArray(schema.projectBenefits.id, ids), isNull(schema.projectBenefits.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.title,
-        status: row.status,
-        code: benefitCode(row.number),
-        ownerId: row.ownerId,
-        dueDate: row.realiseBy,
-      });
-    }
-  } else {
-    const rows = await db
-      .select({
-        id: schema.milestones.id,
-        projectId: schema.milestones.projectId,
-        name: schema.milestones.name,
-        status: schema.milestones.status,
-        ownerId: schema.milestones.ownerId,
-        dueDate: schema.milestones.dueDate,
-      })
-      .from(schema.milestones)
-      .where(and(inArray(schema.milestones.id, ids), isNull(schema.milestones.deletedAt)));
-    for (const row of rows) {
-      out.set(row.id, {
-        type,
-        id: row.id,
-        projectId: row.projectId,
-        title: row.name,
-        status: row.status,
-        code: null,
-        ownerId: row.ownerId,
-        dueDate: row.dueDate,
-      });
-    }
-  }
+  for (const end of await END_LOADERS[type](db, ids)) out.set(end.id, end);
   return out;
 }
 

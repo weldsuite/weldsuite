@@ -212,6 +212,26 @@ app.get('/raci/:projectId', requirePermission('projects:read'), async (c) => {
   }
 });
 
+/** One `updated` event for each stakeholder whose letters on the subject changed. */
+function publishRaciChanges(
+  c: AppContext,
+  known: ReadonlyMap<string, Parameters<typeof publishStakeholder>[2]>,
+  changedIds: Iterable<string>,
+  cell: { subjectType: string; subjectId: string | null; assignments: ReadonlyArray<{ stakeholderId: string; letter: string }> },
+): void {
+  for (const id of changedIds) {
+    const row = known.get(id);
+    if (!row) continue;
+    publishStakeholder(c, 'updated', row, {
+      raci: {
+        subjectType: cell.subjectType,
+        subjectId: cell.subjectId,
+        letters: cell.assignments.filter((assignment) => assignment.stakeholderId === id).map((assignment) => assignment.letter),
+      },
+    });
+  }
+}
+
 app.put('/raci/:projectId', requirePermission('projects:update'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -277,17 +297,11 @@ app.put('/raci/:projectId', requirePermission('projects:update'), async (c) => {
 
     // A cell is a relation, not an entity: the stakeholders' events are its trail.
     const order = register.map((row) => row.id);
-    for (const id of changedStakeholders(before, input.assignments)) {
-      const row = known.get(id);
-      if (!row) continue;
-      publishStakeholder(c, 'updated', row, {
-        raci: {
-          subjectType: input.subjectType,
-          subjectId,
-          letters: input.assignments.filter((assignment) => assignment.stakeholderId === id).map((assignment) => assignment.letter),
-        },
-      });
-    }
+    publishRaciChanges(c, known, changedStakeholders(before, input.assignments), {
+      subjectType: input.subjectType,
+      subjectId,
+      assignments: input.assignments,
+    });
     return success(c, {
       subjectType: input.subjectType,
       subjectId,

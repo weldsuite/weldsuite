@@ -63,6 +63,75 @@ export interface ApprovalSweepResult {
   overdue: number;
 }
 
+type SweepBase = { db: Database; env: Env; clerkOrgId: string };
+
+/** Due within a day, not yet reminded. Returns how many reminders went out. */
+async function remindDueSoon(base: SweepBase, now: Date): Promise<number> {
+  const { db, clerkOrgId: orgId } = base;
+  let reminded = 0;
+  const dueSoon = await db
+    .select()
+    .from(t)
+    .where(
+      and(
+        eq(t.decision, 'pending'),
+        isNull(t.deletedAt),
+        isNull(t.remindedAt),
+        isNotNull(t.dueAt),
+        lte(t.dueAt, new Date(now.getTime() + DAY_MS)),
+        gt(t.dueAt, now),
+      ),
+    )
+    .orderBy(asc(t.dueAt), asc(t.id))
+    .limit(ROWS_PER_TICK);
+  if (dueSoon.length === 0) return reminded;
+  const describe = await labelsFor(db, dueSoon);
+  for (const row of dueSoon) {
+    try {
+      if (row.approverKind === 'member' && (await isActionable(db, row))) {
+        const { label, projectName } = describe(row);
+        await sendApprovalNotification(base, { userId: row.approverId, approvalId: row.id, kind: 'reminder', label, projectName });
+        reminded += 1;
+      }
+      await db.update(t).set({ remindedAt: now }).where(eq(t.id, row.id));
+    } catch (err) {
+      console.error(`[ApprovalDue] reminder for ${row.id} in ${orgId} failed:`, err);
+    }
+  }
+  return reminded;
+}
+
+/** Past due, the requester not yet told. Returns how many notices went out. */
+async function noticeOverdue(base: SweepBase, now: Date, announceOverdue: (row: ApprovalRow) => Promise<unknown>): Promise<number> {
+  const { db, clerkOrgId: orgId } = base;
+  let overdue = 0;
+  const late = await db
+    .select()
+    .from(t)
+    .where(
+      and(eq(t.decision, 'pending'), isNull(t.deletedAt), isNull(t.overdueNotifiedAt), isNotNull(t.dueAt), lte(t.dueAt, now)),
+    )
+    .orderBy(asc(t.dueAt), asc(t.id))
+    .limit(ROWS_PER_TICK);
+  if (late.length === 0) return overdue;
+  const describe = await labelsFor(db, late);
+  for (const row of late) {
+    try {
+      if (await isActionable(db, row)) {
+        const { label, projectName } = describe(row);
+        // The reminder is moot for a review that is already late.
+        await sendApprovalNotification(base, { userId: row.createdBy, approvalId: row.id, kind: 'overdue', label, projectName });
+        await announceOverdue(row);
+        overdue += 1;
+      }
+      await db.update(t).set({ overdueNotifiedAt: now, remindedAt: row.remindedAt ?? now }).where(eq(t.id, row.id));
+    } catch (err) {
+      console.error(`[ApprovalDue] overdue notice for ${row.id} in ${orgId} failed:`, err);
+    }
+  }
+  return overdue;
+}
+
 /**
  * One workspace's reminders and overdue notices at `now`. Returns how many went
  * out. `announceOverdue` publishes the `flow_approval.overdue` event and is
@@ -84,68 +153,10 @@ export async function sweepWorkspaceApprovals(
       data: approvalEventData(row),
     }),
 ): Promise<ApprovalSweepResult> {
-  const result: ApprovalSweepResult = { reminded: 0, overdue: 0 };
   const base = { db, env, clerkOrgId: orgId };
-
-  // Due within a day, not yet reminded.
-  const dueSoon = await db
-    .select()
-    .from(t)
-    .where(
-      and(
-        eq(t.decision, 'pending'),
-        isNull(t.deletedAt),
-        isNull(t.remindedAt),
-        isNotNull(t.dueAt),
-        lte(t.dueAt, new Date(now.getTime() + DAY_MS)),
-        gt(t.dueAt, now),
-      ),
-    )
-    .orderBy(asc(t.dueAt), asc(t.id))
-    .limit(ROWS_PER_TICK);
-  if (dueSoon.length > 0) {
-    const describe = await labelsFor(db, dueSoon);
-    for (const row of dueSoon) {
-      try {
-        if (row.approverKind === 'member' && (await isActionable(db, row))) {
-          const { label, projectName } = describe(row);
-          await sendApprovalNotification(base, { userId: row.approverId, approvalId: row.id, kind: 'reminder', label, projectName });
-          result.reminded += 1;
-        }
-        await db.update(t).set({ remindedAt: now }).where(eq(t.id, row.id));
-      } catch (err) {
-        console.error(`[ApprovalDue] reminder for ${row.id} in ${orgId} failed:`, err);
-      }
-    }
-  }
-
-  // Past due, the requester not yet told.
-  const late = await db
-    .select()
-    .from(t)
-    .where(
-      and(eq(t.decision, 'pending'), isNull(t.deletedAt), isNull(t.overdueNotifiedAt), isNotNull(t.dueAt), lte(t.dueAt, now)),
-    )
-    .orderBy(asc(t.dueAt), asc(t.id))
-    .limit(ROWS_PER_TICK);
-  if (late.length > 0) {
-    const describe = await labelsFor(db, late);
-    for (const row of late) {
-      try {
-        if (await isActionable(db, row)) {
-          const { label, projectName } = describe(row);
-          // The reminder is moot for a review that is already late.
-          await sendApprovalNotification(base, { userId: row.createdBy, approvalId: row.id, kind: 'overdue', label, projectName });
-          await announceOverdue(row);
-          result.overdue += 1;
-        }
-        await db.update(t).set({ overdueNotifiedAt: now, remindedAt: row.remindedAt ?? now }).where(eq(t.id, row.id));
-      } catch (err) {
-        console.error(`[ApprovalDue] overdue notice for ${row.id} in ${orgId} failed:`, err);
-      }
-    }
-  }
-  return result;
+  const reminded = await remindDueSoon(base, now);
+  const overdue = await noticeOverdue(base, now, announceOverdue);
+  return { reminded, overdue };
 }
 
 /**

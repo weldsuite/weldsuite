@@ -304,151 +304,172 @@ export interface SubjectInfo {
 
 const keyOf = (type: string, id: string) => `${type}:${id}`;
 
+type SubjectInfos = Map<string, SubjectInfo>;
+
 /** Look up the subjects the rows are about, by `type:id`. A subject that is gone is absent. */
 export async function loadSubjectInfo(db: Database, rows: readonly Pick<ApprovalRow, 'subjectType' | 'subjectId'>[]): Promise<Map<string, SubjectInfo>> {
-  const out = new Map<string, SubjectInfo>();
+  const out: SubjectInfos = new Map();
   const ids = (type: ApprovalSubjectType) => [...new Set(rows.filter((row) => row.subjectType === type).map((row) => row.subjectId))];
 
-  const changeIds = ids('change_request');
-  if (changeIds.length > 0) {
-    const t = schema.projectChangeRequests;
-    const found = await db
-      .select({ row: t, currency: schema.projects.budgetCurrency })
-      .from(t)
-      .leftJoin(schema.projects, eq(schema.projects.id, t.projectId))
-      .where(inArray(t.id, changeIds));
-    const milestoneIds = new Set<string>();
-    const deliverableIds = new Set<string>();
-    for (const { row } of found) {
-      for (const move of row.planChanges?.milestones ?? []) milestoneIds.add(move.milestoneId);
-      for (const move of row.planChanges?.deliverables ?? []) deliverableIds.add(move.deliverableId);
-      for (const id of row.scopeChanges?.remove ?? []) deliverableIds.add(id);
-    }
-    const [milestoneRows, deliverableRows] = await Promise.all([
-      milestoneIds.size > 0
-        ? db.select({ id: schema.milestones.id, name: schema.milestones.name }).from(schema.milestones).where(inArray(schema.milestones.id, [...milestoneIds]))
-        : Promise.resolve([]),
-      deliverableIds.size > 0
-        ? db
-            .select({ id: schema.projectDeliverables.id, number: schema.projectDeliverables.number, title: schema.projectDeliverables.title })
-            .from(schema.projectDeliverables)
-            .where(inArray(schema.projectDeliverables.id, [...deliverableIds]))
-        : Promise.resolve([]),
-    ]);
-    const milestoneNames = new Map(milestoneRows.map((m) => [m.id, m.name]));
-    const deliverables = new Map(deliverableRows.map((d) => [d.id, d]));
-    for (const { row, currency } of found) {
-      const links: ReviewLink[] = [];
-      for (const move of row.planChanges?.milestones ?? []) {
-        const name = milestoneNames.get(move.milestoneId);
-        if (name) links.push({ type: 'milestone', id: move.milestoneId, title: name, code: null, relation: 'moves' });
-      }
-      for (const move of row.planChanges?.deliverables ?? []) {
-        const d = deliverables.get(move.deliverableId);
-        if (d) links.push({ type: 'deliverable', id: d.id, title: d.title, code: deliverableCode(d.number), relation: 'moves' });
-      }
-      for (const added of row.scopeChanges?.add ?? []) {
-        if (added.deliverableId) links.push({ type: 'deliverable', id: added.deliverableId, title: added.title, code: null, relation: 'adds' });
-      }
-      for (const id of row.scopeChanges?.remove ?? []) {
-        const d = deliverables.get(id);
-        if (d) links.push({ type: 'deliverable', id: d.id, title: d.title, code: deliverableCode(d.number), relation: 'removes' });
-      }
-      out.set(keyOf('change_request', row.id), {
-        projectId: row.projectId,
-        code: changeCode(row.number),
-        title: row.title,
-        summary: summarize(row.description),
-        impacts: reviewImpacts({ cost: row.costDelta, currency, scheduleDays: row.scheduleDeltaDays }),
-        links,
-      });
-    }
-  }
-
-  const riskIds = ids('risk_acceptance');
-  if (riskIds.length > 0) {
-    const t = schema.projectRaidItems;
-    const found = await db
-      .select({ row: t, currency: schema.projects.budgetCurrency })
-      .from(t)
-      .leftJoin(schema.projects, eq(schema.projects.id, t.projectId))
-      .where(inArray(t.id, riskIds));
-    for (const { row, currency } of found) {
-      const score = row.probability !== null && row.impact !== null ? row.probability * row.impact : null;
-      out.set(keyOf('risk_acceptance', row.id), {
-        projectId: row.projectId,
-        code: raidCode(row.kind, row.number),
-        title: row.title,
-        summary: summarize(row.description),
-        impacts: reviewImpacts({ riskScore: score, cost: row.costImpact, currency, scheduleDays: row.scheduleImpactDays }),
-        links: [],
-      });
-    }
-  }
-
-  const decisionIds = ids('decision');
-  if (decisionIds.length > 0) {
-    const t = schema.projectDecisions;
-    for (const row of await db.select().from(t).where(inArray(t.id, decisionIds))) {
-      out.set(keyOf('decision', row.id), {
-        projectId: row.projectId,
-        code: `DEC-${row.number}`,
-        title: row.title,
-        summary: summarize(row.context),
-        impacts: [],
-        links: [],
-      });
-    }
-  }
-
-  const deliverableSubjects = ids('deliverable');
-  if (deliverableSubjects.length > 0) {
-    const t = schema.projectDeliverables;
-    for (const row of await db.select().from(t).where(inArray(t.id, deliverableSubjects))) {
-      out.set(keyOf('deliverable', row.id), {
-        projectId: row.projectId,
-        code: deliverableCode(row.number),
-        title: row.title,
-        summary: summarize(row.description),
-        impacts: [],
-        links: [],
-      });
-    }
-  }
-
-  const gateIds = ids('gate');
-  if (gateIds.length > 0) {
-    const t = schema.projectPhases;
-    for (const row of await db.select().from(t).where(inArray(t.id, gateIds))) {
-      out.set(keyOf('gate', row.id), { projectId: row.projectId, code: null, title: row.name, summary: null, impacts: [], links: [] });
-    }
-  }
-
-  const closeIds = ids('project_close');
-  if (closeIds.length > 0) {
-    for (const row of await db
-      .select({ id: schema.projects.id, name: schema.projects.name })
-      .from(schema.projects)
-      .where(inArray(schema.projects.id, closeIds))) {
-      out.set(keyOf('project_close', row.id), { projectId: row.id, code: null, title: row.name, summary: null, impacts: [], links: [] });
-    }
-  }
-
-  const requestIds = ids('project_request');
-  if (requestIds.length > 0) {
-    const t = schema.projectRequests;
-    for (const row of await db.select().from(t).where(inArray(t.id, requestIds))) {
-      out.set(keyOf('project_request', row.id), {
-        projectId: null,
-        code: `REQ-${row.number}`,
-        title: row.title,
-        summary: summarize(row.businessCase),
-        impacts: reviewImpacts({ cost: row.estimatedCost }),
-        links: [],
-      });
-    }
-  }
+  await addChangeRequestInfo(db, ids('change_request'), out);
+  await addRiskAcceptanceInfo(db, ids('risk_acceptance'), out);
+  await addDecisionInfo(db, ids('decision'), out);
+  await addDeliverableInfo(db, ids('deliverable'), out);
+  await addGateInfo(db, ids('gate'), out);
+  await addProjectCloseInfo(db, ids('project_close'), out);
+  await addProjectRequestInfo(db, ids('project_request'), out);
   return out;
+}
+
+type ChangeRequestRow = typeof schema.projectChangeRequests.$inferSelect;
+
+/** The milestones and deliverables a change request moves, adds or removes, as the reviewer's links. */
+function changeRequestLinks(
+  row: ChangeRequestRow,
+  milestoneNames: ReadonlyMap<string, string>,
+  deliverables: ReadonlyMap<string, { id: string; number: number; title: string }>,
+): ReviewLink[] {
+  const links: ReviewLink[] = [];
+  for (const move of row.planChanges?.milestones ?? []) {
+    const name = milestoneNames.get(move.milestoneId);
+    if (name) links.push({ type: 'milestone', id: move.milestoneId, title: name, code: null, relation: 'moves' });
+  }
+  for (const move of row.planChanges?.deliverables ?? []) {
+    const d = deliverables.get(move.deliverableId);
+    if (d) links.push({ type: 'deliverable', id: d.id, title: d.title, code: deliverableCode(d.number), relation: 'moves' });
+  }
+  for (const added of row.scopeChanges?.add ?? []) {
+    if (added.deliverableId) links.push({ type: 'deliverable', id: added.deliverableId, title: added.title, code: null, relation: 'adds' });
+  }
+  for (const id of row.scopeChanges?.remove ?? []) {
+    const d = deliverables.get(id);
+    if (d) links.push({ type: 'deliverable', id: d.id, title: d.title, code: deliverableCode(d.number), relation: 'removes' });
+  }
+  return links;
+}
+
+async function addChangeRequestInfo(db: Database, changeIds: string[], out: SubjectInfos): Promise<void> {
+  if (changeIds.length === 0) return;
+  const t = schema.projectChangeRequests;
+  const found = await db
+    .select({ row: t, currency: schema.projects.budgetCurrency })
+    .from(t)
+    .leftJoin(schema.projects, eq(schema.projects.id, t.projectId))
+    .where(inArray(t.id, changeIds));
+  const milestoneIds = new Set<string>();
+  const deliverableIds = new Set<string>();
+  for (const { row } of found) {
+    for (const move of row.planChanges?.milestones ?? []) milestoneIds.add(move.milestoneId);
+    for (const move of row.planChanges?.deliverables ?? []) deliverableIds.add(move.deliverableId);
+    for (const id of row.scopeChanges?.remove ?? []) deliverableIds.add(id);
+  }
+  const [milestoneRows, deliverableRows] = await Promise.all([
+    milestoneIds.size > 0
+      ? db.select({ id: schema.milestones.id, name: schema.milestones.name }).from(schema.milestones).where(inArray(schema.milestones.id, [...milestoneIds]))
+      : Promise.resolve([]),
+    deliverableIds.size > 0
+      ? db
+          .select({ id: schema.projectDeliverables.id, number: schema.projectDeliverables.number, title: schema.projectDeliverables.title })
+          .from(schema.projectDeliverables)
+          .where(inArray(schema.projectDeliverables.id, [...deliverableIds]))
+      : Promise.resolve([]),
+  ]);
+  const milestoneNames = new Map(milestoneRows.map((m) => [m.id, m.name]));
+  const deliverables = new Map(deliverableRows.map((d) => [d.id, d]));
+  for (const { row, currency } of found) {
+    out.set(keyOf('change_request', row.id), {
+      projectId: row.projectId,
+      code: changeCode(row.number),
+      title: row.title,
+      summary: summarize(row.description),
+      impacts: reviewImpacts({ cost: row.costDelta, currency, scheduleDays: row.scheduleDeltaDays }),
+      links: changeRequestLinks(row, milestoneNames, deliverables),
+    });
+  }
+}
+
+async function addRiskAcceptanceInfo(db: Database, riskIds: string[], out: SubjectInfos): Promise<void> {
+  if (riskIds.length === 0) return;
+  const t = schema.projectRaidItems;
+  const found = await db
+    .select({ row: t, currency: schema.projects.budgetCurrency })
+    .from(t)
+    .leftJoin(schema.projects, eq(schema.projects.id, t.projectId))
+    .where(inArray(t.id, riskIds));
+  for (const { row, currency } of found) {
+    const score = row.probability !== null && row.impact !== null ? row.probability * row.impact : null;
+    out.set(keyOf('risk_acceptance', row.id), {
+      projectId: row.projectId,
+      code: raidCode(row.kind, row.number),
+      title: row.title,
+      summary: summarize(row.description),
+      impacts: reviewImpacts({ riskScore: score, cost: row.costImpact, currency, scheduleDays: row.scheduleImpactDays }),
+      links: [],
+    });
+  }
+}
+
+async function addDecisionInfo(db: Database, decisionIds: string[], out: SubjectInfos): Promise<void> {
+  if (decisionIds.length === 0) return;
+  const t = schema.projectDecisions;
+  for (const row of await db.select().from(t).where(inArray(t.id, decisionIds))) {
+    out.set(keyOf('decision', row.id), {
+      projectId: row.projectId,
+      code: `DEC-${row.number}`,
+      title: row.title,
+      summary: summarize(row.context),
+      impacts: [],
+      links: [],
+    });
+  }
+}
+
+async function addDeliverableInfo(db: Database, deliverableSubjects: string[], out: SubjectInfos): Promise<void> {
+  if (deliverableSubjects.length === 0) return;
+  const t = schema.projectDeliverables;
+  for (const row of await db.select().from(t).where(inArray(t.id, deliverableSubjects))) {
+    out.set(keyOf('deliverable', row.id), {
+      projectId: row.projectId,
+      code: deliverableCode(row.number),
+      title: row.title,
+      summary: summarize(row.description),
+      impacts: [],
+      links: [],
+    });
+  }
+}
+
+async function addGateInfo(db: Database, gateIds: string[], out: SubjectInfos): Promise<void> {
+  if (gateIds.length === 0) return;
+  const t = schema.projectPhases;
+  for (const row of await db.select().from(t).where(inArray(t.id, gateIds))) {
+    out.set(keyOf('gate', row.id), { projectId: row.projectId, code: null, title: row.name, summary: null, impacts: [], links: [] });
+  }
+}
+
+async function addProjectCloseInfo(db: Database, closeIds: string[], out: SubjectInfos): Promise<void> {
+  if (closeIds.length === 0) return;
+  for (const row of await db
+    .select({ id: schema.projects.id, name: schema.projects.name })
+    .from(schema.projects)
+    .where(inArray(schema.projects.id, closeIds))) {
+    out.set(keyOf('project_close', row.id), { projectId: row.id, code: null, title: row.name, summary: null, impacts: [], links: [] });
+  }
+}
+
+async function addProjectRequestInfo(db: Database, requestIds: string[], out: SubjectInfos): Promise<void> {
+  if (requestIds.length === 0) return;
+  const t = schema.projectRequests;
+  for (const row of await db.select().from(t).where(inArray(t.id, requestIds))) {
+    out.set(keyOf('project_request', row.id), {
+      projectId: null,
+      code: `REQ-${row.number}`,
+      title: row.title,
+      summary: summarize(row.businessCase),
+      impacts: reviewImpacts({ cost: row.estimatedCost }),
+      links: [],
+    });
+  }
 }
 
 export async function projectNamesOf(db: Database, projectIds: readonly (string | null)[]): Promise<Map<string, string>> {
@@ -655,7 +676,8 @@ function compareItems(a: ReviewItem, b: ReviewItem): number {
   if (due(a) !== due(b)) return due(a) < due(b) ? -1 : 1;
   const requested = new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime();
   if (requested !== 0) return requested;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  if (a.id < b.id) return -1;
+  return a.id > b.id ? 1 : 0;
 }
 
 /**
