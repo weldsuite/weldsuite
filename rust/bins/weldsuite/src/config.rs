@@ -174,6 +174,9 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
     /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
     pub(crate) sign_portal_url: Option<String>,
+    /// `PROJECT_PORTAL_URL`: the WeldFlow client portal's origin, for the links in the
+    /// portal invitation and in status reports emailed to client contacts.
+    pub(crate) project_portal_url: Option<String>,
     /// `SIGN_PORTAL_SECRET`: the key the signer portal sends with every call
     /// to `/public/sign-portal` (ADR FE-017); without it those calls are refused.
     pub(crate) sign_portal_secret: Option<String>,
@@ -635,6 +638,7 @@ impl Config {
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
+            project_portal_url: lookup("PROJECT_PORTAL_URL").filter(|s| !s.is_empty()),
             sign_portal_secret: lookup("SIGN_PORTAL_SECRET").filter(|s| !s.is_empty()),
             collab_rooms_urls: lookup("COLLAB_ROOMS_URLS")
                 .map(|urls| {

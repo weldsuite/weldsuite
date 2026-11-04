@@ -52,6 +52,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
     pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `PROJECT_PORTAL_URL`, for WeldFlow's portal invitation and report emails.
+    pub(crate) project_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
     pub(crate) sign_portal_secret: Option<Arc<str>>,
     /// WeldDocs and WeldSheets' rooms (`COLLAB_ROOMS_URLS`).
@@ -507,6 +509,7 @@ mod tests {
             )),
             sign_session_secret: None,
             sign_portal_url: None,
+            project_portal_url: None,
             sign_portal_secret: None,
             collab: None,
             collab_secret: None,

@@ -38,8 +38,12 @@ pub mod purge;
 mod raid;
 mod raid_body;
 mod raid_store;
+mod reporting_body;
+mod reporting_notify;
+mod reporting_store;
 mod sprints;
 mod stages;
+pub mod status_report_sweep;
 mod task_changes;
 mod task_comments;
 mod task_enrich;
@@ -121,6 +125,11 @@ pub struct FlowState {
     /// `GITHUB_PROJECT_OUTBOUND`: the integration workers' job that pushes a
     /// task change to its GitHub issue. None: nothing is dispatched.
     pub github_outbound: Option<github_outbound::SharedGithubOutboundRuns>,
+    /// System mail (`@weldsuite/emails`): the portal invitation and the status report
+    /// email to client contacts. None: nothing is sent.
+    pub system_mail: Option<Arc<dyn weldsuite_ports::DynSystemMail>>,
+    /// `PROJECT_PORTAL_URL`: the client portal's origin, for the links in those emails.
+    pub project_portal_url: Option<Arc<str>>,
 }
 
 impl std::fmt::Debug for FlowState {
