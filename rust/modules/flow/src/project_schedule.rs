@@ -35,7 +35,7 @@ use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
-use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body};
+use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, whole};
 use crate::task_dependencies::present_dependency;
 use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply};
 
@@ -425,72 +425,58 @@ fn is_date(text: &str) -> bool {
         })
 }
 
+/// `calendarDate`'s message: `z.string().regex(/^\d{4}-\d{2}-\d{2}$/, ...)`.
+const CALENDAR_DATE_MESSAGE: &str = "Use a date in the form YYYY-MM-DD";
+
+/// `scheduleMoveSchema`: the task, and its new start and/or due date.
 fn read_move(issues: &mut Issues, body: &Value) -> Option<Body> {
     let mut r = Reader::of(issues, body)?;
-    r.text("taskId", Presence::Required, IDENTIFIER)
-        .text("startDate", Presence::Nullish, Text::default())
-        .text("dueDate", Presence::Nullish, Text::default());
-    let out = r.strict();
+    r.text("taskId", Presence::Required, IDENTIFIER);
     for key in ["startDate", "dueDate"] {
-        if let Some(Value::String(text)) = out.get(key)
-            && !is_date(text)
-        {
-            issues.custom(key, "Use a date in the form YYYY-MM-DD");
-        }
+        let date = r.issues.pattern_with(
+            r.fields,
+            key,
+            Presence::Nullish,
+            Text::default(),
+            is_date,
+            CALENDAR_DATE_MESSAGE,
+        );
+        r.keep(key, date);
     }
-    Some(out)
+    Some(r.strict())
 }
 
+/// `updateScheduleSettingsSchema`: the working weekdays (1 = Monday ... 7 =
+/// Sunday), the holidays and the auto-schedule switch, each optional.
 fn read_settings(issues: &mut Issues, body: &Value) -> Option<Body> {
-    let fields = issues.object(body)?;
-    let mut out = Body::new();
-    if let Some(value) = fields.get("workingDays") {
-        let valid = value.as_array().is_some_and(|days| {
-            (1..=7).contains(&days.len())
-                && days
-                    .iter()
-                    .all(|d| d.as_i64().is_some_and(|n| (1..=7).contains(&n)) && d.is_i64())
-        });
-        if valid {
-            out.insert("workingDays".to_owned(), value.clone());
-        } else {
-            issues.custom("workingDays", "Invalid working days");
-        }
-    }
-    if let Some(value) = fields.get("holidays") {
-        let valid = value.as_array().is_some_and(|days| {
-            days.len() <= 1000 && days.iter().all(|d| d.as_str().is_some_and(is_date))
-        });
-        if valid {
-            out.insert("holidays".to_owned(), value.clone());
-        } else {
-            issues.custom("holidays", "Invalid holidays");
-        }
-    }
-    if let Some(value) = fields.get("autoSchedule") {
-        if value.is_boolean() {
-            out.insert("autoSchedule".to_owned(), value.clone());
-        } else {
-            issues.custom("autoSchedule", "Expected boolean");
-        }
-    }
-    let extra: Vec<&String> = fields
-        .keys()
-        .filter(|key| !["workingDays", "holidays", "autoSchedule"].contains(&key.as_str()))
-        .collect();
-    if !extra.is_empty() {
-        let listed = extra
-            .iter()
-            .map(|key| format!("'{key}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        issues.issue_here(json!({
-            "code": "unrecognized_keys",
-            "keys": extra,
-            "message": format!("Unrecognized key(s) in object: {listed}"),
-        }));
-    }
-    Some(out)
+    let mut r = Reader::of(issues, body)?;
+    let working_days = r.issues.list(
+        r.fields,
+        "workingDays",
+        Presence::Optional,
+        Some(1),
+        Some(7),
+        |issues, item| {
+            issues
+                .item_number(item, whole(1.0, 7.0))
+                .map(|_| item.clone())
+        },
+    );
+    r.keep("workingDays", working_days);
+    let holidays = r.issues.list(
+        r.fields,
+        "holidays",
+        Presence::Optional,
+        None,
+        Some(1000),
+        |issues, item| issues.item_pattern(item, Text::default(), is_date, CALENDAR_DATE_MESSAGE),
+    );
+    r.keep("holidays", holidays);
+    let auto = r
+        .issues
+        .boolean(r.fields, "autoSchedule", Presence::Optional);
+    r.keep("autoSchedule", auto);
+    Some(r.strict())
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
@@ -782,4 +768,125 @@ async fn apply_move(
     let mut impact = present_move_impact(&data, &before, &preview);
     impact["applied"] = json!(true);
     Ok(Data(impact).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `{ path, message }` details of the 400, or the read body.
+    fn read(
+        reader: impl FnOnce(&mut Issues, &Value) -> Option<Body>,
+        body: &Value,
+    ) -> Result<Value, Value> {
+        let mut issues = Issues::default();
+        let out = reader(&mut issues, body);
+        match issues.finish() {
+            Ok(()) => Ok(Value::Object(out.expect("a body without issues is read"))),
+            Err(failed) => Err(Value::Array(
+                failed
+                    .issues()
+                    .iter()
+                    .map(|issue| {
+                        let path = issue["path"]
+                            .as_array()
+                            .expect("a path")
+                            .iter()
+                            .map(|part| {
+                                part.as_str()
+                                    .map_or_else(|| part.to_string(), str::to_owned)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        json!({ "path": path, "message": issue["message"] })
+                    })
+                    .collect(),
+            )),
+        }
+    }
+
+    fn one(path: &str, message: &str) -> Value {
+        json!([{ "path": path, "message": message }])
+    }
+
+    /// Zod 3's own answers for `updateScheduleSettingsSchema`.
+    #[test]
+    fn settings_are_read_like_zod() {
+        let refused = |body: &Value| read(read_settings, body).expect_err("refused");
+        assert_eq!(
+            refused(&json!({ "id": "x" })),
+            one("", "Unrecognized key(s) in object: 'id'")
+        );
+        assert_eq!(
+            refused(&json!({ "workingDays": [] })),
+            one("workingDays", "Array must contain at least 1 element(s)")
+        );
+        assert_eq!(
+            refused(&json!({ "workingDays": [0] })),
+            one("workingDays.0", "Number must be greater than or equal to 1")
+        );
+        assert_eq!(
+            refused(&json!({ "workingDays": [8] })),
+            one("workingDays.0", "Number must be less than or equal to 7")
+        );
+        assert_eq!(
+            refused(&json!({ "autoSchedule": "yes" })),
+            one("autoSchedule", "Expected boolean, received string")
+        );
+        assert_eq!(
+            refused(&json!({ "holidays": ["25-12-2026"] })),
+            one("holidays.0", CALENDAR_DATE_MESSAGE)
+        );
+        assert_eq!(
+            refused(&json!({ "holidays": [5] })),
+            one("holidays.0", "Expected string, received number")
+        );
+        assert_eq!(
+            refused(&json!({ "workingDays": null })),
+            one("workingDays", "Expected array, received null")
+        );
+        assert_eq!(
+            refused(&json!({ "workingDays": [1.5, 9, 1, 1, 1, 1, 1, 1] })),
+            json!([
+                { "path": "workingDays", "message": "Array must contain at most 7 element(s)" },
+                { "path": "workingDays.0", "message": "Expected integer, received float" },
+                { "path": "workingDays.1", "message": "Number must be less than or equal to 7" },
+            ])
+        );
+        assert_eq!(
+            read(
+                read_settings,
+                &json!({ "autoSchedule": true, "workingDays": [1, 2], "holidays": ["2026-12-25"] })
+            ),
+            Ok(json!({ "workingDays": [1, 2], "holidays": ["2026-12-25"], "autoSchedule": true }))
+        );
+    }
+
+    #[test]
+    fn moves_check_their_dates_in_place() {
+        assert_eq!(
+            read(
+                read_move,
+                &json!({ "taskId": "t", "startDate": "2026-1-1", "x": 1 })
+            ),
+            Err(json!([
+                { "path": "startDate", "message": CALENDAR_DATE_MESSAGE },
+                { "path": "", "message": "Unrecognized key(s) in object: 'x'" },
+            ]))
+        );
+        assert_eq!(
+            read(
+                read_move,
+                &json!({ "taskId": "t", "startDate": null, "dueDate": 5 })
+            ),
+            Err(one("dueDate", "Expected string, received number"))
+        );
+        assert_eq!(
+            read(
+                read_move,
+                &json!({ "taskId": "t", "startDate": null, "dueDate": "2026-11-09" })
+            ),
+            Ok(json!({ "taskId": "t", "startDate": null, "dueDate": "2026-11-09" }))
+        );
+    }
 }

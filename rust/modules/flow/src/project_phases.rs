@@ -565,49 +565,93 @@ async fn publish_gate_resolution(
 
 // ── Bodies ──────────────────────────────────────────────────────────────────
 
-/// The criteria of a body (`gateCriteriaInputSchema` array, at most 30): a
-/// catalogue key with parameters, or `{ manual }`, each `.strict()`.
-fn read_criteria(issues: &mut Issues, body: &Body) -> Option<Vec<Value>> {
-    let value = body.get("gateCriteria")?;
-    let Some(items) = value.as_array() else {
-        issues.custom("gateCriteria", "Expected array");
-        return None;
-    };
-    if items.len() > 30 {
-        issues.custom("gateCriteria", "Array must contain at most 30 element(s)");
-        return None;
-    }
-    let keys = weldsuite_flow_domain::gates::GATE_CRITERION_KEYS;
-    let mut out = Vec::new();
-    for item in items {
-        let valid = item.as_object().is_some_and(|map| {
-            if map.contains_key("manual") {
-                map.len() == 1
-                    && map["manual"]
-                        .as_str()
-                        .is_some_and(|t| !t.trim().is_empty() && t.trim().chars().count() <= 500)
-            } else {
-                map.keys().all(|k| k == "key" || k == "params")
-                    && map
-                        .get("key")
-                        .and_then(Value::as_str)
-                        .is_some_and(|k| keys.contains(&k))
-                    && map.get("params").is_none_or(Value::is_object)
-            }
-        });
-        if !valid {
-            issues.custom("gateCriteria", "Invalid input");
-            return None;
-        }
-        let mut item = item.clone();
-        if let Some(manual) = item.get("manual").and_then(Value::as_str) {
-            item["manual"] = json!(manual.trim());
-        }
-        out.push(item);
-    }
-    Some(out)
+/// The most criteria a gate takes (`gateCriteria`: `.max(30)`).
+const MAX_GATE_CRITERIA: usize = 30;
+
+/// One option of a criterion: `{ key, params? }`, `.strict()`.
+fn read_catalogue_criterion(issues: &mut Issues, item: &Value) -> Option<Body> {
+    let mut r = Reader::of(issues, item)?;
+    r.choice(
+        "key",
+        Presence::Required,
+        &weldsuite_flow_domain::gates::GATE_CRITERION_KEYS,
+    )
+    .record("params", Presence::Optional);
+    Some(r.strict())
 }
 
+/// The other option: `{ manual: z.string().trim().min(1).max(500) }`, `.strict()`.
+fn read_manual_criterion(issues: &mut Issues, item: &Value) -> Option<Body> {
+    let mut r = Reader::of(issues, item)?;
+    r.text(
+        "manual",
+        Presence::Required,
+        Text::trimmed(Some(1), Some(500)),
+    );
+    Some(r.strict())
+}
+
+/// Whether an option's issue leaves it only "dirty" in Zod's terms: a
+/// failed check (a text too short or too long, an unknown key) on a value of
+/// the right type. A type or enum failure aborts the option.
+fn only_dirty(issue: &Value) -> bool {
+    !matches!(
+        issue["code"].as_str(),
+        Some("invalid_type" | "invalid_enum_value")
+    )
+}
+
+/// One item of `gateCriteria` (`gateCriterionInputSchema`, a `z.union` of the
+/// two options above), at its own path. Zod tries the options in order: the
+/// first that parses is the item; else the first that is only dirty reports
+/// its own issues; else the item is one `invalid_union` (`Invalid input`)
+/// carrying every option's issues.
+fn read_criterion(issues: &mut Issues, item: &Value) -> Option<Value> {
+    let options: [fn(&mut Issues, &Value) -> Option<Body>; 2] =
+        [read_catalogue_criterion, read_manual_criterion];
+    let here = issues.path_here();
+    let mut dirty: Option<Vec<Value>> = None;
+    let mut errors = Vec::with_capacity(options.len());
+    for read in options {
+        let mut own = Issues::default();
+        let out = read(&mut own, item);
+        let failed: Vec<Value> = match own.finish() {
+            Ok(()) => return out.map(Value::Object),
+            Err(failed) => failed
+                .issues()
+                .iter()
+                .map(|issue| under(&here, issue))
+                .collect(),
+        };
+        if dirty.is_none() && failed.iter().all(only_dirty) {
+            dirty = Some(failed.clone());
+        }
+        errors.push(json!({ "issues": failed, "name": "ZodError" }));
+    }
+    match dirty {
+        Some(found) => found.into_iter().for_each(|issue| issues.push_raw(issue)),
+        None => issues.issue_here(json!({
+            "code": "invalid_union",
+            "unionErrors": errors,
+            "message": "Invalid input",
+        })),
+    }
+    None
+}
+
+/// An issue read on its own, moved under `prefix` (the item's path).
+fn under(prefix: &Value, issue: &Value) -> Value {
+    let mut path = prefix.as_array().cloned().unwrap_or_default();
+    if let Some(own) = issue["path"].as_array() {
+        path.extend(own.iter().cloned());
+    }
+    let mut issue = issue.clone();
+    issue["path"] = Value::Array(path);
+    issue
+}
+
+/// `createPhaseSchema` / `updatePhaseSchema`: the body, and its criteria
+/// when it has them.
 fn read_phase_fields(
     issues: &mut Issues,
     body: &Value,
@@ -629,36 +673,45 @@ fn read_phase_fields(
         );
     }
     r.text("plannedStart", Presence::Nullish, iso_date_time())
-        .text("plannedEnd", Presence::Nullish, iso_date_time())
-        .raw("gateCriteria");
+        .text("plannedEnd", Presence::Nullish, iso_date_time());
+    let criteria = r.issues.list(
+        r.fields,
+        "gateCriteria",
+        Presence::Optional,
+        None,
+        Some(MAX_GATE_CRITERIA),
+        read_criterion,
+    );
+    r.keep("gateCriteria", criteria);
     let out = r.strict();
-    let criteria = read_criteria(issues, &out);
+    let criteria = out.get("gateCriteria").and_then(Value::as_array).cloned();
     Some((out, criteria))
 }
 
+/// `reorderPhasesSchema`: the project and its phase ids in the new order.
 fn read_reorder(issues: &mut Issues, body: &Value) -> Option<(String, Vec<String>)> {
     let mut r = Reader::of(issues, body)?;
-    r.text("projectId", Presence::Required, IDENTIFIER)
-        .raw("ids");
+    r.text("projectId", Presence::Required, IDENTIFIER);
+    let ids = r.issues.list(
+        r.fields,
+        "ids",
+        Presence::Required,
+        None,
+        Some(100),
+        |issues, item| issues.item_text(item, IDENTIFIER),
+    );
+    r.keep("ids", ids);
     let out = r.strict();
-    let ids = match out.get("ids").and_then(Value::as_array) {
-        Some(items)
-            if items.len() <= 100
-                && items.iter().all(|i| {
-                    i.as_str()
-                        .is_some_and(|s| !s.is_empty() && s.chars().count() <= 255)
-                }) =>
-        {
+    let ids = out
+        .get("ids")
+        .and_then(Value::as_array)
+        .map(|items| {
             items
                 .iter()
                 .filter_map(|i| i.as_str().map(str::to_owned))
                 .collect()
-        }
-        _ => {
-            issues.custom("ids", "Invalid ids");
-            Vec::new()
-        }
-    };
+        })
+        .unwrap_or_default();
     Some((text_of(&out, "projectId"), ids))
 }
 
@@ -680,15 +733,12 @@ fn read_waive(issues: &mut Issues, body: &Value) -> Option<Body> {
     Some(r.strict())
 }
 
+/// `tickCriterionSchema`: `{ met: z.boolean() }`, `.strict()`.
 fn read_tick(issues: &mut Issues, body: &Value) -> Option<bool> {
     let mut r = Reader::of(issues, body)?;
-    r.raw("met");
-    let out = r.strict();
-    let met = out.get("met").and_then(Value::as_bool);
-    if met.is_none() {
-        issues.custom("met", "Expected boolean");
-    }
-    met
+    let met = r.issues.boolean(r.fields, "met", Presence::Required);
+    r.keep("met", met);
+    r.strict().get("met").and_then(Value::as_bool)
 }
 
 fn read_project_query(raw: Option<&str>) -> Result<String, Refusal> {
@@ -1487,4 +1537,196 @@ async fn ask_for_approval(
         "approvals": approvals.iter().map(present_approval).collect::<Vec<_>>(),
     });
     Ok(Created(result).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the 400 would carry (`{ path, message }` per issue), or the read body.
+    fn read<T>(
+        reader: impl FnOnce(&mut Issues, &Value) -> Option<T>,
+        body: &Value,
+    ) -> Result<T, Value> {
+        let mut issues = Issues::default();
+        let out = reader(&mut issues, body);
+        match issues.finish() {
+            Ok(()) => Ok(out.expect("a body without issues is read")),
+            Err(failed) => Err(Value::Array(
+                failed
+                    .issues()
+                    .iter()
+                    .map(|issue| {
+                        let path = issue["path"]
+                            .as_array()
+                            .expect("a path")
+                            .iter()
+                            .map(|part| {
+                                part.as_str()
+                                    .map_or_else(|| part.to_string(), str::to_owned)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        json!({ "path": path, "message": issue["message"] })
+                    })
+                    .collect(),
+            )),
+        }
+    }
+
+    fn create(criteria: &Value) -> Value {
+        read(
+            |i, b| read_phase_fields(i, b, true),
+            &json!({ "projectId": "p", "name": "Build", "gateCriteria": criteria, "zzz": 1 }),
+        )
+        .expect_err("refused")
+    }
+
+    const ZZZ: &str = "Unrecognized key(s) in object: 'zzz'";
+    const TOO_SHORT: &str = "String must contain at least 1 character(s)";
+
+    /// Zod 3's own answers for `createPhaseSchema` (each body also has `zzz`).
+    #[test]
+    fn criteria_are_read_as_zods_union() {
+        for criteria in [
+            json!([{ "key": "moon_phase" }]),
+            json!([{ "key": "decision_decided", "params": "x" }]),
+            json!([{ "key": "decision_decided", "params": null }]),
+            json!(["x"]),
+            json!([null]),
+            json!([{ "manual": 5 }]),
+            json!([{}]),
+        ] {
+            assert_eq!(
+                create(&criteria),
+                json!([
+                    { "path": "gateCriteria.0", "message": "Invalid input" },
+                    { "path": "", "message": ZZZ },
+                ]),
+                "{criteria}"
+            );
+        }
+
+        // An option that only failed a check reports its own issues.
+        assert_eq!(
+            create(&json!([{ "manual": "   " }])),
+            json!([
+                { "path": "gateCriteria.0.manual", "message": TOO_SHORT },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+        assert_eq!(
+            create(&json!([{ "manual": "", "met": true }])),
+            json!([
+                { "path": "gateCriteria.0.manual", "message": TOO_SHORT },
+                { "path": "gateCriteria.0", "message": "Unrecognized key(s) in object: 'met'" },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+        assert_eq!(
+            create(&json!([{ "key": "decision_decided", "manual": "x" }])),
+            json!([
+                { "path": "gateCriteria.0", "message": "Unrecognized key(s) in object: 'manual'" },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+
+        // Too many: the length, then every item still read.
+        let mut many: Vec<Value> = (0..31).map(|_| json!({ "manual": "x" })).collect();
+        many.push(json!({ "manual": "" }));
+        assert_eq!(
+            create(&Value::Array(many)),
+            json!([
+                { "path": "gateCriteria", "message": "Array must contain at most 30 element(s)" },
+                { "path": "gateCriteria.31.manual", "message": TOO_SHORT },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+        assert_eq!(
+            create(&json!("nope")),
+            json!([
+                { "path": "gateCriteria", "message": "Expected array, received string" },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+
+        let (body, criteria) = read(
+            |i, b| read_phase_fields(i, b, true),
+            &json!({ "projectId": "p", "name": " Build ", "gateCriteria": [
+                { "manual": " Plan " },
+                { "key": "decision_decided", "params": { "decisionId": "d" } },
+            ] }),
+        )
+        .expect("valid");
+        assert_eq!(body["name"], "Build");
+        assert_eq!(
+            criteria,
+            Some(vec![
+                json!({ "manual": "Plan" }),
+                json!({ "key": "decision_decided", "params": { "decisionId": "d" } }),
+            ])
+        );
+    }
+
+    #[test]
+    fn updates_reorders_and_ticks_answer_like_zod() {
+        assert_eq!(
+            read(
+                |i, b| read_phase_fields(i, b, false),
+                &json!({ "name": "", "zzz": 1, "plannedStart": "x" })
+            )
+            .expect_err("refused"),
+            json!([
+                { "path": "name", "message": TOO_SHORT },
+                { "path": "plannedStart", "message": "Invalid datetime" },
+                { "path": "", "message": ZZZ },
+            ])
+        );
+        let (_, criteria) = read(
+            |i, b| read_phase_fields(i, b, false),
+            &json!({ "name": "X" }),
+        )
+        .expect("valid");
+        assert_eq!(criteria, None);
+
+        let reorder = |body: &Value| read(read_reorder, body).expect_err("refused");
+        assert_eq!(
+            reorder(&json!({ "projectId": "p" })),
+            json!([{ "path": "ids", "message": "Required" }])
+        );
+        assert_eq!(
+            reorder(&json!({ "ids": [] })),
+            json!([{ "path": "projectId", "message": "Required" }])
+        );
+        assert_eq!(
+            reorder(&json!({ "projectId": "p", "ids": ["", 3] })),
+            json!([
+                { "path": "ids.0", "message": TOO_SHORT },
+                { "path": "ids.1", "message": "Expected string, received number" },
+            ])
+        );
+        assert_eq!(
+            read(
+                read_reorder,
+                &json!({ "projectId": "p", "ids": ["a", "b"] })
+            )
+            .expect("valid"),
+            ("p".to_owned(), vec!["a".to_owned(), "b".to_owned()])
+        );
+
+        let tick = |body: &Value| read(read_tick, body);
+        assert_eq!(
+            tick(&json!({ "met": "yes" })).expect_err("refused"),
+            json!([{ "path": "met", "message": "Expected boolean, received string" }])
+        );
+        assert_eq!(
+            tick(&json!({})).expect_err("refused"),
+            json!([{ "path": "met", "message": "Required" }])
+        );
+        assert_eq!(
+            tick(&json!({ "met": true, "x": 1 })).expect_err("refused"),
+            json!([{ "path": "", "message": "Unrecognized key(s) in object: 'x'" }])
+        );
+        assert_eq!(tick(&json!({ "met": false })), Ok(false));
+    }
 }

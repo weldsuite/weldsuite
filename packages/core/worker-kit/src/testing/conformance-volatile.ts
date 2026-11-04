@@ -235,6 +235,10 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldFlow's project finance figures are stamped with the moment they
+  // were computed (`asOf`, each backend's own "now"); a read, so the
+  // timestamp is not masked as a write's would be.
+  { method: 'GET', route: '/api/project-finance/:projectId', fields: [{ path: 'data.asOf' }] },
   // WeldCommerce: a webhook's drawn signing secret (`whksec_` + 32 random
   // characters), and how long its test delivery took.
   {

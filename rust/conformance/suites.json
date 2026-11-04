@@ -1542,6 +1542,12 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
       ]
     },
     {
@@ -1558,6 +1564,12 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
       ]
     },
     {
@@ -1566,6 +1578,7 @@
       "workspace": "apps/workers/flow-api",
       "tests": [
         "src/routes/project-raid/integration.test.ts",
+        "src/routes/project-raid/acceptance.integration.test.ts",
         "src/routes/project-control-links/integration.test.ts"
       ],
       "coverage": [
@@ -1592,7 +1605,6 @@
         "src/routes/approvals/integration.test.ts",
         "src/routes/project-changes/integration.test.ts",
         "src/routes/project-baselines/integration.test.ts",
-        "src/routes/project-raid/acceptance.integration.test.ts",
         "src/cron/approval-reminders.test.ts"
       ],
       "coverage": [
@@ -1860,6 +1872,7 @@
         "src/routes/wms-suppliers/routes.test.ts",
         "src/routes/cycle-counts/routes.test.ts",
         "src/routes/purchase-orders/routes.test.ts",
+        "src/routes/purchase-orders/items.test.ts",
         "src/routes/inventory-movements/routes.test.ts",
         "src/routes/stock-adjustments/routes.test.ts",
         "src/routes/wms-activity/routes.test.ts",
