@@ -109,11 +109,12 @@ function trimTrailingSlashes(text: string): string {
 
 /**
  * Where a contact opens a project in the client portal:
- * `<PROJECT_PORTAL_URL>/<workspace>/projects/<project>`. The portal asks for
+ * `<PROJECT_PORTAL_URL>/<workspace slug>/projects/<project>`. The portal routes by
+ * `workspaces.slug` (`ws_…` ids are 404s there). It asks for
  * the contact's email and sends the one-time code (FLOW-020).
  */
-export function projectPortalUrl(base: string, workspaceId: string, projectId: string): string {
-  return `${trimTrailingSlashes(base)}/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`;
+export function projectPortalUrl(base: string, workspaceSlug: string, projectId: string): string {
+  return `${trimTrailingSlashes(base)}/${encodeURIComponent(workspaceSlug)}/projects/${encodeURIComponent(projectId)}`;
 }
 
 // ── Wire shapes ─────────────────────────────────────────────────────────────

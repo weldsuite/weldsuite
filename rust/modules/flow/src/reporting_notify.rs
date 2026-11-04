@@ -72,10 +72,11 @@ pub(crate) fn report_app_path(project_id: &str, report_id: &str) -> String {
     format!("/weldflow/project/{project_id}/governance?report={report_id}")
 }
 
-async fn workspace_name(ctx: &NotifyContext) -> Option<String> {
+/// The workspace's display name and its slug; the client portal routes by the slug.
+async fn workspace_identity(ctx: &NotifyContext) -> Option<(String, String)> {
     let master = ctx.master.as_ref()?;
-    sqlx::query_scalar::<_, String>(
-        "select name from workspaces where id = $1 or clerk_org_id = $1 limit 1",
+    sqlx::query_as::<_, (String, String)>(
+        "select name, slug from workspaces where id = $1 or clerk_org_id = $1 limit 1",
     )
     .bind(&ctx.workspace_id)
     .fetch_optional(master)
@@ -182,10 +183,12 @@ pub(crate) async fn send_published_report(
             None => None,
         };
         let locale = EmailLocale::resolve([language.as_deref()]);
+        let Some((workspace_name, workspace_slug)) = workspace_identity(ctx).await else {
+            skipped += 1;
+            continue;
+        };
         let brand = EmailBrand::Workspace {
-            name: workspace_name(ctx)
-                .await
-                .unwrap_or_else(|| "WeldSuite".to_owned()),
+            name: workspace_name,
             logo_url: None,
             accent_color: None,
         };
@@ -196,7 +199,7 @@ pub(crate) async fn send_published_report(
             overall,
             summary: summary.clone(),
             published_by: publisher.clone(),
-            url: project_portal_url(portal, &ctx.workspace_id, &project.id),
+            url: project_portal_url(portal, &workspace_slug, &project.id),
         };
         let result = match status_report(locale, &brand, &props) {
             Ok(rendered) => {
@@ -279,9 +282,12 @@ pub(crate) async fn send_portal_invitation(
     };
     let language = contact_language(&ctx.db, contact_id).await;
     let locale = EmailLocale::resolve([language.as_deref()]);
-    let name = workspace_name(ctx)
-        .await
-        .unwrap_or_else(|| "WeldSuite".to_owned());
+    let Some((name, slug)) = workspace_identity(ctx).await else {
+        tracing::warn!(
+            "[flow-api/stakeholders] the workspace could not be read, skipping the portal invitation"
+        );
+        return false;
+    };
     let brand = EmailBrand::Workspace {
         name: name.clone(),
         logo_url: None,
@@ -292,7 +298,7 @@ pub(crate) async fn send_portal_invitation(
         project_name: project.name.clone(),
         invited_by: inviter,
         workspace_name: name,
-        url: project_portal_url(portal, &ctx.workspace_id, &project.id),
+        url: project_portal_url(portal, &slug, &project.id),
     };
     let result = match portal_invitation(locale, &brand, &props) {
         Ok(rendered) => send_system_email(

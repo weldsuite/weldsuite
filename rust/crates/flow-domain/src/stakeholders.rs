@@ -129,12 +129,12 @@ fn encode_component(text: &str) -> String {
     out
 }
 
-/// `<base>/<workspace>/projects/<project>`.
-pub fn project_portal_url(base: &str, workspace_id: &str, project_id: &str) -> String {
+/// `<base>/<workspace slug>/projects/<project>`. The portal routes by `workspaces.slug`.
+pub fn project_portal_url(base: &str, workspace_slug: &str, project_id: &str) -> String {
     format!(
         "{}/{}/projects/{}",
         base.trim_end_matches('/'),
-        encode_component(workspace_id),
+        encode_component(workspace_slug),
         encode_component(project_id)
     )
 }
@@ -266,12 +266,12 @@ mod tests {
     #[test]
     fn portal_address() {
         assert_eq!(
-            project_portal_url("https://projects.weldsuite.org", "ws_1", "prj_1"),
-            "https://projects.weldsuite.org/ws_1/projects/prj_1"
+            project_portal_url("https://projects.weldsuite.org", "acme", "prj_1"),
+            "https://projects.weldsuite.org/acme/projects/prj_1"
         );
         assert_eq!(
-            project_portal_url("https://projects-test.weldsuite.org/", "ws_1", "prj 1"),
-            "https://projects-test.weldsuite.org/ws_1/projects/prj%201"
+            project_portal_url("https://projects-test.weldsuite.org/", "acme", "prj 1"),
+            "https://projects-test.weldsuite.org/acme/projects/prj%201"
         );
     }
 

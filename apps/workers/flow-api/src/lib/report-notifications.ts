@@ -47,15 +47,16 @@ export function reportAppPath(projectId: string, reportId: string): string {
   return `/weldflow/project/${projectId}/governance?report=${reportId}`;
 }
 
-async function workspaceNameOf(ctx: NotifyContext): Promise<string | null> {
+/** The workspace's display name and its slug, which is what the client portal routes by. */
+async function workspaceIdentityOf(ctx: NotifyContext): Promise<{ name: string; slug: string } | null> {
   try {
     const masterDb = getMasterDb(ctx.env);
     const [row] = await masterDb
-      .select({ name: masterSchema.workspaces.name })
+      .select({ name: masterSchema.workspaces.name, slug: masterSchema.workspaces.slug })
       .from(masterSchema.workspaces)
       .where(matchWorkspaceRef(ctx.workspaceId))
       .limit(1);
-    return row?.name ?? null;
+    return row ?? null;
   } catch {
     return null;
   }
@@ -93,6 +94,8 @@ interface ReportDelivery {
   appBase: string;
   portalBase: string;
   workspaceName: string | null;
+  /** `workspaces.slug`: the portal addresses a workspace by it, never by `ws_…`. */
+  workspaceSlug: string | null;
   languages: Map<string, string | null>;
   contactIds: Map<string, string>;
 }
@@ -137,7 +140,7 @@ async function notifyMember(d: ReportDelivery, target: RecipientCandidate & { us
 /** A client contact: only a report shared with clients, only with portal access and an address. */
 async function mailContact(d: ReportDelivery, target: RecipientCandidate): Promise<'sent' | 'skipped'> {
   const { ctx, report, project, overall } = d;
-  if (!report.clientVisible || !target.portalAccess || !target.email || !d.portalBase) return 'skipped';
+  if (!report.clientVisible || !target.portalAccess || !target.email || !d.portalBase || !d.workspaceSlug) return 'skipped';
   const contactId = target.stakeholderId ? d.contactIds.get(target.stakeholderId) : undefined;
   const locale = resolveEmailLocale(contactId ? d.languages.get(contactId) : null);
   const mailed = await sendStatusReportEmail(ctx.env, {
@@ -151,7 +154,7 @@ async function mailContact(d: ReportDelivery, target: RecipientCandidate): Promi
       overall,
       summary: d.summary,
       publishedBy: d.publisherName,
-      url: projectPortalUrl(d.portalBase, ctx.workspaceId, project.id),
+      url: projectPortalUrl(d.portalBase, d.workspaceSlug, project.id),
     },
   });
   return mailed ? 'sent' : 'skipped';
@@ -171,6 +174,7 @@ export async function sendPublishedReport(
   const overall = report.overall;
   if (overall !== 'green' && overall !== 'amber' && overall !== 'red') return outcome;
   const publisher = report.publishedBy ? (await memberIdentities(ctx.db, [report.publishedBy])).get(report.publishedBy) : undefined;
+  const identity = await workspaceIdentityOf(ctx);
   const delivery: ReportDelivery = {
     ctx,
     report,
@@ -180,7 +184,8 @@ export async function sendPublishedReport(
     publisherName: publisher?.name ?? null,
     appBase: ctx.env.PUBLIC_APP_URL ?? '',
     portalBase: ctx.env.PROJECT_PORTAL_URL ?? '',
-    workspaceName: await workspaceNameOf(ctx),
+    workspaceName: identity?.name ?? null,
+    workspaceSlug: identity?.slug ?? null,
     languages: await contactLanguages(ctx.db, [...input.contactIds.values()]),
     contactIds: input.contactIds,
   };
@@ -242,7 +247,12 @@ export async function sendPortalInvitation(
   try {
     const languages = await contactLanguages(ctx.db, [input.contact.id]);
     const locale = resolveEmailLocale(languages.get(input.contact.id));
-    const workspaceName = (await workspaceNameOf(ctx)) ?? 'WeldSuite';
+    const identity = await workspaceIdentityOf(ctx);
+    if (!identity) {
+      console.warn('[flow-api/stakeholders] the workspace could not be read, skipping the portal invitation');
+      return false;
+    }
+    const workspaceName = identity.name;
     return await sendPortalInvitationEmail(ctx.env, {
       to: input.contact.email,
       locale,
@@ -252,7 +262,7 @@ export async function sendPortalInvitation(
         projectName: input.project.name,
         invitedBy: input.inviterName,
         workspaceName,
-        url: projectPortalUrl(portalBase, ctx.workspaceId, input.project.id),
+        url: projectPortalUrl(portalBase, identity.slug, input.project.id),
       },
     });
   } catch (err) {
