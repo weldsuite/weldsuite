@@ -17,8 +17,8 @@
 //! The checks run in TypeScript's order: permission, then the object (404),
 //! then project access (403), then the body (400), then the rules. Approving
 //! the gate is `/api/approvals/:id/decide`'s: [`resolve_gate`] is the handler of
-//! the `gate` subject, and [`publish_gate_resolution`] its events, which the
-//! route that stored the last answer publishes.
+//! the `gate` subject, and its aftermath publishes the events, once the
+//! last answer is stored.
 
 use std::sync::Arc;
 
@@ -29,9 +29,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
-    EventName, FLOW_APPROVAL_REQUESTED, PROJECT_PHASE_CREATED, PROJECT_PHASE_DELETED,
-    PROJECT_PHASE_GATE_REQUESTED, PROJECT_PHASE_PASSED, PROJECT_PHASE_REJECTED,
-    PROJECT_PHASE_UPDATED,
+    EventName, PROJECT_PHASE_CREATED, PROJECT_PHASE_DELETED, PROJECT_PHASE_GATE_REQUESTED,
+    PROJECT_PHASE_PASSED, PROJECT_PHASE_REJECTED, PROJECT_PHASE_UPDATED,
 };
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_flow_domain::approvals::{
@@ -52,6 +51,10 @@ use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::approvals::announce::{
+    AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
+    announce_approvals_requested, register_aftermath,
+};
 use crate::project_schedule::{PROJECT_MANAGE_DENIED, find_live_project};
 use crate::raid::PROJECT_DENIED;
 use crate::raid_body::{Body, IDENTIFIER, Reader, iso_date_time, parse_body, read_query, whole};
@@ -65,7 +68,7 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    register_approval_subject("gate", Arc::new(GateHandler));
+    register_subject();
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
         .route(
@@ -493,10 +496,28 @@ pub(crate) async fn resolve_gate(
     Ok(())
 }
 
+/// Plug the `gate` subject in: its handler and its aftermath.
+pub(crate) fn register_subject() {
+    register_approval_subject("gate", Arc::new(GateHandler));
+    register_aftermath("gate", aftermath);
+}
+
+fn aftermath<'a>(
+    state: &'a FlowState,
+    caller: &'a Caller,
+    info: &'a AftermathInfo,
+) -> AftermathFuture<'a> {
+    Box::pin(publish_gate_resolution(
+        state,
+        caller,
+        &info.subject_id,
+        info.outcome,
+    ))
+}
+
 /// `publishGateResolution(c, db, phaseId, outcome)`: the entity events of a
-/// settled gate, for the route that stored the last answer.
-#[allow(dead_code)]
-pub(crate) async fn publish_gate_resolution(
+/// settled gate, published by the aftermath once the last answer is stored.
+async fn publish_gate_resolution(
     state: &FlowState,
     caller: &Caller,
     phase_id: &str,
@@ -1120,7 +1141,8 @@ async fn remove_phase(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     }
     weldsuite_db::atomically(db, statements).await?;
     // Nobody is asked about a gate that no longer exists.
-    cancel_pending_approvals(db, "gate", id, true, now_ms()).await?;
+    let cleared = cancel_pending_approvals(db, "gate", id, true, now_ms()).await?;
+    announce_approvals_cancelled(state, caller, &cleared);
     publish_phase(state, caller, PROJECT_PHASE_DELETED, &existing, json!({}));
     if let Some(next) = activate
         && let Some(row) = find_phase(db, &next).await?
@@ -1384,7 +1406,8 @@ async fn ask_for_approval(
 
     // A gate asked for before and turned down starts its approvals over.
     let now_millis = now_ms();
-    cancel_pending_approvals(db, "gate", id, true, now_millis).await?;
+    let cleared = cancel_pending_approvals(db, "gate", id, true, now_millis).await?;
+    announce_approvals_cancelled(state, caller, &cleared);
     let sponsor = sponsor_of(
         project.get("settings"),
         project["projectManagerId"].as_str(),
@@ -1449,19 +1472,16 @@ async fn ask_for_approval(
         &row,
         json!({ "approverIds": approvals.iter().map(|a| a.approver_id.clone()).collect::<Vec<_>>() }),
     );
-    for approval in &approvals {
-        let data = json!({
-            "id": approval.id,
-            "projectId": approval.project_id,
-            "subjectType": approval.subject_type,
-            "subjectId": approval.subject_id,
-            "approverKind": approval.approver_kind,
-            "approverId": approval.approver_id,
-            "step": approval.step,
-            "decision": approval.decision,
-        });
-        caller.publish(state, FLOW_APPROVAL_REQUESTED, &approval.id, &data);
-    }
+    announce_approvals_requested(
+        state,
+        caller,
+        &approvals,
+        &SubjectLabel {
+            code: None,
+            title: format!("{} gate", text(phase, "name")),
+        },
+        project["name"].as_str(),
+    );
     let result = json!({
         "phase": phase_gate(db, &row, project).await?,
         "approvals": approvals.iter().map(present_approval).collect::<Vec<_>>(),

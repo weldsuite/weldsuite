@@ -21,7 +21,7 @@
 //! The checks run in TypeScript's order: permission, then the row (404), then
 //! access (403), then the body (400), then the rules. The board answers in My
 //! reviews (slice A's `/api/approvals`); the request becomes `approved` or
-//! `rejected` through [`store::settle_project_request`].
+//! `rejected` through the `project_request` subject (`store::register_subject`).
 
 mod store;
 
@@ -34,12 +34,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
-    EventName, FLOW_APPROVAL_CANCELLED, FLOW_APPROVAL_REQUESTED, FLOW_WORKSPACE_SETTINGS_UPDATED,
-    PROJECT_REQUEST_CONVERTED, PROJECT_REQUEST_CREATED, PROJECT_REQUEST_DELETED,
-    PROJECT_REQUEST_SUBMITTED, PROJECT_REQUEST_UPDATED, RESOURCE_BOOKING_DELETED,
-    RESOURCE_BOOKING_UPDATED,
+    EventName, FLOW_WORKSPACE_SETTINGS_UPDATED, PROJECT_REQUEST_CONVERTED, PROJECT_REQUEST_CREATED,
+    PROJECT_REQUEST_DELETED, PROJECT_REQUEST_SUBMITTED, PROJECT_REQUEST_UPDATED,
+    RESOURCE_BOOKING_DELETED, RESOURCE_BOOKING_UPDATED,
 };
 use weldsuite_db::js_row;
+use weldsuite_flow_domain::approvals::ResolvedApprovalOutcome;
 use weldsuite_flow_domain::capacity::{
     NeededSkill, PROJECT_REQUEST_STATUSES, fit_range, present_booking, roadmap_range, rollup_load,
     skill_fit, weeks_covering,
@@ -47,8 +47,8 @@ use weldsuite_flow_domain::capacity::{
 use weldsuite_flow_domain::intake::{
     Criterion, REQUEST_SEQUENCE, amount_text, default_scoring_model, desired_dates_error,
     intake_messages, is_open_request_status, normalize_needed_skills, present_project_request,
-    present_request_approval, present_settings, request_approval_event_data, request_code,
-    score_breakdown, score_request, scores_error, scoring_model_error, sort_roadmap_items,
+    present_request_approval, present_settings, request_code, score_breakdown, score_request,
+    scores_error, scoring_model_error, sort_roadmap_items,
 };
 use weldsuite_flow_domain::js::{contains_pattern, number_value, numeric, to_fixed};
 use weldsuite_flow_domain::numbering::allocate_number;
@@ -58,6 +58,10 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use self::store::{
     board_of, clear_approvals, find_project_request, list_subject_approvals, load_settings,
     model_of, request_approvals, request_json,
+};
+use crate::approvals::announce::{
+    AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
+    announce_approvals_requested,
 };
 use crate::capacity::body::{
     Body, parse_body, project_requests_query, read_convert, read_create_project_request,
@@ -82,6 +86,7 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    register_subject();
     let read = || gate.require(["portfolio:read"]);
     Router::new()
         .route("/", get(list).route_layer(read()))
@@ -151,11 +156,6 @@ fn may_change(caller: &Caller, row: &Value) -> bool {
 fn publish_request(state: &FlowState, caller: &Caller, event: EventName, row: &Value) {
     let id = row["id"].as_str().unwrap_or_default();
     caller.publish(state, event, id, &present_project_request(row));
-}
-
-fn publish_approval(state: &FlowState, caller: &Caller, event: EventName, row: &Value) {
-    let id = row["id"].as_str().unwrap_or_default();
-    caller.publish(state, event, id, &request_approval_event_data(row));
 }
 
 /// The live request, or the 404.
@@ -583,7 +583,12 @@ async fn read_detail(caller: &Caller, id: &str) -> Reply {
         );
         fields.insert(
             "approvals".to_owned(),
-            Value::Array(approvals.iter().map(present_request_approval).collect()),
+            Value::Array(
+                approvals
+                    .iter()
+                    .map(|a| present_request_approval(&a.to_json()))
+                    .collect(),
+            ),
         );
         fields.insert("fit".to_owned(), Value::Array(fit));
         fields.insert(
@@ -825,9 +830,7 @@ async fn delete_request(state: &FlowState, caller: &Caller, id: &str, existing: 
             &present_booking(&booking),
         );
     }
-    for review in &reviews {
-        publish_approval(state, caller, FLOW_APPROVAL_CANCELLED, review);
-    }
+    announce_approvals_cancelled(state, caller, &reviews);
     Ok(NoContent.into_response())
 }
 
@@ -972,14 +975,25 @@ async fn ask_board(state: &FlowState, caller: &Caller, id: &str, board: &[String
     match asked {
         Ok((row, rows)) => {
             publish_request(state, caller, PROJECT_REQUEST_SUBMITTED, &row);
-            for review in &rows {
-                publish_approval(state, caller, FLOW_APPROVAL_REQUESTED, review);
-            }
+            announce_approvals_requested(
+                state,
+                caller,
+                &rows,
+                &SubjectLabel {
+                    code: Some(request_code(row["number"].as_i64().unwrap_or_default())),
+                    title: row["title"].as_str().unwrap_or_default().to_owned(),
+                },
+                None,
+            );
             let mut shown = present_project_request(&row);
             if let Value::Object(fields) = &mut shown {
                 fields.insert(
                     "approvals".to_owned(),
-                    Value::Array(rows.iter().map(present_request_approval).collect()),
+                    Value::Array(
+                        rows.iter()
+                            .map(|r| present_request_approval(&r.to_json()))
+                            .collect(),
+                    ),
                 );
             }
             Ok(Data(shown).into_response())
@@ -1106,25 +1120,44 @@ async fn link_project(state: &FlowState, caller: &Caller, id: &str, project_id: 
     Ok(Data(present_project_request(&row)).into_response())
 }
 
+/// Plug the `project_request` subject in (idempotent): its handler and the
+/// aftermath that publishes the outcome.
+pub(crate) fn register_subject() {
+    store::register_subject(aftermath);
+}
+
+fn aftermath<'a>(
+    state: &'a FlowState,
+    caller: &'a Caller,
+    info: &'a AftermathInfo,
+) -> AftermathFuture<'a> {
+    Box::pin(publish_project_request_outcome(
+        state,
+        caller,
+        &info.subject_id,
+        info.outcome,
+    ))
+}
+
 /// `publishProjectRequestOutcome`: tell the entity-event bus a request was
 /// approved or rejected once the approvals core settled it (the handler has no
-/// request context, so the route that answers the review calls this).
-///
-/// TODO(slice A): call it from `/api/approvals/:id/decide` when the answer
-/// resolved a `project_request` subject.
-#[allow(dead_code)]
-pub(crate) async fn publish_project_request_outcome(
+/// request context, so the aftermath of `/api/approvals/:id/decide` calls this).
+async fn publish_project_request_outcome(
     state: &FlowState,
     caller: &Caller,
     request_id: &str,
-    outcome: &str,
+    outcome: ResolvedApprovalOutcome,
 ) -> Result<(), sqlx::Error> {
     let Some(row) = find_project_request(&caller.db, request_id).await? else {
         return Ok(());
     };
     let event = match outcome {
-        "approved" => weldsuite_catalogs::entity_events::PROJECT_REQUEST_APPROVED,
-        _ => weldsuite_catalogs::entity_events::PROJECT_REQUEST_REJECTED,
+        ResolvedApprovalOutcome::Approved => {
+            weldsuite_catalogs::entity_events::PROJECT_REQUEST_APPROVED
+        }
+        ResolvedApprovalOutcome::Rejected => {
+            weldsuite_catalogs::entity_events::PROJECT_REQUEST_REJECTED
+        }
     };
     publish_request(state, caller, event, &row);
     Ok(())

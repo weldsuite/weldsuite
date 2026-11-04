@@ -1,20 +1,23 @@
 //! Project intake queries (`services/project-requests.ts`): the rows of
 //! requests, approvals and the workspace settings as Drizzle reads them, the
-//! approval outcome of a request, and a thin local adapter over the approvals
-//! core for asking the portfolio board.
-//!
-//! TODO(slice A): the approvals core is ported to Rust by slice A
-//! (`rust/crates/flow-domain/src/approvals.rs`). [`request_approvals`] mirrors
-//! exactly the TypeScript `requestApprovals` this route calls (one row per
-//! approver, a member on delegation replaced by their delegate, each person
-//! asked once, one insert), and [`settle_project_request`] is the handler the
-//! `project_request` subject registers there: use `approvals.rs` and drop both
-//! here.
+//! approval outcome of a request (the `project_request` approval subject), and
+//! the board's approval rows, asked for through the approvals core
+//! (`weldsuite_flow_domain::approvals`).
 
-use serde_json::{Value, json};
+use std::sync::Arc;
+
+use serde_json::Value;
 use weldsuite_db::{PgPool, js_row};
+use weldsuite_flow_domain::approvals::{
+    ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalRowInput,
+    ApprovalSubjectHandler, RequestApprovalsInput, RequestApprovalsResult, ResolvedApprovalOutcome,
+    cancel_pending_approvals, list_subject_approvals as core_list_subject_approvals,
+    register_approval_subject, request_approvals as core_request_approvals,
+};
 use weldsuite_flow_domain::intake::{Criterion, default_scoring_model, model_from_json};
-use weldsuite_kit::generate_id;
+use weldsuite_flow_domain::js::iso_from_millis;
+
+use crate::approvals::announce::{Aftermath, register_aftermath};
 
 /// A `project_requests` row.
 macro_rules! request_json {
@@ -97,132 +100,103 @@ pub(crate) fn board_of(settings: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// A subject's live approval rows, in step order (`listSubjectApprovals`).
+/// A request's live approval rows, in step order (`listSubjectApprovals`).
 pub(crate) async fn list_subject_approvals(
     db: &PgPool,
     subject_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a
-         where a.subject_type = 'project_request' and a.subject_id = $1 and a.deleted_at is null
-         order by a.step, a.created_at, a.id",
-    )
-    .bind(subject_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<ApprovalRow>, sqlx::Error> {
+    core_list_subject_approvals(db, "project_request", subject_id).await
+}
+
+/// What the board decided on a project request (`settleProjectRequest`): an
+/// assessing request becomes `approved` or `rejected`.
+struct RequestHandler;
+
+impl ApprovalSubjectHandler for RequestHandler {
+    fn on_resolved<'a>(
+        &'a self,
+        db: &'a PgPool,
+        subject_id: &'a str,
+        outcome: ResolvedApprovalOutcome,
+        context: &'a ApprovalResolutionContext,
+    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+        Box::pin(settle_project_request(
+            db,
+            subject_id,
+            outcome,
+            context.now_ms,
+        ))
+    }
 }
 
 /// `settleProjectRequest(db, requestId, outcome, now)`: settle a request under
 /// assessment as the board decided. Only an assessing request moves, so
 /// running it again changes nothing.
-#[allow(dead_code)]
-pub(crate) async fn settle_project_request(
+async fn settle_project_request(
     db: &PgPool,
     request_id: &str,
-    outcome: &str,
+    outcome: ResolvedApprovalOutcome,
+    now_ms: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update project_requests set status = $2, updated_at = $3::timestamptz
          where id = $1 and status = 'assessing' and deleted_at is null",
     )
     .bind(request_id)
-    .bind(outcome)
-    .bind(crate::capacity::iso_now())
+    .bind(outcome.as_str())
+    .bind(iso_from_millis(now_ms))
     .execute(db)
     .await?;
     Ok(())
 }
 
-/// One approver as asked: the member on the board, or their delegate.
-struct Planned {
-    approver_id: String,
-    delegated_from: Option<String>,
+/// Plug the `project_request` subject into the approvals registry: its
+/// handler, and the aftermath that publishes the outcome.
+pub(crate) fn register_subject(aftermath: Aftermath) {
+    register_approval_subject("project_request", Arc::new(RequestHandler));
+    register_aftermath("project_request", aftermath);
 }
 
 /// `requestApprovals(db, ...)` for a project request: one row per board
-/// member in one batch (step 1, rule `project_request`, no due date). A member
-/// on delegation is replaced by their delegate (the row keeps `delegated_from`),
-/// and a person asked twice is asked once. Refuses a request that already has
-/// live rows. Returns the rows in the order they were planned.
+/// member (step 1, rule `project_request`, no due date), through the approvals
+/// core. A refusal is an error: the caller rolls the submit back.
 pub(crate) async fn request_approvals(
     db: &PgPool,
     subject_id: &str,
     requested_by: &str,
     board: &[String],
     now_ms: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    if !list_subject_approvals(db, subject_id).await?.is_empty() {
-        return Err(sqlx::Error::Protocol(
-            "Approvals have already been requested for this subject".to_owned(),
-        ));
-    }
-    let now = weldsuite_flow_domain::js::iso_from_millis(now_ms).unwrap_or_default();
-    // The delegation in force for each member: the one that started last, then the lowest id.
-    let delegations: Vec<(String, String)> = sqlx::query_as(
-        "select distinct on (member_id) member_id, delegate_id from flow_approval_delegations
-         where member_id = any($1) and deleted_at is null
-           and starts_at <= $2::timestamptz and ends_at > $2::timestamptz
-         order by member_id, starts_at desc, id asc",
+) -> Result<Vec<ApprovalRow>, sqlx::Error> {
+    let result = core_request_approvals(
+        db,
+        &RequestApprovalsInput {
+            project_id: None,
+            subject_type: "project_request".to_owned(),
+            subject_id: subject_id.to_owned(),
+            requested_by: requested_by.to_owned(),
+            rows: board
+                .iter()
+                .map(|member| {
+                    ApprovalRowInput::member(member.clone(), "project_request")
+                        .with_role_label("Portfolio board")
+                        .with_step(1)
+                })
+                .collect(),
+            now_ms,
+        },
     )
-    .bind(board)
-    .bind(&now)
-    .fetch_all(db)
     .await?;
-    let mut planned: Vec<Planned> = Vec::new();
-    for member in board {
-        let approver = member.trim();
-        let (approver_id, delegated_from) = match delegations.iter().find(|(id, _)| id == approver)
-        {
-            Some((_, delegate)) => (delegate.clone(), Some(approver.to_owned())),
-            None => (approver.to_owned(), None),
-        };
-        if !planned.iter().any(|p| p.approver_id == approver_id) {
-            planned.push(Planned {
-                approver_id,
-                delegated_from,
-            });
+    match result {
+        RequestApprovalsResult::Requested(rows) => Ok(rows),
+        RequestApprovalsResult::Refused { message, .. } => {
+            Err(sqlx::Error::Protocol(message.to_owned()))
         }
     }
-    let mut statements = Vec::with_capacity(planned.len());
-    for (index, person) in planned.iter().enumerate() {
-        // One millisecond apart, so a subject's rows list in the order they were planned.
-        let created =
-            weldsuite_flow_domain::js::iso_from_millis(now_ms + i64::try_from(index).unwrap_or(0))
-                .unwrap_or_default();
-        statements.push(
-            sqlx::query(
-                "insert into flow_approvals (id, project_id, subject_type, subject_id, approver_kind,
-                     approver_id, role_label, step, rule, decision, due_at, delegated_from,
-                     created_by, created_at, updated_at)
-                 values ($1, null, 'project_request', $2, 'member', $3, 'Portfolio board', 1, $4::jsonb,
-                     'pending', null, $5, $6, $7::timestamptz, $8::timestamptz)",
-            )
-            .bind(generate_id("apr"))
-            .bind(subject_id.to_owned())
-            .bind(person.approver_id.clone())
-            .bind(json!({ "code": "project_request" }))
-            .bind(person.delegated_from.clone())
-            .bind(requested_by.to_owned())
-            .bind(created)
-            .bind(now.clone()),
-        );
-    }
-    weldsuite_db::atomically(db, statements).await?;
-    list_subject_approvals(db, subject_id).await
 }
 
 /// `cancelPendingApprovals(db, { includeDecided: true })`: clear every live
 /// row of a subject (soft delete).
 pub(crate) async fn clear_approvals(db: &PgPool, subject_id: &str) -> Result<(), sqlx::Error> {
-    let now = crate::capacity::iso_now();
-    sqlx::query(
-        "update flow_approvals set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where subject_type = 'project_request' and subject_id = $1 and deleted_at is null",
-    )
-    .bind(subject_id)
-    .bind(now)
-    .execute(db)
-    .await?;
+    cancel_pending_approvals(db, "project_request", subject_id, true, crate::now_ms()).await?;
     Ok(())
 }

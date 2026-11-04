@@ -60,11 +60,9 @@ mod whiteboards;
 // weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
 // their slices fill them in.
 pub mod approvals;
-mod approvals_adapter;
 mod capacity;
 mod closing_body;
 mod closing_store;
-mod portal_approvals;
 mod portal_mail;
 mod portal_store;
 mod project_baselines;

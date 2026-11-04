@@ -48,11 +48,7 @@ use http::request::Parts;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_catalogs::entity_events::{
-    EventName, FLOW_APPROVAL_DECIDED, PROJECT_CHANGE_REQUEST_APPROVED,
-    PROJECT_CHANGE_REQUEST_REJECTED, PROJECT_DELIVERABLE_ACCEPTED, PROJECT_DELIVERABLE_UPDATED,
-    PROJECT_MESSAGE_CREATED,
-};
+use weldsuite_catalogs::entity_events::{EventName, PROJECT_MESSAGE_CREATED};
 use weldsuite_commerce_domain::portal_slug::normalize_portal_slug;
 use weldsuite_commerce_domain::portal_tokens::{
     PortalKv, kv_delete, kv_get_json, kv_put_json, random_otp, random_token, sha256_hex,
@@ -80,7 +76,13 @@ use weldsuite_ports::{
     DynCache, DynSystemMail, FileStore, FileStores, RequestCache, StorageBuckets, is_safe_key,
 };
 
-use crate::portal_approvals::{self, DecideError};
+use weldsuite_flow_domain::approvals::{
+    ApprovalActor, ApprovalRow, DecideApprovalResult, DecideRefusal,
+};
+
+use weldsuite_permissions::{Permissions, ResolvedPermissions};
+
+use crate::approvals::decide_and_announce;
 use crate::portal_mail::{PortalMail, send_portal_code_email};
 use crate::portal_store::{
     self, contacts_of_session, contacts_with_access, find_portal_document, find_portal_file,
@@ -89,7 +91,7 @@ use crate::portal_store::{
     present_reviews,
 };
 use crate::raid_body::parse_body;
-use crate::{FlowState, Query, Refusal, Reply, all_rows, now, now_ms, paged, reply};
+use crate::{Caller, FlowState, Query, Refusal, Reply, all_rows, now, now_ms, paged, reply};
 
 /// What the portal shares beyond the flow state: the workspace cache (codes,
 /// sessions, the slug lookup), system mail, the rate-limit counters
@@ -365,6 +367,39 @@ impl Session {
             .iter()
             .filter_map(|row| Some((row.get("id")?.as_str()?.to_owned(), row)))
             .collect()
+    }
+
+    /// The session as the approvals core sees a caller (`c.set('userId',
+    /// contactId)`): no permissions, the contact as the user, so the entity
+    /// events and the aftermath of an answer are the ones a member's give.
+    fn contact_caller(&self, contact_id: &str) -> Caller {
+        let resolved = ResolvedPermissions {
+            permissions: Vec::new(),
+            denies: Vec::new(),
+            role: String::new(),
+            role_id: None,
+            is_owner: false,
+        };
+        Caller {
+            db: self.db.clone(),
+            user_id: contact_id.to_owned(),
+            permissions: Permissions::new(resolved, None, false, contact_id.to_owned()),
+            events: EventContext::from_ids(
+                &self.workspace_id,
+                self.clerk_org_id.as_deref(),
+                contact_id,
+            ),
+            clerk_org_id: self.clerk_org_id.clone(),
+            org_id: None,
+            workspace_id: self.workspace_id.clone(),
+            env: None,
+            buckets: None,
+            master: None,
+            flags: None,
+            http: None,
+            presence: None,
+            outbox: std::sync::Mutex::default(),
+        }
     }
 
     /// Entity events, in order, as the contact `user_id` (TypeScript's queue
@@ -1197,12 +1232,14 @@ async fn approvals_of(session: &Session) -> Reply {
 }
 
 /// How the approvals core refuses an answer, as a response.
-fn refusal(code: DecideError, message: &str, id: &str) -> Refusal {
+fn refusal(code: DecideRefusal, message: &str, id: &str) -> Refusal {
     match code {
-        DecideError::NotFound => Refusal::not_found("Approval", id),
-        DecideError::NotApprover => Refusal::forbidden(message),
-        DecideError::AlreadyDecided | DecideError::StepNotActive => Refusal::conflict(message),
-        DecideError::InvalidDecision | DecideError::NoteRequired => Refusal::bad_request(message),
+        DecideRefusal::NotFound => Refusal::not_found("Approval", id),
+        DecideRefusal::NotApprover => Refusal::forbidden(message),
+        DecideRefusal::AlreadyDecided | DecideRefusal::StepNotActive => Refusal::conflict(message),
+        DecideRefusal::InvalidDecision | DecideRefusal::NoteRequired => {
+            Refusal::bad_request(message)
+        }
     }
 }
 
@@ -1254,6 +1291,10 @@ async fn find_review(session: &Session, id: &str) -> Result<Value, Refusal> {
     row.ok_or_else(|| Refusal::not_found("Approval", id))
 }
 
+/// The answer, through the same service as `POST /api/approvals/{id}/decide`
+/// (`decide_and_announce`) with the contact as the actor: the review's own
+/// event, and, when it settled its subject, the subject's aftermath, are the
+/// app's.
 async fn answer(
     app: &App,
     session: &Session,
@@ -1261,80 +1302,42 @@ async fn answer(
     decision: &str,
     note: Option<&str>,
 ) -> Reply {
-    let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
-    let id = text("id");
-    let approver_id = text("approverId").to_owned();
-    let decided = match portal_approvals::decide_as_contact(
-        &session.db,
-        id,
-        &approver_id,
+    let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
+    let Some(review) = ApprovalRow::from_json(row) else {
+        return Err(Refusal::not_found("Approval", id));
+    };
+    let caller = session.contact_caller(&review.approver_id);
+    let actor = ApprovalActor {
+        kind: "contact".to_owned(),
+        id: review.approver_id.clone(),
+    };
+    let decided = match decide_and_announce(
+        &app.flow,
+        &caller,
+        &review,
+        actor,
         decision,
-        note,
-        &now(),
+        note.map(str::to_owned),
     )
     .await?
     {
-        Ok(decided) => decided,
-        Err((code, message)) => return Err(refusal(code, message, id)),
+        DecideApprovalResult::Decided(decided) => decided,
+        DecideApprovalResult::Refused { code, message } => {
+            return Err(refusal(code, message, id));
+        }
     };
 
-    // The events of an answer: the review's own, and, when it settled its
-    // subject, the subject's (the same ones the app publishes when a member
-    // answers).
     let answered = &decided.approval;
-    let field = |key: &str| answered.get(key).cloned().unwrap_or(Value::Null);
-    let mut events = vec![(
-        FLOW_APPROVAL_DECIDED,
-        field("id").as_str().unwrap_or_default().to_owned(),
-        json!({
-            "id": field("id"),
-            "projectId": field("projectId"),
-            "subjectType": field("subjectType"),
-            "subjectId": field("subjectId"),
-            "approverKind": field("approverKind"),
-            "approverId": field("approverId"),
-            "decision": field("decision"),
-            "note": field("note"),
-            "outcome": decided.outcome,
-            "resolved": decided.resolved,
-        }),
-    )];
-    if decided.resolved && decided.outcome != "pending" {
-        let subject = json!({
-            "id": text("subjectId"),
-            "projectId": row.get("projectId").cloned().unwrap_or(Value::Null),
-        });
-        let approved = decided.outcome == "approved";
-        match text("subjectType") {
-            "change_request" => events.push((
-                if approved {
-                    PROJECT_CHANGE_REQUEST_APPROVED
-                } else {
-                    PROJECT_CHANGE_REQUEST_REJECTED
-                },
-                text("subjectId").to_owned(),
-                subject,
-            )),
-            "deliverable" => events.push((
-                if approved {
-                    PROJECT_DELIVERABLE_ACCEPTED
-                } else {
-                    PROJECT_DELIVERABLE_UPDATED
-                },
-                text("subjectId").to_owned(),
-                subject,
-            )),
-            _ => {}
-        }
-    }
-    session.publish(app, &approver_id, events);
-
+    let timestamp = |ms: Option<i64>| {
+        ms.and_then(weldsuite_flow_domain::js::iso_from_millis)
+            .map_or(Value::Null, Value::String)
+    };
     Ok(Data(json!({
-        "id": field("id"),
-        "decision": field("decision"),
-        "note": field("note"),
-        "decidedAt": field("decidedAt"),
-        "outcome": decided.outcome,
+        "id": answered.id,
+        "decision": answered.decision,
+        "note": answered.note,
+        "decidedAt": timestamp(answered.decided_at),
+        "outcome": decided.outcome.as_str(),
         "resolved": decided.resolved,
     }))
     .into_response())

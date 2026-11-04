@@ -41,9 +41,8 @@ use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::governance_approvals::{
-    publish_cancelled, publish_requested, register_decision_subject,
-};
+use crate::approvals::announce::announce_approvals_cancelled;
+use crate::governance_approvals::{announce_decision_asked, register_decision_subject};
 use crate::governance_body::{
     RegisterQuery, decision_list_query, read_create_decision, read_decide, read_supersede,
     read_update_decision,
@@ -447,7 +446,7 @@ async fn create_decision(
     if row["status"] == "decided" {
         publish_decision(state, caller, PROJECT_DECISION_DECIDED, &row, json!({}));
     }
-    publish_requested(state, caller, &asked);
+    announce_decision_asked(state, caller, &row, &asked).await?;
     Ok(Created(present_decision(&row)).into_response())
 }
 
@@ -558,9 +557,9 @@ async fn update_decision(
     if reroute {
         // Asked again from scratch: the decider or the date changed, or the proposal was declined.
         let cleared = cancel_pending_approvals(db, "decision", id, true, crate::now_ms()).await?;
-        publish_cancelled(state, caller, &cleared);
+        announce_approvals_cancelled(state, caller, &cleared);
         let asked = ask_decider(caller, &row, &caller.user_id).await?;
-        publish_requested(state, caller, &asked);
+        announce_decision_asked(state, caller, &row, &asked).await?;
     }
     Ok(Data(present_decision(&row)).into_response())
 }
@@ -633,7 +632,7 @@ async fn remove_decision(state: &FlowState, caller: &Caller, id: &str) -> Reply 
         crate::raid::publish_link(state, caller, PROJECT_CONTROL_LINK_DELETED, link);
     }
     let cleared = cancel_pending_approvals(db, "decision", id, true, crate::now_ms()).await?;
-    publish_cancelled(state, caller, &cleared);
+    announce_approvals_cancelled(state, caller, &cleared);
     for source in &replaced {
         if let Some(reverted) = find_decision(db, source).await? {
             publish_decision(
@@ -734,7 +733,7 @@ async fn record_decision(
     publish_decision(state, caller, PROJECT_DECISION_DECIDED, &row, json!({}));
     // Nobody is asked about a decision that is taken.
     let cleared = cancel_pending_approvals(db, "decision", id, false, now_ms).await?;
-    publish_cancelled(state, caller, &cleared);
+    announce_approvals_cancelled(state, caller, &cleared);
     Ok(Data(present_decision(&row)).into_response())
 }
 

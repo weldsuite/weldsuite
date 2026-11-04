@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
-    FLOW_APPROVAL_REQUESTED, PROJECT_BENEFIT_UPDATED, PROJECT_RAID_ITEM_UPDATED, PROJECT_UPDATED,
+    PROJECT_BENEFIT_UPDATED, PROJECT_CLOSED, PROJECT_RAID_ITEM_UPDATED, PROJECT_UPDATED,
 };
 use weldsuite_db::js_row;
 use weldsuite_flow_domain::blueprint::Json;
@@ -35,13 +35,21 @@ use weldsuite_flow_domain::raid::raid_event_data;
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::approvals_adapter::{
-    ApproverInput, Requested, cancel_pending_approvals, list_subject_approvals, request_approvals,
+use sqlx::PgPool;
+use weldsuite_flow_domain::approvals::{
+    ApprovalFuture, ApprovalResolutionContext, ApprovalRowInput, ApprovalSubjectHandler,
+    RequestApprovalsInput, RequestApprovalsResult, ResolvedApprovalOutcome,
+    cancel_pending_approvals, list_subject_approvals, register_approval_subject, request_approvals,
     sponsor_of,
+};
+
+use crate::approvals::announce::{
+    AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
+    announce_approvals_requested, register_aftermath,
 };
 use crate::closing_body::{Body, parse_body, read_handover, read_request_close};
 use crate::closing_store::{
-    PROJECT_DENIED, PROJECT_MANAGE_DENIED, approval_event_data, find_live_project, load_checklist,
+    PROJECT_DENIED, PROJECT_MANAGE_DENIED, find_live_project, load_checklist,
 };
 use crate::{Caller, FlowState, Refusal, Reply, outside, reply};
 
@@ -50,6 +58,7 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    register_subject();
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
         .route(
@@ -364,7 +373,10 @@ async fn request_sign_off(state: &FlowState, caller: &Caller, project: &Value) -
     if !checklist.flag("canRequest") {
         return Err(Refusal::conflict(CHECKLIST_OPEN));
     }
-    let Some(sponsor) = sponsor_of(project.at("settings"), project.text("projectManagerId")) else {
+    let Some(sponsor) = sponsor_of(
+        Some(project.at("settings")),
+        project.text("projectManagerId"),
+    ) else {
         return Err(Refusal::bad_request(NO_SPONSOR));
     };
 
@@ -374,34 +386,107 @@ async fn request_sign_off(state: &FlowState, caller: &Caller, project: &Value) -
         .await?
         .is_empty()
     {
-        cancel_pending_approvals(db, "project_close", project_id, true, now_ms).await?;
+        let cleared =
+            cancel_pending_approvals(db, "project_close", project_id, true, now_ms).await?;
+        announce_approvals_cancelled(state, caller, &cleared);
     }
     let requested = request_approvals(
         db,
-        project_id,
-        "project_close",
-        project_id,
-        &caller.user_id,
-        &[ApproverInput {
-            approver_id: sponsor,
-            role_label: Some("Sponsor".to_owned()),
-            step: 1,
-            rule_code: "close".to_owned(),
-        }],
-        now_ms,
+        &RequestApprovalsInput {
+            project_id: Some(project_id.to_owned()),
+            subject_type: "project_close".to_owned(),
+            subject_id: project_id.to_owned(),
+            requested_by: caller.user_id.clone(),
+            rows: vec![ApprovalRowInput::member(sponsor, "close").with_role_label("Sponsor")],
+            now_ms,
+        },
     )
     .await?;
     let rows = match requested {
-        Requested::Rows(rows) => rows,
-        Requested::Refused(message) => return Err(Refusal::conflict(message)),
+        RequestApprovalsResult::Requested(rows) => rows,
+        RequestApprovalsResult::Refused { message, .. } => return Err(Refusal::conflict(message)),
     };
-    for row in &rows {
-        caller.publish(
-            state,
-            FLOW_APPROVAL_REQUESTED,
-            row.text("id").unwrap_or_default(),
-            &approval_event_data(row),
-        );
-    }
+    let project_name = project.text("name").unwrap_or_default().to_owned();
+    announce_approvals_requested(
+        state,
+        caller,
+        &rows,
+        &SubjectLabel {
+            code: None,
+            title: format!("Close {project_name}"),
+        },
+        Some(&project_name),
+    );
     Ok(Created(load_checklist(db, project, true).await?).into_response())
+}
+
+// ── The `project_close` subject ─────────────────────────────────────────────
+
+/// The sponsor's approval closes the project (`closeProject`): only a project
+/// that is not closed yet moves.
+async fn close_project(db: &PgPool, project_id: &str, now_ms: i64) -> Result<bool, sqlx::Error> {
+    let now = iso_from_millis(now_ms);
+    let closed: Option<String> = sqlx::query_scalar(
+        "update projects
+         set status = 'Closed',
+             actual_end_date = coalesce(actual_end_date, $2::timestamp),
+             updated_at = $2::timestamp
+         where id = $1 and deleted_at is null and status <> 'Closed'
+         returning id",
+    )
+    .bind(project_id)
+    .bind(now)
+    .fetch_optional(db)
+    .await?;
+    Ok(closed.is_some())
+}
+
+struct CloseHandler;
+
+impl ApprovalSubjectHandler for CloseHandler {
+    fn on_resolved<'a>(
+        &'a self,
+        db: &'a PgPool,
+        subject_id: &'a str,
+        outcome: ResolvedApprovalOutcome,
+        context: &'a ApprovalResolutionContext,
+    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+        Box::pin(async move {
+            if outcome == ResolvedApprovalOutcome::Approved {
+                close_project(db, subject_id, context.now_ms).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+/// Plug the `project_close` subject in: its handler and its aftermath.
+pub(crate) fn register_subject() {
+    register_approval_subject("project_close", Arc::new(CloseHandler));
+    register_aftermath("project_close", aftermath);
+}
+
+/// `publishProjectClosed`: `project.closed` once the sign-off closed the project.
+fn aftermath<'a>(
+    state: &'a FlowState,
+    caller: &'a Caller,
+    info: &'a AftermathInfo,
+) -> AftermathFuture<'a> {
+    Box::pin(async move {
+        if info.outcome != ResolvedApprovalOutcome::Approved {
+            return Ok(());
+        }
+        let Some(row) = find_live_project(&caller.db, &info.subject_id).await? else {
+            return Ok(());
+        };
+        if let Some(fields) = row.as_object() {
+            caller.publish(
+                state,
+                PROJECT_CLOSED,
+                &info.subject_id,
+                &crate::projects::analytics_payload(fields),
+            );
+        }
+        Ok(())
+    })
 }

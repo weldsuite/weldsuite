@@ -1,6 +1,6 @@
 //! Closing a project, the database side (`services/project-closing.ts`): a
 //! live project by id, the close checklist computed from the project's
-//! tables, and the payload of an approval event. The rules are
+//! tables. The rules are
 //! `weldsuite_flow_domain::project_closing`.
 
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use weldsuite_flow_domain::project_closing::{
 };
 use weldsuite_flow_domain::raid::{RaidKind, raid_code};
 
-use crate::approvals_adapter::{list_subject_approvals, sponsor_of};
+use weldsuite_flow_domain::approvals::{ApprovalRow, list_subject_approvals, sponsor_of};
 
 pub(crate) const PROJECT_DENIED: &str = "You are not a member of this project";
 pub(crate) const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -33,22 +33,6 @@ pub(crate) async fn find_live_project(db: &PgPool, id: &str) -> Result<Option<Va
     .fetch_optional(db)
     .await?;
     Ok(row.map(js_row))
-}
-
-/// The payload of a `flow_approval` event (`approvalEventData`).
-pub(crate) fn approval_event_data(row: &Value) -> Value {
-    json!({
-        "id": row.at("id"),
-        "projectId": row.at("projectId"),
-        "subjectType": row.at("subjectType"),
-        "subjectId": row.at("subjectId"),
-        "approverKind": row.at("approverKind"),
-        "approverId": row.at("approverId"),
-        "step": row.at("step"),
-        "ruleCode": row.at("rule").at("code"),
-        "decision": row.at("decision"),
-        "dueAt": row.at("dueAt"),
-    })
 }
 
 fn kind_index(kind: Option<&str>) -> i64 {
@@ -121,7 +105,11 @@ async fn read_tables(db: &PgPool, project_id: &str) -> Result<Tables, sqlx::Erro
     .bind(project_id)
     .fetch_one(db)
     .await?;
-    let approvals = list_subject_approvals(db, "project_close", project_id).await?;
+    let approvals: Vec<Value> = list_subject_approvals(db, "project_close", project_id)
+        .await?
+        .iter()
+        .map(ApprovalRow::to_json)
+        .collect();
     Ok(Tables {
         deliverables: deliverables.into_iter().map(js_row).collect(),
         changes,
@@ -349,7 +337,7 @@ pub(crate) async fn load_checklist(
         "lessons": { "total": tables.lessons.0, "published": tables.lessons.1 },
         "signOff": {
             "state": sign_off.as_str(),
-            "sponsorId": sponsor_of(project.at("settings"), project.text("projectManagerId")),
+            "sponsorId": sponsor_of(Some(project.at("settings")), project.text("projectManagerId")),
             "approval": latest_approval.map(present_approval),
         },
     }))

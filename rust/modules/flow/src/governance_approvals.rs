@@ -6,40 +6,39 @@
 //! - the two subject handlers ([`DecisionHandler`], [`DeliverableHandler`],
 //!   registered from the routers' constructors; `services/project-decisions.ts`
 //!   and `project-deliverables.ts`),
-//! - the `flow_approval` event payload and the two publishers every slice that
-//!   asks for approvals uses (`services/governance-approvals.ts`),
-//! - [`publish_approval_subject_resolved`], for the route that answers a review
-//!   (slice A's `decide`): the subject's own event once its approvals settled it.
+//! - the aftermath (registered with the handlers): once `/decide` settles a
+//!   subject, `publish_approval_subject_resolved` publishes its own event.
+//!
+//! Asking and cancelling go through the approvals core (`announce`), so the
+//! `flow_approval` events are one payload for every slice.
 
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
-    FLOW_APPROVAL_CANCELLED, FLOW_APPROVAL_REQUESTED, PROJECT_DECISION_DECIDED,
-    PROJECT_DELIVERABLE_ACCEPTED, PROJECT_DELIVERABLE_UPDATED,
+    PROJECT_DECISION_DECIDED, PROJECT_DELIVERABLE_ACCEPTED, PROJECT_DELIVERABLE_UPDATED,
 };
 use weldsuite_db::js_row;
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalSubjectHandler,
     ResolvedApprovalOutcome, register_approval_subject,
 };
-use weldsuite_flow_domain::decisions::{decision_event_data, decision_resolution};
+use weldsuite_flow_domain::decisions::{decision_code, decision_event_data, decision_resolution};
 use weldsuite_flow_domain::deliverables::{
-    DeliverableResolution, SignoffRow, deliverable_event_data, deliverable_resolution,
+    DeliverableResolution, SignoffRow, deliverable_code, deliverable_event_data,
+    deliverable_resolution,
 };
 use weldsuite_flow_domain::js::iso_from_millis;
 
+use crate::approvals::announce::{
+    AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_requested, register_aftermath,
+};
+use crate::approvals::store::project_names;
 use crate::{Caller, FlowState};
 
 fn iso(millis: i64) -> String {
     iso_from_millis(millis).unwrap_or_default()
-}
-
-fn iso_field(millis: Option<i64>) -> Value {
-    millis
-        .and_then(iso_from_millis)
-        .map_or(Value::Null, Value::String)
 }
 
 /// A live decision row by id, as Drizzle reads it.
@@ -180,63 +179,83 @@ impl ApprovalSubjectHandler for DeliverableHandler {
     }
 }
 
-/// Plug the governance subjects into the approvals registry; called from the
-/// routers' constructors.
+/// Plug the governance subjects into the approvals registry (handler and
+/// aftermath); called from the routers' constructors.
 pub(crate) fn register_decision_subject() {
     register_approval_subject("decision", Arc::new(DecisionHandler));
+    register_aftermath("decision", aftermath);
 }
 
 pub(crate) fn register_deliverable_subject() {
     register_approval_subject("deliverable", Arc::new(DeliverableHandler));
+    register_aftermath("deliverable", aftermath);
 }
 
-/// `approvalEventData(row)`: who is asked, for what, in which step.
-pub(crate) fn approval_event_data(row: &ApprovalRow) -> Value {
-    json!({
-        "id": row.id,
-        "projectId": row.project_id,
-        "subjectType": row.subject_type,
-        "subjectId": row.subject_id,
-        "approverKind": row.approver_kind,
-        "approverId": row.approver_id,
-        "step": row.step,
-        "decision": row.decision,
-        "dueAt": iso_field(row.due_at),
+/// The aftermath of both governance types: the subject's own event once the
+/// answer settled it.
+fn aftermath<'a>(
+    state: &'a FlowState,
+    caller: &'a Caller,
+    info: &'a AftermathInfo,
+) -> AftermathFuture<'a> {
+    Box::pin(async move {
+        let subject_type = info.decided.subject_type.as_str();
+        publish_approval_subject_resolved(state, caller, subject_type, &info.subject_id).await
     })
 }
 
-/// `publishRequested(c, rows)`: one `flow_approval.requested` event per row,
-/// in step order.
-pub(crate) fn publish_requested(state: &FlowState, caller: &Caller, rows: &[ApprovalRow]) {
-    for row in rows {
-        caller.publish(
-            state,
-            FLOW_APPROVAL_REQUESTED,
-            &row.id,
-            &approval_event_data(row),
-        );
-    }
+/// Tell the world that `rows` were asked about a decision
+/// (`announceApprovalsRequested` with the decision's code and title).
+pub(crate) async fn announce_decision_asked(
+    state: &FlowState,
+    caller: &Caller,
+    row: &Value,
+    rows: &[ApprovalRow],
+) -> Result<(), sqlx::Error> {
+    let code = decision_code(row["number"].as_i64().unwrap_or_default());
+    announce_asked(state, caller, row, rows, code).await
 }
 
-/// `publishCancelled(c, rows)`: one `flow_approval.cancelled` event per
-/// cleared row.
-pub(crate) fn publish_cancelled(state: &FlowState, caller: &Caller, rows: &[ApprovalRow]) {
-    for row in rows {
-        caller.publish(
-            state,
-            FLOW_APPROVAL_CANCELLED,
-            &row.id,
-            &approval_event_data(row),
-        );
+/// The same for a deliverable's sign-off.
+pub(crate) async fn announce_deliverable_asked(
+    state: &FlowState,
+    caller: &Caller,
+    row: &Value,
+    rows: &[ApprovalRow],
+) -> Result<(), sqlx::Error> {
+    let code = deliverable_code(row["number"].as_i64().unwrap_or_default());
+    announce_asked(state, caller, row, rows, code).await
+}
+
+async fn announce_asked(
+    state: &FlowState,
+    caller: &Caller,
+    row: &Value,
+    rows: &[ApprovalRow],
+    code: String,
+) -> Result<(), sqlx::Error> {
+    if rows.is_empty() {
+        return Ok(());
     }
+    let project_id = row["projectId"].as_str().map(str::to_owned);
+    let names = project_names(&caller.db, std::slice::from_ref(&project_id)).await?;
+    announce_approvals_requested(
+        state,
+        caller,
+        rows,
+        &SubjectLabel {
+            code: Some(code),
+            title: row["title"].as_str().unwrap_or_default().to_owned(),
+        },
+        project_id.and_then(|id| names.get(&id).cloned()).as_deref(),
+    );
+    Ok(())
 }
 
 /// `publishApprovalSubjectResolved(c, db, subjectType, subjectId)`: the
-/// subject's own event once its approvals settled it. For the route that
-/// answers a review (slice A's `decide`), after `decide_approval` answered with
-/// `resolved`; a subject type that is not a governance register is ignored.
-#[allow(dead_code)]
-pub(crate) async fn publish_approval_subject_resolved(
+/// subject's own event once its approvals settled it; a subject type that is
+/// not a governance register is ignored.
+async fn publish_approval_subject_resolved(
     state: &FlowState,
     caller: &Caller,
     subject_type: &str,

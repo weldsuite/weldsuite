@@ -22,7 +22,10 @@ use weldsuite_flow_domain::project_portal::{
 };
 use weldsuite_kit::validation::js_trim;
 
-use crate::portal_approvals::{self, PendingReview, compare_reviews};
+use weldsuite_flow_domain::approvals::{
+    PendingReview as CorePendingReview, PendingReviewFilters, compare_reviews,
+    list_pending_for_approver,
+};
 
 /// A CRM contact that may sign in.
 pub(crate) struct ContactRow {
@@ -165,33 +168,55 @@ fn id_of(row: &Value, key: &str) -> Option<String> {
 
 // ── Approvals ───────────────────────────────────────────────────────────────
 
+/// A review waiting for a contact: the `flow_approvals` row (as Drizzle
+/// returns it) and whether its earlier steps are answered.
+pub(crate) struct PendingReview {
+    pub(crate) approval: Value,
+    pub(crate) actionable: bool,
+}
+
 /// `pendingReviews(db, contactIds, projectIds)`: the reviews addressed to
 /// these contacts that wait for them, about a deliverable or a change request
-/// on a project the contacts may see. Earliest due date first.
+/// on a project the contacts may see. Earliest due date first. The inbox is
+/// the approvals core's (`list_pending_for_approver`, contact kind).
 pub(crate) async fn pending_reviews(
     db: &PgPool,
     contact_ids: &[String],
     project_ids: &HashSet<String>,
 ) -> Result<Vec<PendingReview>, sqlx::Error> {
+    let now = crate::now_ms();
+    let filters = PendingReviewFilters {
+        approver_kind: Some("contact".to_owned()),
+        ..PendingReviewFilters::default()
+    };
     let mut lists = Vec::new();
     for contact_id in contact_ids {
-        lists.push(portal_approvals::list_pending_for_contact(db, contact_id).await?);
+        lists.push(list_pending_for_approver(db, contact_id, &filters, now).await?);
     }
     let mut seen = HashSet::new();
-    let mut reviews: Vec<PendingReview> = lists
+    let mut reviews: Vec<CorePendingReview> = lists
         .into_iter()
         .flatten()
         .filter(|review| {
             let approval = &review.approval;
-            if !seen.insert(text(approval, "id").to_owned()) {
+            if !seen.insert(approval.id.clone()) {
                 return false;
             }
-            id_of(approval, "projectId").is_some_and(|p| project_ids.contains(&p))
-                && is_portal_approval_subject(text(approval, "subjectType"))
+            approval
+                .project_id
+                .as_ref()
+                .is_some_and(|p| project_ids.contains(p))
+                && is_portal_approval_subject(&approval.subject_type)
         })
         .collect();
     reviews.sort_by(|a, b| compare_reviews(&a.approval, &b.approval));
-    Ok(reviews)
+    Ok(reviews
+        .into_iter()
+        .map(|review| PendingReview {
+            approval: review.approval.to_json(),
+            actionable: review.actionable,
+        })
+        .collect())
 }
 
 /// `presentReviews`: the reviews as the portal presents them, with their

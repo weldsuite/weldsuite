@@ -231,6 +231,10 @@ async fn publish_applied(
             &id_of(baseline),
             &baseline_event_data(baseline),
         );
+        // A baseline was set: bring the finance snapshot sweep to this workspace.
+        if let Some(master) = caller.master(state) {
+            crate::project_finance::mark_finance_snapshot_due(&master, &caller.workspace_id).await;
+        }
     }
     publish_decision(state, caller, result);
     Ok(())

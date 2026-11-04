@@ -41,9 +41,8 @@ use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::governance_approvals::{
-    publish_cancelled, publish_requested, register_deliverable_subject,
-};
+use crate::approvals::announce::announce_approvals_cancelled;
+use crate::governance_approvals::{announce_deliverable_asked, register_deliverable_subject};
 use crate::governance_body::{
     RegisterQuery, deliverable_list_query, read_create_deliverable, read_reject_deliverable,
     read_request_signoff, read_update_deliverable, sent,
@@ -520,7 +519,7 @@ async fn remove_deliverable(state: &FlowState, caller: &Caller, id: &str) -> Rep
         crate::raid::publish_link(state, caller, PROJECT_CONTROL_LINK_DELETED, link);
     }
     let cleared = cancel_pending_approvals(db, "deliverable", id, true, crate::now_ms()).await?;
-    publish_cancelled(state, caller, &cleared);
+    announce_approvals_cancelled(state, caller, &cleared);
     Ok(NoContent.into_response())
 }
 
@@ -644,8 +643,8 @@ async fn ask_signoff(
         }
     };
 
-    publish_cancelled(state, caller, &cleared);
-    publish_requested(state, caller, &rows);
+    announce_approvals_cancelled(state, caller, &cleared);
+    announce_deliverable_asked(state, caller, existing, &rows).await?;
     let Some(row) = find_deliverable(db, id).await? else {
         return Err(Refusal::Internal("the deliverable is missing".to_owned()));
     };
@@ -702,7 +701,7 @@ async fn accept_deliverable(state: &FlowState, caller: &Caller, id: &str) -> Rep
     publish_deliverable(state, caller, PROJECT_DELIVERABLE_ACCEPTED, &row, json!({}));
     // Nobody is asked to sign off a deliverable that is accepted.
     let cleared = cancel_pending_approvals(db, "deliverable", id, false, now_ms).await?;
-    publish_cancelled(state, caller, &cleared);
+    announce_approvals_cancelled(state, caller, &cleared);
     Ok(Data(present_one(caller, &row).await?).into_response())
 }
 
@@ -754,7 +753,7 @@ async fn reject_deliverable(state: &FlowState, caller: &Caller, id: &str, input:
         json!({ "note": input.get("note").cloned().unwrap_or(Value::Null) }),
     );
     let cleared = cancel_pending_approvals(db, "deliverable", id, false, now_ms).await?;
-    publish_cancelled(state, caller, &cleared);
+    announce_approvals_cancelled(state, caller, &cleared);
     Ok(Data(present_one(caller, &row).await?).into_response())
 }
 

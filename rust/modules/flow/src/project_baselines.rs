@@ -407,6 +407,9 @@ async fn sign_off(
                 return Err(Refusal::Internal("the baseline is missing".to_owned()));
             };
             caller.publish(&state, PROJECT_BASELINE_CREATED, &id, &baseline_event_data(&created));
+            if let Some(master) = caller.master(&state) {
+                crate::project_finance::mark_finance_snapshot_due(&master, &caller.workspace_id).await;
+            }
             Ok(Created(present_baseline(&created, None)).into_response())
         }
         .await,

@@ -85,6 +85,12 @@ where
 {
     crate::project_changes::register_subject();
     crate::raid::register_subject();
+    // Every subject of the slice, so any process that serves `/decide` can settle it.
+    crate::governance_approvals::register_decision_subject();
+    crate::governance_approvals::register_deliverable_subject();
+    crate::project_phases::register_subject();
+    crate::project_close::register_subject();
+    crate::project_requests::register_subject();
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
         .route("/mine", get(mine).route_layer(need("projects:read")))
@@ -483,16 +489,13 @@ async fn decide_review(
         return decide_time_entry(state, caller, id, decision, note.as_deref()).await;
     };
 
-    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id).await?;
-    let result = decide_approval(
-        db,
-        &DecideApprovalInput {
-            approval_id: id.to_owned(),
-            actor: ApprovalActor::member(caller.user_id.clone()),
-            decision: decision.to_owned(),
-            note,
-            now_ms: now_ms(),
-        },
+    let result = decide_and_announce(
+        state,
+        caller,
+        &row,
+        ApprovalActor::member(caller.user_id.clone()),
+        decision,
+        note,
     )
     .await?;
     let decided = match result {
@@ -509,6 +512,52 @@ async fn decide_review(
                 }
             });
         }
+    };
+
+    let mut approval = present_review_approver(&decided.approval);
+    if let Value::Object(map) = &mut approval {
+        map.insert("subjectType".to_owned(), json!(row.subject_type));
+        map.insert("subjectId".to_owned(), json!(row.subject_id));
+        map.insert("projectId".to_owned(), json!(row.project_id));
+    }
+    Ok(Data(json!({
+        "approval": approval,
+        "outcome": decided.outcome.as_str(),
+        "resolved": decided.resolved,
+        "viaDelegation": decided.via_delegation,
+    }))
+    .into_response())
+}
+
+/// `decideAndAnnounce(c, row, { actor, decision, note })`: answer a review and
+/// announce it. The one path behind `POST /api/approvals/{id}/decide` and the
+/// client portal's decide. Runs `decide_approval`, publishes
+/// `flow_approval.decided`, clears the rows a rejection leaves open
+/// (`cancelled`), then runs the subject's aftermath (the answer settled it) or
+/// tells the approvers whose step came up. A refusal is returned untouched.
+pub(crate) async fn decide_and_announce(
+    state: &FlowState,
+    caller: &Caller,
+    row: &ApprovalRow,
+    actor: ApprovalActor,
+    decision: &str,
+    note: Option<String>,
+) -> Result<DecideApprovalResult, sqlx::Error> {
+    let db = &caller.db;
+    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id).await?;
+    let result = decide_approval(
+        db,
+        &DecideApprovalInput {
+            approval_id: row.id.clone(),
+            actor: actor.clone(),
+            decision: decision.to_owned(),
+            note,
+            now_ms: now_ms(),
+        },
+    )
+    .await?;
+    let DecideApprovalResult::Decided(decided) = &result else {
+        return Ok(result);
     };
 
     publish_approval(
@@ -546,13 +595,13 @@ async fn decide_review(
                 outcome: resolved,
                 rows: decided.rows.clone(),
                 decided: decided.approval.clone(),
-                actor: ApprovalActor::member(caller.user_id.clone()),
+                actor,
             },
         )
         .await;
     } else if decision == "approved" || decision == "approved_with_conditions" {
         // The next step's approvers are told when their turn comes.
-        let info = store::load_subject_info(db, std::slice::from_ref(&row)).await?;
+        let info = store::load_subject_info(db, std::slice::from_ref(row)).await?;
         let subject = info.get(&format!("{}:{}", row.subject_type, row.subject_id));
         let updated: Vec<ApprovalRow> = before
             .iter()
@@ -576,19 +625,7 @@ async fn decide_review(
             None,
         );
     }
-    let mut approval = present_review_approver(&decided.approval);
-    if let Value::Object(map) = &mut approval {
-        map.insert("subjectType".to_owned(), json!(row.subject_type));
-        map.insert("subjectId".to_owned(), json!(row.subject_id));
-        map.insert("projectId".to_owned(), json!(row.project_id));
-    }
-    Ok(Data(json!({
-        "approval": approval,
-        "outcome": decided.outcome.as_str(),
-        "resolved": decided.resolved,
-        "viaDelegation": decided.via_delegation,
-    }))
-    .into_response())
+    Ok(result)
 }
 
 /// A pending time entry answered from My reviews, with the rules and events

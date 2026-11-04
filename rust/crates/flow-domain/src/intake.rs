@@ -329,19 +329,6 @@ pub fn present_request_approval(row: &Value) -> Value {
     })
 }
 
-/// `requestApprovalEventData(row)`: the `flow_approval` entity-event payload of a request's approval row.
-pub fn request_approval_event_data(row: &Value) -> Value {
-    let mut out = present_request_approval(row);
-    if let Value::Object(fields) = &mut out {
-        fields.insert("projectId".to_owned(), field(row, "projectId"));
-        fields.insert("subjectType".to_owned(), field(row, "subjectType"));
-        fields.insert("subjectId".to_owned(), field(row, "subjectId"));
-        fields.insert("rule".to_owned(), field(row, "rule"));
-        fields.insert("dueAt".to_owned(), field(row, "dueAt"));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
