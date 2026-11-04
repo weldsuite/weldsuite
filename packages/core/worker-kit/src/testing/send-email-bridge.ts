@@ -7,7 +7,9 @@
  * side is `rust/bins/weldsuite/src/conformance_mail.rs`.
  *
  *   POST /send?from=<from>&to=<recipient>   body: the raw RFC 5322 message
- *     204                                    the stub took it
+ *     200 { messageId }                      the stub took it and answered with the
+ *                                            Message-ID delivered (as Cloudflare does)
+ *     204                                    the stub took it and answered nothing
  *     422 { code, name, message }            the stub threw (`code`: its `E_*`, or null)
  *
  * Both sides are recorded per envelope and compared as side effects, read
@@ -37,16 +39,27 @@ export interface SentEnvelope {
   raw: string;
 }
 
+export interface SendEmailStubOptions {
+  /**
+   * Answer like Cloudflare: resolve `send()` with `{ messageId }`, the
+   * Message-ID the recipient receives in place of the message's own. Return
+   * `undefined` for an envelope to resolve with nothing, as the stub does by
+   * default. Keep it a function of the envelope (not of call order) so both
+   * conformance runs get the same ids.
+   */
+  messageId?: (envelope: SentEnvelope) => string | undefined;
+}
+
 /**
  * A `SEND_EMAIL` stub for tests: takes every envelope into `sent`, except
  * recipients in `refuse`, which throw an `Error` carrying that `code`
  * (`E_RECIPIENT_SUPPRESSED`, `E_DAILY_LIMIT_EXCEEDED`, …; `null`: no code).
  */
-export function createSendEmailStub(refuse: Record<string, string | null> = {}) {
+export function createSendEmailStub(refuse: Record<string, string | null> = {}, options: SendEmailStubOptions = {}) {
   const sent: SentEnvelope[] = [];
   return {
     sent,
-    async send(message: { from: string; to: string; raw: unknown }): Promise<void> {
+    async send(message: { from: string; to: string; raw: unknown }): Promise<{ messageId: string } | void> {
       const recipient = message.to.toLowerCase();
       if (recipient in refuse) {
         const error = new Error(`refused ${message.to}`) as Error & { code?: string };
@@ -54,7 +67,10 @@ export function createSendEmailStub(refuse: Record<string, string | null> = {}) 
         if (code) error.code = code;
         throw error;
       }
-      sent.push({ from: message.from, to: message.to, raw: rawText(message.raw) });
+      const envelope = { from: message.from, to: message.to, raw: rawText(message.raw) };
+      sent.push(envelope);
+      const messageId = options.messageId?.(envelope);
+      return messageId ? { messageId } : undefined;
     },
   };
 }
@@ -84,7 +100,11 @@ async function handle(binding: SendEmailLike, req: IncomingMessage, res: ServerR
   const raw = await readBody(req);
   rustSends.push(sendRecord(from, to, raw));
   try {
-    await binding.send({ from, to, raw });
+    const result = await binding.send({ from, to, raw });
+    const messageId = (result as { messageId?: unknown } | null | undefined)?.messageId;    if (typeof messageId === 'string') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ messageId }));
+      return;
+    }
     res.writeHead(204).end();
   } catch (error) {
     const err = error as { code?: unknown; name?: unknown; message?: unknown };

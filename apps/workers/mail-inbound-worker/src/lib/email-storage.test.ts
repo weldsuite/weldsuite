@@ -18,7 +18,7 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
-import { storeRawMimeToR2 } from './email-storage';
+import { collectRecipientEmails, deliveryRecipientEmails, storeRawMimeToR2, type ParsedEmail } from './email-storage';
 import { getRawMime } from '@weldsuite/mail-domain/store/bodies';
 import { MemoryR2Bucket } from '@weldsuite/mail-domain/store/testing/memory-r2';
 
@@ -62,5 +62,47 @@ describe('storeRawMimeToR2', () => {
     );
 
     warn.mockRestore();
+  });
+});
+
+describe('deliveryRecipientEmails', () => {
+  function email(overrides: Partial<ParsedEmail>): ParsedEmail {
+    return {
+      emailId: 'raw_1',
+      messageId: '<m@example.com>',
+      from: { email: 'me@acme.test' },
+      to: [{ email: 'me@acme.test' }, { email: 'Colleague@acme.test' }],
+      cc: [{ email: 'cc@acme.test' }],
+      subject: 'Plan',
+      textBody: 'Hi',
+      htmlBody: null,
+      headers: {},
+      receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+      hasAttachments: false,
+      attachmentCount: 0,
+      ...overrides,
+    };
+  }
+
+  it('matches only the envelope recipient, so each delivery lands in one mailbox', () => {
+    // One message to three of our mailboxes arrives three times, once per
+    // envelope, each with its own Message-ID from Cloudflare. Matching every
+    // delivery on the shared To/Cc stored three copies in every mailbox.
+    const delivery = email({ envelopeTo: ['Colleague@acme.test'] });
+    expect(deliveryRecipientEmails(delivery)).toEqual(['colleague@acme.test']);
+    expect(collectRecipientEmails(delivery)).toEqual(['colleague@acme.test', 'me@acme.test', 'cc@acme.test']);
+  });
+
+  it('a Bcc recipient resolves by its envelope', () => {
+    expect(deliveryRecipientEmails(email({ envelopeTo: ['hidden@acme.test'] }))).toEqual(['hidden@acme.test']);
+  });
+
+  it('falls back to To/Cc without an envelope', () => {
+    expect(deliveryRecipientEmails(email({ envelopeTo: [] }))).toEqual(['me@acme.test', 'colleague@acme.test', 'cc@acme.test']);
+    expect(deliveryRecipientEmails(email({ envelopeTo: undefined }))).toEqual([
+      'me@acme.test',
+      'colleague@acme.test',
+      'cc@acme.test',
+    ]);
   });
 });

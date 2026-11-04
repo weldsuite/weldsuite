@@ -56,6 +56,8 @@ export class TransientProviderError extends EmailProviderError {
     cause?: unknown,
     public readonly sentRecipients: string[] = [],
     public readonly messageId?: string,
+    /** The Message-ID each recipient in `sentRecipients` received (`SendResult.deliveredMessageIds`). */
+    public readonly deliveredMessageIds?: Record<string, string>,
   ) {
     super(message, provider, cause);
     this.name = 'TransientProviderError';
@@ -80,8 +82,9 @@ export class ProviderRefusedError extends TransientProviderError {
     cause?: unknown,
     sentRecipients: string[] = [],
     messageId?: string,
+    deliveredMessageIds?: Record<string, string>,
   ) {
-    super(message, provider, cause, sentRecipients, messageId);
+    super(message, provider, cause, sentRecipients, messageId, deliveredMessageIds);
     this.name = 'ProviderRefusedError';
   }
 }

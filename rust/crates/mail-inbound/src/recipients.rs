@@ -30,6 +30,25 @@ pub fn collect_recipient_emails(email: &ParsedEmail) -> Vec<String> {
     out
 }
 
+/// `deliveryRecipientEmails(email)`: the mailboxes this delivery belongs
+/// in, its envelope recipients when there are any, else `To` and `Cc`. The
+/// headers are not added on top of the envelope: every envelope is its own
+/// delivery, and Cloudflare gives each one its own Message-ID, so matching
+/// each on the shared `To`/`Cc` stored a copy per delivery in every mailbox.
+pub fn delivery_recipient_emails(email: &ParsedEmail) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for address in &email.envelope_to {
+        let normalized = js_trim(address).to_lowercase();
+        if !normalized.is_empty() && !out.contains(&normalized) {
+            out.push(normalized);
+        }
+    }
+    if out.is_empty() {
+        return collect_recipient_emails(email);
+    }
+    out
+}
+
 /// One active registry row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryRow {
@@ -322,5 +341,30 @@ mod tests {
             .map(|m| m.0.as_str())
             .collect();
         assert_eq!(assigned, ["u1"]);
+    }
+
+    fn email(envelope_to: &[&str]) -> ParsedEmail {
+        let raw = b"From: me@acme.test\r\nTo: me@acme.test, Colleague@acme.test\r\nCc: cc@acme.test\r\nSubject: Plan\r\nMessage-ID: <m@acme.test>\r\n\r\nHi\r\n";
+        let envelope: Vec<String> = envelope_to.iter().map(|a| (*a).to_owned()).collect();
+        crate::parsed::parse_inbound(raw, &envelope, "e1", "seed", 0)
+            .expect("parses")
+            .0
+    }
+
+    #[test]
+    fn a_delivery_matches_its_envelope_recipient_only() {
+        let delivery = email(&["Colleague@acme.test"]);
+        assert_eq!(
+            delivery_recipient_emails(&delivery),
+            ["colleague@acme.test"]
+        );
+        assert_eq!(
+            collect_recipient_emails(&delivery),
+            ["colleague@acme.test", "me@acme.test", "cc@acme.test"]
+        );
+        assert_eq!(
+            delivery_recipient_emails(&email(&[])),
+            ["me@acme.test", "colleague@acme.test", "cc@acme.test"]
+        );
     }
 }
