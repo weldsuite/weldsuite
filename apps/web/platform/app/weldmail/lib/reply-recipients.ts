@@ -89,3 +89,18 @@ export function resolveReplyTarget(
   stored.sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
   return stored[0] ?? picked;
 }
+
+/**
+ * Recipients for a reply to `picked`, worked out from the stored message the
+ * reply will actually answer ({@link resolveReplyTarget}) rather than from
+ * `picked` itself. They differ while `picked` is an optimistic placeholder,
+ * and the To field must show what the server will send.
+ */
+export function recipientsForReplyTo(
+  messages: EmailMessage[],
+  picked: EmailMessage,
+  newest: EmailMessage,
+  opts: { all: boolean; selfEmail?: string },
+): string[] {
+  return buildReplyRecipients(resolveReplyTarget(messages, picked.id, newest), opts);
+}

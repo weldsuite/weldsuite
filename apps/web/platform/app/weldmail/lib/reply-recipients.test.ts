@@ -4,6 +4,7 @@ import {
   buildReplyRecipients,
   hasExtraReplyAllRecipients,
   OPTIMISTIC_ID_PREFIX,
+  recipientsForReplyTo,
   resolveReplyTarget,
 } from './reply-recipients';
 
@@ -121,5 +122,39 @@ describe('resolveReplyTarget', () => {
   it('never answers an optimistic placeholder, which has no server id', () => {
     const justSent = mail({ id: `${OPTIMISTIC_ID_PREFIX}123`, date: new Date('2026-11-04T09:55:00Z') });
     expect(resolveReplyTarget([...all, justSent], justSent.id, justSent).id).toBe('msg_newest');
+  });
+});
+
+describe('recipientsForReplyTo', () => {
+  // Sara's mail to me and a teammate, then my reply-all to it, still an
+  // optimistic placeholder (from the mailbox, `to` the joined compose field).
+  const sara = mail({
+    id: 'msg_sara',
+    fromEmail: 'sara@plaid.com',
+    to: [SELF, 'teammate@example.com'],
+    date: new Date('2026-11-04T09:00:00Z'),
+  });
+  const placeholder = mail({
+    id: `${OPTIMISTIC_ID_PREFIX}1`,
+    fromEmail: SELF,
+    to: ['sara@plaid.com, teammate@example.com'],
+    date: new Date('2026-11-04T09:05:00Z'),
+  });
+  const thread = [sara, placeholder];
+
+  it('shows what the server will send: the stored message it answers, not the placeholder', () => {
+    expect(recipientsForReplyTo(thread, placeholder, placeholder, { all: false, selfEmail: SELF })).toEqual([
+      'sara@plaid.com',
+    ]);
+    expect(recipientsForReplyTo(thread, placeholder, placeholder, { all: true, selfEmail: SELF })).toEqual([
+      'sara@plaid.com',
+      'teammate@example.com',
+    ]);
+  });
+
+  it('uses the picked message itself when it is stored', () => {
+    expect(recipientsForReplyTo(thread, sara, placeholder, { all: false, selfEmail: SELF })).toEqual([
+      'sara@plaid.com',
+    ]);
   });
 });

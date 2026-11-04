@@ -105,8 +105,8 @@ import {
   OPTIMISTIC_ID_PREFIX,
   addressListToEmails,
   addressToEmail,
-  buildReplyRecipients,
   hasExtraReplyAllRecipients,
+  recipientsForReplyTo,
   resolveReplyTarget,
 } from '../lib/reply-recipients';
 import { useNotifySendError } from '../lib/use-notify-send-error';
@@ -1519,11 +1519,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     [accountsData, accountId],
   );
 
-  const replyAllRecipients = useMemo(
-    () => (newestMessage ? buildReplyRecipients(newestMessage, { all: true, selfEmail: accountEmail }) : []),
-    [newestMessage, accountEmail],
-  );
-  const canReplyAll = newestMessage ? hasExtraReplyAllRecipients(newestMessage, accountEmail) : false;
+  // Every reply is addressed from the stored message it will actually answer
+  // (`resolveReplyTarget`): a reply sent a moment ago is only an optimistic
+  // placeholder until the thread refetches, and the server answers the newest
+  // stored message in its place. The To field must show what gets sent.
+  const allThreadMessages = useMemo(() => [message, ...localThread], [message, localThread]);
+  const replyRecipientsFor = (picked: EmailMessage, all: boolean) =>
+    recipientsForReplyTo(allThreadMessages, picked, newestMessage, { all, selfEmail: accountEmail });
+  const replyTargetFor = (picked: EmailMessage) =>
+    resolveReplyTarget(allThreadMessages, picked.id, newestMessage);
+  const canReplyAll = hasExtraReplyAllRecipients(replyTargetFor(newestMessage), accountEmail);
 
   // Fetch attachments for the newest message
   const { data: attachmentsData } = useMailAttachments(
@@ -1576,7 +1581,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         setIsReplyingAll(allRecipients);
         setIsForwarding(false);
         setReplyToMessageId(newestMessage.id);
-        const to = buildReplyRecipients(newestMessage, { all: allRecipients, selfEmail: accountEmail }).join(', ');
+        const to = recipientsForReplyTo(allThreadMessages, newestMessage, newestMessage, {
+          all: allRecipients,
+          selfEmail: accountEmail,
+        }).join(', ');
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
@@ -1590,7 +1598,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
     window.addEventListener('mail:action', handleMailAction);
     return () => window.removeEventListener('mail:action', handleMailAction);
-  }, [message.id, message.subject, newestMessage, accountEmail]);
+  }, [message.id, message.subject, newestMessage, accountEmail, allThreadMessages]);
 
   const { main: mainContent, quoted: quotedContent } = parseMainContent(newestMessage.bodyHtml, newestMessage.bodyText);
   const isHtml = !!newestMessage.bodyHtml;
@@ -1682,7 +1690,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     // The text part keeps line breaks (between the reply and its signature too).
     // Both parts carry the quoted original, like any other mail client's reply.
-    const replyTarget = resolveReplyTarget([message, ...localThread], replyToMessageId, newestMessage);
+    const replyTarget = resolveReplyTarget(allThreadMessages, replyToMessageId, newestMessage);
     const { body: textContent, htmlBody: htmlContent } = appendQuotedOriginal(
       { body: buildComposeBodies(editorHtml).body, htmlBody: editorHtml },
       {
@@ -2089,7 +2097,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateInlineAiReply = (getSuccessMessage: (editor: HTMLDivElement) => string, failureMessage: string) => {
     if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
     setIsInlineAiGenerating(true);
-    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: replyToMessageId || undefined, accountId })
+    // Like the send itself: never a placeholder's id, which the server doesn't know.
+    const aiTargetId = replyToMessageId
+      ? resolveReplyTarget(allThreadMessages, replyToMessageId, newestMessage).id
+      : undefined;
+    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: aiTargetId, accountId })
       .then((result) => {
         const editor = editorRef.current;
         if (result.success && result.body && editor) {
@@ -2302,7 +2314,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(newestMessage.id);
     setComposeData({
-      to: newestMessage.fromEmail || addressToEmail(newestMessage.from),
+      // A plain reply's recipients, as the send derives them (not just the
+      // sender, which on our own mail is ourselves).
+      to: replyRecipientsFor(newestMessage, false).join(', '),
       subject: draft.subject || `Re: ${message.subject}`,
       body: draft.body || '',
     });
@@ -2327,7 +2341,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const handleAutoDraft = async () => {
     setIsAutoGenerating(true);
     try {
-      const result = await generateAutoDraftMutation.mutateAsync({ messageId: newestMessage.id, accountId });
+      const result = await generateAutoDraftMutation.mutateAsync({
+        messageId: replyTargetFor(newestMessage).id,
+        accountId,
+      });
       if (result.success && result.draft) {
         applyAutoDraft(result.draft);
         toast.success(t.mail.messageDetail.draftUpdated);
@@ -2349,7 +2366,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setReplyToMessageId(!wasReplying ? newestMessage.id : null);
     if (!wasReplying) {
       setComposeData({
-        to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
+        to: replyRecipientsFor(newestMessage, false).join(', '),
         subject: `Re: ${message.subject}`,
         body: '',
       });
@@ -2363,7 +2380,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
     if (!wasReplyingAll) {
-      setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
+      setComposeData({
+        to: replyRecipientsFor(newestMessage, true).join(', '),
+        subject: `Re: ${message.subject}`,
+        body: '',
+      });
     }
   };
 
@@ -2386,7 +2407,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(threadMsg.id);
     setComposeData({
-      to: buildReplyRecipients(threadMsg, { all: replyAll, selfEmail: accountEmail }).join(', '),
+      to: replyRecipientsFor(threadMsg, replyAll).join(', '),
       subject: `Re: ${threadMsg.subject || message.subject}`,
       body: '',
     });
@@ -2796,7 +2817,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   <ThreadMessageCard
                     threadMsg={threadMsg}
                     isExpanded={expandedThreadIds.has(threadMsg.id)}
-                    canReplyAll={hasExtraReplyAllRecipients(threadMsg, accountEmail)}
+                    canReplyAll={hasExtraReplyAllRecipients(replyTargetFor(threadMsg), accountEmail)}
                     onToggle={() => toggleThreadExpanded(threadMsg.id)}
                     onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
                     onReply={() => startThreadReply(threadMsg, false)}
