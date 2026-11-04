@@ -55,6 +55,22 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
       'workload': t.projects.projectLayout.routeLabels.workload,
       'settings': t.projects.projectLayout.routeLabels.settings,
       'sprints': t.projects.projectLayout.routeLabels.sprints,
+      'governance': t.projects.projectLayout.routeLabels.governance,
+      'decisions': t.projects.projectLayout.routeLabels.decisions,
+      'changes': t.projects.projectLayout.routeLabels.changes,
+      'stakeholders': t.projects.projectLayout.routeLabels.stakeholders,
+      'scope': t.projects.projectLayout.routeLabels.scope,
+      'value': t.projects.projectLayout.routeLabels.value,
+      'finance': t.projects.projectLayout.routeLabels.finance,
+      'costs': t.projects.projectLayout.routeLabels.costs,
+      'forecast': t.projects.projectLayout.routeLabels.forecast,
+      'phases': t.projects.projectLayout.routeLabels.phases,
+      'close': t.projects.projectLayout.routeLabels.close,
+      'reviews': t.projects.projectLayout.routeLabels.reviews,
+      'templates': t.projects.projectLayout.routeLabels.templates,
+      'capacity': t.projects.projectLayout.routeLabels.capacity,
+      'intake': t.projects.projectLayout.routeLabels.intake,
+      'roadmap': t.projects.projectLayout.routeLabels.roadmap,
     };
 
     const result: BreadcrumbSegment[] = [
