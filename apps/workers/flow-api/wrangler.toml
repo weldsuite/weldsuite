@@ -47,6 +47,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
@@ -134,6 +136,8 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -216,6 +220,8 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Client portal (apps/web/project-portal): where the portal invitation and the status report email send a client contact.
+PROJECT_PORTAL_URL = "https://projects.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"

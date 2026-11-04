@@ -321,6 +321,11 @@ export interface StatusReportArea {
 export interface StatusReportItem {
   taskId?: string | null;
   text: string;
+  // slice D: `code` (`TASK-12`, `D2`, `DEC-5`) and `date` are set on the lines the
+  // report fills in from project data, so a refresh replaces those and keeps the
+  // lines the project manager wrote (no code). Both live in the jsonb only.
+  code?: string | null;
+  date?: string | null;
 }
 
 /**

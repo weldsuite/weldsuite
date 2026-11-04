@@ -31,6 +31,8 @@ export type DueIndexKind =
   | 'reach_warmup'
   // WeldFlow (flow-api): soft-deleted project files / attachments reaching the end of retention.
   | 'file_purge'
+  // WeldFlow (flow-api): projects whose status report cadence has a draft coming due (ADR FLOW-018).
+  | 'status_report_due'
   // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
