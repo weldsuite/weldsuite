@@ -140,7 +140,7 @@ describe('POST /api/meetings/start-instant', () => {
     expect(rtk.calls('add').map((c) => c.body)).toEqual([
       {
         name: 'Ina Stant',
-        preset_name: 'group_call_host_v3',
+        preset_name: 'group_call_host_v4',
         custom_participant_id: USER,
         picture: 'https://cdn.example.com/ina.png',
       },

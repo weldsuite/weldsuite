@@ -36,7 +36,7 @@ import {
   createMeeting as createRtkMeeting,
   addParticipant,
   ensurePresets,
-  RTK_PRESETS,
+  rtkPreset,
   getRecordings,
   kickParticipants as kickRtkParticipants,
 } from '@weldsuite/cloudflare-realtime';
@@ -182,15 +182,17 @@ async function joinStartedSession(
     memberPicture: string | undefined;
     rtkMeetingId: string;
     isHost: boolean;
+    /** The meeting has live captions on: join with a transcribing preset. */
+    captions: boolean;
   },
 ): Promise<{ authToken: string; entry: MeetingSessionParticipant }> {
-  const { orgId, userId, userName, memberPicture, rtkMeetingId, isHost } = params;
+  const { orgId, userId, userName, memberPicture, rtkMeetingId, isHost, captions } = params;
   const link = await resolveParticipantLink(c.get('tenantDb'), c.env, orgId, { userId, name: userName });
   const avatar = link.avatarUrl ?? memberPicture;
   const rtkParticipant = await addParticipant(c.env, rtkMeetingId, {
     name: userName,
     customParticipantId: userId,
-    presetName: isHost ? RTK_PRESETS.HOST : RTK_PRESETS.MEMBER,
+    presetName: rtkPreset(isHost ? 'HOST' : 'MEMBER', { captions }),
     picture: avatar,
   });
   return {
@@ -414,6 +416,7 @@ app.post(
           memberPicture: member.picture,
           rtkMeetingId: rtkMeeting.id,
           isHost,
+          captions: meeting.enableCaptions === true,
         });
         authToken = joined.authToken;
         firstParticipantEntry = joined.entry;
@@ -539,10 +542,12 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     // Authenticated platform joiners are trusted members — they skip the
     // waiting room (the waiting room is enforced only for unauthenticated
     // meeting-portal guests). Organizer gets HOST; everyone else MEMBER.
+    // Live transcription (billed per speaker minute) only when the meeting
+    // has live captions on.
     const rtkParticipant = await addParticipant(c.env, session.cfAppId, {
       name: userName,
       customParticipantId: userId,
-      presetName: isHost ? RTK_PRESETS.HOST : RTK_PRESETS.MEMBER,
+      presetName: rtkPreset(isHost ? 'HOST' : 'MEMBER', { captions: meeting?.enableCaptions === true }),
       picture: avatar,
     });
 

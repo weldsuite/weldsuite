@@ -122,6 +122,7 @@ export const weldmeet = {
         livestreamDescription: 'Emite para usuarios que solo miran',
         livestreamLive: 'En directo',
         livestreamUnavailable: 'No está activado para esta reunión',
+        liveCaptionsOff: 'Los subtítulos en directo están desactivados en Controles del anfitrión',
         breakout: 'Salas para grupos',
         breakoutDescription: 'Divide en grupos más pequeños',
         breakoutActive: 'Salas abiertas: {count}',

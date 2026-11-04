@@ -509,6 +509,8 @@ export async function removeParticipant(
  *   v2              — added media.screenshare = fhd/30fps (was hd/5fps default)
  *   v3 (HOST only)  — can_livestream, so the host can stream the meeting from
  *                     the Meeting tools panel
+ *   v4 / v3         — transcription_enabled off. Live transcription now has
+ *                     presets of its own ({@link RTK_CAPTION_PRESETS}).
  *
  * Two guest presets exist by design:
  *   GUEST          — waiting_room_type = ON_PRIVILEGED_USER_ENTRY. Guests wait
@@ -517,18 +519,56 @@ export async function removeParticipant(
  *   GUEST_WAITING  — waiting_room_type = SKIP_ON_ACCEPT. Guests always wait for
  *                    an explicit host admit/deny (surfaced in the platform's
  *                    AdmitGuestsPill). Used when `waitingRoom` is ON.
+ * (`group_call_guest_waiting_v1` was skipped: it sat in RTK without
+ * SKIP_ON_ACCEPT and could not be overwritten while in use.)
+ *
+ * These presets do NOT transcribe. A participant whose preset has
+ * `transcription_enabled` gets their audio streamed to Deepgram Nova-3 on
+ * Workers AI for as long as they are in the call, billed per participant
+ * audio minute (836 neurons a minute, about $0.0092). With it on for every
+ * preset, every minute of every call was paid for once per person, whether
+ * anyone looked at the captions or not. Use {@link rtkPreset} to pick.
  */
 export const RTK_PRESETS = {
-  HOST: 'group_call_host_v3',
-  MEMBER: 'group_call_participant_v2',
-  GUEST: 'group_call_guest_v2',
-  // v2: forces a fresh re-seed. A `group_call_guest_waiting_v1` preset existed
-  // in RTK without the SKIP_ON_ACCEPT waiting-room behaviour (created early by
-  // a weak/legacy seed body); RTK refuses to overwrite an in-use preset, so a
-  // guest joining via the share link skipped straight in instead of waiting.
-  // Renaming forces seedPresets to create a correctly-configured preset.
-  GUEST_WAITING: 'group_call_guest_waiting_v2',
+  HOST: 'group_call_host_v4',
+  MEMBER: 'group_call_participant_v3',
+  GUEST: 'group_call_guest_v3',
+  GUEST_WAITING: 'group_call_guest_waiting_v3',
 } as const;
+
+/**
+ * The same four presets with live transcription on, for meetings whose host
+ * turned on live captions (`meetings.enable_captions`). Live captions, their
+ * translation and the live transcript tool all read this transcription;
+ * RealtimeKit's post-meeting transcript (`transcribe_on_end`, Whisper) does
+ * not need it.
+ */
+export const RTK_CAPTION_PRESETS = {
+  HOST: 'group_call_host_captions_v1',
+  MEMBER: 'group_call_participant_captions_v1',
+  GUEST: 'group_call_guest_captions_v1',
+  GUEST_WAITING: 'group_call_guest_waiting_captions_v1',
+} as const satisfies Record<keyof typeof RTK_PRESETS, string>;
+
+/** What a participant may do in the call, independent of live transcription. */
+export type RtkPresetRole = keyof typeof RTK_PRESETS;
+
+/** The preset for `role`, transcribing only when the meeting has live captions on. */
+export function rtkPreset(role: RtkPresetRole, opts: { captions: boolean }): string {
+  return (opts.captions ? RTK_CAPTION_PRESETS : RTK_PRESETS)[role];
+}
+
+/** The role a preset name stands for, either variant; undefined for any other name. */
+export function rtkPresetRole(presetName: string | undefined): RtkPresetRole | undefined {
+  if (!presetName) return undefined;
+  for (const role of Object.keys(RTK_PRESETS) as RtkPresetRole[]) {
+    if (RTK_PRESETS[role] === presetName || RTK_CAPTION_PRESETS[role] === presetName) return role;
+  }
+  return undefined;
+}
+
+/** KV marker for {@link ensurePresets}; bump with every preset-name change (log in seedPresets). */
+const PRESETS_SEEDED_KEY = 'rtk-presets-seeded-v8';
 
 /**
  * Ensure required presets exist for WeldMeet.
@@ -552,7 +592,7 @@ export async function ensurePresets(
   env: CloudflareRealtimeEnv,
   _ctx?: RealtimeExecutionCtx,
 ): Promise<void> {
-  const cacheKey = 'rtk-presets-seeded-v7';
+  const cacheKey = PRESETS_SEEDED_KEY;
   const cached = await env.WORKSPACE_CACHE?.get(cacheKey);
   if (cached) return;
 
@@ -567,7 +607,7 @@ export async function ensurePresets(
  * `config.max_screenshare_count`. The shape below mirrors RealtimeKit's
  * internal default preset (see @cloudflare/realtimekit dist/index.es.js) with
  * three WeldMeet-specific overrides:
- *   - transcription_enabled — host UI shows live captions
+ *   - transcription_enabled — only for the caption presets (see RTK_PRESETS)
  *   - screenshare.quality   — fhd (1080p) instead of RTK's hd (720p)
  *   - screenshare.frame_rate — 30 instead of RTK's 5
  *
@@ -588,6 +628,8 @@ function buildPresetBody(opts: {
   canRecord: boolean;
   /** Start / stop a live stream of the meeting. Off unless set. */
   canLivestream?: boolean;
+  /** Stream this participant's audio to live transcription (billed per minute). */
+  transcription: boolean;
 }) {
   return {
     name: opts.name,
@@ -619,7 +661,7 @@ function buildPresetBody(opts: {
       is_recorder: false,
       recorder_type: 'NONE' as const,
       show_participant_list: true,
-      transcription_enabled: true,
+      transcription_enabled: opts.transcription,
       can_change_participant_permissions: opts.acceptWaitingRequests,
       connected_meetings: {
         can_alter_connected_meetings: false,
@@ -687,6 +729,44 @@ function buildPresetBody(opts: {
   };
 }
 
+type PresetBody = ReturnType<typeof buildPresetBody>;
+
+/**
+ * What each role may do, in seeding order. Both variants of a role (with and
+ * without live transcription) share it.
+ */
+const ROLE_PERMISSIONS: ReadonlyArray<
+  { role: RtkPresetRole } & Pick<
+    Parameters<typeof buildPresetBody>[0],
+    'acceptWaitingRequests' | 'waitingRoomType' | 'canRecord'
+  >
+> = [
+  { role: 'HOST', acceptWaitingRequests: true, waitingRoomType: 'SKIP', canRecord: true },
+  { role: 'MEMBER', acceptWaitingRequests: false, waitingRoomType: 'SKIP', canRecord: false },
+  { role: 'GUEST', acceptWaitingRequests: false, waitingRoomType: 'ON_PRIVILEGED_USER_ENTRY', canRecord: false },
+  // Explicit-admit guest preset for meetings with `waitingRoom` enabled. The
+  // host must accept each request via AdmitGuestsPill (acceptWaitingRoomRequest).
+  { role: 'GUEST_WAITING', acceptWaitingRequests: false, waitingRoomType: 'SKIP_ON_ACCEPT', canRecord: false },
+];
+
+/** Create a host preset, with live streaming when the RealtimeKit app allows it. */
+async function createHostPreset(
+  createPreset: (body: PresetBody) => Promise<unknown>,
+  body: (canLivestream: boolean) => PresetBody,
+): Promise<void> {
+  try {
+    await createPreset(body(true));
+  } catch (err) {
+    // A RealtimeKit app that cannot live stream may turn this preset down.
+    // Hosts must be able to join either way, so seed it without the
+    // permission; the client then shows live streaming as not enabled.
+    // Anything else (network, auth, 5xx) still throws and is retried.
+    if (!isRejectedBody(err)) throw err;
+    console.error('[RTK] host preset with live streaming was rejected, seeding without it:', err);
+    await createPreset(body(false));
+  }
+}
+
 /**
  * Force-seed presets and update the KV cache. Safe to call from a startup
  * task / admin endpoint. Always performs the network calls.
@@ -704,60 +784,21 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
 
   // Creates must throw on failure — otherwise we'd cache "seeded=1" while
   // presets are missing, and every subsequent participant create would 404.
-  const createPreset = (body: ReturnType<typeof buildPresetBody>) =>
+  const createPreset = (body: PresetBody) =>
     call('create RTK preset', () =>
       client.realtimeKit.presets.create(appId, { account_id: accountId, ...body }),
     );
 
-  if (!existing.has(RTK_PRESETS.HOST)) {
-    const hostPreset = (canLivestream: boolean) =>
-      buildPresetBody({
-        name: RTK_PRESETS.HOST,
-        acceptWaitingRequests: true,
-        waitingRoomType: 'SKIP',
-        canRecord: true,
-        canLivestream,
-      });
-    try {
-      await createPreset(hostPreset(true));
-    } catch (err) {
-      // A RealtimeKit app that cannot live stream may turn this preset down.
-      // Hosts must be able to join either way, so seed it without the
-      // permission; the client then shows live streaming as not enabled.
-      // Anything else (network, auth, 5xx) still throws and is retried.
-      if (!isRejectedBody(err)) throw err;
-      console.error('[RTK] host preset with live streaming was rejected, seeding without it:', err);
-      await createPreset(hostPreset(false));
+  // Each role in both variants: without and with live transcription.
+  for (const captions of [false, true]) {
+    for (const { role, ...permissions } of ROLE_PERMISSIONS) {
+      const name = rtkPreset(role, { captions });
+      if (existing.has(name)) continue;
+      const body = (canLivestream: boolean) =>
+        buildPresetBody({ name, ...permissions, canLivestream, transcription: captions });
+      if (role === 'HOST') await createHostPreset(createPreset, body);
+      else await createPreset(body(false));
     }
-  }
-
-  if (!existing.has(RTK_PRESETS.MEMBER)) {
-    await createPreset(buildPresetBody({
-      name: RTK_PRESETS.MEMBER,
-      acceptWaitingRequests: false,
-      waitingRoomType: 'SKIP',
-      canRecord: false,
-    }));
-  }
-
-  if (!existing.has(RTK_PRESETS.GUEST)) {
-    await createPreset(buildPresetBody({
-      name: RTK_PRESETS.GUEST,
-      acceptWaitingRequests: false,
-      waitingRoomType: 'ON_PRIVILEGED_USER_ENTRY',
-      canRecord: false,
-    }));
-  }
-
-  // Explicit-admit guest preset for meetings with `waitingRoom` enabled. The
-  // host must accept each request via AdmitGuestsPill (acceptWaitingRoomRequest).
-  if (!existing.has(RTK_PRESETS.GUEST_WAITING)) {
-    await createPreset(buildPresetBody({
-      name: RTK_PRESETS.GUEST_WAITING,
-      acceptWaitingRequests: false,
-      waitingRoomType: 'SKIP_ON_ACCEPT',
-      canRecord: false,
-    }));
   }
 
   // Cache key version log:
@@ -777,6 +818,8 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
   //                     share-link guests skipped the waiting room.
   //   v7              — HOST v2 → v3: adds can_livestream for the Live
   //                     streaming meeting tool.
+  //   v8              — transcription off in RTK_PRESETS; RTK_CAPTION_PRESETS
+  //                     added for meetings with live captions on.
   //
   // RTK refuses to recreate a preset whose name is still in use by any
   // participant token — that's why each config bump renames the preset
@@ -786,13 +829,13 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
   // are immutable between version-suffix bumps (a config change always bumps
   // the suffix → a new cache key → a re-seed), so a recurring expiry bought us
   // nothing but a periodic latency cliff: whichever unlucky request first hit
-  // the expired key paid ~5 serial api.cloudflare.com roundtrips (1 list + up
-  // to 4 creates) on its critical path — e.g. the "instant meeting sometimes
+  // the expired key paid ~9 serial api.cloudflare.com roundtrips (1 list + up
+  // to 8 creates) on its critical path — e.g. the "instant meeting sometimes
   // takes a long time" symptom. With no TTL the seed runs exactly once per
   // preset version, ever; every later request is a single warm KV get.
   // (Preset creates throw on failure, so a partial seed never reaches this
   // line — the marker can't be written while presets are missing.)
-  await env.WORKSPACE_CACHE?.put('rtk-presets-seeded-v7', '1');
+  await env.WORKSPACE_CACHE?.put(PRESETS_SEEDED_KEY, '1');
 }
 
 // ============================================================================

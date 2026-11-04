@@ -8,7 +8,7 @@ import {
   mergeRejoin,
   type MeetingSessionParticipant,
 } from '@weldsuite/db/schema/meeting-sessions';
-import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
+import { addParticipant, ensurePresets, rtkPreset } from '@/lib/cloudflare-realtime';
 import {
   liveKitSettings,
   mintLiveKitJoinToken,
@@ -298,10 +298,12 @@ export async function POST(request: NextRequest) {
     // events. Pre-invited attendees are trusted on the attendees list already
     // and skip straight in with the standard GUEST preset; walk-up guests
     // recorded by an earlier join attempt do not, so a refresh or a guest the
-    // host denied still lands back in the waiting room.
+    // host denied still lands back in the waiting room. Live transcription
+    // (billed per speaker minute) only when the meeting has live captions on.
     const isPreInvited = isInvitedAttendee(meeting.attendees, email);
-    const guestPreset =
-      meeting.waitingRoom && !isPreInvited ? RTK_PRESETS.GUEST_WAITING : RTK_PRESETS.GUEST;
+    const guestPreset = rtkPreset(meeting.waitingRoom && !isPreInvited ? 'GUEST_WAITING' : 'GUEST', {
+      captions: meeting.enableCaptions === true,
+    });
 
     await addGuestAttendee(db, meeting, email, name);
 

@@ -19,7 +19,7 @@ use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_video_rooms::{HOST_PRESET, MEMBER_PRESET, NewParticipant, RoomOptions};
+use weldsuite_video_rooms::{NewParticipant, RoomOptions, member_preset};
 
 use crate::js::{js_limit, js_slice, now_ms, parse_ms, query_param, sql_limit, text, truthy};
 use crate::lifecycle::{self, EndIfEmpty, Env};
@@ -366,7 +366,7 @@ async fn member_display(
 
 /// `ensurePresets(env)`: seed the provider's presets once per version.
 pub(crate) async fn ensure_presets(state: &MeetState, caller: &Caller) -> Result<(), String> {
-    const KEY: &str = "rtk-presets-seeded-v7";
+    const KEY: &str = "rtk-presets-seeded-v8";
     let cache = caller.parts.cache(state);
     if let Some(cache) = &cache
         && let Ok(Some(value)) = cache.get_boxed(KEY).await
@@ -556,7 +556,10 @@ async fn start_session(
                 &NewParticipant {
                     name: user_name.clone(),
                     custom_participant_id: caller.user_id.clone(),
-                    preset_name: Some(if is_host { HOST_PRESET } else { MEMBER_PRESET }.to_owned()),
+                    preset_name: Some(
+                        member_preset(is_host, meeting["enableCaptions"].as_bool() == Some(true))
+                            .to_owned(),
+                    ),
                     picture: avatar.clone().filter(|a| !a.is_empty()),
                 },
             )
@@ -745,6 +748,10 @@ async fn join_session(
     let meeting = lifecycle::meeting_row(db, &meeting_id)
         .await
         .map_err(|e| e.to_string())?;
+    // Live transcription (billed per speaker minute) only with live captions on.
+    let captions = meeting
+        .as_ref()
+        .is_some_and(|m| m["enableCaptions"].as_bool() == Some(true));
     let is_host = meeting
         .as_ref()
         .is_some_and(|m| text(m, "organizerId") == Some(caller.user_id.as_str()));
@@ -794,7 +801,7 @@ async fn join_session(
             &NewParticipant {
                 name: user_name.clone(),
                 custom_participant_id: caller.user_id.clone(),
-                preset_name: Some(if is_host { HOST_PRESET } else { MEMBER_PRESET }.to_owned()),
+                preset_name: Some(member_preset(is_host, captions).to_owned()),
                 picture: avatar.clone().filter(|a| !a.is_empty()),
             },
         )
