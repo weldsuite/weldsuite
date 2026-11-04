@@ -247,20 +247,38 @@ function taskReferenceError(
 function gateCriteriaError(blueprint: Blueprint, deliverables: ReadonlySet<string>): string | null {
   for (const phase of blueprint.phases) {
     for (const criterion of phase.gateCriteria) {
-      if ('manual' in criterion) continue;
-      if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) {
-        return `Phase ${phase.key} has an unknown gate criterion: ${criterion.key}`;
-      }
-      if (criterion.key === DECISION_CRITERION_KEY) {
-        return `Phase ${phase.key} has a gate criterion a template cannot carry: ${criterion.key}`;
-      }
-      if (!isDeliverableCriterion(criterion.key)) continue;
-      const deliverableKey = deliverableKeyOf(criterion.params);
-      if (!deliverableKey) return `Phase ${phase.key} has a ${criterion.key} criterion without a deliverableKey`;
-      if (!deliverables.has(deliverableKey)) return `Phase ${phase.key} refers to an unknown deliverable: ${deliverableKey}`;
+      const error = criterionError(phase.key, criterion, deliverables);
+      if (error) return error;
     }
   }
   return null;
+}
+
+/** The refusal for one gate criterion of a blueprint phase, or null. */
+function criterionError(
+  phaseKey: string,
+  criterion: Blueprint['phases'][number]['gateCriteria'][number],
+  deliverables: ReadonlySet<string>,
+): string | null {
+  if ('manual' in criterion) return null;
+  if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) {
+    return `Phase ${phaseKey} has an unknown gate criterion: ${criterion.key}`;
+  }
+  if (criterion.key === DECISION_CRITERION_KEY) {
+    return `Phase ${phaseKey} has a gate criterion a template cannot carry: ${criterion.key}`;
+  }
+  if (!isDeliverableCriterion(criterion.key)) return null;
+  const deliverableKey = deliverableKeyOf(criterion.params);
+  if (!deliverableKey) return `Phase ${phaseKey} has a ${criterion.key} criterion without a deliverableKey`;
+  if (!deliverables.has(deliverableKey)) return `Phase ${phaseKey} refers to an unknown deliverable: ${deliverableKey}`;
+  return null;
+}
+
+/** A copy of a criterion's params without `key`; the other keys keep their order. */
+function paramsWithout(params: Record<string, unknown> | undefined, key: string): Record<string, unknown> {
+  const rest = { ...params };
+  delete rest[key];
+  return rest;
 }
 
 /** A task must not be its own ancestor. */
@@ -491,8 +509,7 @@ function blueprintCriterion(
     const id = criterion.params?.deliverableId;
     const local = typeof id === 'string' ? deliverableKeys.get(id) : undefined;
     if (!local) return { manual: deliverableCriterionText(criterion.key, null) };
-    const { deliverableId: _source, ...rest } = criterion.params ?? {};
-    return { key: criterion.key, params: { ...rest, deliverableKey: local } };
+    return { key: criterion.key, params: { ...paramsWithout(criterion.params, 'deliverableId'), deliverableKey: local } };
   }
   if (criterion.key === DECISION_CRITERION_KEY) return { manual: DECISION_CRITERION_TEXT };
   if (!(GATE_CRITERION_KEYS as readonly string[]).includes(criterion.key)) return { manual: criterion.key };
@@ -875,8 +892,7 @@ function instantiateCriterion(
     const title = blueprint.deliverables.find((deliverable) => deliverable.key === local)?.title ?? null;
     return { manual: deliverableCriterionText(criterion.key, title), met: false, metAt: null };
   }
-  const { deliverableKey: _local, ...rest } = criterion.params ?? {};
-  return { key: criterion.key, params: { ...rest, deliverableId: id } };
+  return { key: criterion.key, params: { ...paramsWithout(criterion.params, 'deliverableKey'), deliverableId: id } };
 }
 
 function planPhases(blueprint: Blueprint, scope: PlanScope): NewPhaseRow[] {

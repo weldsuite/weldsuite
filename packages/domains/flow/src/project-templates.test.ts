@@ -741,7 +741,7 @@ describe('planInstantiation', () => {
 
   it('turns a deliverable criterion into a manual one when the deliverables are not copied', () => {
     const made = plan(blueprint, { copy: resolveCopy({ deliverables: false }) });
-    expect(made.phases[0]?.gateCriteria.slice(0, 2)).toEqual([
+    expect(made.phases[0]?.gateCriteria?.slice(0, 2)).toEqual([
       { manual: 'Deliverable accepted: Ordering', met: false, metAt: null },
       { manual: 'Deliverable tasks done', met: false, metAt: null },
     ]);
