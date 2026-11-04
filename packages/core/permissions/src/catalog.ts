@@ -54,6 +54,11 @@ function objectPermissions(
   return { key: object, label, permissions };
 }
 
+/** An object definition with extra, non-standard permissions after the generated ones. */
+function withPermissions(base: ObjectDefinition, extra: readonly PermissionDefinition[]): ObjectDefinition {
+  return { ...base, permissions: [...base.permissions, ...extra] };
+}
+
 // ---------------------------------------------------------------------------
 // Permission Catalog — flat list of objects (~65 entries)
 // ---------------------------------------------------------------------------
@@ -366,11 +371,54 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // sees projects they manage (projectManagerId) or are an active member of —
   // see apps/workers/app-api/src/routes/projects GET /. Owners (`*`) and admins
   // (`weldflow:*` + explicit grant below) have it.
-  objectPermissions('projects',      'Projects',  ['read', 'create', 'update', 'delete'], { scopeAll: true }),
+  // `projects:finance` opens the cost figures of project finance (budget,
+  // actual, committed, forecast, earned value). Without it a member sees
+  // percentages only; project managers see the figures of their own projects
+  // regardless. Admins and owners have it; members and viewers do not.
+  withPermissions(
+    objectPermissions('projects',    'Projects',  ['read', 'create', 'update', 'delete'], { scopeAll: true }),
+    [
+      {
+        key: 'projects:finance',
+        label: 'See project finance figures',
+        description: 'Budget, actual cost, committed spend, forecast and earned value of the projects this person can open. Without it they see percentages only. Project managers always see the figures of their own projects.',
+      },
+    ],
+  ),
   objectPermissions('tasks',         'Tasks'),
   objectPermissions('milestones',    'Milestones'),
   objectPermissions('time',          'Time Entries'),
   objectPermissions('files',         'Files'),
+  // WeldFlow workspace-level objects: they cross projects, so project
+  // membership alone cannot guard them (design: weldflow-delivery-and-portfolio.md).
+  // OWNER and ADMIN get them; MEMBER and VIEWER none until granted.
+  {
+    key: 'portfolio',
+    label: 'Portfolio',
+    permissions: [
+      {
+        key: 'portfolio:read',
+        label: 'View the portfolio',
+        description: 'Capacity, the roadmap and project intake across all projects. Task titles of projects the reader is not a member of stay hidden; only hours show.',
+      },
+      {
+        key: 'portfolio:manage',
+        label: 'Manage the portfolio',
+        description: 'Edit the intake scoring model and the portfolio board, and book people for others.',
+      },
+    ],
+  },
+  {
+    key: 'project_templates',
+    label: 'Project templates',
+    permissions: [
+      {
+        key: 'project_templates:manage',
+        label: 'Manage project templates',
+        description: 'Create, edit and share project templates. Using a shared template only needs Create projects.',
+      },
+    ],
+  },
 
   // ── Mail / Chat / Social — share `messages`, `accounts`, `campaigns` ──
   objectPermissions('messages',      'Messages'),
@@ -713,6 +761,10 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // WeldFlow cross-project grant — admins see every project, not only their own.
   // (`weldflow:*` already covers this; listed explicitly so the model is clear.)
   'projects:scope:all',
+  // WeldFlow finance figures, the portfolio (capacity, roadmap, intake) and
+  // project templates. `weldflow:*` expands to the standard project actions
+  // only, so these are listed; members and viewers get none of them.
+  'projects:finance', 'portfolio:read', 'portfolio:manage', 'project_templates:manage',
   // Companies + People (new identity surfaces) — admin sees all
   'companies:read', 'companies:create', 'companies:update', 'companies:delete', 'companies:scope:all',
   'people:read', 'people:create', 'people:update', 'people:delete', 'people:scope:all',

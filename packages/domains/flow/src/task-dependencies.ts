@@ -9,25 +9,66 @@
  * copy of the plan/commit pair with the member-access check folded in.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
+import { generateId } from '@weldsuite/worker-kit/id';
 import { softDeleteTaskTree } from './task-tree';
 
 const t = schema.tasks;
+const deps = schema.taskDependencies;
 
 export type DependencyFailure = { ok: false; kind: 'not-found' | 'invalid'; message: string };
 export type ReciprocalLink = { id: string; set: { blocks?: string[]; dependsOn?: string[] } };
+
+/** A predecessor and the task that waits for it. */
+export interface DependencyPair {
+  predecessorId: string;
+  successorId: string;
+}
+
+/**
+ * The `task_dependencies` rows a change of the `dependsOn` / `blocks` arrays
+ * implies (FLOW-015, transition release): a new pair becomes an `fs` row with
+ * lag 0 (a pair that already has a row keeps its type and lag), a dropped pair
+ * loses its row. A pair that cannot be a row (a task of another project, or no
+ * project) stays in the arrays only.
+ */
+export interface DependencyRowChanges {
+  add: Array<DependencyPair & { projectId: string }>;
+  remove: DependencyPair[];
+}
+
 export type DependencyPlan = {
   ok: true;
   dependsOn: string[];
   blocks: string[];
   reciprocal: ReciprocalLink[];
+  rows: DependencyRowChanges;
 };
 
+/** What changed in a task's two lists. */
+export interface LinkDiff {
+  addedDeps: string[];
+  removedDeps: string[];
+  addedBlocks: string[];
+  removedBlocks: string[];
+}
+
 /**
- * True when following `dependsOn` edges from `newDependsOn` reaches `taskId`
- * (i.e. adding those edges to `taskId` would close a cycle).
+ * What a task waits for: its `dependsOn` array and the predecessors of its
+ * `task_dependencies` rows (FLOW-015: cycle detection reads the table, and the
+ * arrays too while they are still written by old rows and direct writers).
+ */
+export async function predecessorsOf(db: Database, taskId: string): Promise<string[]> {
+  const [task] = await db.select({ dependsOn: t.dependsOn }).from(t).where(eq(t.id, taskId)).limit(1);
+  const rows = await db.select({ predecessorId: deps.predecessorId }).from(deps).where(eq(deps.successorId, taskId));
+  return [...new Set([...((task?.dependsOn as string[] | null) ?? []), ...rows.map((row) => row.predecessorId)])];
+}
+
+/**
+ * True when following what each task waits for, from `newDependsOn`, reaches
+ * `taskId` (i.e. adding those edges to `taskId` would close a cycle).
  */
 export async function detectCycle(
   db: Database,
@@ -41,14 +82,142 @@ export async function detectCycle(
     if (current === taskId) return true;
     if (visited.has(current)) continue;
     visited.add(current);
-    const [task] = await db
-      .select({ dependsOn: t.dependsOn })
-      .from(t)
-      .where(eq(t.id, current))
-      .limit(1);
-    if (task?.dependsOn) queue.push(...task.dependsOn);
+    queue.push(...(await predecessorsOf(db, current)));
   }
   return false;
+}
+
+/**
+ * What a task waits for once a request is applied, for the cycle check of a new
+ * `blocks` edge: its new `dependsOn` list plus the predecessors of its
+ * `task_dependencies` rows that the request does not drop.
+ */
+export async function waitsForAfter(
+  db: Database,
+  taskId: string,
+  newDependsOn: string[],
+  removedDeps: string[],
+): Promise<string[]> {
+  const rows = await db.select({ predecessorId: deps.predecessorId }).from(deps).where(eq(deps.successorId, taskId));
+  const kept = rows.map((row) => row.predecessorId).filter((id) => !removedDeps.includes(id));
+  return [...new Set([...newDependsOn, ...kept])];
+}
+
+/**
+ * The rows a diff of a task's two lists implies, for pairs inside one project
+ * (both tasks live, same non-null `projectId`). Reads the project of each task
+ * involved.
+ */
+export async function dependencyRowChanges(db: Database, selfId: string, diff: LinkDiff): Promise<DependencyRowChanges> {
+  const linkedIds = [...new Set([...diff.addedDeps, ...diff.removedDeps, ...diff.addedBlocks, ...diff.removedBlocks])];
+  if (linkedIds.length === 0) return { add: [], remove: [] };
+  const rows = await db
+    .select({ id: t.id, projectId: t.projectId, deletedAt: t.deletedAt })
+    .from(t)
+    .where(inArray(t.id, [selfId, ...linkedIds]));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const projectOf = (id: string): string | null => {
+    const row = byId.get(id);
+    return row && !row.deletedAt ? (row.projectId ?? null) : null;
+  };
+  const selfProject = projectOf(selfId);
+  const sameProject = (other: string): string | null => {
+    const project = projectOf(other);
+    return selfProject !== null && project === selfProject ? selfProject : null;
+  };
+  const changes: DependencyRowChanges = { add: [], remove: [] };
+  for (const pred of diff.addedDeps) {
+    const projectId = sameProject(pred);
+    if (projectId) changes.add.push({ predecessorId: pred, successorId: selfId, projectId });
+  }
+  for (const succ of diff.addedBlocks) {
+    const projectId = sameProject(succ);
+    if (projectId) changes.add.push({ predecessorId: selfId, successorId: succ, projectId });
+  }
+  for (const pred of diff.removedDeps) changes.remove.push({ predecessorId: pred, successorId: selfId });
+  for (const succ of diff.removedBlocks) changes.remove.push({ predecessorId: selfId, successorId: succ });
+  return changes;
+}
+
+/**
+ * The statements that write those rows, for one `atomically` batch: new pairs
+ * are inserted as `fs` / lag 0 and left alone when they already have a row;
+ * dropped pairs are deleted.
+ */
+export function dependencyRowStatements(
+  handle: Database,
+  changes: DependencyRowChanges,
+  userId: string,
+  now: Date,
+): unknown[] {
+  const statements: unknown[] = [];
+  if (changes.add.length > 0) {
+    statements.push(
+      handle
+        .insert(deps)
+        .values(
+          changes.add.map((pair) => ({
+            id: generateId('tdp'),
+            projectId: pair.projectId,
+            predecessorId: pair.predecessorId,
+            successorId: pair.successorId,
+            type: 'fs' as const,
+            lagDays: 0,
+            createdBy: userId,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoNothing(),
+    );
+  }
+  if (changes.remove.length > 0) {
+    statements.push(
+      handle
+        .delete(deps)
+        .where(
+          or(
+            ...changes.remove.map((pair) =>
+              and(eq(deps.predecessorId, pair.predecessorId), eq(deps.successorId, pair.successorId)),
+            ),
+          ),
+        ),
+    );
+  }
+  return statements;
+}
+
+/** Who a row made by an array write is credited to when the writer did not say (the public API's keys have no member). */
+export const SYSTEM_ACTOR = 'system';
+
+/** The refusals of `/api/task-dependencies`, sent to the client as they are. */
+export const DEPENDENCY_MESSAGES = {
+  self: 'A task cannot depend on itself',
+  noProject: 'Both tasks must belong to a project',
+  differentProjects: 'Both tasks must belong to the same project',
+  duplicate: 'These tasks are already linked',
+  cycle: 'Circular dependency detected',
+  listScope: 'Give projectId or taskId',
+} as const;
+
+/**
+ * Would a new link close a cycle: does the predecessor already wait, through
+ * any chain of rows or array entries, for the successor? Reads the table and
+ * the arrays, like `detectCycle`.
+ */
+export async function wouldCloseCycle(db: Database, predecessorId: string, successorId: string): Promise<boolean> {
+  return detectCycle(db, successorId, [predecessorId]);
+}
+
+/** `list` with `item` once: the arrays hold each id at most once. */
+export function withId(ids: readonly string[] | null | undefined, id: string): string[] {
+  const list = ids ?? [];
+  return list.includes(id) ? [...list] : [...list, id];
+}
+
+/** `list` without `id`. */
+export function withoutId(ids: readonly string[] | null | undefined, id: string): string[] {
+  return (ids ?? []).filter((entry) => entry !== id);
 }
 
 /** Every added link must be an existing, live task other than `selfId`. */
@@ -170,27 +339,30 @@ export async function planDependencyUpdate(
   // a cycle when the blocked task is reachable from this task's (new) dependsOn.
   const cyclic =
     (addedDeps.length > 0 && (await detectCycle(db, id, addedDeps))) ||
-    (await anyAsync(addedBlocks, (blockedId) => detectCycle(db, blockedId, newDependsOn)));
+    (addedBlocks.length > 0 &&
+      (await anyAsync(addedBlocks, async (blockedId) =>
+        detectCycle(db, blockedId, await waitsForAfter(db, id, newDependsOn, removedDeps)),
+      )));
   if (cyclic) return { ok: false, kind: 'invalid', message: 'Circular dependency detected' };
 
-  const reciprocal = await reciprocalLinkUpdates(db, id, {
-    addedDeps,
-    removedDeps,
-    addedBlocks,
-    removedBlocks,
-  });
-  return { ok: true, dependsOn: newDependsOn, blocks: newBlocks, reciprocal };
+  const diff = { addedDeps, removedDeps, addedBlocks, removedBlocks };
+  const reciprocal = await reciprocalLinkUpdates(db, id, diff);
+  const rows = await dependencyRowChanges(db, id, diff);
+  return { ok: true, dependsOn: newDependsOn, blocks: newBlocks, reciprocal, rows };
 }
 
 /**
- * Write the task's own row (its dependency lists plus any other column changes)
- * and every reciprocal row as one unit, so a failure leaves no one-sided link.
+ * Write the task's own row (its dependency lists plus any other column
+ * changes), every reciprocal row and the `task_dependencies` rows the lists
+ * imply as one unit, so a failure leaves no one-sided link. `userId` is the
+ * creator of new rows.
  */
 export async function commitDependencyUpdate(
   db: Database,
   id: string,
   plan: DependencyPlan,
   columns: Record<string, unknown> = {},
+  userId: string = SYSTEM_ACTOR,
 ): Promise<void> {
   const now = new Date();
   await atomically(db, (handle) => [
@@ -201,6 +373,7 @@ export async function commitDependencyUpdate(
       .update(t)
       .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
       .where(and(eq(t.id, id), isNull(t.deletedAt))),
+    ...dependencyRowStatements(handle, plan.rows, userId, now),
   ]);
 }
 
@@ -216,13 +389,14 @@ export async function linkCreatedTask(
   db: Database,
   id: string,
   input: { dependsOn?: string[]; blocks?: string[] },
+  userId: string = SYSTEM_ACTOR,
 ): Promise<DependencyFailure | null> {
   const discard = () => softDeleteTaskTree(db, id).catch(() => undefined);
   let failure: DependencyFailure;
   try {
     const plan = await planDependencyUpdate(db, id, input);
     if (plan.ok) {
-      await commitDependencyUpdate(db, id, plan);
+      await commitDependencyUpdate(db, id, plan, {}, userId);
       return null;
     }
     failure = plan;

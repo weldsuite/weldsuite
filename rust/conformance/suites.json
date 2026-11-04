@@ -1440,6 +1440,12 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
       ]
     },
     {
@@ -1536,6 +1542,12 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
       ]
     },
     {
@@ -1552,6 +1564,69 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
+      ]
+    },
+    {
+      "name": "flow: project control",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-raid/integration.test.ts",
+        "src/routes/project-raid/acceptance.integration.test.ts",
+        "src/routes/project-control-links/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-raid",
+        "/api/project-control-links"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-raid/",
+        "apps/workers/flow-api/src/routes/project-control-links/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-control.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: approvals and changes",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/approvals/integration.test.ts",
+        "src/routes/project-changes/integration.test.ts",
+        "src/routes/project-baselines/integration.test.ts",
+        "src/cron/approval-reminders.test.ts"
+      ],
+      "coverage": [
+        "/api/approvals",
+        "/api/project-changes",
+        "/api/project-baselines"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/approvals/",
+        "apps/workers/flow-api/src/routes/project-changes/",
+        "apps/workers/flow-api/src/routes/project-baselines/",
+        "apps/workers/flow-api/src/routes/project-raid/",
+        "apps/workers/flow-api/src/routes/time-entries/",
+        "apps/workers/flow-api/src/cron/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-approvals.ts",
+        "packages/core/worker-kit/src/due-index.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/bins/weldsuite/src/cron.rs"
       ]
     },
     {
@@ -1797,6 +1872,7 @@
         "src/routes/wms-suppliers/routes.test.ts",
         "src/routes/cycle-counts/routes.test.ts",
         "src/routes/purchase-orders/routes.test.ts",
+        "src/routes/purchase-orders/items.test.ts",
         "src/routes/inventory-movements/routes.test.ts",
         "src/routes/stock-adjustments/routes.test.ts",
         "src/routes/wms-activity/routes.test.ts",
@@ -3267,6 +3343,199 @@
         "packages/core/worker-kit/src/testing/service-binding-bridge.ts",
         "rust/modules/integrations/",
         "rust/crates/connect-domain/src/webhooks.rs"
+      ]
+    },
+    {
+      "name": "flow: closing and templates",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-lessons/integration.test.ts",
+        "src/routes/project-close/integration.test.ts",
+        "src/routes/project-templates/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-lessons",
+        "/api/project-close",
+        "/api/project-templates"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-lessons/",
+        "apps/workers/flow-api/src/routes/project-close/",
+        "apps/workers/flow-api/src/routes/project-templates/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/domains/know/src/",
+        "packages/clients/app-api-client/src/schemas/project-closing.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/crates/know-domain/"
+      ]
+    },
+    {
+      "name": "flow: portfolio",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/capacity/integration.test.ts",
+        "src/routes/project-requests/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/capacity",
+        "/api/project-requests"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/capacity/",
+        "apps/workers/flow-api/src/routes/project-requests/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-portfolio.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: client portal",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/public-project-portal/integration.test.ts",
+        "src/routes/project-files/client-visible.integration.test.ts",
+        "src/routes/project-messages/client-visible.integration.test.ts",
+        "src/routes/project-documents/client-visible.integration.test.ts"
+      ],
+      "coverage": [
+        "/public/project-portal",
+        "/api/project-documents"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/public-project-portal/",
+        "apps/workers/flow-api/src/routes/project-documents/",
+        "apps/workers/flow-api/src/routes/project-files/",
+        "apps/workers/flow-api/src/routes/project-messages/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-portal.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/project-documents/:projectId",
+          "reason": "An existing project-documents route, reached by the flow: project resources suite (src/routes/documents/index.integration.test.ts); this suite covers only the client-visible PATCH."
+        },
+        {
+          "route": "POST /api/project-documents/:projectId",
+          "reason": "An existing project-documents route, reached by the flow: project resources suite (src/routes/documents/index.integration.test.ts); this suite covers only the client-visible PATCH."
+        }
+      ]
+    },
+    {
+      "name": "flow: schedule and gates",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/task-dependencies/integration.test.ts",
+        "src/routes/task-dependencies/compat.integration.test.ts",
+        "src/routes/project-schedule/integration.test.ts",
+        "src/routes/project-phases/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/task-dependencies",
+        "/api/project-schedule",
+        "/api/project-phases"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/task-dependencies/",
+        "apps/workers/flow-api/src/routes/project-schedule/",
+        "apps/workers/flow-api/src/routes/project-phases/",
+        "apps/workers/flow-api/src/routes/tasks/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-schedule.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/modules/external-api/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: governance registers",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-decisions/integration.test.ts",
+        "src/routes/project-deliverables/integration.test.ts",
+        "src/routes/project-scope/integration.test.ts",
+        "src/routes/project-benefits/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-decisions",
+        "/api/project-deliverables",
+        "/api/project-scope",
+        "/api/project-benefits"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-decisions/",
+        "apps/workers/flow-api/src/routes/project-deliverables/",
+        "apps/workers/flow-api/src/routes/project-scope/",
+        "apps/workers/flow-api/src/routes/project-benefits/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-control.ts",
+        "packages/clients/app-api-client/src/schemas/project-governance.ts",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: reporting and stakeholders",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-status-reports/integration.test.ts",
+        "src/routes/project-stakeholders/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-status-reports",
+        "/api/project-stakeholders"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-status-reports/",
+        "apps/workers/flow-api/src/routes/project-stakeholders/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-reporting.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/crates/emails/"
+      ]
+    },
+    {
+      "name": "flow: finance",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-finance/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-finance"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-finance/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-finance.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
       ]
     }
   ]

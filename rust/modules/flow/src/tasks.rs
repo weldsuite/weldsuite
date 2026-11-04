@@ -1235,7 +1235,8 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         sqlx::query(
             "update tasks set project_id = $2,
                  parent_task_id = case when $3 then null else parent_task_id end,
-                 sprint_id = null, milestone_id = null, stage_id = $4, status = $5, key = null,
+                 sprint_id = null, milestone_id = null, deliverable_id = null,
+                 stage_id = $4, status = $5, key = null,
                  position = $6, board_position = null, updated_at = $7::timestamp
              where id = $1",
         )
@@ -1249,6 +1250,13 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         .execute(&mut *tx)
         .await?;
     }
+    // A typed dependency stays inside one project (FLOW-015): the moved tasks' rows go.
+    sqlx::query(
+        "delete from task_dependencies where predecessor_id = any($1) or successor_id = any($1)",
+    )
+    .bind(&all)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     let moved = std::iter::once((id.to_owned(), title)).chain(descendants.iter().cloned());
     for (task_id, task_title) in moved {

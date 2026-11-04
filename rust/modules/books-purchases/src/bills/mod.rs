@@ -30,7 +30,8 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::{js_date, js_date_millis, number_text, parse_float};
 use weldsuite_books_domain::posting::{
-    PostError, ReverseArgs, assert_dimensions_belong_to_entity, reverse_journal_entry,
+    PostError, ReverseArgs, assert_dimensions_belong_to_entity, assert_projects_exist,
+    reverse_journal_entry,
 };
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::sales_tax::document_tax::{
@@ -378,6 +379,7 @@ fn stored_line(item: &Value) -> BillLine {
         fiscal_data: item.get("fiscalData").filter(|v| !v.is_null()).cloned(),
         class_id: opt("classId"),
         location_id: opt("locationId"),
+        project_id: opt("projectId"),
     }
 }
 
@@ -449,6 +451,7 @@ fn item_records(
                 "fiscalData": line.fiscal_data.clone(),
                 "classId": some(&line.class_id),
                 "locationId": some(&line.location_id),
+                "projectId": some(&line.project_id),
                 "createdAt": now,
                 "updatedAt": now,
             })
@@ -461,6 +464,11 @@ fn dimension_lines(lines: &[BillLine]) -> Vec<(Option<String>, Option<String>)> 
         .iter()
         .map(|l| (l.class_id.clone(), l.location_id.clone()))
         .collect()
+}
+
+/// The project tag of each line (FLOW-019), for `assertProjectsExist`.
+fn project_lines(lines: &[BillLine]) -> Vec<Option<String>> {
+    lines.iter().map(|l| l.project_id.clone()).collect()
 }
 
 /// The totals a calculation adds to the bill (`...billTotals`).
@@ -547,6 +555,9 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
     let item_ids: Vec<String> = lines.iter().map(|_| generate_id("bli")).collect();
     let items = tax_items(&lines, &item_ids);
     assert_dimensions_belong_to_entity(db, &entity_id, &dimension_lines(&lines))
+        .await
+        .map_err(post_refusal)?;
+    assert_projects_exist(db, project_lines(&lines))
         .await
         .map_err(post_refusal)?;
     let delivery = normalize_postal_address(data.delivery_address.as_set());
@@ -1155,6 +1166,11 @@ async fn apply_tax_changes(
     let entity_id = text(bill, "entityId").unwrap_or_default().to_owned();
     let bill_id = text(bill, "id").unwrap_or_default().to_owned();
     if let Some(lines) = &data.items {
+        // Only lines sent now are checked: a tag on a saved line stays when its
+        // project is deleted later.
+        assert_projects_exist(db, project_lines(lines))
+            .await
+            .map_err(post_refusal)?;
         return replace_items(caller, state, bill, lines, set)
             .await
             .map(Some);

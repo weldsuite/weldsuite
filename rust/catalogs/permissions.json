@@ -126,7 +126,9 @@
         "companies",
         "channels",
         "messages",
-        "integrations"
+        "integrations",
+        "portfolio",
+        "project_templates"
       ]
     },
     {
@@ -1750,6 +1752,11 @@
           "description": "Without this grant, the user can only read/edit projects they own. Grant to managers and admins who need cross-team visibility.",
           "key": "projects:scope:all",
           "label": "See all projects (not only their own)"
+        },
+        {
+          "description": "Budget, actual cost, committed spend, forecast and earned value of the projects this person can open. Without it they see percentages only. Project managers always see the figures of their own projects.",
+          "key": "projects:finance",
+          "label": "See project finance figures"
         }
       ]
     },
@@ -1838,6 +1845,33 @@
         {
           "key": "files:delete",
           "label": "Delete files"
+        }
+      ]
+    },
+    {
+      "key": "portfolio",
+      "label": "Portfolio",
+      "permissions": [
+        {
+          "description": "Capacity, the roadmap and project intake across all projects. Task titles of projects the reader is not a member of stay hidden; only hours show.",
+          "key": "portfolio:read",
+          "label": "View the portfolio"
+        },
+        {
+          "description": "Edit the intake scoring model and the portfolio board, and book people for others.",
+          "key": "portfolio:manage",
+          "label": "Manage the portfolio"
+        }
+      ]
+    },
+    {
+      "key": "project_templates",
+      "label": "Project templates",
+      "permissions": [
+        {
+          "description": "Create, edit and share project templates. Using a shared template only needs Create projects.",
+          "key": "project_templates:manage",
+          "label": "Manage project templates"
         }
       ]
     },
@@ -3169,6 +3203,10 @@
         "bookings:scope:all",
         "meetings:scope:all",
         "projects:scope:all",
+        "projects:finance",
+        "portfolio:read",
+        "portfolio:manage",
+        "project_templates:manage",
         "companies:read",
         "companies:create",
         "companies:update",

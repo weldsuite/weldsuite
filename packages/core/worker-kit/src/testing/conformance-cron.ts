@@ -52,7 +52,7 @@ interface D1Like {
 
 export interface ConformanceSweep<R> {
   /** The job as the Rust server names it: `/__conformance/cron/<job>`. */
-  job: 'sign-lifecycle' | 'calendar-replan' | 'desk-sla-sweep' | 'books-tax-reminders';
+  job: 'sign-lifecycle' | 'calendar-replan' | 'desk-sla-sweep' | 'books-tax-reminders' | 'flow-approval-due';
   now: Date;
   tenantDb: Database;
   /** The master database, for a job that keeps a due index. */

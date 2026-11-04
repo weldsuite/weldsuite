@@ -172,6 +172,7 @@ pub(crate) fn transform_create_project_status(value: Option<Value>) -> Option<Va
         "onhold" => "On Hold",
         "completed" => "Completed",
         "cancelled" | "canceled" => "Cancelled",
+        "closed" => "Closed",
         _ => return Some(Value::String(text)),
     };
     Some(Value::String(canonical.to_owned()))

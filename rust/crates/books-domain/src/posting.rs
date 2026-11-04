@@ -95,6 +95,9 @@ pub struct PostingLine {
     pub exchange_rate: Option<String>,
     pub class_id: Option<String>,
     pub location_id: Option<String>,
+    /// The `WeldFlow` project the line's cost belongs to (FLOW-019). Only
+    /// manual entries and their reversals carry it.
+    pub project_id: Option<String>,
 }
 
 /// One tax-ledger row of a posting (`PostingTaxLine`).
@@ -328,6 +331,42 @@ pub async fn assert_dimensions_belong_to_entity(
     Ok(())
 }
 
+/// `assertProjectsExist(db, lines)`: project ids on lines (FLOW-019) must be
+/// live `WeldFlow` projects of this workspace. The project belongs to another
+/// module, so the column has no foreign key and this is the only check; a
+/// deleted project does not count.
+pub async fn assert_projects_exist(
+    db: &PgPool,
+    project_ids: impl IntoIterator<Item = Option<String>>,
+) -> Result<(), PostError> {
+    let ids = unique(
+        project_ids
+            .into_iter()
+            .flatten()
+            .filter(|id| !id.is_empty()),
+    );
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let found: Vec<String> =
+        sqlx::query_scalar("select id from projects where id = any($1) and deleted_at is null")
+            .bind(&ids)
+            .fetch_all(db)
+            .await?;
+    let missing: Vec<&str> = ids
+        .iter()
+        .filter(|id| !found.contains(id))
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(posting(format!(
+        "Project {} does not exist",
+        missing.join(", ")
+    )))
+}
+
 fn opt(value: Option<&String>) -> Value {
     value.map_or(Value::Null, |v| Value::String(v.clone()))
 }
@@ -511,6 +550,7 @@ pub async fn post_journal_entry(
                 ),
                 ("classId", opt(l.line.class_id.as_ref())),
                 ("locationId", opt(l.line.location_id.as_ref())),
+                ("projectId", opt(l.line.project_id.as_ref())),
                 ("baseCurrencyDebit", json!(to_fixed(l.debit, 2))),
                 ("baseCurrencyCredit", json!(to_fixed(l.credit, 2))),
                 ("sortOrder", json!(index)),
@@ -754,6 +794,7 @@ pub async fn reverse_journal_entry(
             exchange_rate: text(&line, "exchangeRate"),
             class_id: text(&line, "classId"),
             location_id: text(&line, "locationId"),
+            project_id: text(&line, "projectId"),
         })
         .collect();
     let tax_lines: Vec<PostingTaxLine> = tax_rows

@@ -82,7 +82,14 @@ export const journalLines = pgTable('journal_lines', {
   classId: varchar('class_id', { length: 30 }),
   locationId: varchar('location_id', { length: 30 }),
   sortOrder: integer('sort_order'),
+  /**
+   * The WeldFlow project this line's cost belongs to (FLOW-019). Set in
+   * WeldBooks' own UI; WeldFlow only reads it. `projects.id`, deliberately no
+   * foreign key: the project belongs to another module.
+   */
+  projectId: varchar('project_id', { length: 255 }),
 }, (table) => [
+  index('acct_journal_lines_project_idx').on(table.projectId),
   index('acct_journal_lines_reconciliation_idx').on(table.reconciliationId),
   index('acct_journal_lines_entity_idx').on(table.entityId),
   index('acct_journal_lines_entry_idx').on(table.journalEntryId),

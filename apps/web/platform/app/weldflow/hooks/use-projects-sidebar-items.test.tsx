@@ -30,6 +30,11 @@ vi.mock('@/hooks/queries/use-weldflow-preferences', () => ({
   useSidebarProjectOrder: () => ({ order: prefs.order, setOrder: prefs.setOrder, isLoaded: true }),
 }));
 
+const reviews = vi.hoisted(() => ({ count: 0 }));
+vi.mock('@/hooks/queries/use-flow-approvals-queries', () => ({
+  useMyReviewsCount: () => ({ data: reviews.count }),
+}));
+
 vi.mock('@/lib/events/data-events', () => ({ useDataEvent: () => {} }));
 vi.mock('@weldsuite/realtime/react', () => ({ useTopic: () => {} }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -130,5 +135,111 @@ describe('useProjectsSidebarItems: create project dialog', () => {
     });
 
     expect(api.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+function GeneralPagesHarness() {
+  const { menuGroups } = useProjectsSidebarItems(true);
+  const pages = menuGroups.find((g) => !g.onAdd)?.items ?? [];
+  return (
+    <ol>
+      {pages.map((item) => (
+        <li key={item.href} data-permission={String(item.permission ?? '')} data-badge={item.badge ?? ''} data-badge-label={item.badgeLabel ?? ''}>
+          {item.title}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+describe('useProjectsSidebarItems: general pages', () => {
+  beforeEach(() => {
+    api.list.mockReset().mockResolvedValue({ success: true, data: [] });
+    reviews.count = 0;
+    window.localStorage.clear();
+  });
+
+  it('puts My reviews next to My tasks and groups the portfolio pages with the workspace-level ones', async () => {
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      en.projects.sidebar.myTasks,
+      en.projects.sidebar.myReviews,
+      en.projects.sidebar.allProjects,
+      en.projects.sidebar.workload,
+      en.projects.sidebar.intake,
+      en.projects.sidebar.capacity,
+      en.projects.sidebar.templates,
+      en.projects.sidebar.analytics,
+    ]);
+  });
+
+  it('gates Intake and Capacity on portfolio:read and Templates on projects:read', async () => {
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    const permissionOf = (title: string) => screen.getByText(title).getAttribute('data-permission');
+    expect(permissionOf(en.projects.sidebar.intake)).toBe('portfolio:read');
+    expect(permissionOf(en.projects.sidebar.capacity)).toBe('portfolio:read');
+    expect(permissionOf(en.projects.sidebar.templates)).toBe('projects:read');
+    expect(permissionOf(en.projects.sidebar.myReviews)).toBe('');
+  });
+
+  it('shows no badge on My reviews while nothing waits', async () => {
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    expect(screen.getByText(en.projects.sidebar.myReviews)).toHaveAttribute('data-badge', '');
+  });
+
+  it('shows the waiting count, and a spoken label for it, on My reviews', async () => {
+    reviews.count = 3;
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    const item = screen.getByText(en.projects.sidebar.myReviews);
+    expect(item).toHaveAttribute('data-badge', '3');
+    expect(item).toHaveAttribute('data-badge-label', en.projects.sidebar.myReviewsBadge.replace('{count}', '3'));
+  });
+
+  it('caps a long count at 99+', async () => {
+    reviews.count = 140;
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    expect(screen.getByText(en.projects.sidebar.myReviews)).toHaveAttribute('data-badge', '99+');
+  });
+
+  it('adds the new pages for a user whose saved set of pages predates them', async () => {
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks', 'all-projects', 'workload']));
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    const titles = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(titles).toEqual(expect.arrayContaining([
+      en.projects.sidebar.myReviews,
+      en.projects.sidebar.intake,
+      en.projects.sidebar.capacity,
+      en.projects.sidebar.templates,
+      en.projects.sidebar.analytics,
+    ]));
+  });
+
+  it('keeps a page hidden after a reload, since it was already offered once', async () => {
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks', 'all-projects', 'workload']));
+    const first = render(<GeneralPagesHarness />);
+    await act(async () => {});
+    first.unmount();
+    // The user hides Intake.
+    const kept = JSON.parse(window.localStorage.getItem('visibleGeneralPages') ?? '[]') as string[];
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(kept.filter((id) => id !== 'intake')));
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    const titles = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(titles).not.toContain(en.projects.sidebar.intake);
+    expect(titles).toContain(en.projects.sidebar.capacity);
+  });
+
+  it('does not re-add a page for a user who has already seen all of them', async () => {
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks']));
+    window.localStorage.setItem('seenGeneralPages', JSON.stringify(['analytics', 'reviews', 'intake', 'capacity', 'templates']));
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([en.projects.sidebar.myTasks]);
   });
 });

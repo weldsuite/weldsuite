@@ -29,6 +29,8 @@ const createDocumentSchema = z.object({
   name: z.string().min(1).max(255),
 });
 
+const shareDocumentSchema = z.object({ clientVisible: z.boolean() }).strict();
+
 app.get('/:projectId', requirePermission('projects:read'), async (c) => {
   const projectId = c.req.param('projectId');
   const db = c.get('tenantDb');
@@ -150,5 +152,61 @@ app.post(
     }
   },
 );
+
+/**
+ * PATCH /:projectId/:fileId — show or hide a document in the client portal
+ * (FLOW-020). Writes `files.client_visible`.
+ */
+app.patch('/:projectId/:fileId', requirePermission('projects:update'), async (c) => {
+  const projectId = c.req.param('projectId');
+  const fileId = c.req.param('fileId');
+  const db = c.get('tenantDb');
+  try {
+    const [existing] = await db
+      .select()
+      .from(schema.files)
+      .where(
+        and(
+          eq(schema.files.id, fileId),
+          eq(schema.files.entityType, 'project'),
+          eq(schema.files.entityId, projectId),
+          eq(schema.files.fileType, 'document'),
+          isNull(schema.files.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!existing) return error.notFound(c, 'Project document', fileId);
+    if (!(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, 'You do not have write access to this project');
+    }
+    const body: unknown = await c.req.json().catch(() => null);
+    const parsed = shareDocumentSchema.safeParse(body);
+    if (!parsed.success) return error.badRequest(c, 'Invalid request body');
+
+    const [row] = await db
+      .update(schema.files)
+      .set({ clientVisible: parsed.data.clientVisible, updatedAt: new Date() })
+      .where(eq(schema.files.id, fileId))
+      .returning();
+    publishEntityEvent({
+      c,
+      entityType: 'file',
+      entityId: fileId,
+      action: 'updated',
+      data: {
+        id: row.id,
+        name: row.fileName,
+        folderId: row.folderId,
+        fileType: row.fileType,
+        fileSize: row.fileSize,
+        mimeType: row.mimeType,
+      },
+    });
+    return success(c, row);
+  } catch (err) {
+    console.error('[app-api/project-documents] update failed:', err);
+    return error.internal(c, 'Failed to update project document');
+  }
+});
 
 export const projectDocumentsRoutes = app;

@@ -78,9 +78,14 @@ export const tasks = pgTable('tasks', {
   duration: integer('duration'), // minutes
   storyPoints: integer('story_points'),
 
-  // Dependencies
+  // Dependencies — superseded by the typed `task_dependencies` table (FLOW-015);
+  // kept until a release after the data migration, API responses derive from the table.
   dependsOn: jsonb('depends_on').$type<string[]>(),
   blocks: jsonb('blocks').$type<string[]>(),
+
+  // The deliverable this task counts toward (project control, FLOW-011): at most
+  // one. Not a foreign key, like the other task refs (milestone, sprint).
+  deliverableId: varchar('deliverable_id', { length: 30 }),
 
   // Position
   position: integer('position').notNull().default(0),
@@ -113,6 +118,7 @@ export const tasks = pgTable('tasks', {
   index('tasks_status_idx').on(table.status),
   index('tasks_sprint_idx').on(table.sprintId),
   index('tasks_milestone_idx').on(table.milestoneId),
+  index('tasks_deliverable_idx').on(table.deliverableId),
   index('tasks_parent_idx').on(table.parentTaskId),
   index('tasks_customer_idx').on(table.customerId),
   index('tasks_contact_idx').on(table.contactId),

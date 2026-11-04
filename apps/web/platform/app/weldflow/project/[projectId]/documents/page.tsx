@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { useI18n } from '@/lib/i18n/provider';
-import { Trash2, EllipsisVertical, Pencil, FileText, Pin, PinOff } from 'lucide-react';
+import { Trash2, EllipsisVertical, Pencil, FileText, Pin, PinOff, Share2 } from 'lucide-react';
 import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Label } from '@weldsuite/ui/components/label';
 import {
   DropdownMenu,
@@ -34,6 +35,8 @@ interface DocumentItem {
   updatedAt: string;
   /** Workspace-wide pin — pinned docs lift out of the date groups entirely. */
   isPinned: boolean;
+  /** Shown to the client in the project portal. */
+  clientVisible: boolean;
 }
 
 function formatDate(date: string) {
@@ -153,6 +156,21 @@ export default function ProjectDocumentsPage() {
     }
   }, [projectId, t]);
 
+  const handleToggleClientVisible = useCallback(async (item: DocumentItem) => {
+    const next = !item.clientVisible;
+    const apply = (value: boolean) =>
+      setItems((prev) => prev.map((d) => d.id === item.id ? { ...d, clientVisible: value } : d));
+    // Optimistic: the badge flips at once and rolls back if the server refuses.
+    apply(next);
+    const result = await documentsApi.setDocumentClientVisible(projectId, item.id, next);
+    if (result.success) {
+      toast.success(next ? t.projectPortal.share.sharedToast : t.projectPortal.share.unsharedToast);
+    } else {
+      apply(!next);
+      toast.error(t.projectPortal.share.failedToast);
+    }
+  }, [projectId, t]);
+
   const openRenameDialog = useCallback((item: DocumentItem) => {
     setRenameDocId(item.id);
     setRenameValue(item.name);
@@ -195,6 +213,9 @@ export default function ProjectDocumentsPage() {
           {item.isPinned && (
             <Pin className="h-3.5 w-3.5 shrink-0 fill-current text-muted-foreground" aria-label={t.projects.documents.pinnedAriaLabel} />
           )}
+          {item.clientVisible && (
+            <Badge variant="secondary" className="shrink-0">{t.projectPortal.share.sharedBadge}</Badge>
+          )}
         </div>
 
         <div className="w-[140px]">
@@ -232,6 +253,12 @@ export default function ProjectDocumentsPage() {
                 {t.projects.documents.renameDocument}
               </DropdownMenuItem>
               {canWrite && (
+                <DropdownMenuItem onClick={() => void handleToggleClientVisible(item)}>
+                  <Share2 className="h-4 w-4 mr-0.5" />
+                  {item.clientVisible ? t.projectPortal.share.stopSharing : t.projectPortal.share.shareWithClient}
+                </DropdownMenuItem>
+              )}
+              {canWrite && (
                 <DropdownMenuItem
                   onClick={() => handleDeleteDocument(item.id)}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
@@ -245,7 +272,7 @@ export default function ProjectDocumentsPage() {
         </div>
       </div>
     );
-  }, [canWrite, handleDeleteDocument, handleTogglePin, openDocument, openRenameDialog, t]);
+  }, [canWrite, handleDeleteDocument, handleToggleClientVisible, handleTogglePin, openDocument, openRenameDialog, t]);
 
   const openCreateDialog = () => {
     setNewDocName('');

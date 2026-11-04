@@ -30,3 +30,17 @@ export type WorkflowStep = {
   sleep: (name: string, duration: string | number) => Promise<void>;
   sleepUntil: (name: string, timestamp: Date | number) => Promise<void>;
 };
+
+/**
+ * `DurableObject`, for a worker whose `src/index.ts` re-exports a Durable Object
+ * class (flow-api's `PortalRateLimiter`). Tests that exercise the object build it
+ * with a fake `ctx`.
+ */
+export class DurableObject<Env = unknown> {
+  readonly ctx: unknown;
+  readonly env: Env;
+  constructor(ctx?: unknown, env?: Env) {
+    this.ctx = ctx;
+    this.env = env as Env;
+  }
+}

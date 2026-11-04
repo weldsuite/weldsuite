@@ -61,6 +61,15 @@ import { partner } from './partner';
 import { reach } from './reach';
 import { reachEngage } from './reach-engage';
 import { helpdeskWidget } from './helpdeskWidget';
+// WeldFlow project control and delivery: one module per slice
+import { flowApprovals } from './flow-approvals';
+import { flowGovernance } from './flow-governance';
+import { flowSchedule } from './flow-schedule';
+import { flowReporting } from './flow-reporting';
+import { flowFinance } from './flow-finance';
+import { flowClosing } from './flow-closing';
+import { flowPortfolio } from './flow-portfolio';
+import { projectPortal } from './project-portal';
 
 export const nl = {
   common,
@@ -125,4 +134,12 @@ export const nl = {
   reach,
   reachEngage,
   helpdeskWidget,
+  flowApprovals,
+  flowGovernance,
+  flowSchedule,
+  flowReporting,
+  flowFinance,
+  flowClosing,
+  flowPortfolio,
+  projectPortal,
 };

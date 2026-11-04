@@ -115,7 +115,14 @@ export const billItems = pgTable('bill_items', {
   fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
   classId: varchar('class_id', { length: 30 }),
   locationId: varchar('location_id', { length: 30 }),
+  /**
+   * The WeldFlow project this line's cost belongs to (FLOW-019). Set in
+   * WeldBooks' own UI; WeldFlow only reads it. `projects.id`, deliberately no
+   * foreign key: the project belongs to another module.
+   */
+  projectId: varchar('project_id', { length: 255 }),
 }, (table) => [
+  index('acct_bill_items_project_idx').on(table.projectId),
   index('acct_bill_items_entity_idx').on(table.entityId),
   index('acct_bill_items_bill_idx').on(table.billId),
 ]);

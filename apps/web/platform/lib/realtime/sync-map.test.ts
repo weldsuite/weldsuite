@@ -13,10 +13,23 @@ import {
   listMemberHubEntityTopics,
 } from '@weldsuite/entity-events/hub-topics';
 import { platformSyncMap } from './sync-map';
+import { raidKeys } from '@/hooks/queries/use-project-control-queries';
+import { portfolioKeys } from '@/hooks/queries/use-flow-portfolio-queries';
+import { scheduleKeys } from '@/hooks/queries/use-project-schedule-queries';
+import { governanceKeys } from '@/hooks/queries/use-project-governance-queries';
 import {
   PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
   PLATFORM_SYNC_MAP_PERSONAL_ONLY,
 } from './intentional-omits';
+
+describe('platformSyncMap — WeldFlow portfolio', () => {
+  it('invalidates the portfolio queries for capacity and intake events', () => {
+    for (const topic of ['resource_booking', 'resource_request', 'flow_member_profile', 'flow_workspace_settings']) {
+      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([portfolioKeys.all]);
+    }
+    expect(platformSyncMap.project_request?.invalidate).toEqual([['projects'], portfolioKeys.all]);
+  });
+});
 
 describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
   it('project_task invalidates projects, my-tasks, and task-panel', () => {
@@ -25,6 +38,43 @@ describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
     expect(serialized).toContain(JSON.stringify(['projects']));
     expect(serialized).toContain(JSON.stringify(['task']));
     expect(serialized).toContain(JSON.stringify(['app-api', 'task-panel']));
+  });
+
+  it('governance objects invalidate the governance query root, and task events too (deliverable progress)', () => {
+    for (const type of ['project_decision', 'project_deliverable', 'project_scope', 'project_benefit'] as const) {
+      expect(platformSyncMap[type]?.invalidate).toEqual([governanceKeys.all]);
+    }
+    expect(platformSyncMap.project_task?.invalidate).toContainEqual([...governanceKeys.all]);
+    expect(governanceKeys.decisions('p1').slice(0, 1)).toEqual([...governanceKeys.all]);
+  });
+
+  it('RAID items and control links invalidate the RAID query root, not the whole projects tree', () => {
+    expect(platformSyncMap.project_raid_item?.invalidate).toEqual([['project-raid']]);
+    expect(platformSyncMap.project_control_link?.invalidate).toEqual([['project-raid']]);
+    // The inlined root must stay the root of every RAID query (see raidKeys in use-project-control-queries).
+    expect(platformSyncMap.project_raid_item?.invalidate).toEqual([raidKeys.all]);
+    for (const key of [raidKeys.list('p1'), raidKeys.matrix('p1', true), raidKeys.detail('r1')]) {
+      expect(key.slice(0, raidKeys.all.length)).toEqual([...raidKeys.all]);
+    }
+  });
+
+  it('task and milestone changes refresh the RAID register too (task progress, linked milestones)', () => {
+    for (const topic of ['project_task', 'project_milestone'] as const) {
+      const serialized = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
+      expect(serialized, topic).toContain(JSON.stringify(['project-raid']));
+      expect(serialized, topic).toContain(JSON.stringify(['projects']));
+    }
+  });
+
+  it('dependencies, phases and task moves invalidate the schedule query root', () => {
+    expect(scheduleKeys.all).toEqual(['project-schedule']);
+    for (const topic of ['task_dependency', 'project_phase', 'project_task'] as const) {
+      const serialized = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
+      expect(serialized, topic).toContain(JSON.stringify([...scheduleKeys.all]));
+    }
+    for (const key of [scheduleKeys.schedule('p1'), scheduleKeys.phaseList('p1'), scheduleKeys.phaseCheck('x')]) {
+      expect(key.slice(0, scheduleKeys.all.length)).toEqual([...scheduleKeys.all]);
+    }
   });
 
   it('email + mail folder/label topics invalidate mail caches', () => {

@@ -55,6 +55,8 @@ export const projectFiles = pgTable('project_files', {
   // Visibility
   isPublic: boolean('is_public').notNull().default(false),
   expiresAt: timestamp('expires_at'),
+  // Shown to the project's clients in the client portal (FLOW-020).
+  clientVisible: boolean('client_visible').notNull().default(false),
 
   // Metadata
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),

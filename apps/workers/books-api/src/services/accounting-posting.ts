@@ -53,6 +53,8 @@ export interface PostingLine {
   /** Reporting dimensions: ids from accounting_dimension_values (class / location). */
   classId?: string | null;
   locationId?: string | null;
+  /** The WeldFlow project the line's cost belongs to (FLOW-019). Only manual entries and their reversals carry it. */
+  projectId?: string | null;
 }
 
 /** The tax_lines columns a caller fills beyond the common ones (US sales tax detail). */
@@ -210,6 +212,28 @@ export async function assertDimensionsBelongToEntity(
   }
 }
 
+/**
+ * Project ids on lines (FLOW-019) must be live WeldFlow projects of this
+ * workspace: the project belongs to another module, so the column has no
+ * foreign key and this is the only check. A deleted project does not count.
+ */
+export async function assertProjectsExist(
+  db: Database,
+  lines: Array<{ projectId?: string | null }>,
+): Promise<void> {
+  const ids = [...new Set(lines.map((l) => l.projectId).filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return;
+  const rows = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(inArray(schema.projects.id, ids), isNull(schema.projects.deletedAt)));
+  const found = new Set(rows.map((r) => r.id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new PostingError(`Project ${missing.join(', ')} does not exist`);
+  }
+}
+
 export async function postJournalEntry(db: Database, input: PostJournalEntryInput): Promise<PostedEntry> {
   if (input.postingKey) {
     const existing = await findByPostingKey(db, input.postingKey);
@@ -287,6 +311,7 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
     exchangeRate: line.exchangeRate ?? '1',
     classId: line.classId ?? null,
     locationId: line.locationId ?? null,
+    projectId: line.projectId ?? null,
     baseCurrencyDebit: line.debit.toFixed(2),
     baseCurrencyCredit: line.credit.toFixed(2),
     sortOrder: idx,
@@ -448,6 +473,7 @@ export async function reverseJournalEntry(
       exchangeRate: line.exchangeRate,
       classId: line.classId,
       locationId: line.locationId,
+      projectId: line.projectId,
     })),
     taxLines: taxRows.map((tax) => ({
       sourceLineId: tax.sourceLineId,

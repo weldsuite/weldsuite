@@ -39,6 +39,7 @@ const TABLES = [
   'warehouses',
   'cycleCounts',
   'purchaseOrders',
+  'purchaseOrderItems',
   'inventoryMovements',
   'warehouseZones',
   'warehouseLocations',

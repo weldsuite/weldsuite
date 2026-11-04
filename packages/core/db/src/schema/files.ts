@@ -39,6 +39,10 @@ export const files = pgTable('files', {
 
   // Visibility & flags
   isPublic: boolean('is_public').notNull().default(false),
+  // slice H: shown to the project's clients in the client portal (FLOW-020). Only read
+  // for project documents (entity_type 'project', file_type 'document'): the WeldFlow
+  // documents list is these rows, not `project_documents`.
+  clientVisible: boolean('client_visible').notNull().default(false),
 
   // Who besides the owner and the people it is shared with (`drive_shares`)
   // may open it. Drive uploads only; a module's files follow the module.

@@ -20,7 +20,8 @@ import {
 } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
-import { DimensionSelects, useHasDimensions } from '@/app/weldbooks/invoices/components/dimension-selects';
+import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
+import { ProjectSelect } from '@/components/weldflow/project-select';
 import { AccountCombobox } from '../components/account-combobox';
 
 interface JournalLine {
@@ -33,6 +34,8 @@ interface JournalLine {
   /** Reporting dimensions (accounting_dimension_values ids); empty = none. */
   classId: string;
   locationId: string;
+  /** The WeldFlow project the line's cost belongs to (FLOW-019); empty = none. */
+  projectId: string;
 }
 
 let nextLineKey = 0;
@@ -45,6 +48,7 @@ const emptyLine = (): JournalLine => ({
   credit: '',
   classId: '',
   locationId: '',
+  projectId: '',
 });
 
 export default function AddJournalEntryPage() {
@@ -55,7 +59,6 @@ export default function AddJournalEntryPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const { formatMoney: fmt, today } = useWeldbooksFormat();
-  const hasDimensions = useHasDimensions();
 
   const [date, setDate] = useState(() => today());
   const [description, setDescription] = useState('');
@@ -92,6 +95,7 @@ export default function AddJournalEntryPage() {
         credit: l.credit || '0',
         classId: l.classId || null,
         locationId: l.locationId || null,
+        projectId: l.projectId || null,
       })),
     });
     navigate({ to: '/weldbooks/journal' });
@@ -210,20 +214,30 @@ export default function AddJournalEntryPage() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                  {hasDimensions && (
-                    <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableCell colSpan={5}>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableCell colSpan={5}>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                         <DimensionSelects
                           idPrefix={`journal-${idx}`}
                           classId={line.classId}
                           locationId={line.locationId}
                           onClassChange={(value) => updateLine(idx, 'classId', value)}
                           onLocationChange={(value) => updateLine(idx, 'locationId', value)}
-                          className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl"
+                          className="contents"
                         />
-                      </TableCell>
-                    </TableRow>
-                  )}
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`journal-${idx}-project`} className="text-xs">
+                            {t.flowFinance.projectTag.label}
+                          </Label>
+                          <ProjectSelect
+                            id={`journal-${idx}-project`}
+                            value={line.projectId || null}
+                            onChange={(value) => updateLine(idx, 'projectId', value ?? '')}
+                          />
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                   </Fragment>
                 ))}
                 <TableRow>

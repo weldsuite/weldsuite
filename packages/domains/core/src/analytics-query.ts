@@ -180,13 +180,15 @@ interface RatioSpec {
 }
 
 /**
- * Completed and cancelled, in every spelling a project row has been stored with
- * (older rows predate normalizeProjectStatus), as a SQL list.
+ * Completed, cancelled and closed (sponsor sign-off, FLOW-016), in every
+ * spelling a project row has been stored with (older rows predate
+ * normalizeProjectStatus), as a SQL list.
  */
 const CLOSED_PROJECT_STATUSES = [
   'Completed', 'completed', 'COMPLETED',
   'Cancelled', 'cancelled', 'CANCELLED',
   'Canceled', 'canceled', 'CANCELED',
+  'Closed',
 ].map((status) => `'${status}'`).join(',');
 
 interface ResolvedMetric {

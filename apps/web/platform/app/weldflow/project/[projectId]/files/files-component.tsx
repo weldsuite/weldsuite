@@ -7,6 +7,7 @@ import "./files-table.css";
 import { useProjectPermissions } from "@/app/weldflow/contexts/project-permission-context";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
+import { Badge } from "@weldsuite/ui/components/badge";
 import { Label } from "@weldsuite/ui/components/label";
 import {
   DropdownMenu,
@@ -44,6 +45,7 @@ import {
   FolderInput,
   ChevronRight,
   Home,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -102,6 +104,8 @@ interface ExtendedFile extends FileResponse {
   fileType: string;
   isFolder: boolean;
   parentId: string | null;
+  /** Shown to the client in the project portal. */
+  clientVisible?: boolean;
 }
 
 function normalizeFile(raw: Record<string, unknown>): ExtendedFile {
@@ -846,6 +850,27 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
     }
   };
 
+  const handleToggleClientVisible = useCallback(async (file: ExtendedFile) => {
+    const next = !file.clientVisible;
+    const apply = (value: boolean) =>
+      setFiles((prev) => prev.map((f) => (f.id === file.id ? { ...f, clientVisible: value } : f)));
+    // Optimistic: the badge flips at once and rolls back if the server refuses.
+    apply(next);
+    try {
+      const result = await filesApi.update(projectId, file.id, { clientVisible: next });
+      if (result.success) {
+        toast.success(next ? t.projectPortal.share.sharedToast : t.projectPortal.share.unsharedToast);
+      } else {
+        apply(!next);
+        toast.error(t.projectPortal.share.failedToast);
+      }
+    } catch (error) {
+      console.error("Failed to change client visibility:", error);
+      apply(!next);
+      toast.error(t.projectPortal.share.failedToast);
+    }
+  }, [projectId, t]);
+
   const handleMove = async () => {
     if (!moveTarget) return;
     setMoving(true);
@@ -1061,6 +1086,9 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
               <span className="block text-xs text-gray-500 truncate">{file.description}</span>
             )}
           </span>
+          {file.clientVisible && !file.isFolder && (
+            <Badge variant="secondary" className="shrink-0">{t.projectPortal.share.sharedBadge}</Badge>
+          )}
         </button>
 
         <div className="w-[100px]">
@@ -1112,6 +1140,12 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
                     <FolderInput className="h-3.5 w-3.5 mr-2" />
                     {t.projects.files.moveMenuItem}
                   </DropdownMenuItem>
+                  {!file.isFolder && (
+                    <DropdownMenuItem onClick={() => void handleToggleClientVisible(file)}>
+                      <Share2 className="h-3.5 w-3.5 mr-2" />
+                      {file.clientVisible ? t.projectPortal.share.stopSharing : t.projectPortal.share.shareWithClient}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-red-600"
@@ -1130,7 +1164,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
         </div>
       </div>
     );
-  }, [activateRow, canWrite, handleDownload, navigateToFolder, t]);
+  }, [activateRow, canWrite, handleDownload, handleToggleClientVisible, navigateToFolder, t]);
 
   const isInFolder = currentFolderId !== null;
 
