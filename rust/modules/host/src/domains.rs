@@ -913,15 +913,39 @@ async fn external(
         let row = any_domain(&caller.db, &id).await?.unwrap_or(Value::Null);
         caller.publish(&state, DOMAIN_USE_EXTERNAL, &id, &domain_event(&id, &row));
         let mut body = public_domain(row);
-        body["verificationRecord"] = json!({
-            "name": format!("_weldhost-verify.{domain}"),
-            "type": "TXT",
-            "value": format!("weldhost-verify={token}"),
-        });
+        body["verificationRecord"] = verification_record(&domain, &token);
         Ok(Created(body).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Failed to add external domain"))
+}
+
+/// `externalDomainVerificationRecord`: the TXT record that proves ownership.
+fn verification_record(full_domain: &str, token: &str) -> Value {
+    json!({
+        "name": format!("_weldhost-verify.{full_domain}"),
+        "type": "TXT",
+        "value": format!("weldhost-verify={token}"),
+    })
+}
+
+/// `pendingVerificationRecord`: the TXT record an external domain still has to
+/// publish, or null once it is verified (it has a Cloudflare zone) or is not an
+/// external domain at all.
+fn pending_verification_record(domain: &Value, zone: Option<&Value>) -> Value {
+    if !is_external_registrar(text(domain, "registrar")) {
+        return Value::Null;
+    }
+    let Some(token) = text(domain, "nameserverVerificationToken").filter(|t| !t.is_empty()) else {
+        return Value::Null;
+    };
+    let verified = zone.is_some_and(|z| {
+        text(z, "provider") == Some("cloudflare") && z.get("deletedAt").is_none_or(Value::is_null)
+    });
+    if verified {
+        return Value::Null;
+    }
+    verification_record(text(domain, "fullDomain").unwrap_or_default(), token)
 }
 
 // ── List, read, create, update, delete ──────────────────────────────────────
@@ -1110,9 +1134,12 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         if is_hidden_unpaid(&domain) {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         }
+        // Lets a pending external domain pick up its TXT verification again.
+        let verification = pending_verification_record(&domain, zone.as_ref());
         let mut body = public_domain(domain);
         body["dnsZone"] = zone.unwrap_or(Value::Null);
         body["usedByWeldReach"] = json!(is_domain_used(&caller.db, &id).await?);
+        body["verificationRecord"] = verification;
         Ok(Data(body).into_response())
     }
     .await;

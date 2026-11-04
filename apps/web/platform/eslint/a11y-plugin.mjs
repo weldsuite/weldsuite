@@ -100,14 +100,25 @@ function classTokens(valueNode) {
 }
 
 const FOCUS_PREFIX = /^(?:[\w-]+:)*(?:focus|focus-visible|focus-within|group-focus-visible|peer-focus-visible):/;
-const VISIBLE_FOCUS = /^(?:ring(?:-(?!0$|offset)[\w[\]/.#-]+)?|border(?:-.+)?|bg-.+|underline|outline(?:-(?!none$).+)?|shadow.*)$/;
+const VISIBLE_FOCUS = [
+  /^ring(?:-(?!0$|offset)[\w[\]/.#-]+)?$/,
+  /^border(?:-.+)?$/,
+  /^bg-.+$/,
+  /^underline$/,
+  /^outline(?:-(?!none$).+)?$/,
+  /^shadow.*$/,
+];
 
 function removesOutline(tokens) {
   return tokens.some((t) => /(^|:)outline-none$/.test(t));
 }
 
 function replacesOutline(tokens) {
-  return tokens.some((t) => FOCUS_PREFIX.test(t) && VISIBLE_FOCUS.test(t.replace(FOCUS_PREFIX, '')));
+  return tokens.some((t) => {
+    if (!FOCUS_PREFIX.test(t)) return false;
+    const style = t.replace(FOCUS_PREFIX, '');
+    return VISIBLE_FOCUS.some((pattern) => pattern.test(style));
+  });
 }
 
 /** The shared ui components that draw their own focus-visible ring. */

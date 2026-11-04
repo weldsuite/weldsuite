@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { bankTransactionsRoutes } from './index';
+import { deleteBankLines } from '../../services/accounting-bank-import';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -495,6 +496,28 @@ describe('/api/bank-transactions import, delete and undo · pglite integration',
     expect((await request(`/api/bank-transactions/${reconciled!.id}`, { method: 'DELETE' })).status).toBe(409);
     expect((await request(`/api/bank-transactions/${feed!.id}`, { method: 'DELETE' })).status).toBe(409);
     expect(await liveLines('ba_delete_blocked')).toHaveLength(2);
+  });
+
+  it('deleteBankLines takes a line off the balance once when two deletes read it at the same time', async () => {
+    await seedBankAccount('ba_delete_race', '0.00');
+    const { batchId } = await importCsv('ba_delete_race');
+    const read = await liveLines('ba_delete_race');
+
+    const first = await deleteBankLines(db, read, { importBatchId: batchId });
+    const second = await deleteBankLines(db, read, { importBatchId: batchId });
+    expect(first.deleted).toHaveLength(2);
+    expect(second.deleted).toHaveLength(0);
+    expect(await liveLines('ba_delete_race')).toHaveLength(0);
+    expect(await balanceOf('ba_delete_race')).toBe('0.00');
+
+    // A line reconciled after the read stays, and so does its amount.
+    await seedBankAccount('ba_delete_reconciled', '0.00');
+    await importCsv('ba_delete_reconciled');
+    const [line] = await liveLines('ba_delete_reconciled');
+    await db.update(schema.bankTransactions).set({ status: 'reconciled' }).where(eq(schema.bankTransactions.id, line!.id));
+    const stale = await deleteBankLines(db, [line!], { lineId: line!.id });
+    expect(stale.deleted).toHaveLength(0);
+    expect(await liveLines('ba_delete_reconciled')).toHaveLength(2);
   });
 
   it('DELETE /:id returns 403 without banking:delete', async () => {

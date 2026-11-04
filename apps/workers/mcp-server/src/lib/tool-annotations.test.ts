@@ -92,7 +92,7 @@ describe('MCP tool annotations', () => {
   it('lists every tool with a title and a read-only or destructive hint', async () => {
     const tools = await listTools();
     // Static tools, submit_feedback, six WeldApp tools and five WeldObjects tools.
-    expect(tools.length).toBe(allTools.length + 1 + 6 + 5);
+    expect(tools).toHaveLength(allTools.length + 1 + 6 + 5);
 
     for (const tool of tools) {
       const hints = tool.annotations;
