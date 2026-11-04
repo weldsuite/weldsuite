@@ -28,7 +28,7 @@ export function ProjectActionsMenu({ projectId }: Readonly<{ projectId: string }
   const { can } = usePermissions();
   const canSaveTemplate = can('project_templates:manage');
   const [saving, setSaving] = useState(false);
-  const { data: project } = useProject(projectId, canSaveTemplate);
+  const projectQuery = useProject(projectId, canSaveTemplate);
   const copy = t.projects.projectLayout;
   if (!isAdmin && !canSaveTemplate) return null;
 
@@ -66,7 +66,7 @@ export function ProjectActionsMenu({ projectId }: Readonly<{ projectId: string }
           open={saving}
           onClose={() => setSaving(false)}
           projectId={projectId}
-          defaultName={project?.name}
+          defaultName={projectQuery.data?.data?.name}
         />
       ) : null}
     </>
