@@ -1388,6 +1388,8 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
         // `GITHUB_PROJECT_OUTBOUND`.
         github_outbound: (!cfg!(feature = "conformance"))
             .then(|| integrations::flow_github_outbound(state)),
+        system_mail: state.infra.mail.clone(),
+        project_portal_url: state.project_portal_url.clone(),
     }
 }
 

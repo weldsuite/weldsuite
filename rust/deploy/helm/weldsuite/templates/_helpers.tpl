@@ -196,6 +196,10 @@ cron jobs and the migration Job read the same settings
 - name: CLERK_JWKS_FILE
   value: /etc/weldsuite/clerk/jwks.json
 {{- end }}
+{{- with .Values.config.flow.projectPortalUrl }}
+- name: PROJECT_PORTAL_URL
+  value: {{ . | quote }}
+{{- end }}
 {{- with .Values.config.sign.portalUrl }}
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}

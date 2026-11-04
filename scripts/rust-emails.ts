@@ -195,6 +195,37 @@ const SPECS: Spec[] = [
       changedAt: SAMPLE_DATE,
     }),
   },
+  // WeldFlow's published status report: the overall colour is two flags (none:
+  // green, `amber`, `red`; `amber+red` is exported but never chosen, it renders
+  // as red). The period label is written by Rust (`period_label`).
+  {
+    id: 'flow.status-report',
+    flags: ['name', 'by', 'amber', 'red'],
+    fields: ['recipient_name', 'project_name', 'period_label', 'summary', 'published_by', 'url'],
+    multiline: ['summary'],
+    props: (f) => ({
+      recipientName: f.has('name') ? S('recipient_name') : null,
+      projectName: S('project_name'),
+      periodLabel: S('period_label'),
+      overall: f.has('red') ? 'red' : f.has('amber') ? 'amber' : 'green',
+      summary: S('summary'),
+      publishedBy: f.has('by') ? S('published_by') : null,
+      url: S('url'),
+    }),
+  },
+  // WeldFlow's invitation of a CRM contact to the client project portal.
+  {
+    id: 'flow.portal-invitation',
+    flags: ['name', 'by'],
+    fields: ['contact_name', 'project_name', 'invited_by', 'workspace_name', 'url'],
+    props: (f) => ({
+      contactName: f.has('name') ? S('contact_name') : null,
+      projectName: S('project_name'),
+      invitedBy: f.has('by') ? S('invited_by') : null,
+      workspaceName: S('workspace_name'),
+      url: S('url'),
+    }),
+  },
   // WeldMeet's invitation: the join link, and the meeting's time when it is
   // scheduled (`formatWhen`, written by Rust, becomes `{{ when }}`).
   {

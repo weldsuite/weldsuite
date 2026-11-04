@@ -67,6 +67,9 @@ const scheduleKeys = { all: ['project-schedule'] as const };
 // WeldFlow governance (decisions, deliverables, scope, benefits) — mirrors governanceKeys in
 // hooks/queries/use-project-governance-queries.ts.
 const governanceKeys = { all: ['project-governance'] as const };
+// WeldFlow reporting — mirrors reportKeys and stakeholderKeys in hooks/queries/use-project-reporting-queries.ts.
+const reportKeys = { all: ['project-status-reports'] as const };
+const stakeholderKeys = { all: ['project-stakeholders'] as const };
 
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
@@ -220,8 +223,8 @@ export const platformSyncMap: EntitySyncMap = {
   project_phase: inv(projectKeys.all, scheduleKeys.all),
 
   // Reporting: status reports and stakeholders.
-  project_status_report: inv(projectKeys.all),
-  project_stakeholder: inv(projectKeys.all),
+  project_status_report: inv(projectKeys.all, reportKeys.all),
+  project_stakeholder: inv(stakeholderKeys.all, reportKeys.all),
 
   // Closing: lessons and templates, and the close checklist (use-project-closing-queries.ts).
   project_lesson: inv(['project-closing']),

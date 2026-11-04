@@ -580,6 +580,248 @@ Je ontvangt deze e-mail als lid van Acme Studio. · Instellingen overzicht https
 Verzonden via WeldSuite https://weldsuite.org"
 `;
 
+exports[`'flow.portal-invitation' / 'full' / 'en' > matches the text snapshot 1`] = `
+"You have been invited to follow Customer Portal Relaunch
+
+Acme Studio
+
+Sanne Jansen invited you to follow a project
+
+Customer Portal Relaunch
+
+Hi Femke,
+
+In the project portal of Acme Studio you can follow the progress of this project, read its status reports and approve what needs your decision.
+
+You do not need a password. Open the portal and enter this email address: we send you a one-time code to sign in.
+
+Open the project portal https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Or open this link: https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+This invitation was sent on behalf of Acme Studio. If you didn't expect it, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.portal-invitation' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"U bent uitgenodigd om Customer Portal Relaunch te volgen
+
+Acme Studio
+
+Sanne Jansen heeft u uitgenodigd om een project te volgen
+
+Customer Portal Relaunch
+
+Goedendag Femke,
+
+In het projectportaal van Acme Studio volgt u de voortgang van dit project, leest u de statusrapporten en keurt u goed wat uw beslissing vraagt.
+
+U hebt geen wachtwoord nodig. Open het portaal en vul dit e-mailadres in: u krijgt dan een eenmalige code om in te loggen.
+
+Het projectportaal openen https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Of open deze link: https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Deze uitnodiging is verstuurd namens Acme Studio. Verwachtte u hem niet? Dan kunt u deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.portal-invitation' / 'minimal' / 'en' > matches the text snapshot 1`] = `
+"You have been invited to follow Customer Portal Relaunch
+
+Acme Studio
+
+You have been invited to follow a project
+
+Customer Portal Relaunch
+
+Hi,
+
+In the project portal of Acme Studio you can follow the progress of this project, read its status reports and approve what needs your decision.
+
+You do not need a password. Open the portal and enter this email address: we send you a one-time code to sign in.
+
+Open the project portal https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Or open this link: https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+This invitation was sent on behalf of Acme Studio. If you didn't expect it, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.portal-invitation' / 'minimal' / 'nl' > matches the text snapshot 1`] = `
+"U bent uitgenodigd om Customer Portal Relaunch te volgen
+
+Acme Studio
+
+U bent uitgenodigd om een project te volgen
+
+Customer Portal Relaunch
+
+Goedendag,
+
+In het projectportaal van Acme Studio volgt u de voortgang van dit project, leest u de statusrapporten en keurt u goed wat uw beslissing vraagt.
+
+U hebt geen wachtwoord nodig. Open het portaal en vul dit e-mailadres in: u krijgt dan een eenmalige code om in te loggen.
+
+Het projectportaal openen https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Of open deze link: https://projects.weldsuite.org/ws_acme/projects/proj_1
+
+Deze uitnodiging is verstuurd namens Acme Studio. Verwachtte u hem niet? Dan kunt u deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'amber' / 'en' > matches the text snapshot 1`] = `
+"Status report: Customer Portal Relaunch, Week 45, 2026 (At risk)
+
+Acme Studio
+
+Status report · Week 45, 2026
+
+Customer Portal Relaunch
+
+Hi Femke, here is the latest status report.
+
+Overall status: At risk
+
+The order history migration is the main concern: batch 1 starts on 9 November.
+
+View the full report https://projects.weldsuite.org/ws_acme/projects/proj_1/reports/rpt_1
+
+Or open this link: https://projects.weldsuite.org/ws_acme/projects/proj_1/reports/rpt_1
+
+You're receiving this because you follow Customer Portal Relaunch.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'amber' / 'nl' > matches the text snapshot 1`] = `
+"Statusrapport: Customer Portal Relaunch, Week 45, 2026 (In gevaar)
+
+Acme Studio
+
+Statusrapport · Week 45, 2026
+
+Customer Portal Relaunch
+
+Goedendag Femke, hierbij het laatste statusrapport.
+
+Algemene status: In gevaar
+
+The order history migration is the main concern: batch 1 starts on 9 November.
+
+Het volledige rapport bekijken https://projects.weldsuite.org/ws_acme/projects/proj_1/reports/rpt_1
+
+Of open deze link: https://projects.weldsuite.org/ws_acme/projects/proj_1/reports/rpt_1
+
+U ontvangt deze e-mail omdat u Customer Portal Relaunch volgt.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'green' / 'en' > matches the text snapshot 1`] = `
+"Status report: Customer Portal Relaunch, Week 45, 2026 (On track)
+
+Status report · Week 45, 2026
+
+Customer Portal Relaunch
+
+Hi Noor, here is the latest status report.
+
+Overall status: On track
+
+The catalogue API is done and the invoice pages started this week.
+Go-live on 15 January still holds.
+
+Published by Sanne Jansen.
+
+View the full report https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+Or open this link: https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+You're receiving this because you follow Customer Portal Relaunch.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'green' / 'nl' > matches the text snapshot 1`] = `
+"Statusrapport: Customer Portal Relaunch, Week 45, 2026 (Op schema)
+
+Statusrapport · Week 45, 2026
+
+Customer Portal Relaunch
+
+Goedendag Noor, hierbij het laatste statusrapport.
+
+Algemene status: Op schema
+
+The catalogue API is done and the invoice pages started this week.
+Go-live on 15 January still holds.
+
+Gepubliceerd door Sanne Jansen.
+
+Het volledige rapport bekijken https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+Of open deze link: https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+U ontvangt deze e-mail omdat u Customer Portal Relaunch volgt.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'redNoName' / 'en' > matches the text snapshot 1`] = `
+"Status report: Customer Portal Relaunch, November 2026 (Off track)
+
+Status report · November 2026
+
+Customer Portal Relaunch
+
+Here is the latest status report.
+
+Overall status: Off track
+
+We need a decision on payment API v3 by Friday, otherwise deliverable D4 slips.
+
+Published by Sanne Jansen.
+
+View the full report https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+Or open this link: https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+You're receiving this because you follow Customer Portal Relaunch.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.status-report' / 'redNoName' / 'nl' > matches the text snapshot 1`] = `
+"Statusrapport: Customer Portal Relaunch, November 2026 (Achter op schema)
+
+Statusrapport · November 2026
+
+Customer Portal Relaunch
+
+Hierbij het laatste statusrapport.
+
+Algemene status: Achter op schema
+
+We need a decision on payment API v3 by Friday, otherwise deliverable D4 slips.
+
+Gepubliceerd door Sanne Jansen.
+
+Het volledige rapport bekijken https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+Of open deze link: https://app.weldsuite.org/w/org_acme/weldflow/project/proj_1/governance
+
+U ontvangt deze e-mail omdat u Customer Portal Relaunch volgt.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'hr.bank-changed' / 'byHr' / 'en' > matches the text snapshot 1`] = `
 "Your bank details for payroll were changed
 

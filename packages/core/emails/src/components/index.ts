@@ -12,6 +12,7 @@ export {
   MultilineText,
   Paragraph,
   Quote,
+  Status,
   Strong,
   TextLink,
   type DetailRow,

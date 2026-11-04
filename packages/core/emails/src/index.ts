@@ -29,7 +29,7 @@ export {
   type EmailLocale,
   type EmailStrings,
 } from './i18n';
-export { formatDate, formatTime, formatTimeRange, formatWhen, isValidTimeZone, zoneOr } from './format';
+export { formatDate, formatTime, formatTimeRange, formatWhen, isValidTimeZone, periodLabel, zoneOr } from './format';
 export { workspaceAppUrl } from './links';
 export { defineTemplate, type EmailTemplate, type TemplateEnv, type TemplatePreview } from './define';
 export {
@@ -46,6 +46,8 @@ export {
   type DigestTask,
   type EnterpriseInquiryEmailProps,
   type FlowDigestEmailProps,
+  type FlowPortalInvitationEmailProps,
+  type FlowStatusReportEmailProps,
   type MeetInvitationEmailProps,
   type NotificationEmailProps,
   type PartnerDunningEmailProps,

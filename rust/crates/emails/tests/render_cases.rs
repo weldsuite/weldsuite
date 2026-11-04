@@ -6,11 +6,12 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::flow::{FlowPortalInvitation, FlowStatusReport, Overall};
 use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, meet, portal, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, hr, meet, portal, sign,
 };
 
 #[derive(Deserialize)]
@@ -141,6 +142,33 @@ fn render(case: &Case) -> RenderedEmail {
                 expires_in_minutes: p["expiresInMinutes"]
                     .as_u64()
                     .and_then(|m| u32::try_from(m).ok()),
+            },
+        ),
+        "flow.status-report" => flow::status_report(
+            locale,
+            &brand,
+            &FlowStatusReport {
+                recipient_name: opt("recipientName"),
+                project_name: s(p, "projectName"),
+                period_label: s(p, "periodLabel"),
+                overall: p["overall"]
+                    .as_str()
+                    .and_then(Overall::parse)
+                    .unwrap_or_default(),
+                summary: s(p, "summary"),
+                published_by: opt("publishedBy"),
+                url: s(p, "url"),
+            },
+        ),
+        "flow.portal-invitation" => flow::portal_invitation(
+            locale,
+            &brand,
+            &FlowPortalInvitation {
+                contact_name: opt("contactName"),
+                project_name: s(p, "projectName"),
+                invited_by: opt("invitedBy"),
+                workspace_name: s(p, "workspaceName"),
+                url: s(p, "url"),
             },
         ),
         "hr.payslip-ready" => hr::payslip_ready(

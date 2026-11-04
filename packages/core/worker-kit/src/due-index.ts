@@ -33,6 +33,8 @@ export type DueIndexKind =
   | 'file_purge'
   // WeldFlow (flow-api): the monthly measuring of benefits, from the metric catalogue (FLOW-014).
   | 'benefit_measure'
+  // WeldFlow (flow-api): projects whose status report cadence has a draft coming due (ADR FLOW-018).
+  | 'status_report_due'
   // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.

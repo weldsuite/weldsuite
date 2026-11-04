@@ -17,6 +17,7 @@ import { isBenefitMeasureCron, runBenefitMeasure } from './cron/benefit-measure'
 import { runDigestSweep } from './cron/digest-sweep';
 import { isApprovalDueCron, runApprovalReminders } from './cron/approval-reminders';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
+import { isStatusReportCron, runStatusReportSweep } from './cron/status-report-sweep';
 import { approvalsRoutes } from './routes/approvals';
 import { capacityRoutes } from './routes/capacity';
 import { digestSettingsRoutes } from './routes/digest-settings';
@@ -162,6 +163,15 @@ export default {
       ctx.waitUntil(
         runBenefitMeasure(env).catch((err) => {
           console.error('[BenefitMeasure] Failed:', err);
+        }),
+      );
+    }
+    // Daily, next to the purge: draft the status reports whose cadence has come due
+    // (ADR FLOW-018). Reads only the `status_report_due` D1 due index.
+    if (isStatusReportCron(event.cron)) {
+      ctx.waitUntil(
+        runStatusReportSweep(env).catch((err) => {
+          console.error('[StatusReports] Failed:', err);
         }),
       );
     }

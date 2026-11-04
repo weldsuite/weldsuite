@@ -3464,6 +3464,30 @@
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
+    },
+    {
+      "name": "flow: reporting and stakeholders",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-status-reports/integration.test.ts",
+        "src/routes/project-stakeholders/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/project-status-reports",
+        "/api/project-stakeholders"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-status-reports/",
+        "apps/workers/flow-api/src/routes/project-stakeholders/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-reporting.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/",
+        "rust/crates/emails/"
+      ]
     }
   ]
 }
