@@ -98,6 +98,15 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A key whose value the caller checks itself: known to `.strict()`, kept as sent.
+    pub(crate) fn raw(&mut self, key: &'static str) -> &mut Self {
+        self.known.push(key);
+        if let Some(value) = self.fields.get(key) {
+            self.out.insert(key.to_owned(), value.clone());
+        }
+        self
+    }
+
     pub(crate) fn text(&mut self, key: &'static str, presence: Presence, rules: Text) -> &mut Self {
         let field = self.issues.text_with(self.fields, key, presence, rules);
         self.keep(key, field);
