@@ -729,6 +729,44 @@ function buildPresetBody(opts: {
   };
 }
 
+type PresetBody = ReturnType<typeof buildPresetBody>;
+
+/**
+ * What each role may do, in seeding order. Both variants of a role (with and
+ * without live transcription) share it.
+ */
+const ROLE_PERMISSIONS: ReadonlyArray<
+  { role: RtkPresetRole } & Pick<
+    Parameters<typeof buildPresetBody>[0],
+    'acceptWaitingRequests' | 'waitingRoomType' | 'canRecord'
+  >
+> = [
+  { role: 'HOST', acceptWaitingRequests: true, waitingRoomType: 'SKIP', canRecord: true },
+  { role: 'MEMBER', acceptWaitingRequests: false, waitingRoomType: 'SKIP', canRecord: false },
+  { role: 'GUEST', acceptWaitingRequests: false, waitingRoomType: 'ON_PRIVILEGED_USER_ENTRY', canRecord: false },
+  // Explicit-admit guest preset for meetings with `waitingRoom` enabled. The
+  // host must accept each request via AdmitGuestsPill (acceptWaitingRoomRequest).
+  { role: 'GUEST_WAITING', acceptWaitingRequests: false, waitingRoomType: 'SKIP_ON_ACCEPT', canRecord: false },
+];
+
+/** Create a host preset, with live streaming when the RealtimeKit app allows it. */
+async function createHostPreset(
+  createPreset: (body: PresetBody) => Promise<unknown>,
+  body: (canLivestream: boolean) => PresetBody,
+): Promise<void> {
+  try {
+    await createPreset(body(true));
+  } catch (err) {
+    // A RealtimeKit app that cannot live stream may turn this preset down.
+    // Hosts must be able to join either way, so seed it without the
+    // permission; the client then shows live streaming as not enabled.
+    // Anything else (network, auth, 5xx) still throws and is retried.
+    if (!isRejectedBody(err)) throw err;
+    console.error('[RTK] host preset with live streaming was rejected, seeding without it:', err);
+    await createPreset(body(false));
+  }
+}
+
 /**
  * Force-seed presets and update the KV cache. Safe to call from a startup
  * task / admin endpoint. Always performs the network calls.
@@ -746,68 +784,20 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
 
   // Creates must throw on failure — otherwise we'd cache "seeded=1" while
   // presets are missing, and every subsequent participant create would 404.
-  const createPreset = (body: ReturnType<typeof buildPresetBody>) =>
+  const createPreset = (body: PresetBody) =>
     call('create RTK preset', () =>
       client.realtimeKit.presets.create(appId, { account_id: accountId, ...body }),
     );
 
   // Each role in both variants: without and with live transcription.
   for (const captions of [false, true]) {
-    const name = (role: RtkPresetRole) => rtkPreset(role, { captions });
-
-    if (!existing.has(name('HOST'))) {
-      const hostPreset = (canLivestream: boolean) =>
-        buildPresetBody({
-          name: name('HOST'),
-          acceptWaitingRequests: true,
-          waitingRoomType: 'SKIP',
-          canRecord: true,
-          canLivestream,
-          transcription: captions,
-        });
-      try {
-        await createPreset(hostPreset(true));
-      } catch (err) {
-        // A RealtimeKit app that cannot live stream may turn this preset down.
-        // Hosts must be able to join either way, so seed it without the
-        // permission; the client then shows live streaming as not enabled.
-        // Anything else (network, auth, 5xx) still throws and is retried.
-        if (!isRejectedBody(err)) throw err;
-        console.error('[RTK] host preset with live streaming was rejected, seeding without it:', err);
-        await createPreset(hostPreset(false));
-      }
-    }
-
-    if (!existing.has(name('MEMBER'))) {
-      await createPreset(buildPresetBody({
-        name: name('MEMBER'),
-        acceptWaitingRequests: false,
-        waitingRoomType: 'SKIP',
-        canRecord: false,
-        transcription: captions,
-      }));
-    }
-
-    if (!existing.has(name('GUEST'))) {
-      await createPreset(buildPresetBody({
-        name: name('GUEST'),
-        acceptWaitingRequests: false,
-        waitingRoomType: 'ON_PRIVILEGED_USER_ENTRY',
-        canRecord: false,
-        transcription: captions,
-      }));
-    }
-
-    // Explicit-admit guest preset for meetings with `waitingRoom` enabled. The
-    // host must accept each request via AdmitGuestsPill (acceptWaitingRoomRequest).
-    if (!existing.has(name('GUEST_WAITING'))) {
-      await createPreset(buildPresetBody({
-        name: name('GUEST_WAITING'),
-        acceptWaitingRequests: false,
-        waitingRoomType: 'SKIP_ON_ACCEPT',
-        canRecord: false,
-        transcription: captions,
-      }));
+    for (const { role, ...permissions } of ROLE_PERMISSIONS) {
+      const name = rtkPreset(role, { captions });
+      if (existing.has(name)) continue;
+      const body = (canLivestream: boolean) =>
+        buildPresetBody({ name, ...permissions, canLivestream, transcription: captions });
+      if (role === 'HOST') await createHostPreset(createPreset, body);
+      else await createPreset(body(false));
     }
   }
 
