@@ -557,7 +557,7 @@ export type BlueprintV1 = z.infer<typeof blueprintV1Schema>;
 
 /** Every version a stored blueprint may have; older ones are upgraded when read. */
 export const blueprintSchema = blueprintV1Schema;
-export type Blueprint = BlueprintV1;
+export type Blueprint = z.infer<typeof blueprintSchema>;
 
 /** What a template amounts to, for the gallery. */
 export interface BlueprintSummary {

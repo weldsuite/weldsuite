@@ -107,7 +107,7 @@ const MONTH_NAMES: Record<EmailLocale, readonly string[]> = {
  * two cannot differ.
  */
 export function periodLabel(locale: EmailLocale, period: string): string {
-  const week = /^(\d{4})-W(0[1-9]|[1-4][0-9]|5[0-3])$/.exec(period);
+  const week = /^(\d{4})-W(0[1-9]|[1-4]\d|5[0-3])$/.exec(period);
   if (week) return `Week ${Number(week[2])}, ${week[1]}`;
   const month = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
   if (month) return `${MONTH_NAMES[locale][Number(month[2]) - 1]} ${month[1]}`;

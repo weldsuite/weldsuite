@@ -65,6 +65,11 @@ function leadingFiller(html: string): string {
 
 const S = (name: string) => `⟦${name}⟧`;
 
+function overallOf(flags: Set<string>): 'red' | 'amber' | 'green' {
+  if (flags.has('red')) return 'red';
+  return flags.has('amber') ? 'amber' : 'green';
+}
+
 function brandOf(key: BrandKey): EmailBrand {
   switch (key) {
     case 'weldsuite':
@@ -207,7 +212,7 @@ const SPECS: Spec[] = [
       recipientName: f.has('name') ? S('recipient_name') : null,
       projectName: S('project_name'),
       periodLabel: S('period_label'),
-      overall: f.has('red') ? 'red' : f.has('amber') ? 'amber' : 'green',
+      overall: overallOf(f),
       summary: S('summary'),
       publishedBy: f.has('by') ? S('published_by') : null,
       url: S('url'),

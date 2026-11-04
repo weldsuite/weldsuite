@@ -55,7 +55,7 @@ const longText = z.string().max(10_000);
 /** A numeric value as the API takes it: a finite number with at most four decimals is stored. */
 const metricValue = z.number().finite().min(-999_999_999_999).max(999_999_999_999);
 /** A month, `YYYY-MM`. */
-export const periodSchema = z.string().regex(/^[0-9]{4}-(0[1-9]|1[0-2])$/, 'period must be a month, YYYY-MM');
+export const periodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be a month, YYYY-MM');
 
 // ── Decisions ───────────────────────────────────────────────────────────────
 

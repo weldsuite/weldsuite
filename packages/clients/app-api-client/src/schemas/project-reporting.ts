@@ -49,7 +49,7 @@ export const RACI_LETTERS = ['R', 'A', 'C', 'I'] as const;
 export type RaciLetter = (typeof RACI_LETTERS)[number];
 
 /** An ISO week (`2026-W45`) or a month (`2026-11`): the same check as the table's. */
-export const STATUS_REPORT_PERIOD_PATTERN = /^[0-9]{4}-(W(0[1-9]|[1-4][0-9]|5[0-3])|(0[1-9]|1[0-2]))$/;
+export const STATUS_REPORT_PERIOD_PATTERN = /^\d{4}-(W(0[1-9]|[1-4]\d|5[0-3])|(0[1-9]|1[0-2]))$/;
 export const STATUS_REPORT_PERIOD_MESSAGE = 'period must be an ISO week (2026-W45) or a month (2026-11)';
 
 // ── Building blocks ─────────────────────────────────────────────────────────
