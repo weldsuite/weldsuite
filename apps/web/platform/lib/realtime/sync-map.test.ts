@@ -14,6 +14,7 @@ import {
 } from '@weldsuite/entity-events/hub-topics';
 import { platformSyncMap } from './sync-map';
 import { raidKeys } from '@/hooks/queries/use-project-control-queries';
+import { governanceKeys } from '@/hooks/queries/use-project-governance-queries';
 import {
   PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
   PLATFORM_SYNC_MAP_PERSONAL_ONLY,
@@ -26,6 +27,14 @@ describe('platformSyncMap — WeldFlow tasks + WeldMail', () => {
     expect(serialized).toContain(JSON.stringify(['projects']));
     expect(serialized).toContain(JSON.stringify(['task']));
     expect(serialized).toContain(JSON.stringify(['app-api', 'task-panel']));
+  });
+
+  it('governance objects invalidate the governance query root, and task events too (deliverable progress)', () => {
+    for (const type of ['project_decision', 'project_deliverable', 'project_scope', 'project_benefit'] as const) {
+      expect(platformSyncMap[type]?.invalidate).toEqual([governanceKeys.all]);
+    }
+    expect(platformSyncMap.project_task?.invalidate).toContainEqual([...governanceKeys.all]);
+    expect(governanceKeys.decisions('p1').slice(0, 1)).toEqual([...governanceKeys.all]);
   });
 
   it('RAID items and control links invalidate the RAID query root, not the whole projects tree', () => {
