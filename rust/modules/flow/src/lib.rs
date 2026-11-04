@@ -56,6 +56,9 @@ mod approvals_adapter;
 mod capacity;
 mod closing_body;
 mod closing_store;
+mod portal_approvals;
+mod portal_mail;
+mod portal_store;
 mod project_baselines;
 mod project_benefits;
 mod project_changes;
@@ -76,6 +79,7 @@ mod task_dependencies;
 mod templates_store;
 
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
+pub use public_project_portal::PortalState;
 
 use std::sync::Arc;
 
@@ -287,11 +291,11 @@ where
 /// to that prefix: served before authentication, like flow-api's
 /// `app.route('/public/project-portal', ...)` above `apiAuth()`. The server
 /// nests it at the prefix (`flow_public` in `rust/bins/weldsuite`).
-pub fn public_router<S>(state: FlowState) -> Router<S>
+pub fn public_router<S>(state: FlowState, portal: PortalState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    public_project_portal::router(state)
+    public_project_portal::router(state, portal)
 }
 
 /// Who is asking, in which workspace, with what permissions.

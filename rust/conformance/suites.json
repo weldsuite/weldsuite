@@ -3376,6 +3376,33 @@
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
+    },
+    {
+      "name": "flow: client portal",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/public-project-portal/integration.test.ts",
+        "src/routes/project-files/client-visible.integration.test.ts",
+        "src/routes/project-messages/client-visible.integration.test.ts",
+        "src/routes/project-documents/client-visible.integration.test.ts"
+      ],
+      "coverage": [
+        "/public/project-portal",
+        "/api/project-documents"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/public-project-portal/",
+        "apps/workers/flow-api/src/routes/project-documents/",
+        "apps/workers/flow-api/src/routes/project-files/",
+        "apps/workers/flow-api/src/routes/project-messages/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/project-portal.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
     }
   ]
 }

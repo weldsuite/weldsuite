@@ -18,6 +18,7 @@ pub mod js;
 pub mod numbering;
 pub mod project_closing;
 pub mod project_templates;
+pub mod project_portal;
 pub mod raid;
 pub mod recurrence;
 pub mod risk;

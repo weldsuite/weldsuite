@@ -1,0 +1,72 @@
+# WeldFlow client project portal: TanStack Start on Workers (ADR FLOW-020, FE-015).
+#
+# The portal opens no database and holds no secret. It only calls flow-api's
+# public routes (/public/project-portal/*) over the FLOW_API service binding,
+# server side, with the contact's session token as a bearer. The sessions
+# themselves live in flow-api's KV (a hashed token per session), so this Worker
+# needs no KV namespace of its own; the token sits in an httpOnly cookie.
+#
+# Built with @cloudflare/vite-plugin. The environment is picked at BUILD time
+# (`CLOUDFLARE_ENV=test pnpm build`), and the plugin writes the resolved config
+# next to the output, so the deploy is a plain `wrangler deploy` (no `--env`).
+#
+# Without the binding (local `pnpm dev`) calls go to FLOW_API_URL: flow-api's
+# `wrangler dev` (`pnpm --filter flow-api dev`) on port 8804.
+#
+# Hostnames are Workers Custom Domains: Cloudflare creates the DNS record and
+# the certificate, so there is nothing to set up by hand. They need an empty
+# name: an existing record for the hostname has to be removed first.
+
+# Local `vite dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-project-portal-dev"
+main = "@tanstack/react-start/server-entry"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+FLOW_API_URL = "http://localhost:8804"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-project-portal-test"
+workers_dev = false
+routes = [
+  { pattern = "projects-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "FLOW_API"
+service = "weldsuite-flow-api-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-project-portal"
+workers_dev = false
+routes = [
+  { pattern = "projects.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.services]]
+binding = "FLOW_API"
+service = "weldsuite-flow-api"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

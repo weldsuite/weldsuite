@@ -121,6 +121,8 @@ app.route('/public/project-portal', publicProjectPortalRoutes);
 // in-flight instances drain.
 export { SendDigestWorkflow } from '@weldsuite/flow-domain/workflows/send-digest';
 export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tasks';
+// The client portal's sign-in rate-limit counters (PORTAL_RATE_LIMITER).
+export { PortalRateLimiter } from './durable-objects/portal-rate-limiter';
 
 export default {
   fetch: app.fetch,

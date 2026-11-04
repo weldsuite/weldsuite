@@ -5,6 +5,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -31,7 +32,9 @@ import {
   Loader2,
   Image as ImageIcon,
   FileText,
+  Share2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNowLocalized as formatDistanceToNow } from '@/lib/i18n/date-locale';
 import { messagesApi } from '@/app/weldflow/lib/api-client';
@@ -51,6 +54,8 @@ interface ProjectMessage {
   };
   reactions?: Record<string, string[]>;
   attachments?: unknown[];
+  /** Shown to the client in the project portal. */
+  clientVisible?: boolean;
 }
 
 interface MessagesClientProps {
@@ -119,6 +124,27 @@ export function MessagesClient({ projectId, initialMessages, error }: Readonly<M
       }
     } catch (err) {
       console.error('Failed to add reaction:', err);
+    }
+  };
+
+  const handleToggleClientVisible = async (message: ProjectMessage) => {
+    const next = !message.clientVisible;
+    const apply = (value: boolean) =>
+      setMessages((prev) => prev.map((msg) => (msg.id === message.id ? { ...msg, clientVisible: value } : msg)));
+    // Optimistic: the badge flips at once and rolls back if the server refuses.
+    apply(next);
+    try {
+      const result = await messagesApi.update(projectId, message.id, { clientVisible: next });
+      if (result.success) {
+        toast.success(next ? t.projectPortal.share.sharedToast : t.projectPortal.share.unsharedToast);
+      } else {
+        apply(!next);
+        toast.error(t.projectPortal.share.failedToast);
+      }
+    } catch (err) {
+      console.error('Failed to change client visibility:', err);
+      apply(!next);
+      toast.error(t.projectPortal.share.failedToast);
     }
   };
 
@@ -272,6 +298,7 @@ export function MessagesClient({ projectId, initialMessages, error }: Readonly<M
                   message={message}
                   onReact={(emoji) => handleAddReaction(message.id, emoji)}
                   onDelete={() => handleDeleteMessage(message.id)}
+                  onToggleClientVisible={() => handleToggleClientVisible(message)}
                   getAttachmentIcon={getAttachmentIcon}
                   canWrite={canWrite}
                 />
@@ -329,11 +356,13 @@ function MessageBubble({
   message,
   onReact,
   onDelete,
+  onToggleClientVisible,
   canWrite,
 }: Readonly<{
   message: ProjectMessage;
   onReact: (emoji: string) => void;
   onDelete: () => void;
+  onToggleClientVisible: () => void;
   getAttachmentIcon: (type: string) => React.ReactElement;
   canWrite: boolean;
 }>) {
@@ -358,6 +387,9 @@ function MessageBubble({
           </span>
           {message.editedAt && (
             <span className="text-xs text-muted-foreground">{t.projects.messages.edited}</span>
+          )}
+          {message.clientVisible && (
+            <Badge variant="secondary">{t.projectPortal.share.sharedBadge}</Badge>
           )}
         </div>
 
@@ -416,6 +448,10 @@ function MessageBubble({
                 <DropdownMenuItem>
                   <Edit className="h-4 w-4 mr-0.5" />
                   {t.projects.messages.editMenuItem}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onToggleClientVisible}>
+                  <Share2 className="h-4 w-4 mr-0.5" />
+                  {message.clientVisible ? t.projectPortal.share.stopSharing : t.projectPortal.share.shareWithClient}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-red-600" onClick={onDelete}>

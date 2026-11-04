@@ -283,6 +283,8 @@ export interface ApiProjectFile {
   isFolder: boolean;
   isPublic: boolean;
   expiresAt: string | null;
+  /** Shown to the client in the project portal. */
+  clientVisible?: boolean;
   metadata: Record<string, unknown> | null;
 }
 
@@ -303,6 +305,8 @@ export interface ApiProjectMessage {
   isRead: boolean;
   readBy: string[] | null;
   reactions?: Record<string, string[]>;
+  /** Shown to the client in the project portal. */
+  clientVisible?: boolean;
   metadata: Record<string, unknown> | null;
 }
 
@@ -340,6 +344,8 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt: string;
   isPinned: boolean;
+  /** Shown to the client in the project portal. */
+  clientVisible: boolean;
 }
 
 /** A project sheet as `tablesApi.listTables` returns it: its drive file, name without `.xlsx`. */
@@ -956,7 +962,7 @@ export const messagesApi = {
     },
   ) => appApiPost<ApiProjectMessage>('/project-messages', { projectId, ...data }),
 
-  update: (_projectId: string, messageId: string, data: { message?: string; isPinned?: boolean }) =>
+  update: (_projectId: string, messageId: string, data: { message?: string; isPinned?: boolean; clientVisible?: boolean }) =>
     appApiPatch<ApiProjectMessage>(`/project-messages/${messageId}`, data),
 
   delete: (_projectId: string, messageId: string) =>
@@ -1014,7 +1020,7 @@ export const filesApi = {
   update: (
     _projectId: string,
     fileId: string,
-    data: { fileName?: string; parentId?: string | null },
+    data: { fileName?: string; parentId?: string | null; clientVisible?: boolean },
   ) => appApiPatch<{ id: string }>(`/project-files/${fileId}`, data),
 
   // The app-api storage flow is workspace-scoped; entityType+entityId tag the
@@ -1174,6 +1180,7 @@ interface DocumentFileRow {
   createdAt: string;
   updatedAt: string;
   isPinned?: boolean;
+  clientVisible?: boolean;
 }
 
 const stripDocx = (name: string) => name.replace(/\.docx$/i, '');
@@ -1190,6 +1197,7 @@ export const documentsApi = {
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
         isPinned: f.isPinned ?? false,
+        clientVisible: f.clientVisible ?? false,
       })),
     } as ApiResponse<DocumentSummary[]>;
   },
@@ -1207,6 +1215,7 @@ export const documentsApi = {
         createdAt: res.data.createdAt,
         updatedAt: res.data.updatedAt,
         isPinned: res.data.isPinned ?? false,
+        clientVisible: res.data.clientVisible ?? false,
       },
     } as ApiResponse<DocumentSummary>;
   },
@@ -1216,6 +1225,10 @@ export const documentsApi = {
     const fileName = data.name.endsWith('.docx') ? data.name : `${data.name}.docx`;
     return appApiPatch<DocumentSummary>(`/files/${fileId}`, { fileName });
   },
+
+  /** Show or hide a document in the client portal. */
+  setDocumentClientVisible: (projectId: string, fileId: string, clientVisible: boolean) =>
+    appApiPatch<DocumentFileRow>(`/project-documents/${projectId}/${fileId}`, { clientVisible }),
 
   deleteDocument: (_projectId: string, fileId: string) =>
     appApiDelete<{ success: boolean }>(`/files/${fileId}`),

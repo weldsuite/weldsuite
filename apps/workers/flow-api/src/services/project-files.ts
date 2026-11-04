@@ -179,6 +179,7 @@ const WRITABLE_FILE_COLUMNS = [
   'storageProvider',
   'fileType',
   'isPublic',
+  'clientVisible',
   'metadata',
   'parentId',
 ] as const;
