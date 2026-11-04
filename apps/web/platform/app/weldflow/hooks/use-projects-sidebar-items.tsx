@@ -128,6 +128,16 @@ export function useProjectsSidebarItems(isActive: boolean): {
   React.useEffect(() => {
     if (!isActive) return;
     const saved = localStorage.getItem('visibleGeneralPages');
+    // Pages the user has already been offered; a page they hid stays hidden.
+    let seen: string[] = [];
+    try {
+      const raw = localStorage.getItem('seenGeneralPages');
+      if (raw) seen = JSON.parse(raw) as string[];
+    } catch {
+      seen = [];
+    }
+    const unseen = GENERAL_PAGES_ADDED_LATER.filter((pageId) => !seen.includes(pageId));
+    if (unseen.length > 0) localStorage.setItem('seenGeneralPages', JSON.stringify([...seen, ...unseen]));
     if (saved) {
       const savedPages = new Set<string>(JSON.parse(saved));
       let dirty = false;
@@ -136,8 +146,8 @@ export function useProjectsSidebarItems(isActive: boolean): {
         savedPages.delete('my-inbox');
         dirty = true;
       }
-      // Merge pages in for users who saved prefs before they existed
-      for (const pageId of GENERAL_PAGES_ADDED_LATER) {
+      // Merge in pages that did not exist when the user saved prefs, once each
+      for (const pageId of unseen) {
         if (!savedPages.has(pageId)) {
           savedPages.add(pageId);
           dirty = true;

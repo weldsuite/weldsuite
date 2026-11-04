@@ -71,3 +71,9 @@ export function lanePosition(startsOn: string, endsOn: string, from: string, to:
   const width = Math.max(((end - start) / total) * 100, 1.5);
   return { left: Math.round(left * 100) / 100, width: Math.round(Math.min(width, 100 - left) * 100) / 100 };
 }
+
+/** An optional money amount: digits with at most two decimals, so "140,000" is refused instead of read as 140. */
+export const AMOUNT = /^(\d+([.,]\d{1,2})?)?$/;
+
+/** Reads an amount field: empty is null, a comma counts as the decimal point. */
+export const amount = (text: string): number | null => (text.trim() === '' ? null : Number(text.trim().replace(',', '.')));

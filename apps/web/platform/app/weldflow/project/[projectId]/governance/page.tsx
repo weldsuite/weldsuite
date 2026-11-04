@@ -81,8 +81,9 @@ export default function StatusReportsPage() {
   const rows = useMemo(() => reports.data ?? [], [reports.data]);
 
   useEffect(() => {
-    if (!selected && rows.length > 0) setSelected(rows[0]?.id ?? null);
-  }, [rows, selected]);
+    if (reports.isFetching) return;
+    if (!selected || !rows.some((row) => row.id === selected)) setSelected(rows[0]?.id ?? null);
+  }, [rows, selected, reports.isFetching]);
 
   const manage = canWrite && isAdmin;
 

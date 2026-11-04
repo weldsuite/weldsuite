@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,21 +13,20 @@ import type { ProjectRequest } from '@weldsuite/app-api-client/domains/flow-port
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useConvertProjectRequest, useCreateProjectRequest, useUpdateProjectRequest } from '@/hooks/queries/use-flow-portfolio-queries';
-import { needsText, parseNeededSkills } from '../_lib/intake';
+import { projectKeys } from '@/hooks/queries/use-projects-queries';
+import { AMOUNT, amount, needsText, parseNeededSkills } from '../_lib/intake';
 
 const DATE = /^(\d{4}-\d{2}-\d{2})?$/;
 const requestSchema = z.object({
   title: z.string().trim().min(1).max(255),
   businessCase: z.string().max(10_000),
-  estimatedCost: z.string().regex(/^\d*([.,]\d+)?$/),
-  estimatedValue: z.string().regex(/^\d*([.,]\d+)?$/),
+  estimatedCost: z.string().regex(AMOUNT),
+  estimatedValue: z.string().regex(AMOUNT),
   desiredStart: z.string().regex(DATE),
   desiredEnd: z.string().regex(DATE),
   needs: z.string().max(1000),
 });
 type RequestValues = z.infer<typeof requestSchema>;
-
-const amount = (text: string): number | null => (text.trim() === '' ? null : Number(text.replace(',', '.')));
 
 /** File a new project request, or edit one that is still new or being assessed. */
 export function RequestFormDialog({ open, request, onClose, onSaved }: Readonly<{ open: boolean; request: ProjectRequest | null; onClose: () => void; onSaved: (id: string) => void }>) {
@@ -135,6 +135,9 @@ export function CreateProjectDialog({ request, onClose }: Readonly<{ request: Pr
   const copy = t.flowPortfolio.intake.createProject;
   const { projects } = useAppApi();
   const convert = useConvertProjectRequest();
+  const queryClient = useQueryClient();
+  // The project made for this request: a retry after a failed convert must reuse it.
+  const createdRef = useRef<{ requestId: string; projectId: string } | null>(null);
   const form = useForm<ProjectValues>({ resolver: zodResolver(projectSchema), defaultValues: { name: '', startDate: '', endDate: '' } });
   useEffect(() => {
     if (request) form.reset({ name: request.title, startDate: request.desiredStart ?? '', endDate: request.desiredEnd ?? '' });
@@ -142,12 +145,17 @@ export function CreateProjectDialog({ request, onClose }: Readonly<{ request: Pr
   const submit = form.handleSubmit(async (values) => {
     if (!request) return;
     try {
-      const created = await projects.create({
-        name: values.name,
-        ...(values.startDate ? { startDate: values.startDate } : {}),
-        ...(values.endDate ? { endDate: values.endDate } : {}),
-      });
-      await convert.mutateAsync({ id: request.id, input: { projectId: created.data.id } });
+      if (createdRef.current?.requestId !== request.id) {
+        const created = await projects.create({
+          name: values.name,
+          ...(values.startDate ? { startDate: values.startDate } : {}),
+          ...(values.endDate ? { endDate: values.endDate } : {}),
+        });
+        createdRef.current = { requestId: request.id, projectId: created.data.id };
+        void queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      }
+      await convert.mutateAsync({ id: request.id, input: { projectId: createdRef.current.projectId } });
+      createdRef.current = null;
       toast.success(copy.done);
       onClose();
     } catch {

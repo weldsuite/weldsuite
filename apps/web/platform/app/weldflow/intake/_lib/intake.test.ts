@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectRequest } from '@weldsuite/app-api-client/domains/flow-portfolio';
-import { lanePosition, needsText, parseNeededSkills, paybackMonths, visibleRequests, weightTotal } from './intake';
+import { AMOUNT, amount, lanePosition, needsText, parseNeededSkills, paybackMonths, visibleRequests, weightTotal } from './intake';
 
 describe('intake helpers', () => {
   it('reads needed skills with an optional trailing number of hours', () => {
@@ -29,5 +29,13 @@ describe('intake helpers', () => {
     expect(lanePosition('2026-10-01', '2026-12-31', '2026-10-01', '2027-09-30')).toEqual({ left: 0, width: 25.21 });
     const late = lanePosition('2027-09-01', '2028-02-01', '2026-10-01', '2027-09-30');
     expect(late.left + late.width).toBeLessThanOrEqual(100);
+  });
+
+  it('accepts plain and decimal amounts but refuses a thousands separator', () => {
+    for (const ok of ['', '140000', '140.5', '140,50']) expect(AMOUNT.test(ok)).toBe(true);
+    for (const bad of ['140,000', '1.234,56', '12.345', '-5', 'abc', '.5']) expect(AMOUNT.test(bad)).toBe(false);
+    expect(amount('')).toBeNull();
+    expect(amount('140,5')).toBe(140.5);
+    expect(amount('140000')).toBe(140000);
   });
 });

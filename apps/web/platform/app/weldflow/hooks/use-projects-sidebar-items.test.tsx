@@ -219,4 +219,27 @@ describe('useProjectsSidebarItems: general pages', () => {
       en.projects.sidebar.analytics,
     ]));
   });
+
+  it('keeps a page hidden after a reload, since it was already offered once', async () => {
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks', 'all-projects', 'workload']));
+    const first = render(<GeneralPagesHarness />);
+    await act(async () => {});
+    first.unmount();
+    // The user hides Intake.
+    const kept = JSON.parse(window.localStorage.getItem('visibleGeneralPages') ?? '[]') as string[];
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(kept.filter((id) => id !== 'intake')));
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    const titles = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(titles).not.toContain(en.projects.sidebar.intake);
+    expect(titles).toContain(en.projects.sidebar.capacity);
+  });
+
+  it('does not re-add a page for a user who has already seen all of them', async () => {
+    window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks']));
+    window.localStorage.setItem('seenGeneralPages', JSON.stringify(['analytics', 'reviews', 'intake', 'capacity', 'templates']));
+    render(<GeneralPagesHarness />);
+    await act(async () => {});
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([en.projects.sidebar.myTasks]);
+  });
 });
