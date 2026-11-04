@@ -101,6 +101,14 @@ import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
 import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
+import {
+  OPTIMISTIC_ID_PREFIX,
+  addressListToEmails,
+  addressToEmail,
+  buildReplyRecipients,
+  hasExtraReplyAllRecipients,
+  resolveReplyTarget,
+} from '../lib/reply-recipients';
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { SignaturePicker, useComposeSignature } from './compose-signature';
@@ -156,47 +164,6 @@ function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): s
   if (!from) return '';
   if (typeof from === 'string') return from;
   return from.name ? `${from.name} <${from.email}>` : from.email;
-}
-
-// `to`/`cc`/`bcc` entries may likewise be plain email strings or structured
-// Mail.EmailAddress objects; normalize a single entry down to its email.
-function addressToEmail(addr: string | MailTypes.EmailAddress | undefined): string {
-  if (!addr) return '';
-  return typeof addr === 'string' ? addr : addr.email;
-}
-
-function addressListToEmails(list?: string[] | MailTypes.EmailAddress[]): string[] {
-  return (list || []).map((item) => addressToEmail(item));
-}
-
-// Recipients for a reply. A plain reply goes to the original sender only; a
-// reply-all adds everyone else who was on the To/Cc lines, minus the mailbox
-// we're replying from (replying to yourself is never what's wanted).
-// `replyAndPersist` on the server derives the same set from the stored message,
-// so what we show here matches what actually gets sent.
-function buildReplyRecipients(
-  msg: EmailMessage,
-  { all, selfEmail }: { all: boolean; selfEmail?: string },
-): string[] {
-  const self = selfEmail?.trim().toLowerCase();
-  const seen = new Set<string>();
-  const recipients: string[] = [];
-  const add = (email: string, { allowSelf = false } = {}) => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key) || (!allowSelf && key === self)) return;
-    seen.add(key);
-    recipients.push(trimmed);
-  };
-  // The sender stays even when it's our own address — replying to a message
-  // you sent yourself should still address it to that thread.
-  add(msg.fromEmail || addressToEmail(msg.from), { allowSelf: true });
-  if (all) {
-    addressListToEmails(msg.to).forEach((email) => add(email));
-    addressListToEmails(msg.cc).forEach((email) => add(email));
-  }
-  return recipients;
 }
 
 // Generate consistent label color based on label name
@@ -1552,12 +1519,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     [accountsData, accountId],
   );
 
-  // "Reply all" only earns its place when there is somebody else to include.
   const replyAllRecipients = useMemo(
     () => (newestMessage ? buildReplyRecipients(newestMessage, { all: true, selfEmail: accountEmail }) : []),
     [newestMessage, accountEmail],
   );
-  const canReplyAll = replyAllRecipients.length > 1;
+  const canReplyAll = newestMessage ? hasExtraReplyAllRecipients(newestMessage, accountEmail) : false;
 
   // Fetch attachments for the newest message
   const { data: attachmentsData } = useMailAttachments(
@@ -1645,11 +1611,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   const addOptimisticMessage = (body: string, to: string, html?: string) => {
     const optimisticMsg: EmailMessage = {
-      id: `optimistic-${Date.now()}`,
+      id: `${OPTIMISTIC_ID_PREFIX}${Date.now()}`,
       messageId: '',
       subject: message.subject,
-      from: newestMessage.to?.[0] || 'Me',
-      fromEmail: addressToEmail(newestMessage.to?.[0]),
+      // We sent it, so it is from this mailbox (not whoever the last mail went to).
+      from: accountEmail || newestMessage.to?.[0] || 'Me',
+      fromEmail: accountEmail || addressToEmail(newestMessage.to?.[0]),
       to: [to],
       cc: [],
       bcc: [],
@@ -1715,7 +1682,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     // The text part keeps line breaks (between the reply and its signature too).
     // Both parts carry the quoted original, like any other mail client's reply.
-    const replyTarget = localThread.find((m) => m.id === replyToMessageId) ?? newestMessage;
+    const replyTarget = resolveReplyTarget([message, ...localThread], replyToMessageId, newestMessage);
     const { body: textContent, htmlBody: htmlContent } = appendQuotedOriginal(
       { body: buildComposeBodies(editorHtml).body, htmlBody: editorHtml },
       {
@@ -1731,7 +1698,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     try {
       const attachments = await uploadAttachedFiles(textContent, htmlContent);
       if (attachments === null) return;
-      const result = await mailApi.messages.reply(accountId, message.id, {
+      // Reply to the message the user picked: the server derives recipients
+      // and threading headers from it, so it must be the one the To field showed.
+      const result = await mailApi.messages.reply(accountId, replyTarget.id, {
         body: textContent,
         htmlBody: htmlContent,
         replyAll: isReplyingAll,
@@ -2827,7 +2796,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   <ThreadMessageCard
                     threadMsg={threadMsg}
                     isExpanded={expandedThreadIds.has(threadMsg.id)}
-                    canReplyAll={buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail }).length > 1}
+                    canReplyAll={hasExtraReplyAllRecipients(threadMsg, accountEmail)}
                     onToggle={() => toggleThreadExpanded(threadMsg.id)}
                     onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
                     onReply={() => startThreadReply(threadMsg, false)}
