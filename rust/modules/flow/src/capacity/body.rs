@@ -672,7 +672,10 @@ mod tests {
         ));
         assert_eq!(
             answer["error"]["details"],
-            json!([{ "path": "scoringModel.0.weight", "message": "Expected integer, received float" }])
+            json!([
+                { "path": "scoringModel.0.weight", "message": "Expected integer, received float" },
+                { "path": "scoringModel.0.weight", "message": "Number must be less than or equal to 100" },
+            ])
         );
     }
 

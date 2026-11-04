@@ -1579,6 +1579,29 @@
       ]
     },
     {
+      "name": "flow: portfolio",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/capacity/integration.test.ts",
+        "src/routes/project-requests/integration.test.ts"
+      ],
+      "coverage": [
+        "/api/capacity",
+        "/api/project-requests"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/capacity/",
+        "apps/workers/flow-api/src/routes/project-requests/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-portfolio.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "core: dashboard",
       "module": "core",
       "workspace": "apps/workers/app-api",
