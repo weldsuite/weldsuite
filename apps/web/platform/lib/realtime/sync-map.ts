@@ -55,6 +55,9 @@ const personKeys = {
 // WeldFlow RAID log — mirrors raidKeys in hooks/queries/use-project-control-queries.ts.
 // Lists, the matrix and every open detail sit under this root.
 const raidKeys = { all: ['project-raid'] as const };
+// WeldFlow reporting — mirrors reportKeys and stakeholderKeys in hooks/queries/use-project-reporting-queries.ts.
+const reportKeys = { all: ['project-status-reports'] as const };
+const stakeholderKeys = { all: ['project-stakeholders'] as const };
 
 const leadKeys = { all: ['crm', 'leads'] as const };
 const opportunityKeys = { all: ['crm', 'opportunities'] as const };
@@ -208,8 +211,8 @@ export const platformSyncMap: EntitySyncMap = {
   project_phase: inv(projectKeys.all),
 
   // Reporting: status reports and stakeholders.
-  project_status_report: inv(projectKeys.all),
-  project_stakeholder: inv(projectKeys.all),
+  project_status_report: inv(projectKeys.all, reportKeys.all),
+  project_stakeholder: inv(stakeholderKeys.all, reportKeys.all),
 
   // Closing: lessons and templates.
   project_lesson: inv(projectKeys.all),
