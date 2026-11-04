@@ -264,6 +264,8 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
   },
   { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // The client project portal's session token: 32 random bytes per run (FLOW-020).
+  { method: 'POST', route: '/public/project-portal/auth/verify', fields: [{ path: 'data.token' }] },
   // WeldMeet's instant meeting reports how long each step took (and leaves the
   // user's other sessions, which can end one).
   {

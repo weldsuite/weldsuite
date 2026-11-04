@@ -209,7 +209,12 @@ describe('RACI', () => {
       ],
     });
     expect(actions()).toEqual(['project_stakeholder.updated', 'project_stakeholder.updated', 'project_stakeholder.updated']);
-    expect(events().find((e) => e.entityId === minted(a.id))?.data).toMatchObject({ raci: { subjectType: 'deliverable', subjectId: 'del_stk_1', letters: ['A', 'R'] } });
+    // Found by its letters: in conformance mode `minted` is a matcher, which `===` never equals.
+    const raciEvent = events().find((e) => (e.data as { raci?: { letters?: string[] } }).raci?.letters?.join() === 'A,R');
+    expect(raciEvent).toMatchObject({
+      entityId: minted(a.id),
+      data: { raci: { subjectType: 'deliverable', subjectId: 'del_stk_1', letters: ['A', 'R'] } },
+    });
 
     // A full replace: the next call drops what it leaves out, and a type-wide row has no subject id.
     published.mockClear();

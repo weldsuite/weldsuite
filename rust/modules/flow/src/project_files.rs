@@ -555,6 +555,7 @@ fn read_file(
     issues.text(fields, "parentId", Presence::Nullish, Some(1), None);
     issues.boolean(fields, "isFolder", Presence::Optional);
     issues.text(fields, "fileType", Presence::Optional, None, Some(50));
+    issues.boolean(fields, "clientVisible", Presence::Optional);
     fields.clone()
 }
 

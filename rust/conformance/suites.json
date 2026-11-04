@@ -1440,6 +1440,12 @@
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "PATCH /api/project-documents/:projectId/:fileId",
+          "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        }
       ]
     },
     {
@@ -3402,6 +3408,16 @@
         "packages/clients/app-api-client/src/schemas/project-portal.ts",
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/project-documents/:projectId",
+          "reason": "An existing project-documents route, reached by the flow: project resources suite (src/routes/documents/index.integration.test.ts); this suite covers only the client-visible PATCH."
+        },
+        {
+          "route": "POST /api/project-documents/:projectId",
+          "reason": "An existing project-documents route, reached by the flow: project resources suite (src/routes/documents/index.integration.test.ts); this suite covers only the client-visible PATCH."
+        }
       ]
     },
     {

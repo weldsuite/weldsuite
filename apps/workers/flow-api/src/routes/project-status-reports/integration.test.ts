@@ -104,6 +104,9 @@ const actions = () => events().map((event) => `${event.entityType}.${event.actio
 /** The id a create answered, as the create's events carry it (Rust mints its own ids, with the same prefix). */
 const minted = (id: string) => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
 
+/** A time the server stamped from its clock: the Rust server keeps the real clock, so conformance mode checks only the shape. */
+const stamped = (iso: string) => (conformanceTarget() ? expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) : iso);
+
 const NOW = new Date('2026-11-04T10:12:00.000Z');
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
@@ -295,7 +298,7 @@ describe('POST /', () => {
     ]);
     expect(report.snapshot).toMatchObject({
       version: 1,
-      asOf: NOW.toISOString(),
+      asOf: stamped(NOW.toISOString()),
       baselineVersion: null,
       computed: { overall: 'green' },
       figures: { budget: null, pendingChanges: 0, riskAppetite: 9, openRisks: 0, highestRiskScore: null },
@@ -742,7 +745,7 @@ describe('POST /:id/refresh', () => {
     });
     // The overall colour was the suggestion, so it follows the new suggestion.
     expect(refreshed.overall).toBe('red');
-    expect(refreshed.snapshot?.asOf).toBe('2026-11-04T15:30:00.000Z');
+    expect(refreshed.snapshot?.asOf).toEqual(stamped('2026-11-04T15:30:00.000Z'));
     expect(refreshed.done.map((item) => item.text)).toEqual(['Finished today', 'Called the client']);
     expect(actions()).toEqual(['project_status_report.updated']);
   });
@@ -789,7 +792,7 @@ describe('POST /:id/publish', () => {
     expect(done).toMatchObject({
       status: 'published',
       publishedBy: MANAGER,
-      publishedAt: '2026-11-04T16:00:00.000Z',
+      publishedAt: stamped('2026-11-04T16:00:00.000Z'),
       summary: 'Two changes wait for an answer.',
       overall: 'amber',
       clientVisible: true,
