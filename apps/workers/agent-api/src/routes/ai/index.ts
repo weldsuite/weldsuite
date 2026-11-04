@@ -72,7 +72,7 @@ const generateSchema = z.object({
   /** The user prompt. */
   prompt: z.string().min(1).max(20000),
   /** Optional model id, e.g. `@cf/meta/llama-3.3-70b-instruct-fp8-fast` or
-   *  `anthropic/claude-sonnet-4-5`. Defaults to the free "draft" model. */
+   *  `anthropic/claude-sonnet-5-5`. Defaults to the free "draft" model. */
   model: z.string().min(1).max(200).optional(),
   /** Optional system prompt. */
   system: z.string().max(8000).optional(),
