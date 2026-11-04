@@ -45,7 +45,8 @@ export const workersAi = {
 /** Premium third-party models (`provider/model`), via Unified Billing / BYOK. */
 export const thirdParty = {
   anthropic: {
-    sonnet: 'anthropic/claude-sonnet-4-5',
+    /** The current Sonnet (5.5). Sonnet 4.5 retires 2026-11-30. */
+    sonnet: 'anthropic/claude-sonnet-5-5',
     opus: 'anthropic/claude-opus-4-1',
     haiku: 'anthropic/claude-haiku-4-5',
     /** Claude 5.5 generation. Sonnet/Opus 5.5 reject non-default temperature. */
