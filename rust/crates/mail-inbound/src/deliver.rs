@@ -14,7 +14,7 @@ use crate::context::InboundContext;
 use crate::parsed::{ParsedAttachment, ParsedEmail};
 use crate::push::send_new_email_push;
 use crate::recipients::{
-    Member, RecipientAccount, collect_recipient_emails, find_recipient_accounts,
+    Member, RecipientAccount, delivery_recipient_emails, find_recipient_accounts,
 };
 use crate::rules::{RuleState, apply_mail_rules, finalize_inbound};
 use crate::store::{Stored, inbound_labels, preview, store_email};
@@ -35,7 +35,7 @@ pub async fn process_inbound_email(
     email: &ParsedEmail,
     attachments: &[ParsedAttachment],
 ) -> Result<Processed, sqlx::Error> {
-    let recipient_emails = collect_recipient_emails(email);
+    let recipient_emails = delivery_recipient_emails(email);
     let accounts = find_recipient_accounts(ctx, &recipient_emails).await?;
     if accounts.is_empty() {
         tracing::info!(recipients = %recipient_emails.join(", "), "[Mail] No matching accounts");

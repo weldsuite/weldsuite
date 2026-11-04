@@ -134,6 +134,18 @@ describe('the SEND_EMAIL bridge', () => {
     expect(takeRustSends().map((r) => r.envelope.to)).toEqual(['a@x.com', 'bad@x.com']);
   });
 
+  it("answers with the Message-ID a Cloudflare-like stub delivered", async () => {
+    const stub = createSendEmailStub({}, { messageId: (e) => `<cf.${e.to}>` });
+    const url = await sendEmailUrl({ SEND_EMAIL: stub });
+    const res = await fetch(`${url}/send?from=${encodeURIComponent('tom@acme.com')}&to=${encodeURIComponent('a@x.com')}`, {
+      method: 'POST',
+      body: LETTRE,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ messageId: '<cf.a@x.com>' });
+    takeRustSends();
+  });
+
   it('records the TypeScript run and drops its envelopes from the stub', async () => {
     const stub = createSendEmailStub();
     const { env, finish } = recordTypeScriptSends({ SEND_EMAIL: stub });

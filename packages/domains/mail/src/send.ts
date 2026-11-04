@@ -12,7 +12,7 @@
  * header, a different attachment cap) lands in one file rather than two.
  */
 
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { ExecutionContext } from 'hono';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -754,6 +754,91 @@ function toSmtpMessageId(externalMessageId: string): string {
   return raw.startsWith('<') ? raw : `<${raw}>`;
 }
 
+/** The ids a SENT copy is recorded under ({@link sentCopyMessageIds}). */
+export interface SentCopyMessageIds {
+  /** The row's `messageId`: what the first outside recipient received. */
+  rfcMessageId: string;
+  /** The row's `externalMessageId`: the self-copy's id when there is one, else the provider's. */
+  externalMessageId: string;
+  /** The id of the copy delivered back to this mailbox, when the account addressed itself. */
+  selfMessageId: string | null;
+}
+
+/**
+ * The ids a SENT copy is recorded under. Cloudflare replaces the Message-ID
+ * and gives every envelope one of its own (`deliveredMessageIds`), so:
+ *
+ * - `rfcMessageId` is the id the first outside recipient received, in
+ *   to → cc → bcc order: what their reply quotes in In-Reply-To, and what a
+ *   later reply from this mailbox should reference;
+ * - `selfMessageId` is the id of the copy delivered back to this mailbox when
+ *   the account is among its own recipients. The row keeps it in
+ *   `externalMessageId`, where the inbound path recognises that copy as this
+ *   message instead of storing it a second time.
+ *
+ * Replies from a second or third outside recipient quote ids the row does not
+ * hold; they still thread by References and subject, as before.
+ *
+ * Without per-envelope ids (a dry run, a binding that reports none) both
+ * fall back to the provider's `messageId`, as before.
+ */
+export function sentCopyMessageIds(
+  accountEmail: string,
+  recipients: { to: string[]; cc?: string[]; bcc?: string[] },
+  result: { messageId: string; deliveredMessageIds?: Record<string, string> },
+): SentCopyMessageIds {
+  const self = accountEmail.trim().toLowerCase();
+  const delivered = result.deliveredMessageIds ?? {};
+  const order = [...recipients.to, ...(recipients.cc ?? []), ...(recipients.bcc ?? [])].map((r) => r.trim().toLowerCase());
+  const selfMessageId = delivered[self] ?? null;
+  const outside = order.find((r) => r !== self && delivered[r]);
+  const primary = (outside ? delivered[outside] : undefined) ?? selfMessageId ?? result.messageId;
+  return {
+    rfcMessageId: toSmtpMessageId(primary),
+    externalMessageId: selfMessageId ?? primary,
+    selfMessageId,
+  };
+}
+
+/**
+ * The copy Cloudflare delivers back to this mailbox can beat the SENT row: the
+ * inbound worker stores it as soon as it arrives, before this send has written
+ * anything to match it against. Once the SENT row exists that early copy is a
+ * duplicate of it, so it is deleted (soft, as a user's delete). Best effort: the
+ * mail went out and its SENT copy is stored, so a failure here only leaves the
+ * duplicate behind.
+ */
+async function absorbEarlySelfCopy(
+  db: Database,
+  store: MailboxStore | undefined,
+  accountId: string,
+  sentId: string,
+  selfMessageId: string,
+  now: Date,
+): Promise<void> {
+  try {
+    if (store) {
+      const early = (await store.findByRfcIds([selfMessageId], [])).filter((m) => m.id !== sentId && m.source !== 'sent');
+      if (early.length > 0) await store.apply({ kind: 'delete', ids: early.map((m) => m.id) }, now.getTime());
+      return;
+    }
+    await db
+      .update(mailMessages)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(mailMessages.accountId, accountId),
+          eq(mailMessages.messageId, selfMessageId),
+          ne(mailMessages.id, sentId),
+          or(isNull(mailMessages.source), ne(mailMessages.source, 'sent')),
+          isNull(mailMessages.deletedAt),
+        ),
+      );
+  } catch (err) {
+    console.warn(`[mail-send] Could not remove the early self-copy ${selfMessageId} of ${sentId}:`, err);
+  }
+}
+
 export async function sendAndPersist(
   env: MailSendEnv,
   db: Database,
@@ -812,8 +897,9 @@ export async function sendAndPersist(
     await commitOutbound(env, db, reservation, { sentRecipients: partial?.sent, waitUntil: opts?.waitUntil });
   }
 
-  const externalMessageId = sendResult.messageId;
-  const smtpMessageId = toSmtpMessageId(externalMessageId);
+  const ids = sentCopyMessageIds(account.email, data, sendResult);
+  const externalMessageId = ids.externalMessageId;
+  const smtpMessageId = ids.rfcMessageId;
   const messageId = generateId('msg');
   const now = new Date();
 
@@ -841,6 +927,9 @@ export async function sendAndPersist(
     delivery: deliveryNote(partial, sendResult.suppressedRecipients ?? []),
   });
   if (replayed) return replayed;
+
+  // ---- Self-copy: drop an inbound copy that arrived before the SENT row --
+  if (ids.selfMessageId) await absorbEarlySelfCopy(db, store, accountId, messageId, ids.selfMessageId, now);
 
   // ---- Bump daily counter ----------------------------------------------
   await db
@@ -950,7 +1039,11 @@ async function transmitGuarded(
     const sentSet = new Set(sent.map((r) => r.toLowerCase()));
     const everyone = [...data.to, ...(data.cc ?? []), ...(data.bcc ?? [])];
     return {
-      result: { messageId: err.messageId, pendingVerification: false },
+      result: {
+        messageId: err.messageId,
+        ...(err.deliveredMessageIds ? { deliveredMessageIds: err.deliveredMessageIds } : {}),
+        pendingVerification: false,
+      },
       partial: { sent, failed: everyone.filter((r) => !sentSet.has(r.toLowerCase())) },
     };
   }

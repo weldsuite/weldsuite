@@ -63,7 +63,18 @@ export interface SendOptions {
 }
 
 export interface SendResult {
+  /**
+   * The Message-ID recipients receive. A provider that rewrites the header
+   * (Cloudflare) reports the id it delivered, the first recipient's when each
+   * recipient got their own; otherwise the id the message was built with.
+   */
   messageId: string;
+  /**
+   * The Message-ID each recipient received, by lower-cased address, when the
+   * provider assigns ids per envelope (Cloudflare gives every envelope its
+   * own). Absent when the provider keeps the built id for everyone.
+   */
+  deliveredMessageIds?: Record<string, string>;
   providerMessageId?: string;
   /** Provider-specific extras (rule id, submission id, ...). */
   metadata?: Record<string, unknown>;

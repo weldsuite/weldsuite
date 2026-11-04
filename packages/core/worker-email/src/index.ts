@@ -69,7 +69,14 @@ export interface SendEmailParams {
 }
 
 export interface SendEmailResponse {
+  /**
+   * The Message-ID recipients received: Cloudflare replaces the message's own
+   * with one per envelope, and this is the first recipient's (the built id
+   * only when the binding reports none).
+   */
   messageId: string;
+  /** The Message-ID each recipient received, by lower-cased address. */
+  deliveredMessageIds?: Record<string, string>;
   /** True when Cloudflare requires the recipient to verify before delivery. */
   pendingVerification?: boolean;
   /** Recipients Cloudflare skipped because they are on its suppression list. */
@@ -82,9 +89,10 @@ export interface SendEmailResponse {
  * One message goes to everyone: the provider builds a single RFC-5322 payload
  * whose To/Cc headers name the whole recipient set, then hands that same
  * payload to one envelope per address (the binding takes a single envelope
- * recipient at a time). All copies share one Message-ID, which is what makes a
- * reply-all arrive as one message addressed to the group rather than as one
- * private message each.
+ * recipient at a time), which is what makes a reply-all arrive as one message
+ * addressed to the group rather than as one private message each. Cloudflare
+ * does give every envelope its own Message-ID, though: `deliveredMessageIds`
+ * says which recipient got which.
  *
  * `pendingVerification` comes back true when a recipient hasn't yet verified
  * through Cloudflare's destination-address flow; the rest are still delivered.
@@ -120,6 +128,7 @@ export async function sendEmail(
     const metadata = result.metadata as { pendingRecipients?: string[]; suppressedRecipients?: string[] } | undefined;
     return {
       messageId: result.messageId,
+      ...(result.deliveredMessageIds ? { deliveredMessageIds: result.deliveredMessageIds } : {}),
       pendingVerification: !!metadata?.pendingRecipients?.length,
       ...(metadata?.suppressedRecipients?.length ? { suppressedRecipients: metadata.suppressedRecipients } : {}),
     };

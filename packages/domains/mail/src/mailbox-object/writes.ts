@@ -944,11 +944,22 @@ function insertIngestOutboxRows(sql: SqlStorage, ref: MailboxRef, message: Inges
   );
 }
 
-/** Existing-row dup detection ahead of a fresh ingest insert: by RFC message id (incoming mail only — a `sent` copy is never "the same message already arrived") or by idempotency key (a replayed outbound send). */
+/**
+ * Existing-row dup detection ahead of a fresh ingest insert: by RFC message id
+ * (incoming mail only — a `sent` copy is never "the same message already
+ * arrived") or by idempotency key (a replayed outbound send). The RFC id is
+ * also checked against `external_message_id`, where a SENT copy keeps the id of
+ * the copy Cloudflare delivered back to this mailbox, so a self-copy that lost
+ * the race to `resolveInbound` still lands as a duplicate.
+ */
 function findIngestDuplicate(sql: SqlStorage, message: IngestMessage): IngestResult | null {
   if (message.source !== 'sent') {
     const dup = sql
-      .exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE rfc_message_id = ? AND deleted_at IS NULL LIMIT 1', message.rfcMessageId)
+      .exec<{ id: string; thread_key: string }>(
+        'SELECT id, thread_key FROM messages WHERE (rfc_message_id = ? OR external_message_id = ?) AND deleted_at IS NULL LIMIT 1',
+        message.rfcMessageId,
+        message.rfcMessageId,
+      )
       .toArray()[0];
     if (dup) return { id: message.id, threadKey: dup.thread_key, created: false, duplicateOf: dup.id };
   }
