@@ -7,10 +7,16 @@
 //! per-user project boundary ([`LinkAccess::Unchecked`]); flow-api adds the
 //! caller's accessible projects ([`LinkAccess::Projects`]), as its own copy
 //! of the plan does.
+//!
+//! FLOW-015, transition release: the arrays stay and are kept in step with the
+//! typed `task_dependencies` rows (a new pair becomes an `fs` / lag 0 row, a
+//! pair that has a row keeps its type and lag, a dropped pair loses its row),
+//! and cycle detection reads the table as well as the arrays.
 
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use weldsuite_events::iso_timestamp;
+use weldsuite_kit::generate_id;
 
 use crate::task_tree::soft_delete_task_tree;
 
@@ -61,12 +67,74 @@ pub struct ReciprocalLink {
     pub depends_on: Option<Vec<String>>,
 }
 
+/// A predecessor and the task that waits for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyPair {
+    pub predecessor_id: String,
+    pub successor_id: String,
+}
+
+/// A pair that becomes a `task_dependencies` row, with its project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowAdd {
+    pub predecessor_id: String,
+    pub successor_id: String,
+    pub project_id: String,
+}
+
+/// `DependencyRowChanges`: the rows a change of the two lists implies. A pair
+/// that cannot be a row (a task of another project, or none) stays in the
+/// arrays only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DependencyRowChanges {
+    pub add: Vec<RowAdd>,
+    pub remove: Vec<DependencyPair>,
+}
+
 /// What [`commit_dependency_update`] writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DependencyPlan {
     pub depends_on: Vec<String>,
     pub blocks: Vec<String>,
     pub reciprocal: Vec<ReciprocalLink>,
+    pub rows: DependencyRowChanges,
+}
+
+/// What changed in a task's two lists.
+#[derive(Debug, Clone, Default)]
+pub struct LinkDiff {
+    pub added_deps: Vec<String>,
+    pub removed_deps: Vec<String>,
+    pub added_blocks: Vec<String>,
+    pub removed_blocks: Vec<String>,
+}
+
+/// `SYSTEM_ACTOR`: who a row made by an array write is credited to when the
+/// writer did not say.
+pub const SYSTEM_ACTOR: &str = "system";
+
+/// The refusals of `/api/task-dependencies`, sent to the client as they are.
+pub mod messages {
+    pub const SELF: &str = "A task cannot depend on itself";
+    pub const NO_PROJECT: &str = "Both tasks must belong to a project";
+    pub const DIFFERENT_PROJECTS: &str = "Both tasks must belong to the same project";
+    pub const DUPLICATE: &str = "These tasks are already linked";
+    pub const CYCLE: &str = "Circular dependency detected";
+    pub const LIST_SCOPE: &str = "Give projectId or taskId";
+}
+
+/// `withId(ids, id)`: the list with `id` once.
+pub fn with_id(ids: &[String], id: &str) -> Vec<String> {
+    let mut out = ids.to_vec();
+    if !out.iter().any(|entry| entry == id) {
+        out.push(id.to_owned());
+    }
+    out
+}
+
+/// `withoutId(ids, id)`.
+pub fn without_id(ids: &[String], id: &str) -> Vec<String> {
+    ids.iter().filter(|entry| *entry != id).cloned().collect()
 }
 
 /// `[...new Set(ids)]`.
@@ -94,8 +162,30 @@ pub fn id_list(value: Option<&Value>) -> Vec<String> {
     }
 }
 
-/// `detectCycle(db, taskId, newDependsOn)`: following `dependsOn` from
-/// `new_depends_on` reaches `task_id`.
+/// `predecessorsOf(db, taskId)`: what a task waits for, its `dependsOn`
+/// array and the predecessors of its `task_dependencies` rows (FLOW-015).
+pub async fn predecessors_of(db: &PgPool, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    let depends_on: Option<Option<Value>> =
+        sqlx::query_scalar("select depends_on from tasks where id = $1 limit 1")
+            .bind(task_id)
+            .fetch_optional(db)
+            .await?;
+    let rows: Vec<String> =
+        sqlx::query_scalar("select predecessor_id from task_dependencies where successor_id = $1")
+            .bind(task_id)
+            .fetch_all(db)
+            .await?;
+    let mut out = unique(&id_list(depends_on.flatten().as_ref()));
+    for id in rows {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// `detectCycle(db, taskId, newDependsOn)`: following what each task waits
+/// for (the arrays and the table), from `new_depends_on`, reaches `task_id`.
 pub async fn detect_cycle(
     db: &PgPool,
     task_id: &str,
@@ -111,16 +201,120 @@ pub async fn detect_cycle(
             continue;
         }
         visited.push(current.clone());
-        let depends_on: Option<Option<Value>> =
-            sqlx::query_scalar("select depends_on from tasks where id = $1 limit 1")
-                .bind(&current)
-                .fetch_optional(db)
-                .await?;
-        if let Some(Some(depends_on)) = depends_on {
-            queue.extend(id_list(Some(&depends_on)));
-        }
+        queue.extend(predecessors_of(db, &current).await?);
     }
     Ok(false)
+}
+
+/// `wouldCloseCycle(db, predecessorId, successorId)`: does the predecessor
+/// already wait, through any chain, for the successor?
+pub async fn would_close_cycle(
+    db: &PgPool,
+    predecessor_id: &str,
+    successor_id: &str,
+) -> Result<bool, sqlx::Error> {
+    detect_cycle(db, successor_id, &[predecessor_id.to_owned()]).await
+}
+
+/// `waitsForAfter(db, taskId, newDependsOn, removedDeps)`: what a task waits
+/// for once a request is applied: its new `dependsOn` list plus the
+/// predecessors of its rows that the request does not drop.
+pub async fn waits_for_after(
+    db: &PgPool,
+    task_id: &str,
+    new_depends_on: &[String],
+    removed_deps: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows: Vec<String> =
+        sqlx::query_scalar("select predecessor_id from task_dependencies where successor_id = $1")
+            .bind(task_id)
+            .fetch_all(db)
+            .await?;
+    let mut out = unique(new_depends_on);
+    for id in rows {
+        if !removed_deps.contains(&id) && !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// `dependencyRowChanges(db, selfId, diff)`: the rows a diff of a task's two
+/// lists implies, for pairs inside one project (both tasks live, same
+/// non-null project).
+pub async fn dependency_row_changes(
+    db: &PgPool,
+    self_id: &str,
+    diff: &LinkDiff,
+) -> Result<DependencyRowChanges, sqlx::Error> {
+    let mut linked: Vec<String> = Vec::new();
+    for list in [
+        &diff.added_deps,
+        &diff.removed_deps,
+        &diff.added_blocks,
+        &diff.removed_blocks,
+    ] {
+        for id in list {
+            if !linked.contains(id) {
+                linked.push(id.clone());
+            }
+        }
+    }
+    if linked.is_empty() {
+        return Ok(DependencyRowChanges::default());
+    }
+    let mut wanted = vec![self_id.to_owned()];
+    wanted.extend(linked);
+    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+        "select id, project_id, deleted_at is not null from tasks where id = any($1)",
+    )
+    .bind(&wanted)
+    .fetch_all(db)
+    .await?;
+    let project_of = |id: &str| -> Option<String> {
+        rows.iter()
+            .find(|(row, _, _)| row == id)
+            .and_then(|(_, project, deleted)| if *deleted { None } else { project.clone() })
+    };
+    let self_project = project_of(self_id);
+    let same_project = |other: &str| -> Option<String> {
+        match (&self_project, project_of(other)) {
+            (Some(mine), Some(theirs)) if *mine == theirs => Some(theirs),
+            _ => None,
+        }
+    };
+    let mut changes = DependencyRowChanges::default();
+    for pred in &diff.added_deps {
+        if let Some(project_id) = same_project(pred) {
+            changes.add.push(RowAdd {
+                predecessor_id: pred.clone(),
+                successor_id: self_id.to_owned(),
+                project_id,
+            });
+        }
+    }
+    for succ in &diff.added_blocks {
+        if let Some(project_id) = same_project(succ) {
+            changes.add.push(RowAdd {
+                predecessor_id: self_id.to_owned(),
+                successor_id: succ.clone(),
+                project_id,
+            });
+        }
+    }
+    for pred in &diff.removed_deps {
+        changes.remove.push(DependencyPair {
+            predecessor_id: pred.clone(),
+            successor_id: self_id.to_owned(),
+        });
+    }
+    for succ in &diff.removed_blocks {
+        changes.remove.push(DependencyPair {
+            predecessor_id: self_id.to_owned(),
+            successor_id: succ.clone(),
+        });
+    }
+    Ok(changes)
 }
 
 /// Every added link must be a live task other than `self_id`, in a
@@ -245,8 +439,14 @@ pub async fn plan_dependency_update(
     if let Some(failure) = check_links(db, Some(id), &added, access).await? {
         return Ok(Err(failure));
     }
+    // A new `blocks` edge closes a cycle when the blocked task is reachable
+    // from what this task waits for once the request is applied (its new
+    // `dependsOn` plus the rows the request does not drop).
     let cyclic = (!added_deps.is_empty() && detect_cycle(db, id, &added_deps).await?)
-        || any_cycle(db, &added_blocks, &new_depends_on).await?;
+        || (!added_blocks.is_empty() && {
+            let waits_for = waits_for_after(db, id, &new_depends_on, &removed_deps).await?;
+            any_cycle(db, &added_blocks, &waits_for).await?
+        });
     if cyclic {
         return Ok(Err(DependencyFailure::Invalid(CIRCULAR.to_owned())));
     }
@@ -298,21 +498,35 @@ pub async fn plan_dependency_update(
             reciprocal.push(link);
         }
     }
+    let rows = dependency_row_changes(
+        db,
+        id,
+        &LinkDiff {
+            added_deps,
+            removed_deps,
+            added_blocks,
+            removed_blocks,
+        },
+    )
+    .await?;
     Ok(Ok(DependencyPlan {
         depends_on: new_depends_on,
         blocks: new_blocks,
         reciprocal,
+        rows,
     }))
 }
 
-/// The reciprocal rows and the task's own lists, on a transaction the
-/// caller opened (it may write the task's other columns on it too).
-/// `now` is the `updatedAt` written.
+/// The reciprocal rows, the task's own lists and the typed rows they imply, on
+/// a transaction the caller opened (it may write the task's other columns on
+/// it too). `now` is the `updatedAt` written; `user_id` the creator of new
+/// rows (`dependencyRowStatements`).
 pub async fn write_dependency_rows(
     conn: &mut PgConnection,
     id: &str,
     plan: &DependencyPlan,
     now: &str,
+    user_id: &str,
 ) -> Result<(), sqlx::Error> {
     for link in &plan.reciprocal {
         sqlx::query(
@@ -341,18 +555,57 @@ pub async fn write_dependency_rows(
     .bind(now)
     .execute(&mut *conn)
     .await?;
+    write_typed_rows(conn, &plan.rows, now, user_id).await
+}
+
+/// `dependencyRowStatements`: new pairs are inserted as `fs` / lag 0 and left
+/// alone when they already have a row; dropped pairs are deleted.
+pub async fn write_typed_rows(
+    conn: &mut PgConnection,
+    changes: &DependencyRowChanges,
+    now: &str,
+    user_id: &str,
+) -> Result<(), sqlx::Error> {
+    for pair in &changes.add {
+        sqlx::query(
+            "insert into task_dependencies
+                 (id, project_id, predecessor_id, successor_id, type, lag_days, created_by,
+                  created_at, updated_at)
+             values ($1, $2, $3, $4, 'fs', 0, $5, $6::timestamptz, $6::timestamptz)
+             on conflict do nothing",
+        )
+        .bind(generate_id("tdp"))
+        .bind(&pair.project_id)
+        .bind(&pair.predecessor_id)
+        .bind(&pair.successor_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&mut *conn)
+        .await?;
+    }
+    for pair in &changes.remove {
+        sqlx::query(
+            "delete from task_dependencies where predecessor_id = $1 and successor_id = $2",
+        )
+        .bind(&pair.predecessor_id)
+        .bind(&pair.successor_id)
+        .execute(&mut *conn)
+        .await?;
+    }
     Ok(())
 }
 
-/// `commitDependencyUpdate(db, id, plan)`: the plan as one transaction.
+/// `commitDependencyUpdate(db, id, plan, {}, userId)`: the plan as one
+/// transaction.
 pub async fn commit_dependency_update(
     db: &PgPool,
     id: &str,
     plan: &DependencyPlan,
+    user_id: &str,
 ) -> Result<(), sqlx::Error> {
     let now = iso_timestamp(time::OffsetDateTime::now_utc());
     let mut tx = db.begin().await?;
-    write_dependency_rows(&mut tx, id, plan, &now).await?;
+    write_dependency_rows(&mut tx, id, plan, &now, user_id).await?;
     tx.commit().await
 }
 
@@ -363,10 +616,13 @@ pub async fn link_created_task(
     db: &PgPool,
     id: &str,
     input: &LinkInput,
+    user_id: &str,
 ) -> Result<Option<DependencyFailure>, sqlx::Error> {
     let planned = async {
         match plan_dependency_update(db, id, input, &LinkAccess::Unchecked).await? {
-            Ok(plan) => commit_dependency_update(db, id, &plan).await.map(|()| None),
+            Ok(plan) => commit_dependency_update(db, id, &plan, user_id)
+                .await
+                .map(|()| None),
             Err(failure) => Ok(Some(failure)),
         }
     }

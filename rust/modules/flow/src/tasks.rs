@@ -1249,6 +1249,13 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         .execute(&mut *tx)
         .await?;
     }
+    // A typed dependency stays inside one project (FLOW-015): the moved tasks' rows go.
+    sqlx::query(
+        "delete from task_dependencies where predecessor_id = any($1) or successor_id = any($1)",
+    )
+    .bind(&all)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     let moved = std::iter::once((id.to_owned(), title)).chain(descendants.iter().cloned());
     for (task_id, task_title) in moved {

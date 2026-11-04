@@ -1213,7 +1213,7 @@ pub(crate) async fn dependencies(
         };
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, &id, &plan, &at).await?;
+        write_dependency_rows(&mut tx, &id, &plan, &at, &caller.user_id).await?;
         tx.commit().await?;
         let task = task.unwrap_or(Value::Null);
         caller.publish(
@@ -1504,7 +1504,7 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
     if let Some(plan) = &plan {
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, id, plan, &at).await?;
+        write_dependency_rows(&mut tx, id, plan, &at, &caller.user_id).await?;
         write_columns_on(&mut *tx, id, &update, false).await?;
         tx.commit().await?;
     } else {

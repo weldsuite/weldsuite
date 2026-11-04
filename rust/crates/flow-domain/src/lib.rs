@@ -6,11 +6,13 @@
 pub mod access;
 pub mod analytics;
 pub mod day_bounds;
+pub mod gates;
 pub mod js;
 pub mod numbering;
 pub mod raid;
 pub mod recurrence;
 pub mod risk;
+pub mod schedule;
 pub mod stage;
 pub mod stats;
 pub mod task_dependencies;
