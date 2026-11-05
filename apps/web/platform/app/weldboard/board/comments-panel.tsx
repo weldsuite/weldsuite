@@ -134,6 +134,9 @@ function ThreadCard({
     }
     c.apply({ type: 'delete', ids: [pin.id] }, { comment: true });
   };
+  // The first message's delete takes the whole thread, when that is allowed.
+  const deleteWholeThread = () => void deleteThread();
+  const deleteFirst = deletable ? deleteWholeThread : undefined;
   const labels: ComposerLabels = { placeholder: messages.length ? tc.replyPlaceholder : tc.placeholder, submit: messages.length ? tc.reply : tc.send, cancel: tc.cancel, noMatch: tc.noMatch };
 
   return (
@@ -163,7 +166,7 @@ function ThreadCard({
           names={names}
           own={m.authorId === me && mayComment}
           deleteLabel={i === 0 ? tc.deleteThread : tc.delete}
-          onDelete={i === 0 ? (deletable ? () => void deleteThread() : undefined) : () => void comments.remove([m.id]).catch(() => toast.error(tc.failed))}
+          onDelete={i === 0 ? deleteFirst : () => void comments.remove([m.id]).catch(() => toast.error(tc.failed))}
           onEdit={(body) =>
             comments.edit(m.id, body).catch((err) => {
               toast.error(tc.failed);

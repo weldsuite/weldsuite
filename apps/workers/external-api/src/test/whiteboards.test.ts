@@ -123,6 +123,17 @@ describe('/v1/whiteboards on WeldBoard', () => {
     expect((await app(fake, session).request('/v1/whiteboards', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ projectId: 'prj_1' }) })).status).toBe(403);
   });
 
+  it('reaches only project boards: a board in WeldDrive is not a whiteboard', async () => {
+    const fake = fakeBoards(new Map([['brd_mine', { ...row('brd_mine', 'My notes'), projectId: null as unknown as string }]]));
+    const { request } = app(fake);
+    expect((await request('/v1/whiteboards/brd_mine')).status).toBe(404);
+    const patched = await request('/v1/whiteboards/brd_mine', { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ elements: [] }) });
+    expect(patched.status).toBe(404);
+    expect((await request('/v1/whiteboards/brd_mine', { method: 'DELETE' })).status).toBe(404);
+    // It was only read, never changed.
+    expect(fake.calls.map((call) => call.path)).toEqual(['/brd_mine/read', '/brd_mine/read', '/brd_mine/read']);
+  });
+
   it('needs a project to create one, and says so when this server has no WeldBoard', async () => {
     const fake = fakeBoards(new Map());
     const noProject = await app(fake).request('/v1/whiteboards', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ name: 'Loose' }) });

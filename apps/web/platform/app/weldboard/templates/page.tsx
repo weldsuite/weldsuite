@@ -28,14 +28,14 @@ export default function WeldBoardTemplates() {
     if (!canCreate) return;
     const board = Board.create();
     applyOp(board, placeFragment(board, buildTemplate(template, t, () => newId()), { x: 0, y: 0, makeId: () => newId() }).op);
-    const meta = await create.mutateAsync({ name: (tt.names as Record<string, string>)[template.id] ?? t.weldboard.home.untitled, snapshot: board.toSnapshot() });
-    open(meta.id);
+    const meta = await create.mutateAsync({ name: (tt.names as Record<string, string>)[template.id] ?? t.weldboard.home.untitled, snapshot: board.toSnapshot() }).catch(() => null);
+    if (meta) open(meta.id);
   };
 
   const fromWorkspace = async (template: BoardMeta) => {
     if (!canCreate) return;
-    const meta = await create.mutateAsync({ name: template.name, fromBoardId: template.id });
-    open(meta.id);
+    const meta = await create.mutateAsync({ name: template.name, fromBoardId: template.id }).catch(() => null);
+    if (meta) open(meta.id);
   };
 
   return (

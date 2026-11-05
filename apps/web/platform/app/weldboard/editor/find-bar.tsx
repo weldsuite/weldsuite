@@ -28,6 +28,9 @@ export function FindBar({ controller: c, onClose }: { controller: BoardControlle
     input.current?.select();
   }, []);
 
+  let count = '';
+  if (query.trim()) count = matches.length ? format(tf.count, { current: current + 1, total: matches.length }) : tf.none;
+
   const go = (to: number) => {
     if (!matches.length) return;
     const next = (to + matches.length) % matches.length;
@@ -56,14 +59,17 @@ export function FindBar({ controller: c, onClose }: { controller: BoardControlle
             e.preventDefault();
             // The first Enter shows the current match; the next ones move on.
             const shown = current >= 0 && c.selection.has(matches[current]!);
-            go(e.shiftKey ? current - 1 : shown ? current + 1 : Math.max(current, 0));
+            let to = Math.max(current, 0);
+            if (e.shiftKey) to = current - 1;
+            else if (shown) to = current + 1;
+            go(to);
           }
           if (e.key === 'Escape') onClose();
         }}
         className="h-7 w-48 bg-transparent px-1 text-sm outline-none"
       />
       <span className="min-w-[4.5rem] text-right text-xs tabular-nums text-muted-foreground" aria-live="polite">
-        {query.trim() ? (matches.length ? format(tf.count, { current: current + 1, total: matches.length }) : tf.none) : ''}
+        {count}
       </span>
       <Button size="icon" variant="ghost" className="size-7" aria-label={tf.previous} disabled={!matches.length} onClick={() => go(current - 1)}>
         <ChevronUp className="size-4" />

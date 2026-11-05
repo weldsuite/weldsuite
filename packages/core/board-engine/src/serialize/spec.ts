@@ -126,8 +126,14 @@ function sizeOf(item: SpecItem): { w: number; h: number } {
     case 'card':
       return { w: 300, h: 140 };
     case 'shape':
-      return item.shape === 'diamond' ? { w: 220, h: 140 } : item.shape === 'ellipse' || item.shape === 'terminator' ? { w: 220, h: 100 } : { w: 220, h: 110 };
+      return shapeSize(item.shape);
   }
+}
+
+function shapeSize(shape: ShapeKind | undefined): { w: number; h: number } {
+  if (shape === 'diamond') return { w: 220, h: 140 };
+  if (shape === 'ellipse' || shape === 'terminator') return { w: 220, h: 100 };
+  return { w: 220, h: 110 };
 }
 
 function itemElement(item: SpecItem, id: string, x: number, y: number, order: string, parent?: string): BoardElement {
@@ -171,7 +177,11 @@ export function normalizeSpec(raw: BoardSpec): BoardSpec {
   const uniqueKey = (key: unknown): string | undefined => {
     if (typeof key !== 'string' || !key.trim()) return undefined;
     let k = key.trim().slice(0, 100);
-    for (let n = 2; keys.has(k); n++) k = `${key.trim().slice(0, 95)}~${n}`;
+    let n = 2;
+    while (keys.has(k)) {
+      k = `${key.trim().slice(0, 95)}~${n}`;
+      n++;
+    }
     keys.add(k);
     return k;
   };
@@ -263,43 +273,72 @@ function grid(items: SpecItem[], ids: Map<SpecItem, string>, x: number, y: numbe
 
 const perRowFor = (n: number) => Math.max(1, Math.min(6, Math.ceil(Math.sqrt(n))));
 
-/** Layers along the lines: each item one past the furthest item leading to it (cycles cut). */
-function flow(items: SpecItem[], lines: SpecLine[], ids: Map<SpecItem, string>, direction: 'down' | 'right'): Box[] {
+/** Each item's layer: one past the furthest item leading to it (longest-path layering, cycles cut). */
+function flowLayers(items: SpecItem[], lines: SpecLine[]): Map<SpecItem, number> {
   const byKey = new Map(items.flatMap((i) => (i.key ? [[i.key, i] as const] : [])));
   const layer = new Map<SpecItem, number>(items.map((i) => [i, 0]));
-  // Longest-path layering, at most items.length passes so a cycle cannot loop.
+  // At most items.length passes, so a cycle cannot loop.
   for (let pass = 0; pass < items.length; pass++) {
-    let changed = false;
-    for (const l of lines) {
-      const a = byKey.get(l.from);
-      const b = byKey.get(l.to);
-      if (!a || !b) continue;
-      const next = layer.get(a)! + 1;
-      if (next > layer.get(b)! && next < items.length) {
-        layer.set(b, next);
-        changed = true;
-      }
-    }
-    if (!changed) break;
+    if (!pushLayersDown(lines, byKey, layer, items.length)) break;
   }
+  return layer;
+}
+
+/** One layering pass: puts each line's target past its source. Whether anything moved. */
+function pushLayersDown(lines: SpecLine[], byKey: Map<string, SpecItem>, layer: Map<SpecItem, number>, limit: number): boolean {
+  let changed = false;
+  for (const l of lines) {
+    const a = byKey.get(l.from);
+    const b = byKey.get(l.to);
+    if (!a || !b) continue;
+    const next = layer.get(a)! + 1;
+    if (next > layer.get(b)! && next < limit) {
+      layer.set(b, next);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** The items by layer, in their order within each layer; empty layers left out. */
+function layerRows(items: SpecItem[], layer: Map<SpecItem, number>): SpecItem[][] {
   const layers: SpecItem[][] = [];
-  for (const item of items) (layers[layer.get(item)!] ??= []).push(item);
-  const rows = layers.filter(Boolean);
-  const across = (row: SpecItem[]) => row.reduce((n, i) => n + (direction === 'down' ? sizeOf(i).w : sizeOf(i).h), 0) + (row.length - 1) * GAP * 2;
+  for (const item of items) {
+    const index = layer.get(item)!;
+    let row = layers[index];
+    if (!row) {
+      row = [];
+      layers[index] = row;
+    }
+    row.push(item);
+  }
+  return layers.filter(Boolean);
+}
+
+/** Boxes for one layer of a flow, `along` the flow and from `start` across it. Returns the layer's depth. */
+function placeLayer(row: SpecItem[], ids: Map<SpecItem, string>, down: boolean, along: number, start: number, boxes: Box[]): number {
+  let pos = start;
+  let depth = 0;
+  for (const item of row) {
+    const { w, h } = sizeOf(item);
+    const [x, y] = down ? [pos, along] : [along, pos];
+    boxes.push({ item, id: ids.get(item)!, x, y, w, h });
+    pos += (down ? w : h) + GAP * 2;
+    depth = Math.max(depth, down ? h : w);
+  }
+  return depth;
+}
+
+/** Layers along the lines: each item one past the furthest item leading to it (cycles cut). */
+function flow(items: SpecItem[], lines: SpecLine[], ids: Map<SpecItem, string>, direction: 'down' | 'right'): Box[] {
+  const rows = layerRows(items, flowLayers(items, lines));
+  const down = direction === 'down';
+  const across = (row: SpecItem[]) => row.reduce((n, i) => n + (down ? sizeOf(i).w : sizeOf(i).h), 0) + (row.length - 1) * GAP * 2;
   const widest = Math.max(...rows.map(across));
   const boxes: Box[] = [];
   let along = 0;
   for (const row of rows) {
-    let pos = (widest - across(row)) / 2;
-    let depth = 0;
-    for (const item of row) {
-      const { w, h } = sizeOf(item);
-      const x = direction === 'down' ? pos : along;
-      const y = direction === 'down' ? along : pos;
-      boxes.push({ item, id: ids.get(item)!, x, y, w, h });
-      pos += (direction === 'down' ? w : h) + GAP * 2;
-      depth = Math.max(depth, direction === 'down' ? h : w);
-    }
+    const depth = placeLayer(row, ids, down, along, (widest - across(row)) / 2, boxes);
     along += depth + GAP * 2.5;
   }
   return boxes;
@@ -307,92 +346,136 @@ function flow(items: SpecItem[], lines: SpecLine[], ids: Map<SpecItem, string>, 
 
 const center = (b: { x: number; y: number; w: number; h: number }) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
 
-/** A mind map: the root at (0, 0), its branches split right and left, laid out as a horizontal tree. */
-function mindMapElements(root: SpecMindNode, makeId: () => string): BoardElement[] {
-  interface Node {
-    id: string;
-    text: string;
-    w: number;
-    h: number;
-    side: 'left' | 'right';
-    parent?: Node;
-    kids: Node[];
-    x: number;
-    y: number;
-  }
-  const build = (n: SpecMindNode, side: 'left' | 'right', parent?: Node): Node => {
-    const isRoot = !parent;
-    const node: Node = { id: makeId(), text: n.text, w: isRoot ? 240 : 180, h: isRoot ? 72 : 56, side, kids: [], x: 0, y: 0, ...(parent ? { parent } : {}) };
-    const kids = n.children ?? [];
-    node.kids = kids.map((c, i) => build(c, isRoot ? (kids.length > 3 && i >= Math.ceil(kids.length / 2) ? 'left' : 'right') : side, node));
-    return node;
-  };
-  const tree = build(root, 'right');
-  const height = (n: Node, kids: Node[] = n.kids): number => Math.max(n.h, kids.reduce((s, k) => s + height(k), 0) + Math.max(0, kids.length - 1) * MIND_V_GAP);
-  const place = (n: Node, kids: Node[], side: 'left' | 'right') => {
-    const total = kids.reduce((s, k) => s + height(k), 0) + Math.max(0, kids.length - 1) * MIND_V_GAP;
-    let y = n.y + n.h / 2 - total / 2;
-    for (const k of kids) {
-      const h = height(k);
-      k.x = side === 'right' ? n.x + n.w + MIND_H_GAP : n.x - MIND_H_GAP - k.w;
-      k.y = y + h / 2 - k.h / 2;
-      place(k, k.kids, side);
-      y += h + MIND_V_GAP;
-    }
-  };
-  place(tree, tree.kids.filter((k) => k.side === 'right'), 'right');
-  place(tree, tree.kids.filter((k) => k.side === 'left'), 'left');
+/** A node of a mind map being laid out. */
+interface MindLayoutNode {
+  id: string;
+  text: string;
+  w: number;
+  h: number;
+  side: 'left' | 'right';
+  parent?: MindLayoutNode;
+  kids: MindLayoutNode[];
+  x: number;
+  y: number;
+}
 
-  const out: BoardElement[] = [];
-  const all: Node[] = [];
-  const walk = (n: Node) => {
+/** The side a node's `i`th of `count` children branches to: the root's split right and left (past three), the rest follow their parent. */
+function branchSide(isRoot: boolean, side: 'left' | 'right', i: number, count: number): 'left' | 'right' {
+  if (!isRoot) return side;
+  return count > 3 && i >= Math.ceil(count / 2) ? 'left' : 'right';
+}
+
+/** The layout tree of a mind map, ids handed out depth first (each node before its children). */
+function buildMindTree(n: SpecMindNode, side: 'left' | 'right', makeId: () => string, parent?: MindLayoutNode): MindLayoutNode {
+  const isRoot = !parent;
+  const node: MindLayoutNode = { id: makeId(), text: n.text, w: isRoot ? 240 : 180, h: isRoot ? 72 : 56, side, kids: [], x: 0, y: 0, ...(parent ? { parent } : {}) };
+  const kids = n.children ?? [];
+  node.kids = kids.map((c, i) => buildMindTree(c, branchSide(isRoot, side, i, kids.length), makeId, node));
+  return node;
+}
+
+/** How tall `kids` stack, gaps included. */
+function stackHeight(kids: MindLayoutNode[]): number {
+  return kids.reduce((s, k) => s + mindHeight(k), 0) + Math.max(0, kids.length - 1) * MIND_V_GAP;
+}
+
+/** How tall a node's branch is: the node, or its children stacked when taller. */
+function mindHeight(n: MindLayoutNode): number {
+  return Math.max(n.h, stackHeight(n.kids));
+}
+
+/** Places `kids` beside `n` on `side`, stacked around its middle, and their branches beyond them. */
+function placeMindKids(n: MindLayoutNode, kids: MindLayoutNode[], side: 'left' | 'right'): void {
+  let y = n.y + n.h / 2 - stackHeight(kids) / 2;
+  for (const k of kids) {
+    const h = mindHeight(k);
+    k.x = side === 'right' ? n.x + n.w + MIND_H_GAP : n.x - MIND_H_GAP - k.w;
+    k.y = y + h / 2 - k.h / 2;
+    placeMindKids(k, k.kids, side);
+    y += h + MIND_V_GAP;
+  }
+}
+
+/** Every node of a tree, depth first. */
+function mindNodes(tree: MindLayoutNode): MindLayoutNode[] {
+  const all: MindLayoutNode[] = [];
+  const walk = (n: MindLayoutNode) => {
     all.push(n);
     n.kids.forEach(walk);
   };
   walk(tree);
+  return all;
+}
+
+/** The line from a node's parent to the node. */
+function mindLink(n: MindLayoutNode, p: MindLayoutNode, id: string, order: string): BoardElement {
+  const right = n.side === 'right';
+  const start: ConnectorEnd = { x: right ? p.x + p.w : p.x, y: p.y + p.h / 2, el: p.id, side: right ? 'right' : 'left' };
+  const end: ConnectorEnd = { x: right ? n.x : n.x + n.w, y: n.y + n.h / 2, el: n.id, side: right ? 'left' : 'right' };
+  return {
+    id,
+    type: 'connector',
+    order,
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    w: Math.abs(end.x - start.x),
+    h: Math.abs(end.y - start.y),
+    start,
+    end,
+    route: 'curved',
+    startCap: 'none',
+    endCap: 'none',
+    stroke: '#94a3b8',
+    strokeWidth: 2,
+  };
+}
+
+/** The mind-map link of a node: the root's, or a branch's (a first-level branch also keeps its side). */
+function mindLinkOf(n: MindLayoutNode, tree: MindLayoutNode): NonNullable<BoardElement['mindmap']> {
+  if (!n.parent) return { root: tree.id };
+  return { root: tree.id, parent: n.parent.id, ...(n.parent === tree ? { side: n.side } : {}) };
+}
+
+/** A node's shape: the root stands out, branches are plain. */
+function mindShape(n: MindLayoutNode, tree: MindLayoutNode, order: string): BoardElement {
+  const branch = !!n.parent;
+  return {
+    id: n.id,
+    type: 'shape',
+    shape: 'rounded',
+    order,
+    x: n.x,
+    y: n.y,
+    w: n.w,
+    h: n.h,
+    fill: branch ? '#ffffff' : '#dbeafe',
+    stroke: branch ? '#1f2937' : '#3b82f6',
+    strokeWidth: 2,
+    text: plain(n.text),
+    fontSize: branch ? 16 : 20,
+    textAlign: 'center',
+    vAlign: 'middle',
+    mindmap: mindLinkOf(n, tree),
+  };
+}
+
+/** A mind map: the root at (0, 0), its branches split right and left, laid out as a horizontal tree. */
+function mindMapElements(root: SpecMindNode, makeId: () => string): BoardElement[] {
+  const tree = buildMindTree(root, 'right', makeId);
+  placeMindKids(tree, tree.kids.filter((k) => k.side === 'right'), 'right');
+  placeMindKids(tree, tree.kids.filter((k) => k.side === 'left'), 'left');
+
+  const out: BoardElement[] = [];
+  const all = mindNodes(tree);
   const keys = keysBetween(null, null, all.length * 2);
   let k = 0;
+  const nextKey = () => keys[k++]!;
   for (const n of all) {
     if (n.parent) {
-      const p = n.parent;
-      const right = n.side === 'right';
-      const start: ConnectorEnd = { x: right ? p.x + p.w : p.x, y: p.y + p.h / 2, el: p.id, side: right ? 'right' : 'left' };
-      const end: ConnectorEnd = { x: right ? n.x : n.x + n.w, y: n.y + n.h / 2, el: n.id, side: right ? 'left' : 'right' };
-      out.push({
-        id: makeId(),
-        type: 'connector',
-        order: keys[k++]!,
-        x: Math.min(start.x, end.x),
-        y: Math.min(start.y, end.y),
-        w: Math.abs(end.x - start.x),
-        h: Math.abs(end.y - start.y),
-        start,
-        end,
-        route: 'curved',
-        startCap: 'none',
-        endCap: 'none',
-        stroke: '#94a3b8',
-        strokeWidth: 2,
-      });
+      const id = makeId();
+      out.push(mindLink(n, n.parent, id, nextKey()));
     }
-    out.push({
-      id: n.id,
-      type: 'shape',
-      shape: 'rounded',
-      order: keys[k++]!,
-      x: n.x,
-      y: n.y,
-      w: n.w,
-      h: n.h,
-      fill: n.parent ? '#ffffff' : '#dbeafe',
-      stroke: n.parent ? '#1f2937' : '#3b82f6',
-      strokeWidth: 2,
-      text: plain(n.text),
-      fontSize: n.parent ? 16 : 20,
-      textAlign: 'center',
-      vAlign: 'middle',
-      mindmap: n.parent ? { root: tree.id, parent: n.parent.id, ...(n.parent === tree ? { side: n.side } : {}) } : { root: tree.id },
-    });
+    out.push(mindShape(n, tree, nextKey()));
   }
   return out;
 }
@@ -427,61 +510,82 @@ function toFragment(elements: BoardElement[]): Fragment {
 export function fragmentFromSpec(raw: BoardSpec, makeId: () => string = () => newId()): { fragment: Fragment; keys: Record<string, string> } {
   const spec = normalizeSpec(raw);
   const items = spec.items ?? [];
-  const frames = spec.frames ?? [];
   const lines = spec.lines ?? [];
   const ids = new Map(items.map((i) => [i, makeId()]));
-  const elements: BoardElement[] = [];
-  const boxes: Box[] = [];
-  let cursorX = 0;
+  const laid: SpecLayout = { elements: [], boxes: [], cursorX: 0 };
 
-  if (spec.mindmap) {
-    const mind = mindMapElements(spec.mindmap, makeId);
-    const bounds = mind.filter((e) => e.type !== 'connector');
-    const minX = Math.min(...bounds.map((e) => e.x));
-    const maxX = Math.max(...bounds.map((e) => e.x + e.w));
-    for (const el of mind) {
-      el.x -= minX;
-      if (el.start) el.start = { ...el.start, x: el.start.x - minX };
-      if (el.end) el.end = { ...el.end, x: el.end.x - minX };
-    }
-    elements.push(...mind);
-    cursorX = maxX - minX + GAP * 4;
+  if (spec.mindmap) layMindMap(laid, spec.mindmap, makeId);
+  layFrames(laid, spec.frames ?? [], items, ids, makeId);
+  layLooseItems(laid, spec, items.filter((i) => !i.frame), ids);
+  layLines(laid, lines, spec.layout, makeId);
+
+  const keys: Record<string, string> = {};
+  for (const [item, id] of ids) if (item.key) keys[item.key] = id;
+  return { fragment: toFragment(laid.elements), keys };
+}
+
+/** A spec's elements as they are laid out left to right, and the item boxes placed so far. */
+interface SpecLayout {
+  elements: BoardElement[];
+  boxes: Box[];
+  /** Where the next part goes. */
+  cursorX: number;
+}
+
+/** The mind map first, moved so its left edge is at x 0. */
+function layMindMap(laid: SpecLayout, mindmap: SpecMindNode, makeId: () => string): void {
+  const mind = mindMapElements(mindmap, makeId);
+  const bounds = mind.filter((e) => e.type !== 'connector');
+  const minX = Math.min(...bounds.map((e) => e.x));
+  const maxX = Math.max(...bounds.map((e) => e.x + e.w));
+  for (const el of mind) {
+    el.x -= minX;
+    if (el.start) el.start = { ...el.start, x: el.start.x - minX };
+    if (el.end) el.end = { ...el.end, x: el.end.x - minX };
   }
+  laid.elements.push(...mind);
+  laid.cursorX = maxX - minX + GAP * 4;
+}
 
-  // Frames side by side, each with its items in a grid. Top-level order is
-  // the array's: placeFragment re-keys the top level in that order.
+/**
+ * Frames side by side, each with its items in a grid. Top-level order is
+ * the array's: placeFragment re-keys the top level in that order.
+ */
+function layFrames(laid: SpecLayout, frames: SpecFrame[], items: SpecItem[], ids: Map<SpecItem, string>, makeId: () => string): void {
   const frameKeys = keysBetween(null, null, frames.length || 1);
-  let frameK = 0;
-  for (const frame of frames) {
+  frames.forEach((frame, frameIndex) => {
     const inside = items.filter((i) => i.frame === frame.key);
     const frameId = makeId();
-    const laid = grid(inside, ids, cursorX + FRAME_PAD, FRAME_PAD + FRAME_TITLE, inside.length > 4 ? 2 : 1);
-    const w = Math.max(320, laid.w + FRAME_PAD * 2);
-    const h = Math.max(240, laid.h + FRAME_PAD * 2 + FRAME_TITLE);
-    elements.push({ id: frameId, type: 'frame', order: frameKeys[frameK++]!, x: cursorX, y: 0, w, h, name: frame.title || 'Frame', fill: '#ffffff' });
-    const childKeys = keysBetween(null, null, laid.boxes.length || 1);
-    laid.boxes.forEach((b, i) => {
-      boxes.push(b);
-      elements.push(itemElement(b.item, b.id, b.x, b.y, childKeys[i]!, frameId));
+    const content = grid(inside, ids, laid.cursorX + FRAME_PAD, FRAME_PAD + FRAME_TITLE, inside.length > 4 ? 2 : 1);
+    const w = Math.max(320, content.w + FRAME_PAD * 2);
+    const h = Math.max(240, content.h + FRAME_PAD * 2 + FRAME_TITLE);
+    laid.elements.push({ id: frameId, type: 'frame', order: frameKeys[frameIndex]!, x: laid.cursorX, y: 0, w, h, name: frame.title || 'Frame', fill: '#ffffff' });
+    const childKeys = keysBetween(null, null, content.boxes.length || 1);
+    content.boxes.forEach((b, i) => {
+      laid.boxes.push(b);
+      laid.elements.push(itemElement(b.item, b.id, b.x, b.y, childKeys[i]!, frameId));
     });
-    cursorX += w + GAP * 2;
-  }
+    laid.cursorX += w + GAP * 2;
+  });
+}
 
-  // Items in no frame: a flow along the lines, or a grid.
-  const loose = items.filter((i) => !i.frame);
-  if (loose.length) {
-    const useFlow = (spec.layout ?? (lines.length ? 'flow' : 'grid')) === 'flow';
-    const laid = useFlow ? flow(loose, lines, ids, spec.direction ?? 'down') : grid(loose, ids, 0, 0, perRowFor(loose.length)).boxes;
-    const keys = keysBetween(null, null, laid.length);
-    laid.forEach((b, i) => {
-      const box = { ...b, x: b.x + cursorX };
-      boxes.push(box);
-      elements.push(itemElement(box.item, box.id, box.x, box.y, keys[i]!));
-    });
-  }
+/** Items in no frame: a flow along the lines, or a grid. */
+function layLooseItems(laid: SpecLayout, spec: BoardSpec, loose: SpecItem[], ids: Map<SpecItem, string>): void {
+  if (!loose.length) return;
+  const lines = spec.lines ?? [];
+  const useFlow = (spec.layout ?? (lines.length ? 'flow' : 'grid')) === 'flow';
+  const placed = useFlow ? flow(loose, lines, ids, spec.direction ?? 'down') : grid(loose, ids, 0, 0, perRowFor(loose.length)).boxes;
+  const keys = keysBetween(null, null, placed.length);
+  placed.forEach((b, i) => {
+    const box = { ...b, x: b.x + laid.cursorX };
+    laid.boxes.push(box);
+    laid.elements.push(itemElement(box.item, box.id, box.x, box.y, keys[i]!));
+  });
+}
 
-  // Lines between items, bound to both ends, above the items they join.
-  const byKey = new Map(boxes.flatMap((b) => (b.item.key ? [[b.item.key, b] as const] : [])));
+/** Lines between items, bound to both ends, above the items they join. */
+function layLines(laid: SpecLayout, lines: SpecLine[], layout: BoardSpec['layout'], makeId: () => string): void {
+  const byKey = new Map(laid.boxes.flatMap((b) => (b.item.key ? [[b.item.key, b] as const] : [])));
   const lineKeys = keysBetween(null, null, lines.length || 1);
   lines.forEach((l, i) => {
     const a = byKey.get(l.from);
@@ -489,7 +593,7 @@ export function fragmentFromSpec(raw: BoardSpec, makeId: () => string = () => ne
     if (!a || !b) return;
     const s = center(a);
     const e = center(b);
-    elements.push({
+    laid.elements.push({
       id: makeId(),
       type: 'connector',
       order: lineKeys[i]!,
@@ -499,7 +603,7 @@ export function fragmentFromSpec(raw: BoardSpec, makeId: () => string = () => ne
       h: Math.abs(e.y - s.y),
       start: { ...s, el: a.id, side: 'auto' },
       end: { ...e, el: b.id, side: 'auto' },
-      route: spec.layout === 'grid' ? 'straight' : 'elbow',
+      route: layout === 'grid' ? 'straight' : 'elbow',
       startCap: 'none',
       endCap: 'arrow',
       stroke: '#1f2937',
@@ -507,10 +611,6 @@ export function fragmentFromSpec(raw: BoardSpec, makeId: () => string = () => ne
       ...(l.label ? { text: plain(l.label), labelAt: 0.5 } : {}),
     });
   });
-
-  const keys: Record<string, string> = {};
-  for (const [item, id] of ids) if (item.key) keys[item.key] = id;
-  return { fragment: toFragment(elements), keys };
 }
 
 export interface PlaceSpecOptions {
@@ -657,36 +757,46 @@ export function editOps(board: Board, changes: readonly ElementChange[]): { op: 
       changed.push(el.id);
       continue;
     }
-    let did = false;
-    if (typeof change.text === 'string') {
-      const text = clip(change.text);
-      if (el.type === 'frame') {
-        ops.push({ type: 'set', id: el.id, patch: { name: text.slice(0, 200) } });
-        did = true;
-      } else if (TEXT_TYPES.has(el.type)) {
-        const length = el.text?.text.length ?? 0;
-        if (!el.text) ops.push({ type: 'set', id: el.id, patch: { text: plain(text) } });
-        else {
-          if (length) ops.push({ type: 'deleteText', id: el.id, from: 0, to: length });
-          if (text) ops.push({ type: 'insertText', id: el.id, at: 0, text: plain(text) });
-        }
-        did = true;
-      }
-    }
-    const color = colorOf(change.color);
-    if (color && FILL_TYPES.has(el.type)) {
-      ops.push({ type: 'set', id: el.id, patch: { fill: fillFor(el.type, color) } });
-      did = true;
-    }
-    const moves = (Number.isFinite(change.x) || Number.isFinite(change.y)) && el.type !== 'connector';
-    if (moves) {
-      const dx = Number.isFinite(change.x) ? change.x! - el.x : 0;
-      const dy = Number.isFinite(change.y) ? change.y! - el.y : 0;
-      if (dx || dy) ops.push(moveOps(board, [el.id], dx, dy));
-      did = true;
-    }
-    (did ? changed : skipped).push(el.id);
+    const texted = typeof change.text === 'string' && textChangeOps(el, clip(change.text), ops);
+    const colored = colorChangeOps(el, change.color, ops);
+    const moved = moveChangeOps(board, el, change, ops);
+    (texted || colored || moved ? changed : skipped).push(el.id);
   }
   if (removed.length) ops.push(deleteOps(board, removed));
   return { op: batch(ops), changed, skipped };
+}
+
+/** Ops giving an element new text (a frame a new title); false when it has no text. */
+function textChangeOps(el: BoardElement, text: string, ops: Op[]): boolean {
+  if (el.type === 'frame') {
+    ops.push({ type: 'set', id: el.id, patch: { name: text.slice(0, 200) } });
+    return true;
+  }
+  if (!TEXT_TYPES.has(el.type)) return false;
+  if (!el.text) {
+    ops.push({ type: 'set', id: el.id, patch: { text: plain(text) } });
+    return true;
+  }
+  const length = el.text.text.length;
+  if (length) ops.push({ type: 'deleteText', id: el.id, from: 0, to: length });
+  if (text) ops.push({ type: 'insertText', id: el.id, at: 0, text: plain(text) });
+  return true;
+}
+
+/** The op filling an element with a spec colour; false when the colour is unknown or the element takes no fill. */
+function colorChangeOps(el: BoardElement, value: unknown, ops: Op[]): boolean {
+  const color = colorOf(value);
+  if (!color || !FILL_TYPES.has(el.type)) return false;
+  ops.push({ type: 'set', id: el.id, patch: { fill: fillFor(el.type, color) } });
+  return true;
+}
+
+/** The op moving an element (with its contents) to a new x and/or y; false when the change gives neither or it is a line. */
+function moveChangeOps(board: Board, el: BoardElement, change: ElementChange, ops: Op[]): boolean {
+  const moves = (Number.isFinite(change.x) || Number.isFinite(change.y)) && el.type !== 'connector';
+  if (!moves) return false;
+  const dx = Number.isFinite(change.x) ? change.x! - el.x : 0;
+  const dy = Number.isFinite(change.y) ? change.y! - el.y : 0;
+  if (dx || dy) ops.push(moveOps(board, [el.id], dx, dy));
+  return true;
 }

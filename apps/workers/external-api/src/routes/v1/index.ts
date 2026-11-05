@@ -186,7 +186,7 @@ v1.get('/', (c) => {
       '/v1/webhooks',
       '/v1/whiteboards',
       '/v1/workflows',
-    ],
+    ].filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL),
   });
 });
 

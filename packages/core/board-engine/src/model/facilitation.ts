@@ -40,7 +40,8 @@ export function startTimerOp(duration: number, now: number, userId?: string): Op
 }
 
 export function pauseTimerOp(timer: BoardTimer, now: number): Op {
-  const { endsAt: _endsAt, ...rest } = timer;
+  const rest: BoardTimer = { ...timer };
+  delete rest.endsAt;
   return { type: 'setBoard', patch: { timer: { ...rest, remaining: timerRemaining(timer, now) } } };
 }
 

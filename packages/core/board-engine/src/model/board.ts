@@ -86,7 +86,10 @@ export class Board {
     for (const el of this.elements.values()) {
       const p = this.effectiveParent(el);
       let list = map.get(p);
-      if (!list) map.set(p, (list = []));
+      if (!list) {
+        list = [];
+        map.set(p, list);
+      }
       list.push(el);
     }
     for (const list of map.values()) list.sort(compareOrder);

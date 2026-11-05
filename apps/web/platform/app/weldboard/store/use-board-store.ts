@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import type { BoardSnapshot } from '@weldsuite/board-engine';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { useI18n } from '@/lib/i18n/provider';
 import { ApiBoardDirectory } from './api-board-directory';
 import { LocalBoardStore, type BoardDirectory, type BoardMeta } from './board-store';
 
@@ -60,19 +62,25 @@ export function useBoardList(options: BoardListOptions = {}, enabled = true) {
 export function useBoardMutations() {
   const directory = useBoardDirectory();
   const queryClient = useQueryClient();
+  const { t } = useI18n();
+  const th = t.weldboard.home;
   const invalidate = () => queryClient.invalidateQueries({ queryKey: boardsQueryKey });
+  // Each failure says so here; callers that await `mutateAsync` only need to stop.
   const create = useMutation({
     mutationFn: ({ name, snapshot, projectId, fromBoardId }: { name: string; snapshot?: BoardSnapshot; projectId?: string; fromBoardId?: string }) =>
       directory!.create(name, { snapshot, projectId, fromBoardId }),
     onSuccess: invalidate,
+    onError: () => toast.error(th.createFailed),
   });
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => directory!.rename(id, name),
     onSuccess: invalidate,
+    onError: () => toast.error(th.renameFailed),
   });
   const remove = useMutation({
     mutationFn: (id: string) => directory!.remove(id),
     onSuccess: invalidate,
+    onError: () => toast.error(th.deleteFailed),
   });
   return { create, rename, remove };
 }

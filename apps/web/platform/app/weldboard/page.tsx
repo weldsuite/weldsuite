@@ -52,8 +52,9 @@ export default function WeldBoardHome() {
       snapshot = board.toSnapshot();
     }
     const name = template ? ((t.weldboard.templates.names as Record<string, string>)[template.id] ?? th.untitled) : th.untitled;
-    const meta = await create.mutateAsync({ name, snapshot });
-    open(meta);
+    // A failure is announced by the mutation; there is nothing to open then.
+    const meta = await create.mutateAsync({ name, snapshot }).catch(() => null);
+    if (meta) open(meta);
   };
 
   const importPicked = async (file: File | undefined) => {
@@ -175,7 +176,7 @@ export default function WeldBoardHome() {
             boards={boards}
             onOpen={open}
             onRename={canUpdate ? (board, name) => rename.mutate({ id: board.id, name }) : undefined}
-            onDuplicate={canCreate ? (board) => void create.mutateAsync({ name: format(th.copyOf, { name: board.name }), fromBoardId: board.id }).then(open) : undefined}
+            onDuplicate={canCreate ? (board) => void create.mutateAsync({ name: format(th.copyOf, { name: board.name }), fromBoardId: board.id }).then(open, () => undefined) : undefined}
             onDelete={canDelete ? (board) => remove.mutate(board.id) : undefined}
             onToggleTemplate={!preview && canUpdate ? (board) => void toggleTemplate(board) : undefined}
             deletePermanently={!!preview}

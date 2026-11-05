@@ -31,6 +31,13 @@ import { BarButton, BarPopover, Divider, Swatches, TOOL_BUTTON } from './ui';
 const BASIC: ShapeKind[] = ['rectangle', 'rounded', 'ellipse', 'triangle', 'diamond', 'pentagon', 'hexagon', 'octagon', 'star', 'cross', 'parallelogram', 'trapezoid', 'cloud', 'callout', 'arrow-right', 'arrow-left', 'chevron', 'cylinder'];
 const FLOW: ShapeKind[] = ['terminator', 'rectangle', 'diamond', 'data', 'document', 'predefined', 'delay', 'manual-input', 'cylinder'];
 
+/** The drawing button shows the drawing tool in use (the pen otherwise). */
+function drawingIcon(tool: ToolKind): ReactNode {
+  if (tool === 'highlighter') return <Highlighter />;
+  if (tool === 'eraser') return <Eraser />;
+  return <Pencil />;
+}
+
 export function ShapeIcon({ kind, className }: { kind: ShapeKind; className?: string }) {
   return (
     <svg viewBox="-2 -2 28 24" className={cn('size-5', className)} aria-hidden>
@@ -104,7 +111,7 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
           <BarPopover label={tt.connector} side="right" className={TOOL_BUTTON} active={tool === 'connector'} trigger={<Spline />}>
             <ConnectorOptions controller={c} />
           </BarPopover>
-          <BarPopover label={tt.drawing} side="right" className={TOOL_BUTTON} active={tool === 'pen' || tool === 'highlighter' || tool === 'eraser'} trigger={tool === 'highlighter' ? <Highlighter /> : tool === 'eraser' ? <Eraser /> : <Pencil />}>
+          <BarPopover label={tt.drawing} side="right" className={TOOL_BUTTON} active={tool === 'pen' || tool === 'highlighter' || tool === 'eraser'} trigger={drawingIcon(tool)}>
             <div className="flex w-64 flex-col gap-2">
               <div className="flex gap-1">
                 <BarButton label={tt.pen} active={tool === 'pen'} onClick={pick('pen')}>

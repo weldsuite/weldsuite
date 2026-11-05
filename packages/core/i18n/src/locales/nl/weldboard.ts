@@ -48,6 +48,9 @@ export const weldboard = {
     templateSaved: 'Opgeslagen als sjabloon',
     templateRemoved: 'Uit de sjablonen gehaald',
     templateFailed: 'Het sjabloon kon niet worden gewijzigd.',
+    createFailed: 'Het bord kon niet worden gemaakt.',
+    renameFailed: 'Het bord kon niet worden hernoemd.',
+    deleteFailed: 'Het bord kon niet worden verwijderd.',
   },
 
   templates: {

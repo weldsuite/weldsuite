@@ -29,39 +29,49 @@ export default function ProjectBoardsScreen() {
   const boards = useProjectBoards(projectId);
   const rows = boards.data?.data ?? [];
 
-  return (
-    <Screen header={<ScreenHeader title={t.boards.title} subtitle={project?.name} showBack />}>
-      {boards.isLoading ? (
+  const header = <ScreenHeader title={t.boards.title} subtitle={project?.name} showBack />;
+  if (boards.isLoading) {
+    return (
+      <Screen header={header}>
         <ListSkeleton count={4} />
-      ) : boards.isError ? (
+      </Screen>
+    );
+  }
+  if (boards.isError) {
+    return (
+      <Screen header={header}>
         <ErrorState message={t.boards.loadError} onRetry={() => void boards.refetch()} />
-      ) : (
-        <FlatList
-          data={rows}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <RecordRow
-              testID="project-board-row"
-              leading={<IconTile icon={Presentation} color={ACCENTS.projects} />}
-              title={item.name}
-              meta={format(t.boards.updated, { date: formatDate(item.updatedAt) })}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: '/board/[boardId]', params: { boardId: item.id, name: item.name, legacy: item.legacy ? '1' : '0' } });
-              }}
-            />
-          )}
-          refreshControl={<RefreshControl refreshing={boards.isRefetching} onRefresh={() => void boards.refetch()} tintColor={BRAND} />}
-          contentContainerStyle={rows.length === 0 ? styles.emptyContainer : undefined}
-          ListEmptyComponent={
-            <EmptyState
-              icon={<Presentation size={32} color={colors.mutedForeground} />}
-              title={t.boards.emptyTitle}
-              description={t.boards.emptyDescription}
-            />
-          }
-        />
-      )}
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen header={header}>
+      <FlatList
+        data={rows}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <RecordRow
+            testID="project-board-row"
+            leading={<IconTile icon={Presentation} color={ACCENTS.projects} />}
+            title={item.name}
+            meta={format(t.boards.updated, { date: formatDate(item.updatedAt) })}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: '/board/[boardId]', params: { boardId: item.id, name: item.name, legacy: item.legacy ? '1' : '0' } });
+            }}
+          />
+        )}
+        refreshControl={<RefreshControl refreshing={boards.isRefetching} onRefresh={() => void boards.refetch()} tintColor={BRAND} />}
+        contentContainerStyle={rows.length === 0 ? styles.emptyContainer : undefined}
+        ListEmptyComponent={
+          <EmptyState
+            icon={<Presentation size={32} color={colors.mutedForeground} />}
+            title={t.boards.emptyTitle}
+            description={t.boards.emptyDescription}
+          />
+        }
+      />
     </Screen>
   );
 }

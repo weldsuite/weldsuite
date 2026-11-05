@@ -15,6 +15,31 @@ import type { Point, Rect } from './path';
 const CELL = 512;
 const MAX_CELLS = 64;
 
+/** The grid cells a rectangle covers, inclusive. */
+function cellRange(r: Rect): { x0: number; y0: number; x1: number; y1: number } {
+  return {
+    x0: Math.floor(r.x / CELL),
+    y0: Math.floor(r.y / CELL),
+    x1: Math.floor((r.x + r.w) / CELL),
+    y1: Math.floor((r.y + r.h) / CELL),
+  };
+}
+
+/** Whether two rectangles meet (edges touching count). */
+function meets(b: Rect, r: Rect): boolean {
+  return b.x <= r.x + r.w && b.x + b.w >= r.x && b.y <= r.y + r.h && b.y + b.h >= r.y;
+}
+
+/** Adds `id` to the set under `key`, making the set when there is none. */
+function addTo(map: Map<string, Set<string>>, key: string, id: string): void {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+    map.set(key, set);
+  }
+  set.add(id);
+}
+
 export class SpatialIndex {
   private readonly cells = new Map<string, Set<string>>();
   private readonly big = new Set<string>();
@@ -53,15 +78,8 @@ export class SpatialIndex {
   private insert(el: BoardElement): void {
     const r = elementBounds(this.board, el);
     const bound = el.type === 'connector' ? [el.start?.el, el.end?.el].filter((x): x is string => !!x) : [];
-    for (const b of bound) {
-      let set = this.boundBy.get(b);
-      if (!set) this.boundBy.set(b, (set = new Set()));
-      set.add(el.id);
-    }
-    const x0 = Math.floor(r.x / CELL);
-    const y0 = Math.floor(r.y / CELL);
-    const x1 = Math.floor((r.x + r.w) / CELL);
-    const y1 = Math.floor((r.y + r.h) / CELL);
+    for (const b of bound) addTo(this.boundBy, b, el.id);
+    const { x0, y0, x1, y1 } = cellRange(r);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_CELLS) {
       this.big.add(el.id);
       this.where.set(el.id, { keys: [], big: true, rect: r, bound });
@@ -71,9 +89,7 @@ export class SpatialIndex {
     for (let x = x0; x <= x1; x++) {
       for (let y = y0; y <= y1; y++) {
         const k = `${x},${y}`;
-        let set = this.cells.get(k);
-        if (!set) this.cells.set(k, (set = new Set()));
-        set.add(el.id);
+        addTo(this.cells, k, el.id);
         keys.push(k);
       }
     }
@@ -100,25 +116,24 @@ export class SpatialIndex {
   /** Ids whose bounds meet `r` (a superset of what is visible there). */
   query(r: Rect): Set<string> {
     const out = new Set<string>();
-    const x0 = Math.floor(r.x / CELL);
-    const y0 = Math.floor(r.y / CELL);
-    const x1 = Math.floor((r.x + r.w) / CELL);
-    const y1 = Math.floor((r.y + r.h) / CELL);
+    const { x0, y0, x1, y1 } = cellRange(r);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) {
       for (const id of this.where.keys()) out.add(id);
       return out;
     }
     for (let x = x0; x <= x1; x++) {
-      for (let y = y0; y <= y1; y++) {
-        const set = this.cells.get(`${x},${y}`);
-        if (set) for (const id of set) out.add(id);
-      }
+      for (let y = y0; y <= y1; y++) this.addCell(out, `${x},${y}`);
     }
     for (const id of this.big) {
-      const b = this.where.get(id)!.rect;
-      if (b.x <= r.x + r.w && b.x + b.w >= r.x && b.y <= r.y + r.h && b.y + b.h >= r.y) out.add(id);
+      if (meets(this.where.get(id)!.rect, r)) out.add(id);
     }
     return out;
+  }
+
+  /** Adds the ids registered in one cell. */
+  private addCell(out: Set<string>, key: string): void {
+    const set = this.cells.get(key);
+    if (set) for (const id of set) out.add(id);
   }
 
   /**

@@ -577,6 +577,15 @@ app.get('/user-info', async (c) => {
 // DB has no published apps or the query fails, matching the original.
 // ============================================================================
 
+/**
+ * The static catalog for this deployment: WeldBoard only where its worker is
+ * bound (BOARD_API). The Rust backend does not serve it yet, so its catalog
+ * leaves it out the same way.
+ */
+function fallbackCatalog(env: { BOARD_API?: unknown }) {
+  return FALLBACK_CATALOG.filter((app) => app.code !== 'weldboard' || !!env.BOARD_API);
+}
+
 app.get('/available-apps', async (c) => {
   try {
     const masterDb = getMasterDb(c.env);
@@ -592,7 +601,7 @@ app.get('/available-apps', async (c) => {
       );
 
     if (apps.length === 0) {
-      return success(c, FALLBACK_CATALOG);
+      return success(c, fallbackCatalog(c.env));
     }
 
     const mapped = apps.map((app) => ({
@@ -614,7 +623,7 @@ app.get('/available-apps', async (c) => {
     return success(c, mapped);
   } catch (err) {
     console.error('[Onboarding] Error getting available apps:', err);
-    return success(c, FALLBACK_CATALOG);
+    return success(c, fallbackCatalog(c.env));
   }
 });
 

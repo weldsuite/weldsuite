@@ -286,7 +286,7 @@ describe('text layout', () => {
     expect(layout.lines.length).toBeGreaterThan(2);
     const caret = caretRect(layout, 10);
     expect(offsetAt(layout, caret.x, caret.y + 2)).toBe(10);
-    expect(layoutText(plain('a\nb'), style, 100, measurer).lines.length).toBe(2);
+    expect(layoutText(plain('a\nb'), style, 100, measurer).lines).toHaveLength(2);
   });
 });
 
@@ -319,7 +319,7 @@ describe('legacy WeldFlow whiteboards', () => {
     expect(board.get('4')).toMatchObject({ type: 'text', textAlign: 'center' });
     expect(board.get('4')!.text!.marks).toEqual([[5, { b: true }]]);
     expect(board.get('5')).toMatchObject({ type: 'connector', route: 'elbow', start: { el: '1', side: 'right' }, end: { el: '2', side: 'left' } });
-    expect([...board.elements.values()].filter((e) => e.type === 'pen').length).toBe(2);
+    expect([...board.elements.values()].filter((e) => e.type === 'pen')).toHaveLength(2);
     expect([...board.elements.values()].some((e) => e.type === 'sticky' && e.text?.text === 'x')).toBe(true);
   });
 
@@ -377,7 +377,7 @@ describe('fragments, imports, templates, export', () => {
     expect(fragment.elements.every(isElement)).toBe(true);
     expect(fragment.elements.find((e) => e.type === 'shape')!.text!.text).toBe('in box');
     expect(parseCells('a,"b, c"\n1;2')).toEqual([['a', 'b, c'], ['1;2']]);
-    expect(stickiesFromText('one\ntwo\nthree', counterIds('s')).elements.length).toBe(3);
+    expect(stickiesFromText('one\ntwo\nthree', counterIds('s')).elements).toHaveLength(3);
   });
 
   it('builds every template as valid elements', () => {

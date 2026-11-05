@@ -62,6 +62,33 @@ export function votingView(board: Board, userId: string): { votes?: Map<string, 
   return { votes, faded };
 }
 
+interface VotingLabels {
+  title: string;
+  left: string;
+  noneLeft: string;
+  results: string;
+  votes: string;
+  oneVote: string;
+}
+
+/**
+ * What the voting control says: while the round is open, the votes this
+ * person has left (or just "Voting" for someone who cannot vote); once it
+ * is closed, the results.
+ */
+function votingSummary(
+  state: { open: boolean; canTakePart: boolean; myLeft: number; totalVotes: number },
+  tv: VotingLabels,
+  format: (template: string, values: Record<string, unknown>) => string,
+): string {
+  if (!state.open) {
+    const total = state.totalVotes === 1 ? tv.oneVote : format(tv.votes, { count: state.totalVotes });
+    return `${tv.results} · ${total}`;
+  }
+  if (!state.canTakePart) return tv.title;
+  return state.myLeft ? format(tv.left, { count: state.myLeft }) : tv.noneLeft;
+}
+
 /** A short tone when the timer runs out (no sound file needed). */
 function chime(): void {
   try {
@@ -182,7 +209,7 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
         <div className="flex items-center gap-1">
           <Vote className="ml-1 size-4 text-muted-foreground" aria-hidden="true" />
           <span className="px-1 text-sm">
-            {round.status === 'open' ? (canTakePart ? (myLeft ? format(tv.left, { count: myLeft }) : tv.noneLeft) : tv.title) : `${tv.results} · ${totalVotes === 1 ? tv.oneVote : format(tv.votes, { count: totalVotes })}`}
+            {votingSummary({ open: round.status === 'open', canTakePart, myLeft, totalVotes }, tv, format)}
           </span>
           {canRun && round.status === 'open' && (
             <Button size="sm" variant="ghost" className="h-7" onClick={() => {

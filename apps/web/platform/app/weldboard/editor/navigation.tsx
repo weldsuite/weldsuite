@@ -48,6 +48,14 @@ export function ZoomControls({ controller: c, minimap, onToggleMinimap }: { cont
 const MINIMAP_W = 200;
 const MINIMAP_H = 140;
 
+/** An element's colour on the minimap. */
+function minimapFill(el: BoardElement): string {
+  if (el.type === 'frame') return '#ffffff';
+  if (el.type === 'sticky') return el.fill ?? '#fff9b1';
+  if (el.type === 'pen') return '#9ca3af';
+  return el.fill && el.fill !== 'transparent' ? el.fill : '#cbd5e1';
+}
+
 /** A small map of the whole board with the visible area; click or drag to move there. */
 export function Minimap({ controller: c }: { controller: BoardController }) {
   const { t } = useI18n();
@@ -74,7 +82,7 @@ export function Minimap({ controller: c }: { controller: BoardController }) {
       for (const el of c.board.paintOrder()) {
         if (el.type === 'connector' || el.type === 'comment' || el.type === 'group') continue;
         const [x, y] = map(el.x, el.y);
-        ctx.fillStyle = el.type === 'frame' ? '#ffffff' : el.type === 'sticky' ? (el.fill ?? '#fff9b1') : el.type === 'pen' ? '#9ca3af' : (el.fill && el.fill !== 'transparent' ? el.fill : '#cbd5e1');
+        ctx.fillStyle = minimapFill(el);
         ctx.fillRect(x, y, Math.max(1, el.w * scale), Math.max(1, el.h * scale));
         if (el.type === 'frame') {
           ctx.strokeStyle = '#cbd5e1';

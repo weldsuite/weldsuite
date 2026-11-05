@@ -35,34 +35,45 @@ function movable(board: Board, ids: Iterable<string>): BoardElement[] {
 export function moveOps(board: Board, ids: Iterable<string>, dx: number, dy: number): Op {
   if (dx === 0 && dy === 0) return NOOP;
   const direct = new Set(ids);
-  const all = new Set<string>();
-  for (const id of direct) {
-    all.add(id);
-    const el = board.get(id);
-    if (el && (el.type === 'frame' || el.type === 'group')) for (const d of board.descendants(id)) all.add(d);
-  }
+  const all = withContents(board, direct);
   const ops: Op[] = [];
   for (const id of all) {
     const el = board.get(id);
     if (!el) continue;
-    if (el.type !== 'connector') {
-      ops.push({ type: 'set', id, patch: { x: el.x + dx, y: el.y + dy } });
-      continue;
-    }
-    const g = connectorGeometry(board, el);
-    const shift = (end: ConnectorEnd | undefined, at: Point): ConnectorEnd | undefined => {
-      if (!end) return end;
-      const bound = end.el && board.get(end.el);
-      if (bound && !all.has(end.el!) && direct.has(id)) return { x: at.x + dx, y: at.y + dy };
-      return { ...end, x: at.x + dx, y: at.y + dy };
-    };
-    const patch: Record<string, unknown> = { x: el.x + dx, y: el.y + dy };
-    if (el.start) patch.start = shift(el.start, g.start.p);
-    if (el.end) patch.end = shift(el.end, g.end.p);
-    if (el.control) patch.control = { x: el.control.x + dx, y: el.control.y + dy };
-    ops.push({ type: 'set', id, patch });
+    if (el.type === 'connector') ops.push(moveConnectorOp(board, id, el, direct.has(id), all, dx, dy));
+    else ops.push({ type: 'set', id, patch: { x: el.x + dx, y: el.y + dy } });
   }
   return batch(ops);
+}
+
+/** The ids, each frame or group among them followed by everything inside it. */
+function withContents(board: Board, ids: Set<string>): Set<string> {
+  const all = new Set<string>();
+  for (const id of ids) {
+    all.add(id);
+    const el = board.get(id);
+    if (el && (el.type === 'frame' || el.type === 'group')) for (const d of board.descendants(id)) all.add(d);
+  }
+  return all;
+}
+
+/**
+ * Moves a connector by (dx, dy). Moved on its own (`direct`), it lets go of
+ * the elements that stay put; its other ends keep their bindings.
+ */
+function moveConnectorOp(board: Board, id: string, el: BoardElement, direct: boolean, moving: Set<string>, dx: number, dy: number): Op {
+  const g = connectorGeometry(board, el);
+  const shift = (end: ConnectorEnd | undefined, at: Point): ConnectorEnd | undefined => {
+    if (!end) return end;
+    const bound = end.el && board.get(end.el);
+    if (bound && !moving.has(end.el!) && direct) return { x: at.x + dx, y: at.y + dy };
+    return { ...end, x: at.x + dx, y: at.y + dy };
+  };
+  const patch: Record<string, unknown> = { x: el.x + dx, y: el.y + dy };
+  if (el.start) patch.start = shift(el.start, g.start.p);
+  if (el.end) patch.end = shift(el.end, g.end.p);
+  if (el.control) patch.control = { x: el.control.x + dx, y: el.control.y + dy };
+  return { type: 'set', id, patch };
 }
 
 export function alignOps(board: Board, ids: Iterable<string>, mode: AlignMode): Op {
@@ -106,44 +117,62 @@ export function distributeOps(board: Board, ids: Iterable<string>, axis: 'x' | '
 
 /** Puts elements on top of (or under) their siblings, keeping their order among themselves. */
 export function stackOps(board: Board, ids: Iterable<string>, where: 'front' | 'back' | 'forward' | 'backward'): Op {
+  const ops: Op[] = [];
+  for (const [parent, els] of byEffectiveParent(board, ids)) {
+    const siblings = board.childIds(parent).map((id) => board.get(id)!);
+    const moving = new Set(els.map((e) => e.id));
+    const ordered = siblings.filter((s) => moving.has(s.id));
+    const keys = stackKeys(siblings, moving, ordered.length, where);
+    if (!keys) continue;
+    ordered.forEach((el, i) => ops.push({ type: 'set', id: el.id, patch: { order: keys[i]! } }));
+  }
+  return batch(ops);
+}
+
+/** The elements of `ids` that exist, by the parent they stack under. */
+function byEffectiveParent(board: Board, ids: Iterable<string>): Map<string | null, BoardElement[]> {
   const byParent = new Map<string | null, BoardElement[]>();
   for (const id of ids) {
     const el = board.get(id);
     if (!el) continue;
     const p = board.effectiveParent(el);
     let list = byParent.get(p);
-    if (!list) byParent.set(p, (list = []));
+    if (!list) {
+      list = [];
+      byParent.set(p, list);
+    }
     list.push(el);
   }
-  const ops: Op[] = [];
-  for (const [parent, els] of byParent) {
-    const siblings = board.childIds(parent).map((id) => board.get(id)!);
-    const moving = new Set(els.map((e) => e.id));
-    const ordered = siblings.filter((s) => moving.has(s.id));
+  return byParent;
+}
+
+/** New order keys for the `count` moving siblings, or null when they cannot move that way. */
+function stackKeys(siblings: BoardElement[], moving: Set<string>, count: number, where: 'front' | 'back' | 'forward' | 'backward'): string[] | null {
+  if (where === 'front' || where === 'back') {
     const rest = siblings.filter((s) => !moving.has(s.id));
-    let keys: string[];
-    if (where === 'front') keys = keysBetween(rest.at(-1)?.order ?? null, null, ordered.length);
-    else if (where === 'back') keys = keysBetween(null, rest[0]?.order ?? null, ordered.length);
-    else {
-      // One step: past the next sibling that overlaps nothing in particular, i.e. the next one in the list.
-      const firstIndex = siblings.findIndex((s) => moving.has(s.id));
-      const lastIndex = siblings.length - 1 - [...siblings].reverse().findIndex((s) => moving.has(s.id));
-      if (where === 'forward') {
-        const after = siblings.slice(lastIndex + 1).find((s) => !moving.has(s.id));
-        if (!after) continue;
-        const next = siblings.slice(siblings.indexOf(after) + 1).find((s) => !moving.has(s.id));
-        keys = keysBetween(after.order, next && next.order > after.order ? next.order : null, ordered.length);
-      } else {
-        const before = [...siblings.slice(0, firstIndex)].reverse().find((s) => !moving.has(s.id));
-        if (!before) continue;
-        const prevIndex = siblings.indexOf(before);
-        const prev = [...siblings.slice(0, prevIndex)].reverse().find((s) => !moving.has(s.id));
-        keys = keysBetween(prev && prev.order < before.order ? prev.order : null, before.order, ordered.length);
-      }
-    }
-    ordered.forEach((el, i) => ops.push({ type: 'set', id: el.id, patch: { order: keys[i]! } }));
+    if (where === 'front') return keysBetween(rest.at(-1)?.order ?? null, null, count);
+    return keysBetween(null, rest[0]?.order ?? null, count);
   }
-  return batch(ops);
+  // One step: past the next sibling that overlaps nothing in particular, i.e. the next one in the list.
+  if (where === 'forward') return forwardKeys(siblings, moving, count);
+  return backwardKeys(siblings, moving, count);
+}
+
+function forwardKeys(siblings: BoardElement[], moving: Set<string>, count: number): string[] | null {
+  const lastIndex = siblings.length - 1 - [...siblings].reverse().findIndex((s) => moving.has(s.id));
+  const after = siblings.slice(lastIndex + 1).find((s) => !moving.has(s.id));
+  if (!after) return null;
+  const next = siblings.slice(siblings.indexOf(after) + 1).find((s) => !moving.has(s.id));
+  return keysBetween(after.order, next && next.order > after.order ? next.order : null, count);
+}
+
+function backwardKeys(siblings: BoardElement[], moving: Set<string>, count: number): string[] | null {
+  const firstIndex = siblings.findIndex((s) => moving.has(s.id));
+  const before = [...siblings.slice(0, firstIndex)].reverse().find((s) => !moving.has(s.id));
+  if (!before) return null;
+  const prevIndex = siblings.indexOf(before);
+  const prev = [...siblings.slice(0, prevIndex)].reverse().find((s) => !moving.has(s.id));
+  return keysBetween(prev && prev.order < before.order ? prev.order : null, before.order, count);
 }
 
 /** Wraps elements in a new group (returned with the op). */
@@ -206,22 +235,22 @@ export function reparentOps(board: Board, ids: Iterable<string>): Op {
     const current = board.effectiveParent(el);
     const currentEl = current ? board.get(current) : undefined;
     if (currentEl?.type === 'group') continue;
-    const b = elementBounds(board, el);
-    // The topmost frame fully containing the element (frames can nest).
-    let target: BoardElement | null = null;
-    for (let i = frames.length - 1; i >= 0; i--) {
-      const f = frames[i]!;
-      if (f.id === id || moved.has(f.id) || board.isInside(f.id, id)) continue;
-      if (rectContains({ x: f.x, y: f.y, w: f.w, h: f.h }, b)) {
-        target = f;
-        break;
-      }
-    }
+    const target = containingFrame(board, frames, moved, id, elementBounds(board, el));
     const next = target?.id ?? null;
     if (next === current) continue;
     ops.push({ type: 'set', id, patch: { parent: next, order: keyBetween(board.topOrder(next), null) } });
   }
   return batch(ops);
+}
+
+/** The topmost frame fully containing `b`, the bounds of element `id` (frames can nest); not one that moved or sits inside it. */
+function containingFrame(board: Board, frames: BoardElement[], moved: Set<string>, id: string, b: Rect): BoardElement | null {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i]!;
+    if (f.id === id || moved.has(f.id) || board.isInside(f.id, id)) continue;
+    if (rectContains({ x: f.x, y: f.y, w: f.w, h: f.h }, b)) return f;
+  }
+  return null;
 }
 
 /** Every element a frame newly covers joins it (after the frame is drawn or resized). */
@@ -252,6 +281,19 @@ export function adoptOps(board: Board, frameId: string): Op {
 
 /** Deletes elements with everything inside them, and unbinds connectors from what goes. */
 export function deleteOps(board: Board, ids: Iterable<string>): Op {
+  const all = deletedWithContents(board, ids);
+  if (all.size === 0) return NOOP;
+  const ops: Op[] = [];
+  for (const el of board.elements.values()) {
+    const unbind = unbindOp(board, el, all);
+    if (unbind) ops.push(unbind);
+  }
+  ops.push({ type: 'delete', ids: [...all] });
+  return batch(ops);
+}
+
+/** The ids that exist, with everything inside them and the comment pins on any of them. */
+function deletedWithContents(board: Board, ids: Iterable<string>): Set<string> {
   const all = new Set<string>();
   for (const id of ids) {
     if (!board.get(id)) continue;
@@ -260,20 +302,19 @@ export function deleteOps(board: Board, ids: Iterable<string>): Op {
   }
   // Comment pins on deleted elements go too.
   for (const el of board.elements.values()) if (el.type === 'comment' && el.target && all.has(el.target)) all.add(el.id);
-  if (all.size === 0) return NOOP;
-  const ops: Op[] = [];
-  for (const el of board.elements.values()) {
-    if (el.type !== 'connector' || all.has(el.id)) continue;
-    const startGone = !!el.start?.el && all.has(el.start.el);
-    const endGone = !!el.end?.el && all.has(el.end.el);
-    if (!startGone && !endGone) continue;
-    // Keep the end where it is drawn now.
-    const g = connectorGeometry(board, el);
-    const patch: Record<string, unknown> = {};
-    if (startGone) patch.start = { x: g.start.p.x, y: g.start.p.y };
-    if (endGone) patch.end = { x: g.end.p.x, y: g.end.p.y };
-    ops.push({ type: 'set', id: el.id, patch });
-  }
-  ops.push({ type: 'delete', ids: [...all] });
-  return batch(ops);
+  return all;
+}
+
+/** For a connector that stays while an element it is bound to goes, the op freeing that end. */
+function unbindOp(board: Board, el: BoardElement, gone: Set<string>): Op | null {
+  if (el.type !== 'connector' || gone.has(el.id)) return null;
+  const startGone = !!el.start?.el && gone.has(el.start.el);
+  const endGone = !!el.end?.el && gone.has(el.end.el);
+  if (!startGone && !endGone) return null;
+  // Keep the end where it is drawn now.
+  const g = connectorGeometry(board, el);
+  const patch: Record<string, unknown> = {};
+  if (startGone) patch.start = { x: g.start.p.x, y: g.start.p.y };
+  if (endGone) patch.end = { x: g.end.p.x, y: g.end.p.y };
+  return { type: 'set', id: el.id, patch };
 }

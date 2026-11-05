@@ -93,9 +93,10 @@ app.get('/', requireScope('boards:read'), zValidator('query', listBoardsQuery), 
   const offset = q.cursor ? Number(q.cursor) : 0;
   // A workspace key has no drive of its own: its boards are the projects'.
   const projects = q.scope === 'projects' || (!q.scope && !c.get('apiSession')?.userId);
-  const found = await unwrap<{ boards: BoardBrief[]; total: number; hasMore: boolean }>(
-    await client.find({ query: q.search, limit, offset, ...(q.projectId ? { projectId: q.projectId } : projects ? { projects: true } : {}) }),
-  );
+  let scope: { projectId: string } | { projects: true } | object = {};
+  if (q.projectId) scope = { projectId: q.projectId };
+  else if (projects) scope = { projects: true };
+  const found = await unwrap<{ boards: BoardBrief[]; total: number; hasMore: boolean }>(await client.find({ query: q.search, limit, offset, ...scope }));
   if (!found.ok) return found.response;
   const { boards: rows, total, hasMore } = found.data;
   return list(c, rows.map(view), cursorPagination(total, hasMore, hasMore ? String(offset + rows.length) : null));

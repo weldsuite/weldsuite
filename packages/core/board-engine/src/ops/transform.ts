@@ -171,22 +171,19 @@ function afterFormatText(a: SimpleOp, b: OpOf<'formatText'>, aWins: boolean): Op
   const runs: MarksRun[] = [];
   let pos = a.at;
   for (const [len, patch] of a.runs) {
-    for (let i = 0; i < len; i++, pos++) {
-      if (!patch) {
-        runs.push([1, null]);
-        continue;
-      }
-      const taken = theirs.get(pos);
-      if (!taken) {
-        runs.push([1, patch]);
-        continue;
-      }
-      const rest: MarksPatch = {};
-      for (const [k, v] of Object.entries(patch)) if (!(k in taken)) (rest as Record<string, unknown>)[k] = v;
-      runs.push([1, Object.keys(rest).length ? rest : null]);
-    }
+    for (let i = 0; i < len; i++, pos++) runs.push([1, untakenKeys(patch, theirs, pos)]);
   }
   return { ...a, runs: mergeRuns(runs) };
+}
+
+/** What of `patch` still applies at `pos`: the keys the earlier op does not set there. */
+function untakenKeys(patch: MarksPatch | null, theirs: Map<number, MarksPatch>, pos: number): MarksPatch | null {
+  if (!patch) return null;
+  const taken = theirs.get(pos);
+  if (!taken) return patch;
+  const rest: MarksPatch = {};
+  for (const [k, v] of Object.entries(patch)) if (!(k in taken)) (rest as Record<string, unknown>)[k] = v;
+  return Object.keys(rest).length ? rest : null;
 }
 
 export function runsLength(runs: MarksRun[]): number {

@@ -30,6 +30,14 @@ function roomUrl(ticket: string): string {
   return `${origin}${BOARD_CONNECT_PATH}?ticket=${encodeURIComponent(ticket)}`;
 }
 
+/** What the header says about saving: read-only, offline (with or without unsent edits), saving or saved. */
+function boardStatus(canEdit: boolean, mode: BoardSessionMode, conn: BoardConnection | null): BoardStatus {
+  if (!canEdit) return mode === 'comment' ? 'comment-only' : 'view-only';
+  if (conn?.status === 'reconnecting') return conn.pending ? 'offline-pending' : 'reconnecting';
+  if (conn?.pending) return 'saving';
+  return 'saved';
+}
+
 export interface LiveBoardProps {
   boardId: string;
   /** Where the back arrow goes (a project's whiteboards, or the WeldBoard home). */
@@ -190,15 +198,10 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
 
   const missing = gone || (isApiError(record.error) && (record.error.status === 404 || record.error.status === 403));
   if (missing) return <MissingBoard message={controller ? tw.editor.removed : tw.home.notFound} backTo={backTo} />;
-  if (record.isError) return <MissingBoard message={tw.project.convertFailed} backTo={backTo} />;
+  if (record.isError && !record.data) return <MissingBoard message={tw.project.convertFailed} backTo={backTo} />;
   if (!controller) return <PageLoader fullScreen={false} />;
 
-  const conn = connection.current;
-  const offline = conn?.status === 'reconnecting';
-  let status: BoardStatus = 'saved';
-  if (!canEdit) status = mode === 'comment' ? 'comment-only' : 'view-only';
-  else if (offline) status = conn?.pending ? 'offline-pending' : 'reconnecting';
-  else if (conn?.pending) status = 'saving';
+  const status = boardStatus(canEdit, mode, connection.current);
 
   const onRename = (next: string) => {
     queryClient.setQueryData(recordKey, (old: typeof record.data) => (old ? { ...old, name: next } : old));
@@ -214,7 +217,8 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
   };
 
   const fileId = record.data?.fileId;
-  const link = `${window.location.origin}${backTo.startsWith('/weldflow') ? `${backTo}/${encodeURIComponent(boardId)}` : `/weldboard/${encodeURIComponent(boardId)}`}`;
+  const path = backTo.startsWith('/weldflow') ? `${backTo}/${encodeURIComponent(boardId)}` : `/weldboard/${encodeURIComponent(boardId)}`;
+  const link = `${window.location.origin}${path}`;
 
   return (
     <>

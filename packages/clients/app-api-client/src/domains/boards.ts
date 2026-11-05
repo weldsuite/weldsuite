@@ -73,7 +73,8 @@ export function createBoardsApi(api: ClientApi) {
     },
     /** The live board as SVG (`width` in px, default 2048). */
     render(id: string, width?: number): Promise<DataResponse<BoardRender>> {
-      return api.get(`${base}/${encodeURIComponent(id)}/render${width ? `?width=${width}` : ''}`);
+      const query = width ? `?width=${width}` : '';
+      return api.get(`${base}/${encodeURIComponent(id)}/render${query}`);
     },
     ai(id: string, input: BoardAiInput): Promise<DataResponse<BoardAiResult>> {
       return api.post(`${base}/${encodeURIComponent(id)}/ai`, input);

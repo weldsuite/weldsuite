@@ -152,9 +152,8 @@ export class BoardRenderer {
     const privateMode = !!c.board.props.privateMode;
     for (const el of c.board.paintOrder()) {
       if (!visible.has(el.id) || options.hidden?.has(el.id)) continue;
-      if (el.mindmap?.parent && isCollapsedAway(c.board, el)) continue;
-      if (el.type === 'comment') continue; // Pins are drawn on the overlay, on top of everything.
-      if (privateMode && el.type === 'sticky' && el.createdBy && el.createdBy !== me) {
+      if (this.notOnCanvas(el)) continue;
+      if (privateMode && othersSticky(el, me)) {
         this.drawHidden(ctx, el);
         continue;
       }
@@ -163,6 +162,12 @@ export class BoardRenderer {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  /** Folded into a collapsed mind-map node, or a comment pin (pins are drawn on the overlay, on top of everything). */
+  private notOnCanvas(el: BoardElement): boolean {
+    if (el.mindmap?.parent && isCollapsedAway(this.c.board, el)) return true;
+    return el.type === 'comment';
   }
 
   private drawHidden(ctx: CanvasRenderingContext2D, el: BoardElement): void {
@@ -209,87 +214,15 @@ export class BoardRenderer {
   drawItems(ctx: CanvasRenderingContext2D, items: DisplayItem[], lod: { text: boolean; shadows: boolean }): void {
     for (const item of items) {
       switch (item.kind) {
-        case 'path': {
-          const path = toPath2D(item);
-          const alpha = ctx.globalAlpha;
-          if (item.opacity !== undefined) ctx.globalAlpha = alpha * item.opacity;
-          if (item.fill) {
-            if (item.shadow && lod.shadows) {
-              ctx.shadowColor = 'rgba(0,0,0,0.16)';
-              ctx.shadowBlur = 8;
-              ctx.shadowOffsetY = 2;
-            }
-            ctx.fillStyle = item.fill;
-            ctx.fill(path);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-          }
-          if (item.stroke && item.width) {
-            ctx.strokeStyle = item.stroke;
-            ctx.lineWidth = item.width;
-            ctx.lineCap = item.round ? 'round' : 'butt';
-            ctx.lineJoin = item.round ? 'round' : 'miter';
-            ctx.setLineDash(item.dash ?? []);
-            ctx.stroke(path);
-            ctx.setLineDash([]);
-          }
-          ctx.globalAlpha = alpha;
+        case 'path':
+          drawPath(ctx, item, lod);
           break;
-        }
-        case 'text': {
-          if (!lod.text) {
-            ctx.fillStyle = 'rgba(31,41,55,0.25)';
-            ctx.fillRect(item.x, item.y - item.font.size * 0.7, item.width, item.font.size * 0.6);
-            break;
-          }
-          if (item.highlight) {
-            ctx.fillStyle = item.highlight.color;
-            ctx.fillRect(item.x, item.y - item.font.size * 0.95, item.width, item.font.size * 1.25);
-          }
-          ctx.font = cssFont(item.font);
-          ctx.fillStyle = item.color;
-          ctx.textBaseline = 'alphabetic';
-          ctx.fillText(item.text, item.x, item.y);
-          if (item.underline || item.strike) {
-            ctx.strokeStyle = item.color;
-            ctx.lineWidth = Math.max(1, item.font.size / 14);
-            ctx.beginPath();
-            if (item.underline) {
-              ctx.moveTo(item.x, item.y + item.font.size * 0.12);
-              ctx.lineTo(item.x + item.width, item.y + item.font.size * 0.12);
-            }
-            if (item.strike) {
-              ctx.moveTo(item.x, item.y - item.font.size * 0.3);
-              ctx.lineTo(item.x + item.width, item.y - item.font.size * 0.3);
-            }
-            ctx.stroke();
-          }
+        case 'text':
+          drawText(ctx, item, lod);
           break;
-        }
-        case 'image': {
-          const img = this.imageFor(item.src);
-          ctx.save();
-          ctx.beginPath();
-          ctx.roundRect(item.x, item.y, item.w, item.h, item.radius ?? 0);
-          ctx.clip();
-          if (img) {
-            if (item.crop) {
-              ctx.drawImage(img, item.crop.x * img.naturalWidth, item.crop.y * img.naturalHeight, item.crop.w * img.naturalWidth, item.crop.h * img.naturalHeight, item.x, item.y, item.w, item.h);
-            } else {
-              // Cover the box, keeping proportions.
-              const scale = Math.max(item.w / img.naturalWidth, item.h / img.naturalHeight);
-              const w = img.naturalWidth * scale;
-              const h = img.naturalHeight * scale;
-              ctx.drawImage(img, item.x + (item.w - w) / 2, item.y + (item.h - h) / 2, w, h);
-            }
-          } else {
-            ctx.fillStyle = '#eef0f3';
-            ctx.fillRect(item.x, item.y, item.w, item.h);
-          }
-          ctx.restore();
+        case 'image':
+          this.drawImage(ctx, item);
           break;
-        }
         case 'group': {
           ctx.save();
           if (item.opacity !== undefined) ctx.globalAlpha *= item.opacity;
@@ -305,4 +238,94 @@ export class BoardRenderer {
       }
     }
   }
+
+  private drawImage(ctx: CanvasRenderingContext2D, item: Extract<DisplayItem, { kind: 'image' }>): void {
+    const img = this.imageFor(item.src);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(item.x, item.y, item.w, item.h, item.radius ?? 0);
+    ctx.clip();
+    if (img) {
+      if (item.crop) {
+        ctx.drawImage(img, item.crop.x * img.naturalWidth, item.crop.y * img.naturalHeight, item.crop.w * img.naturalWidth, item.crop.h * img.naturalHeight, item.x, item.y, item.w, item.h);
+      } else {
+        // Cover the box, keeping proportions.
+        const scale = Math.max(item.w / img.naturalWidth, item.h / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const h = img.naturalHeight * scale;
+        ctx.drawImage(img, item.x + (item.w - w) / 2, item.y + (item.h - h) / 2, w, h);
+      }
+    } else {
+      ctx.fillStyle = '#eef0f3';
+      ctx.fillRect(item.x, item.y, item.w, item.h);
+    }
+    ctx.restore();
+  }
+}
+
+/** A sticky someone else wrote (hidden from the others in private mode). */
+function othersSticky(el: BoardElement, me: string): boolean {
+  return el.type === 'sticky' && !!el.createdBy && el.createdBy !== me;
+}
+
+function drawPath(ctx: CanvasRenderingContext2D, item: Extract<DisplayItem, { kind: 'path' }>, lod: { text: boolean; shadows: boolean }): void {
+  const path = toPath2D(item);
+  const alpha = ctx.globalAlpha;
+  if (item.opacity !== undefined) ctx.globalAlpha = alpha * item.opacity;
+  if (item.fill) {
+    if (item.shadow && lod.shadows) {
+      ctx.shadowColor = 'rgba(0,0,0,0.16)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 2;
+    }
+    ctx.fillStyle = item.fill;
+    ctx.fill(path);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+  }
+  if (item.stroke && item.width) {
+    ctx.strokeStyle = item.stroke;
+    ctx.lineWidth = item.width;
+    ctx.lineCap = item.round ? 'round' : 'butt';
+    ctx.lineJoin = item.round ? 'round' : 'miter';
+    ctx.setLineDash(item.dash ?? []);
+    ctx.stroke(path);
+    ctx.setLineDash([]);
+  }
+  ctx.globalAlpha = alpha;
+}
+
+/** A run of text; zoomed far out, a grey bar where it is. */
+function drawText(ctx: CanvasRenderingContext2D, item: Extract<DisplayItem, { kind: 'text' }>, lod: { text: boolean; shadows: boolean }): void {
+  if (!lod.text) {
+    ctx.fillStyle = 'rgba(31,41,55,0.25)';
+    ctx.fillRect(item.x, item.y - item.font.size * 0.7, item.width, item.font.size * 0.6);
+    return;
+  }
+  if (item.highlight) {
+    ctx.fillStyle = item.highlight.color;
+    ctx.fillRect(item.x, item.y - item.font.size * 0.95, item.width, item.font.size * 1.25);
+  }
+  ctx.font = cssFont(item.font);
+  ctx.fillStyle = item.color;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(item.text, item.x, item.y);
+  if (item.underline || item.strike) drawTextLines(ctx, item);
+}
+
+/** Underline and strikethrough. */
+function drawTextLines(ctx: CanvasRenderingContext2D, item: Extract<DisplayItem, { kind: 'text' }>): void {
+  ctx.strokeStyle = item.color;
+  ctx.lineWidth = Math.max(1, item.font.size / 14);
+  ctx.beginPath();
+  if (item.underline) {
+    ctx.moveTo(item.x, item.y + item.font.size * 0.12);
+    ctx.lineTo(item.x + item.width, item.y + item.font.size * 0.12);
+  }
+  if (item.strike) {
+    ctx.moveTo(item.x, item.y - item.font.size * 0.3);
+    ctx.lineTo(item.x + item.width, item.y - item.font.size * 0.3);
+  }
+  ctx.stroke();
 }

@@ -94,28 +94,34 @@ function decrementInteger(x: string): string | null {
   return next + digits.join('');
 }
 
+/** A key below `b` (null: the first key of all). */
+function keyBelow(b: string | null): string {
+  if (b === null) return 'a' + ZERO;
+  const ib = integerPart(b);
+  const fb = b.slice(ib.length);
+  if (ib === SMALLEST_INTEGER) return ib + midpoint('', fb);
+  if (ib < b) return ib;
+  const res = decrementInteger(ib);
+  if (res === null) throw new Error('order key underflow');
+  return res;
+}
+
+/** A key above `a`. */
+function keyAbove(a: string): string {
+  const ia = integerPart(a);
+  const fa = a.slice(ia.length);
+  const next = incrementInteger(ia);
+  return next === null ? ia + midpoint(fa, null) : next;
+}
+
 /**
  * A key strictly between `a` and `b` (null: no bound on that side). Throws
  * when `a >= b`.
  */
 export function keyBetween(a: string | null, b: string | null): string {
   if (a !== null && b !== null && a >= b) throw new Error(`order keys out of order: ${a} >= ${b}`);
-  if (a === null) {
-    if (b === null) return 'a' + ZERO;
-    const ib = integerPart(b);
-    const fb = b.slice(ib.length);
-    if (ib === SMALLEST_INTEGER) return ib + midpoint('', fb);
-    if (ib < b) return ib;
-    const res = decrementInteger(ib);
-    if (res === null) throw new Error('order key underflow');
-    return res;
-  }
-  if (b === null) {
-    const ia = integerPart(a);
-    const fa = a.slice(ia.length);
-    const next = incrementInteger(ia);
-    return next === null ? ia + midpoint(fa, null) : next;
-  }
+  if (a === null) return keyBelow(b);
+  if (b === null) return keyAbove(a);
   const ia = integerPart(a);
   const fa = a.slice(ia.length);
   const ib = integerPart(b);

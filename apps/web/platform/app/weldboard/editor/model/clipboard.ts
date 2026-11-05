@@ -11,6 +11,7 @@ import {
   makeFragment,
   makeSticky,
   makeText,
+  newId,
   placeFragment,
   selectionBounds,
   stickiesFromText,
@@ -19,7 +20,7 @@ import {
   type Point,
 } from '@weldsuite/board-engine';
 import type { BoardController } from './board-controller';
-import { insertText, selectedText } from './text-editing';
+import { deleteBackward, insertText, selectedText } from './text-editing';
 
 const MARKER = 'data-weldboard-fragment';
 
@@ -86,7 +87,7 @@ export function pasteText(c: BoardController, text: string, at: Point): void {
   }
   const lines = trimmed.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length > 1 || trimmed.includes('\t')) {
-    pasteFragment(c, stickiesFromText(trimmed, () => `p${Math.random().toString(36).slice(2, 12)}`), at);
+    pasteFragment(c, stickiesFromText(trimmed, () => newId('p')), at);
     return;
   }
   const order = c.board.topOrder(null);
@@ -96,8 +97,13 @@ export function pasteText(c: BoardController, text: string, at: Point): void {
 
 /** Cut: copy, then delete what was copied. */
 export function cutSelection(c: BoardController): void {
-  if (c.editing) return;
-  c.apply(deleteOps(c.board, c.selection), { select: [] });
+  if (c.editing) {
+    // The text was copied; take it out of the element (a caret alone cuts nothing).
+    if (c.editing.anchor !== c.editing.head) deleteBackward(c);
+    return;
+  }
+  const ids = c.selected.filter((el) => !el.locked).map((el) => el.id);
+  if (ids.length) c.apply(deleteOps(c.board, ids), { select: [] });
 }
 
 /** Duplicates the selection next to itself. */

@@ -71,6 +71,67 @@ export interface PlaceOptions {
   makeId?: () => string;
 }
 
+/** How a fragment is being put down: its new ids, and where. */
+interface Placing {
+  /** Fragment id → new id. */
+  map: Map<string, string>;
+  /** Ids in the fragment. */
+  inside: Set<string>;
+  /** Parent for the fragment's top-level elements. */
+  parent: string | null;
+  x: number;
+  y: number;
+}
+
+/** A connector end at its new place, bound to the new id of its element, or let go when that is not in the fragment. */
+function remapEnd(end: ConnectorEnd | undefined, place: Placing): ConnectorEnd | undefined {
+  if (!end) return end;
+  const out: ConnectorEnd = { ...end, x: end.x + place.x, y: end.y + place.y };
+  if (end.el) {
+    const id = place.map.get(end.el);
+    if (id) out.el = id;
+    else {
+      delete out.el;
+      delete out.side;
+      delete out.rx;
+      delete out.ry;
+    }
+  }
+  return out;
+}
+
+function placeParent(el: BoardElement, src: BoardElement, place: Placing): void {
+  if (src.parent && place.inside.has(src.parent)) el.parent = place.map.get(src.parent)!;
+  else if (place.parent) el.parent = place.parent;
+  else delete el.parent;
+}
+
+function remapTarget(el: BoardElement, target: string, map: Map<string, string>): void {
+  const t = map.get(target);
+  if (t) el.target = t;
+  else delete el.target;
+}
+
+function remapMindmap(el: BoardElement, mindmap: NonNullable<BoardElement['mindmap']>, map: Map<string, string>): void {
+  const root = map.get(mindmap.root);
+  if (!root) delete el.mindmap;
+  else el.mindmap = { ...mindmap, root, ...(mindmap.parent ? { parent: map.get(mindmap.parent) ?? root } : {}) };
+  if (el.mindmap && el.mindmap.parent === el.id) delete el.mindmap.parent;
+}
+
+/** A copy of a fragment element with its new id, place, parent and order, and its references remapped. */
+function placedElement(src: BoardElement, place: Placing, order: string | undefined): BoardElement {
+  const el = shift(structuredClone(src), place.x, place.y);
+  el.id = place.map.get(src.id)!;
+  placeParent(el, src, place);
+  if (order !== undefined) el.order = order;
+  if (src.start) el.start = remapEnd({ ...src.start, x: src.start.x, y: src.start.y }, place);
+  if (src.end) el.end = remapEnd({ ...src.end, x: src.end.x, y: src.end.y }, place);
+  if (src.target) remapTarget(el, src.target, place.map);
+  if (src.mindmap) remapMindmap(el, src.mindmap, place.map);
+  return el;
+}
+
 /** A `create` op putting the fragment on the board, and the new ids of its top-level elements. */
 export function placeFragment(board: Board, fragment: Fragment, options: PlaceOptions): { op: Op; ids: string[]; all: string[] } {
   const makeId = options.makeId ?? (() => newId());
@@ -81,45 +142,11 @@ export function placeFragment(board: Board, fragment: Fragment, options: PlaceOp
   const topLevel = fragment.elements.filter((e) => !e.parent || !inside.has(e.parent));
   const keys = keysBetween(board.topOrder(parent), null, topLevel.length);
   const topKey = new Map(topLevel.map((e, i) => [e.id, keys[i]!]));
-
-  const remapEnd = (end: ConnectorEnd | undefined): ConnectorEnd | undefined => {
-    if (!end) return end;
-    const out: ConnectorEnd = { ...end, x: end.x + options.x, y: end.y + options.y };
-    if (end.el) {
-      const id = map.get(end.el);
-      if (id) out.el = id;
-      else {
-        delete out.el;
-        delete out.side;
-        delete out.rx;
-        delete out.ry;
-      }
-    }
-    return out;
-  };
+  const place: Placing = { map, inside, parent, x: options.x, y: options.y };
 
   const elements: BoardElement[] = [];
   for (const src of fragment.elements) {
-    const el = shift(structuredClone(src), options.x, options.y);
-    el.id = map.get(src.id)!;
-    const inFragment = src.parent && inside.has(src.parent);
-    if (inFragment) el.parent = map.get(src.parent!)!;
-    else if (parent) el.parent = parent;
-    else delete el.parent;
-    if (topKey.has(src.id)) el.order = topKey.get(src.id)!;
-    if (src.start) el.start = remapEnd({ ...src.start, x: src.start.x, y: src.start.y });
-    if (src.end) el.end = remapEnd({ ...src.end, x: src.end.x, y: src.end.y });
-    if (src.target) {
-      const t = map.get(src.target);
-      if (t) el.target = t;
-      else delete el.target;
-    }
-    if (src.mindmap) {
-      const root = map.get(src.mindmap.root);
-      if (!root) delete el.mindmap;
-      else el.mindmap = { ...src.mindmap, root, ...(src.mindmap.parent ? { parent: map.get(src.mindmap.parent) ?? root } : {}) };
-      if (el.mindmap && el.mindmap.parent === el.id) delete el.mindmap.parent;
-    }
+    const el = placedElement(src, place, topKey.get(src.id));
     if (el.type === 'comment') continue; // Comment threads belong to the board they were made on.
     if (options.createdBy) el.createdBy = options.createdBy;
     if (options.now !== undefined) el.createdAt = options.now;

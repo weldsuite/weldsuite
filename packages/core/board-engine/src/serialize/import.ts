@@ -50,6 +50,141 @@ function color(v: unknown): string | undefined {
 
 const SAFE_ID = /[^A-Za-z0-9_:-]/g;
 
+/** What every element converted from one Excalidraw element starts from. */
+interface ExcalidrawBase {
+  /** Id, order key, box and rotation. */
+  base: Pick<BoardElement, 'id' | 'order' | 'x' | 'y' | 'w' | 'h' | 'rotation'>;
+  /** The frame it sits in, when that came across. */
+  parent: { parent?: string };
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  stroke: string | undefined;
+  fill: string | undefined;
+}
+
+/** Excalidraw arrowheads as caps. */
+const EXCALIDRAW_CAPS = new Map<unknown, Cap>([
+  ['arrow', 'arrow'],
+  ['triangle', 'arrow'],
+  ['dot', 'circle'],
+  ['circle', 'circle'],
+  ['bar', 'bar'],
+]);
+
+function excalidrawCap(v: unknown): Cap {
+  return EXCALIDRAW_CAPS.get(v) ?? 'none';
+}
+
+function excalidrawPoints(e: Record<string, unknown>): number[][] {
+  return Array.isArray(e.points) ? ((e.points as unknown[]).filter(Array.isArray) as number[][]) : [];
+}
+
+function excalidrawShapeKind(e: Record<string, unknown>): ShapeKind {
+  if (e.type !== 'rectangle') return e.type as ShapeKind;
+  return e.roundness ? 'rounded' : 'rectangle';
+}
+
+function excalidrawRoute(e: Record<string, unknown>, points: number[][]): BoardElement['route'] {
+  if (e.elbowed) return 'elbow';
+  return points.length > 2 ? 'curved' : 'straight';
+}
+
+function excalidrawShape(e: Record<string, unknown>, b: ExcalidrawBase): BoardElement {
+  return {
+    ...b.base,
+    ...b.parent,
+    type: 'shape',
+    shape: excalidrawShapeKind(e),
+    fill: b.fill ?? 'transparent',
+    stroke: b.stroke ?? '#1e1e1e',
+    strokeWidth: Math.max(1, num(e.strokeWidth, 2)),
+    ...(e.strokeStyle === 'dashed' || e.strokeStyle === 'dotted' ? { strokeStyle: e.strokeStyle } : {}),
+  };
+}
+
+/** Text bound inside a shape becomes the shape's text; other text a text element. */
+function addExcalidrawText(e: Record<string, unknown>, b: ExcalidrawBase, ids: Map<string, string>, out: BoardElement[]): void {
+  const text = str(e.text) ?? '';
+  if (typeof e.containerId === 'string') {
+    const container = out.find((o) => o.id === ids.get(String(e.containerId)));
+    if (container && container.type === 'shape') {
+      container.text = plain(text);
+      container.fontSize = num(e.fontSize, 16);
+      return;
+    }
+  }
+  out.push({
+    ...b.base,
+    ...b.parent,
+    w: Math.max(b.w, 20),
+    h: Math.max(b.h, 20),
+    type: 'text',
+    text: plain(text),
+    fontSize: num(e.fontSize, 20),
+    textColor: b.stroke ?? '#1e1e1e',
+    textAlign: e.textAlign === 'center' || e.textAlign === 'right' ? e.textAlign : 'left',
+  });
+}
+
+function excalidrawLine(e: Record<string, unknown>, b: ExcalidrawBase, ids: Map<string, string>): BoardElement {
+  const points = excalidrawPoints(e);
+  const first = points[0] ?? [0, 0];
+  const last = points[points.length - 1] ?? [b.w, b.h];
+  const bind = (binding: unknown) => {
+    const id2 = (binding as { elementId?: unknown } | null)?.elementId;
+    return typeof id2 === 'string' && ids.has(id2) ? { el: ids.get(id2)!, side: 'auto' as const } : {};
+  };
+  return {
+    ...b.base,
+    ...b.parent,
+    type: 'connector',
+    start: { x: b.x + num(first[0]), y: b.y + num(first[1]), ...bind(e.startBinding) },
+    end: { x: b.x + num(last[0]), y: b.y + num(last[1]), ...bind(e.endBinding) },
+    route: excalidrawRoute(e, points),
+    startCap: excalidrawCap(e.startArrowhead),
+    endCap: e.type === 'arrow' ? excalidrawCap(e.endArrowhead ?? 'arrow') : 'none',
+    stroke: b.stroke ?? '#1e1e1e',
+    strokeWidth: Math.max(1, num(e.strokeWidth, 2)),
+  };
+}
+
+function excalidrawPen(e: Record<string, unknown>, b: ExcalidrawBase): BoardElement {
+  const points = excalidrawPoints(e);
+  const pressures = Array.isArray(e.pressures) ? (e.pressures as number[]) : [];
+  const flat: number[] = [];
+  points.slice(0, 30_000).forEach((p, i) => flat.push(num(p[0]), num(p[1]), num(pressures[i], 0.5)));
+  return { ...b.base, ...b.parent, type: 'pen', points: flat, stroke: b.stroke ?? '#1e1e1e', strokeWidth: Math.max(1, num(e.strokeWidth, 2)) };
+}
+
+/** Adds what one Excalidraw element becomes; false when its type does not come across. */
+function addExcalidraw(e: Record<string, unknown>, b: ExcalidrawBase, ids: Map<string, string>, out: BoardElement[]): boolean {
+  switch (e.type) {
+    case 'rectangle':
+    case 'ellipse':
+    case 'diamond':
+      out.push(excalidrawShape(e, b));
+      return true;
+    case 'text':
+      addExcalidrawText(e, b, ids, out);
+      return true;
+    case 'arrow':
+    case 'line':
+      out.push(excalidrawLine(e, b, ids));
+      return true;
+    case 'freedraw':
+      out.push(excalidrawPen(e, b));
+      return true;
+    case 'frame':
+    case 'magicframe':
+      out.push({ ...b.base, type: 'frame', name: str(e.name) ?? 'Frame', fill: '#ffffff' });
+      return true;
+    default:
+      return false;
+  }
+}
+
 /**
  * An Excalidraw scene (`.excalidraw` JSON) as a fragment. Rectangles,
  * ellipses, diamonds, text, arrows and lines, free drawing and frames come
@@ -79,126 +214,85 @@ export function fromExcalidraw(json: unknown, makeId: () => string): { fragment:
     const base = { id, order: keys[index]!, x, y, w, h, ...(num(e.angle) ? { rotation: num(e.angle) } : {}) };
     const frameId = typeof e.frameId === 'string' ? ids.get(e.frameId) : undefined;
     const parent = frameId ? { parent: frameId } : {};
-    switch (e.type) {
-      case 'rectangle':
-      case 'ellipse':
-      case 'diamond': {
-        const shape: ShapeKind = e.type === 'rectangle' ? (e.roundness ? 'rounded' : 'rectangle') : e.type;
-        out.push({
-          ...base,
-          ...parent,
-          type: 'shape',
-          shape,
-          fill: fill ?? 'transparent',
-          stroke: stroke ?? '#1e1e1e',
-          strokeWidth: Math.max(1, num(e.strokeWidth, 2)),
-          ...(e.strokeStyle === 'dashed' || e.strokeStyle === 'dotted' ? { strokeStyle: e.strokeStyle } : {}),
-        });
-        return;
-      }
-      case 'text': {
-        const text = str(e.text) ?? '';
-        if (typeof e.containerId === 'string') {
-          // Text bound inside a shape becomes the shape's text.
-          const container = out.find((o) => o.id === ids.get(String(e.containerId)));
-          if (container && container.type === 'shape') {
-            container.text = plain(text);
-            container.fontSize = num(e.fontSize, 16);
-            return;
-          }
-        }
-        out.push({
-          ...base,
-          ...parent,
-          w: Math.max(w, 20),
-          h: Math.max(h, 20),
-          type: 'text',
-          text: plain(text),
-          fontSize: num(e.fontSize, 20),
-          textColor: stroke ?? '#1e1e1e',
-          textAlign: e.textAlign === 'center' || e.textAlign === 'right' ? e.textAlign : 'left',
-        });
-        return;
-      }
-      case 'arrow':
-      case 'line': {
-        const points = Array.isArray(e.points) ? (e.points as unknown[]).filter(Array.isArray) as number[][] : [];
-        const first = points[0] ?? [0, 0];
-        const last = points[points.length - 1] ?? [w, h];
-        const bind = (b: unknown) => {
-          const id2 = (b as { elementId?: unknown } | null)?.elementId;
-          return typeof id2 === 'string' && ids.has(id2) ? { el: ids.get(id2)!, side: 'auto' as const } : {};
-        };
-        const cap = (v: unknown): Cap => (v === 'arrow' || v === 'triangle' ? 'arrow' : v === 'dot' || v === 'circle' ? 'circle' : v === 'bar' ? 'bar' : 'none');
-        out.push({
-          ...base,
-          ...parent,
-          type: 'connector',
-          start: { x: x + num(first[0]), y: y + num(first[1]), ...bind(e.startBinding) },
-          end: { x: x + num(last[0]), y: y + num(last[1]), ...bind(e.endBinding) },
-          route: e.elbowed ? 'elbow' : points.length > 2 ? 'curved' : 'straight',
-          startCap: cap(e.startArrowhead),
-          endCap: e.type === 'arrow' ? cap(e.endArrowhead ?? 'arrow') : 'none',
-          stroke: stroke ?? '#1e1e1e',
-          strokeWidth: Math.max(1, num(e.strokeWidth, 2)),
-        });
-        return;
-      }
-      case 'freedraw': {
-        const points = Array.isArray(e.points) ? (e.points as unknown[]).filter(Array.isArray) as number[][] : [];
-        const pressures = Array.isArray(e.pressures) ? (e.pressures as number[]) : [];
-        const flat: number[] = [];
-        points.slice(0, 30_000).forEach((p, i) => flat.push(num(p[0]), num(p[1]), num(pressures[i], 0.5)));
-        out.push({ ...base, ...parent, type: 'pen', points: flat, stroke: stroke ?? '#1e1e1e', strokeWidth: Math.max(1, num(e.strokeWidth, 2)) });
-        return;
-      }
-      case 'frame':
-      case 'magicframe':
-        out.push({ ...base, type: 'frame', name: str(e.name) ?? 'Frame', fill: '#ffffff' });
-        return;
-      default:
-        skipped++;
-    }
+    if (!addExcalidraw(e, { base, parent, x, y, w, h, stroke, fill }, ids, out)) skipped++;
   });
   // Frames first, so their contents can sit in them.
   out.sort((a, b) => (a.type === 'frame' ? 0 : 1) - (b.type === 'frame' ? 0 : 1));
   return { fragment: fragmentOf(out), skipped };
 }
 
+/** The cell delimiter of CSV or plain text: tab, else semicolon when the first line has those and no comma, else comma. */
+function delimiterOf(text: string): string {
+  if (text.includes('\t')) return '\t';
+  const firstLine = text.split('\n')[0]!;
+  return firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+}
+
+/** Reads CSV or plain text one character at a time into rows of cells. */
+class CellReader {
+  readonly rows: string[][] = [];
+  private row: string[] = [];
+  private cell = '';
+  private quoted = false;
+
+  constructor(
+    private readonly text: string,
+    private readonly delimiter: string,
+  ) {}
+
+  /** Reads the character at `i` (two for an escaped quote or a CRLF); returns the index to read next. */
+  read(i: number): number {
+    const ch = this.text[i]!;
+    if (this.quoted) return this.readQuoted(ch, i);
+    if (ch === '"' && this.cell === '') this.quoted = true;
+    else if (ch === this.delimiter) this.endCell();
+    else if (ch === '\n' || ch === '\r') {
+      this.endRow();
+      if (ch === '\r' && this.text[i + 1] === '\n') return i + 2;
+    } else this.cell += ch;
+    return i + 1;
+  }
+
+  private readQuoted(ch: string, i: number): number {
+    if (ch !== '"') {
+      this.cell += ch;
+      return i + 1;
+    }
+    if (this.text[i + 1] === '"') {
+      this.cell += '"';
+      return i + 2;
+    }
+    this.quoted = false;
+    return i + 1;
+  }
+
+  private endCell(): void {
+    this.row.push(this.cell);
+    this.cell = '';
+  }
+
+  private endRow(): void {
+    this.endCell();
+    this.rows.push(this.row);
+    this.row = [];
+  }
+
+  /** The rows, with the last one when the text does not end in a line break. */
+  finish(): string[][] {
+    if (this.cell !== '' || this.row.length) this.endRow();
+    return this.rows;
+  }
+}
+
 /** Splits CSV or plain text into cells: one row per line, cells by comma, semicolon or tab. */
 export function parseCells(text: string): string[][] {
-  const rows: string[][] = [];
-  const delimiter = text.includes('\t') ? '\t' : text.split('\n')[0]!.includes(';') && !text.split('\n')[0]!.includes(',') ? ';' : ',';
-  let row: string[] = [];
-  let cell = '';
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (quoted) {
-      if (ch === '"' && text[i + 1] === '"') {
-        cell += '"';
-        i++;
-      } else if (ch === '"') quoted = false;
-      else cell += ch;
-      continue;
-    }
-    if (ch === '"' && cell === '') quoted = true;
-    else if (ch === delimiter) {
-      row.push(cell);
-      cell = '';
-    } else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else cell += ch;
-  }
-  if (cell !== '' || row.length) {
-    row.push(cell);
-    rows.push(row);
-  }
-  return rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some((c) => c !== ''));
+  const reader = new CellReader(text, delimiterOf(text));
+  let i = 0;
+  while (i < text.length) i = reader.read(i);
+  return reader
+    .finish()
+    .map((r) => r.map((c) => c.trim()))
+    .filter((r) => r.some((c) => c !== ''));
 }
 
 /** Text lines (or CSV cells) as a grid of sticky notes; one column per CSV column. */

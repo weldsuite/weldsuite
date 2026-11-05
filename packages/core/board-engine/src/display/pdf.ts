@@ -74,6 +74,12 @@ function pagesOf(board: Board, perFrame: boolean): Page[] {
   return all ? [{ area: all }] : [];
 }
 
+/** The operator that paints a path: fill and stroke, fill only, or stroke only. */
+function paintOp(fill: boolean, stroke: boolean): string {
+  if (fill && stroke) return 'B';
+  return fill ? 'f' : 'S';
+}
+
 class Writer {
   private readonly fonts = new Map<StandardFontName, string>();
   private readonly alphas = new Map<string, string>();
@@ -172,63 +178,72 @@ class Writer {
   async draw(c: ContentStream, items: DisplayItem[], alpha = 1): Promise<void> {
     for (const item of items) {
       switch (item.kind) {
-        case 'path': {
-          const fill = item.fill ? parseColor(item.fill) : null;
-          const stroke = item.stroke && item.width ? parseColor(item.stroke) : null;
-          if (!fill && !stroke) break;
-          c.op('q');
-          const a = alpha * (item.opacity ?? 1);
-          if (a < 0.999) c.op(`/${this.alpha(a)} gs`);
-          if (fill) c.fillColor(fill);
-          if (stroke) {
-            c.strokeColor(stroke);
-            c.op(`${num(item.width!)} w`);
-            if (item.round) c.op('1 J 1 j');
-            if (item.dash?.length) c.op(`[${item.dash.map(num).join(' ')}] 0 d`);
-          }
-          this.path(c, item.cmds);
-          c.op(fill && stroke ? 'B' : fill ? 'f' : 'S');
-          c.op('Q');
+        case 'path':
+          this.drawPath(c, item, alpha);
           break;
-        }
         case 'text':
           this.text(c, item, alpha);
           break;
-        case 'image': {
-          const res = await this.image(item.src);
-          c.op('q');
-          c.op(`${num(item.x)} ${num(c.y(item.y + item.h))} ${num(item.w)} ${num(item.h)} re W n`);
-          if (res) {
-            const crop = item.crop ?? { x: 0, y: 0, w: 1, h: 1 };
-            const fw = item.w / crop.w;
-            const fh = item.h / crop.h;
-            const fx = item.x - crop.x * fw;
-            const fy = item.y - crop.y * fh;
-            c.op(`${num(fw)} 0 0 ${num(fh)} ${num(fx)} ${num(c.y(fy + fh))} cm /${res} Do`);
-          } else {
-            c.fillColor([0.93, 0.94, 0.95]);
-            c.op(`${num(item.x)} ${num(c.y(item.y + item.h))} ${num(item.w)} ${num(item.h)} re f`);
-          }
-          c.op('Q');
+        case 'image':
+          await this.drawImage(c, item);
           break;
-        }
-        case 'group': {
-          c.op('q');
-          if (item.rotate) {
-            // Rotate around the centre; PDF's y axis points up, so the angle flips.
-            const a = -item.rotate.angle;
-            const cx = item.rotate.cx;
-            const cy = c.y(item.rotate.cy);
-            const cos = Math.cos(a);
-            const sin = Math.sin(a);
-            c.op(`1 0 0 1 ${num(cx)} ${num(cy)} cm ${num(cos)} ${num(sin)} ${num(-sin)} ${num(cos)} 0 0 cm 1 0 0 1 ${num(-cx)} ${num(-cy)} cm`);
-          }
-          await this.draw(c, item.items, alpha * (item.opacity ?? 1));
-          c.op('Q');
+        case 'group':
+          await this.drawGroup(c, item, alpha);
           break;
-        }
       }
     }
+  }
+
+  private drawPath(c: ContentStream, item: Extract<DisplayItem, { kind: 'path' }>, alpha: number): void {
+    const fill = item.fill ? parseColor(item.fill) : null;
+    const stroke = item.stroke && item.width ? parseColor(item.stroke) : null;
+    if (!fill && !stroke) return;
+    c.op('q');
+    const a = alpha * (item.opacity ?? 1);
+    if (a < 0.999) c.op(`/${this.alpha(a)} gs`);
+    if (fill) c.fillColor(fill);
+    if (stroke) {
+      c.strokeColor(stroke);
+      c.op(`${num(item.width!)} w`);
+      if (item.round) c.op('1 J 1 j');
+      if (item.dash?.length) c.op(`[${item.dash.map(num).join(' ')}] 0 d`);
+    }
+    this.path(c, item.cmds);
+    c.op(paintOp(!!fill, !!stroke));
+    c.op('Q');
+  }
+
+  private async drawImage(c: ContentStream, item: Extract<DisplayItem, { kind: 'image' }>): Promise<void> {
+    const res = await this.image(item.src);
+    c.op('q');
+    c.op(`${num(item.x)} ${num(c.y(item.y + item.h))} ${num(item.w)} ${num(item.h)} re W n`);
+    if (res) {
+      const crop = item.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+      const fw = item.w / crop.w;
+      const fh = item.h / crop.h;
+      const fx = item.x - crop.x * fw;
+      const fy = item.y - crop.y * fh;
+      c.op(`${num(fw)} 0 0 ${num(fh)} ${num(fx)} ${num(c.y(fy + fh))} cm /${res} Do`);
+    } else {
+      c.fillColor([0.93, 0.94, 0.95]);
+      c.op(`${num(item.x)} ${num(c.y(item.y + item.h))} ${num(item.w)} ${num(item.h)} re f`);
+    }
+    c.op('Q');
+  }
+
+  private async drawGroup(c: ContentStream, item: Extract<DisplayItem, { kind: 'group' }>, alpha: number): Promise<void> {
+    c.op('q');
+    if (item.rotate) {
+      // Rotate around the centre; PDF's y axis points up, so the angle flips.
+      const a = -item.rotate.angle;
+      const cx = item.rotate.cx;
+      const cy = c.y(item.rotate.cy);
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      c.op(`1 0 0 1 ${num(cx)} ${num(cy)} cm ${num(cos)} ${num(sin)} ${num(-sin)} ${num(cos)} 0 0 cm 1 0 0 1 ${num(-cx)} ${num(-cy)} cm`);
+    }
+    await this.draw(c, item.items, alpha * (item.opacity ?? 1));
+    c.op('Q');
   }
 
   private text(c: ContentStream, item: Extract<DisplayItem, { kind: 'text' }>, alpha: number): void {
