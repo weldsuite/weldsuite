@@ -479,8 +479,9 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
 
 // ============================================================================
 // PUT /:id/tabs — which project tabs are hidden: for the whole project, per
-// non-admin role and per member (`settings.tabs`, written whole). Project
-// managers only. Checks run in the order both backends answer alike:
+// non-admin role and per member (`settings.tabs`, written whole). Whoever may
+// manage the project (`canManageProject`: a project owner or admin, the project
+// manager, `projects:scope:all`). Checks run in the order both backends answer alike:
 // permission, the project (404), project access (403), the body (400).
 // It shapes the tab bar only; the data behind a tab is not gated by it.
 // ============================================================================
