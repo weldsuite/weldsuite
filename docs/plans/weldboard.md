@@ -308,12 +308,41 @@ When the work lands:
 ## Status
 
 All decisions above agreed 2026-11-05 and recorded as BOARD-001 to BOARD-003
-(Proposed). Built in one PR (weldsuite/weldsuite#1460), phase by phase:
+(Proposed until the code is merged). The plan went in with
+weldsuite/weldsuite#1460; the implementation is one PR,
+weldsuite/weldsuite#1468, built phase by phase:
 
 - Phase 1, engine core: done (`packages/core/board-engine`).
 - Phase 2, editor: done (`apps/web/platform/app/weldboard`, the preview mirror).
-- Phase 3, backend: `apps/workers/board-api` (routes, `BoardRoom`, `BoardsInternal`),
-  migration 0240, app-api forwarding, secrets, WeldDrive links, download and purge
-  (TypeScript and Rust). Old WeldFlow whiteboards are listed with a project's
-  boards and converted in place on first open.
-- Phases 4 to 11: in progress.
+- Phase 3, backend: done. `apps/workers/board-api` (routes, `BoardRoom`,
+  `BoardsInternal`), tenant migration 0241 (`whiteboards` reshaped,
+  `board_versions`), app-api forwarding, secrets, WeldDrive links, download
+  and purge (TypeScript and Rust).
+- Phase 4, WeldFlow merge: done. Project boards on board-api, converted in
+  place on first open; flow-api's `/api/whiteboards` retired (TypeScript and
+  Rust); `/v1/whiteboards` and the MCP whiteboard tools kept on boards through
+  `BoardsInternal`; the old editor, `WhiteboardRoom` and its strings deleted.
+- Phase 5, diagramming depth: done (shapes, connectors, mind maps, cards, crop,
+  file and link cards, the style painter, find on board).
+- Phase 6, files: done (export, `.excalidraw`/image/CSV import, "Open in
+  WeldBoard" in WeldDrive).
+- Phase 7, facilitation: done (templates, presentation, follow, timer, voting,
+  reactions, private mode).
+- Phase 8, review: done (comment pins as record-chat threads, version history).
+- Phase 9, WeldSuite data: done (record cards, stickies to tasks, the `board`
+  global search type in TypeScript and Rust).
+- Phase 10, AI and APIs: done. Board specs in the engine
+  (`serialize/spec.ts`: described content laid out by the engine), the AI
+  actions (`POST /api/boards/:id/ai`: mind map, flowchart, sticky notes,
+  group by theme, more ideas, summary into WeldDocs), the WeldAgent board
+  tools, `/v1/boards` with the MCP board tools (scopes `boards:read|write`)
+  and its api-docs page.
+- Phase 11: done except the Rust port. The performance budgets are engine
+  tests (`src/perf.test.ts`) and hold on the main thread, so there is no Web
+  Worker; Tab/Shift+Tab walk the board in reading order, with a live region
+  and a screen-reader outline; the WeldFlow mobile app has a read-only viewer
+  on `GET /api/boards/:id/render`.
+- **Not done: the Rust port** (board-api's routes in Rust, `BoardRoom` on the
+  collab-rooms service with a `BOARD_ENGINE` binding, conformance suites, and
+  `board` in `RUST_PORTED_MODULES`). Until then WeldBoard and project
+  whiteboards stay hidden on the EU and self-hosted editions, as they are now.
