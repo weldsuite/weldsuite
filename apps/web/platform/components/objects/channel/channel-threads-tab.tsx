@@ -129,11 +129,11 @@ export function ChannelThreadsTab({ channelId, messages }: Readonly<ChannelThrea
         />
         <div className="flex-1 min-w-0 flex items-start gap-3">
           <div className="relative flex-shrink-0 mt-0.5">
-            <Avatar className="h-6 w-6 !rounded-[8px]">
+            <Avatar className="h-6 w-6">
               {t.authorAvatar && (
-                <AvatarImage src={t.authorAvatar} className="!rounded-[8px]" />
+                <AvatarImage src={t.authorAvatar} />
               )}
-              <AvatarFallback className="text-[10px] !rounded-[8px]">
+              <AvatarFallback className="text-[10px]">
                 {(t.authorName || '?')[0]?.toUpperCase()}
               </AvatarFallback>
             </Avatar>

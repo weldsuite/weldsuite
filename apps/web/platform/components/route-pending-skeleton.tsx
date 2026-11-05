@@ -41,7 +41,7 @@ export function RoutePendingSkeleton() {
         <div className="divide-y">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="flex items-center gap-4 p-4">
-              <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+              <Skeleton className="h-9 w-9 shrink-0 rounded-[32%]" />
               <Skeleton className="h-4 flex-1" />
               <Skeleton className="h-4 w-32 shrink-0" />
               <Skeleton className="h-4 w-20 shrink-0" />

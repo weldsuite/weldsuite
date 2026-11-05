@@ -41,15 +41,13 @@ interface SidebarScopeSwitcherProps {
 /** Letter (or icon) on a colour picked from the name, like the conversation-list avatars. */
 function ScopeAvatar({ option, size }: { option: ScopeOption; size: 'sm' | 'lg' }) {
   const Icon = option.icon;
-  const radius = size === 'lg' ? '!rounded-[10px]' : '!rounded-[7px]';
   const stack = option.stack ?? [];
   if (stack.length > 0) {
     return (
       <span
         className={cn(
-          'grid shrink-0 grid-cols-2 grid-rows-2 gap-px overflow-hidden',
+          'grid shrink-0 grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-[32%]',
           size === 'lg' ? 'h-7 w-7' : 'h-5 w-5',
-          radius,
         )}
       >
         {Array.from({ length: 4 }, (_, i) => stack[i % stack.length]).map((name, i) => (
@@ -65,10 +63,9 @@ function ScopeAvatar({ option, size }: { option: ScopeOption; size: 'sm' | 'lg' 
     );
   }
   return (
-    <Avatar className={cn(size === 'lg' ? 'h-7 w-7' : 'h-5 w-5', radius)}>
+    <Avatar className={cn(size === 'lg' ? 'h-7 w-7' : 'h-5 w-5')}>
       <AvatarFallback
         className={cn(
-          radius,
           size === 'lg' ? 'text-xs' : 'text-[10px]',
           'font-semibold text-white',
         )}

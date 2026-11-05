@@ -411,9 +411,9 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
                         key={user.userId}
                         className="flex items-center gap-2 px-2 py-1.5"
                       >
-                        <Avatar className="h-5 w-5 !rounded-[6px]">
-                          {user.userAvatar && <AvatarImage src={user.userAvatar} className="!rounded-[6px]" />}
-                          <AvatarFallback className="text-[8px] !rounded-[6px]">
+                        <Avatar className="h-5 w-5">
+                          {user.userAvatar && <AvatarImage src={user.userAvatar} />}
+                          <AvatarFallback className="text-[8px]">
                             {(user.userName || '?')[0].toUpperCase()}
                           </AvatarFallback>
                         </Avatar>

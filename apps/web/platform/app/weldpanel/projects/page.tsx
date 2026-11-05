@@ -9,7 +9,7 @@ import { Globe } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldPanelProjects } from '@/hooks/queries/use-weldpanel-queries';

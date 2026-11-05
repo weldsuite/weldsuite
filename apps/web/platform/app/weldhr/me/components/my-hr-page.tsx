@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { MY_HR_PATHS } from '../../access';
-import { DetailPage, useHrBreadcrumbs } from '../../components/page-kit';
+import { useHrBreadcrumbs } from '../../components/page-kit';
+import { DetailPage } from '@weldsuite/ui/components/page-layout';
 
 /** Breadcrumb for a My HR page; without a `page` label it is the My HR overview itself. */
 export function useMyHrBreadcrumbs(page?: string) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RTK_PRESETS } from '@weldsuite/cloudflare-realtime';
+import { RTK_CAPTION_PRESETS, RTK_PRESETS } from '@weldsuite/cloudflare-realtime';
 import {
   LIVEKIT_WAITING_ATTRIBUTE,
   liveKitSettings,
@@ -75,5 +75,12 @@ describe('mintLiveKitJoinToken', () => {
     expect(decodePart(host.token.split('.')[1] ?? '').video).toEqual({
       room: 'ws-room', roomJoin: true, roomAdmin: true, canPublish: true, canSubscribe: true, canPublishData: true,
     });
+  });
+
+  it('treats the live-captions variant of a preset as the same role', async () => {
+    const claims = async (presetName: string) =>
+      decodePart((await mintLiveKitJoinToken(SETTINGS, 'ws-room', { name: 'X', customParticipantId: 'x', presetName })).token.split('.')[1] ?? '').video;
+    expect(await claims(RTK_CAPTION_PRESETS.HOST)).toEqual(await claims(RTK_PRESETS.HOST));
+    expect(await claims(RTK_CAPTION_PRESETS.GUEST_WAITING)).toEqual(await claims(RTK_PRESETS.GUEST_WAITING));
   });
 });

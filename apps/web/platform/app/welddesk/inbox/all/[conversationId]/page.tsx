@@ -4,7 +4,7 @@ import { useParams, useRouter } from '@/lib/router';
 import { useAuth, useUser } from '@/lib/auth';
 import ConversationDetailClient from './conversation-detail-client';
 import { useConversation, useConversationMessages, useConversationReview } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function ConversationPage() {

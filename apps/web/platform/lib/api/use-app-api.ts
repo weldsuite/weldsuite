@@ -13,6 +13,14 @@ import type { ClientApi } from '@weldsuite/api-client/types';
 import { createTeamMembersApi } from '@weldsuite/core-api-client/domains/team-members';
 import { createTasksApi } from '@weldsuite/app-api-client/domains/tasks';
 import { createProjectsApi } from '@weldsuite/app-api-client/domains/projects';
+import { createProjectControlApi } from '@weldsuite/app-api-client/domains/project-control';
+import { createFlowApprovalsApi } from '@weldsuite/app-api-client/domains/flow-approvals';
+import { createProjectGovernanceApi } from '@weldsuite/app-api-client/domains/project-governance';
+import { createProjectScheduleApi } from '@weldsuite/app-api-client/domains/project-schedule';
+import { createProjectReportingApi } from '@weldsuite/app-api-client/domains/project-reporting';
+import { createProjectFinanceApi } from '@weldsuite/app-api-client/domains/project-finance';
+import { createProjectClosingApi } from '@weldsuite/app-api-client/domains/project-closing';
+import { createFlowPortfolioApi } from '@weldsuite/app-api-client/domains/flow-portfolio';
 import { createTicketsApi } from '@weldsuite/app-api-client/domains/tickets';
 import { createCompaniesApi } from '@weldsuite/app-api-client/domains/companies';
 import { createObjectTemplatesApi } from '@weldsuite/app-api-client/domains/object-templates';
@@ -135,6 +143,17 @@ export function useAppApi() {
       teamMembers: createTeamMembersApi(lazyClient),
       tasks: createTasksApi(lazyClient),
       projects: createProjectsApi(lazyClient),
+      // WeldFlow project control: the RAID log and its links (flow-api).
+      projectControl: createProjectControlApi(lazyClient),
+      // WeldFlow project management (flow-api): approvals, governance, schedule,
+      // reporting, finance, closing and the portfolio.
+      flowApprovals: createFlowApprovalsApi(lazyClient),
+      projectGovernance: createProjectGovernanceApi(lazyClient),
+      projectSchedule: createProjectScheduleApi(lazyClient),
+      projectReporting: createProjectReportingApi(lazyClient),
+      projectFinance: createProjectFinanceApi(lazyClient),
+      projectClosing: createProjectClosingApi(lazyClient),
+      flowPortfolio: createFlowPortfolioApi(lazyClient),
       tickets: createTicketsApi(lazyClient),
       companies: createCompaniesApi(lazyClient),
       objectTemplates: createObjectTemplatesApi(lazyClient),

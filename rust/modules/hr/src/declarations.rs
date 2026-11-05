@@ -268,6 +268,32 @@ fn declaration_fields(issues: &mut Issues, fields: &Fields, partial: bool) -> De
     }
 }
 
+/// `assertProjectExists(db, projectId)`: the project of a declaration
+/// (FLOW-019) must be a live `WeldFlow` project of this workspace. It belongs
+/// to another module, so the column has no foreign key and this is the only
+/// check; a deleted project does not count.
+async fn assert_project_exists(db: &PgPool, project_id: Option<&str>) -> Result<(), HrError> {
+    let Some(project_id) = project_id.filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    let found: Option<String> =
+        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
+            .bind(project_id)
+            .fetch_optional(db)
+            .await?;
+    if found.is_none() {
+        return Err(HrError::validation(format!(
+            "Project {project_id} does not exist"
+        )));
+    }
+    Ok(())
+}
+
+/// `declarationProject`: `projectId`, `z.string().min(1).max(255).nullable().optional()`.
+fn project_field(issues: &mut Issues, fields: &Fields) -> Field<String> {
+    issues.text(fields, "projectId", Presence::Nullish, Some(1), Some(255))
+}
+
 /// `createDeclaration(db, input, submittedBy)`.
 pub(crate) async fn create_declaration(
     db: &PgPool,
@@ -277,10 +303,11 @@ pub(crate) async fn create_declaration(
 ) -> Result<Value, HrError> {
     assert_expense_date(&fields.expense_date)?;
     require_employee(db, employee_id).await?;
+    assert_project_exists(db, fields.project_id.as_deref()).await?;
     let row: Value = sqlx::query_scalar(
         "insert into hr_declarations
-             (id, employee_id, expense_date, category, description, amount, currency, status, submitted_by)
-         values ($1, $2, $3::date, $4, $5, $6::numeric, $7, 'pending', $8)
+             (id, employee_id, expense_date, category, description, amount, currency, project_id, status, submitted_by)
+         values ($1, $2, $3::date, $4, $5, $6::numeric, $7, $8, 'pending', $9)
          returning to_jsonb(hr_declarations)",
     )
     .bind(generate_id("hrdcl"))
@@ -290,6 +317,7 @@ pub(crate) async fn create_declaration(
     .bind(&fields.description)
     .bind(js_to_fixed(fields.amount, 2))
     .bind(fields.currency.as_deref().unwrap_or("EUR"))
+    .bind(fields.project_id.as_deref().filter(|id| !id.is_empty()))
     .bind(submitted_by)
     .fetch_one(db)
     .await?;
@@ -303,6 +331,9 @@ pub(crate) struct DeclarationInput {
     pub(crate) description: String,
     pub(crate) amount: f64,
     pub(crate) currency: Option<String>,
+    /// The `WeldFlow` project the expense counts toward (FLOW-019). Back
+    /// office only: a claim filed in My HR has none.
+    pub(crate) project_id: Option<String>,
 }
 
 /// `hrSelfDeclarationSchema` (or the create schema with `employeeId` first).
@@ -318,6 +349,12 @@ pub(crate) fn declaration_body(
             None
         };
         let read = declaration_fields(issues, fields, false);
+        // The back office's schema has the project; `hrSelfDeclarationSchema` strips it.
+        let project = if with_employee {
+            project_field(issues, fields).into_option()
+        } else {
+            None
+        };
         amount_refine(issues, fields);
         (
             employee,
@@ -327,6 +364,7 @@ pub(crate) fn declaration_body(
                 description: read.description.into_option().unwrap_or_default(),
                 amount: read.amount.into_option().unwrap_or_default(),
                 currency: read.currency.into_option(),
+                project_id: project,
             },
         )
     })
@@ -375,22 +413,34 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> HrResult {
-    let input = hr_json(&headers, &body, |issues, fields| {
+    let (input, project) = hr_json(&headers, &body, |issues, fields| {
         let read = declaration_fields(issues, fields, true);
+        let project = project_field(issues, fields);
         amount_refine(issues, fields);
-        read
+        (read, project)
     })?;
     let db = &caller.db;
     let existing = require_declaration(db, &id, None).await?;
-    if existing["status"] != "pending" {
+    // Only the project tag moves no money: HR can set it until the
+    // declaration is rejected or cancelled.
+    let only_project = !project.is_absent()
+        && input.expense_date.is_absent()
+        && input.category.is_absent()
+        && input.description.is_absent()
+        && input.amount.is_absent()
+        && input.currency.is_absent();
+    let status = text(&existing, "status");
+    let editable =
+        status == "pending" || (only_project && (status == "approved" || status == "paid"));
+    if !editable {
         return Err(HrError::conflict(format!(
-            "This declaration is already {} and can no longer be changed",
-            text(&existing, "status")
+            "This declaration is already {status} and can no longer be changed"
         )));
     }
     if let Some(date) = input.expense_date.as_set().filter(|d| !d.is_empty()) {
         assert_expense_date(date)?;
     }
+    assert_project_exists(db, project.as_set().map(String::as_str)).await?;
     let row: Value = sqlx::query_scalar(
         "update hr_declarations set
              expense_date = coalesce($2::date, expense_date),
@@ -398,6 +448,7 @@ async fn update(
              description = coalesce($4, description),
              amount = coalesce($5::numeric, amount),
              currency = coalesce($6, currency),
+             project_id = case when $8::boolean then $9 else project_id end,
              updated_at = $7::timestamp
          where id = $1 returning to_jsonb(hr_declarations)",
     )
@@ -408,6 +459,8 @@ async fn update(
     .bind(input.amount.as_set().map(|a| js_to_fixed(*a, 2)))
     .bind(input.currency.as_set())
     .bind(now())
+    .bind(!project.is_absent())
+    .bind(project.as_set())
     .fetch_one(db)
     .await?;
     let row = js_row(row);

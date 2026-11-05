@@ -15,7 +15,7 @@ import {
 } from '@/hooks/queries/use-notes-queries';
 import { toast } from 'sonner';
 import { RecordSelectionModal, type SelectableRecord, type RecordKind } from '@/components/objects/_shared/record-selection-modal';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useUser } from '@/lib/auth';
@@ -324,15 +324,15 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
               const canOpenPanel = !!(note.recordId && note.recordKind);
               const content = (
                 <>
-                  <Avatar className="h-[18px] w-[18px] !rounded-[6px] flex-shrink-0">
+                  <Avatar className="h-[18px] w-[18px] flex-shrink-0">
                     {recordAvatarOf(note) && (
                       <AvatarImage
                         src={recordAvatarOf(note)}
                         alt={getRecordName(note)}
-                        className="!rounded-[6px] object-cover"
+                        className="object-cover"
                       />
                     )}
-                    <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                    <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                       {getRecordName(note)!.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -372,11 +372,11 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
         <div className={cn("w-[150px]", NOTES_HIDE_AUTHOR)}>
           {note.authorName ? (
             <div className="flex items-center gap-1.5 min-w-0">
-              <Avatar className="h-[18px] w-[18px] !rounded-[6px] flex-shrink-0">
+              <Avatar className="h-[18px] w-[18px] flex-shrink-0">
                 {note.authorAvatar && (
-                  <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[6px]" />
+                  <AvatarImage src={note.authorAvatar} alt={note.authorName} />
                 )}
-                <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                   {note.authorName.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>

@@ -52,7 +52,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useAppAccessRequest, useRequestAppAccess } from '@/hooks/queries/use-app-access-queries';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
-import { NumberInput } from '@/components/shared/number-input';
+import { NumberInput } from '@weldsuite/ui/components/number-input';
 import { CountryMultiSelect } from './country-multi-select';
 
 /** Every term must be ticked, not just one: the contract schema only asks for at least one. */

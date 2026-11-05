@@ -165,11 +165,11 @@ function ChatHistoryMessage({ message, compact }: Readonly<{ message: MeetingCha
         {compact ? (
           <div className="w-6 flex-shrink-0" />
         ) : (
-          <Avatar className="h-6 w-6 flex-shrink-0 mt-0.5 !rounded-md">
+          <Avatar className="h-6 w-6 flex-shrink-0 mt-0.5">
             {message.authorAvatar && (
-              <AvatarImage src={message.authorAvatar} className="!rounded-md" />
+              <AvatarImage src={message.authorAvatar} />
             )}
-            <AvatarFallback className="text-[8px] !rounded-md">
+            <AvatarFallback className="text-[8px]">
               {(message.authorName || '?')[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>

@@ -5,7 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useNumberSequences, useUpdateNumberSequences } from '@/hooks/queries/use-accounting-queries';
 import type { NumberSequence, NumberSequenceType, NumberSequenceUpdate } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';

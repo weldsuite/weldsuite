@@ -57,6 +57,10 @@ where
             get(permissions).route_layer(need(PROJECTS_READ)),
         )
         .route(
+            "/{id}/tabs",
+            axum::routing::put(crate::project_tabs::put_tabs).route_layer(need(PROJECTS_UPDATE)),
+        )
+        .route(
             "/{id}/gantt/tasks",
             get(gantt_tasks).route_layer(need(TASKS_READ)),
         )
@@ -130,6 +134,7 @@ pub(crate) fn normalize_project_status(value: &str) -> String {
         "onhold" => "On Hold".to_owned(),
         "completed" => "Completed".to_owned(),
         "cancelled" | "canceled" => "Cancelled".to_owned(),
+        "closed" => "Closed".to_owned(),
         _ => value.to_owned(),
     }
 }
@@ -1584,7 +1589,7 @@ async fn transfer_tasks(
     for status in &kept {
         let placed = place.place(Some(status));
         sqlx::query(
-            "update tasks set project_id = $1, sprint_id = null, milestone_id = null, key = null,
+            "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
                     board_position = null, position = position + $2, updated_at = $3::timestamp,
                     stage_id = $4, status = $5
              where project_id = $6 and deleted_at is null and status = any($7)",
@@ -1600,7 +1605,7 @@ async fn transfer_tasks(
         .await?;
     }
     sqlx::query(
-        "update tasks set project_id = $1, sprint_id = null, milestone_id = null, key = null,
+        "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
                 board_position = null, position = position + $2, updated_at = $3::timestamp,
                 stage_id = $4, status = $5
          where project_id = $6 and deleted_at is null",
@@ -1613,6 +1618,12 @@ async fn transfer_tasks(
     .bind(source)
     .execute(&mut *tx)
     .await?;
+    // Links travel with their tasks: a dependency's project is its tasks' project.
+    sqlx::query("update task_dependencies set project_id = $1 where project_id = $2")
+        .bind(dest)
+        .bind(source)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "update projects set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
     )

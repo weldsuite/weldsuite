@@ -1,7 +1,7 @@
 
 import { useAppAccess } from '@/hooks/use-app-access';
 import { CalendarLayoutClient } from './components/calendar-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
 export default function CalendarLayout({

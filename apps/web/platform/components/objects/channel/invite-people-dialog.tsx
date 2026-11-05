@@ -226,9 +226,9 @@ function MembersTab({ channelId, onDone }: Readonly<{ channelId: string; onDone:
                     onSelect={() => toggle(m.userId)}
                     className="flex items-center gap-2.5 py-2.5"
                   >
-                    <Avatar className="h-7 w-7 shrink-0 !rounded-[10px]">
-                      {m.picture && <AvatarImage src={m.picture} className="!rounded-[10px]" />}
-                      <AvatarFallback className="text-[9px] !rounded-[10px]">
+                    <Avatar className="h-7 w-7 shrink-0">
+                      {m.picture && <AvatarImage src={m.picture} />}
+                      <AvatarFallback className="text-[9px]">
                         {(m.name || m.email || '?')[0]?.toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

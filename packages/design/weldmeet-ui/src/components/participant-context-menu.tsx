@@ -243,8 +243,8 @@ export function ParticipantContextMenu({
             initials={getInitials(name).charAt(0)}
             picture={participant.picture}
             colorSeed={getPeerColorSeed(participant)}
-            className="h-5 w-5 !rounded-[6px]"
-            innerClassName="text-[9px] !rounded-[6px]"
+            className="h-5 w-5"
+            innerClassName="text-[9px]"
           />
           <span className="text-sm font-semibold truncate">{isSelf ? 'You' : name}</span>
         </div>

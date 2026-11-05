@@ -200,15 +200,14 @@ export function MailAccessPicker({
                                 onSelect={() => toggleUser(member.userId)}
                                 className={cn('flex items-center gap-3', checked && 'bg-muted')}
                               >
-                                <Avatar className="h-6 w-6 !rounded-[8px] shrink-0">
+                                <Avatar className="h-6 w-6 shrink-0">
                                   {member.picture && (
                                     <AvatarImage
                                       src={member.picture}
                                       alt={displayName}
-                                      className="!rounded-[8px]"
                                     />
                                   )}
-                                  <AvatarFallback className="!rounded-[8px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                  <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                     {displayName.charAt(0).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
@@ -250,15 +249,14 @@ export function MailAccessPicker({
                     variant="secondary"
                     className="gap-1.5 pl-1 pr-1.5 py-1 !rounded-md"
                   >
-                    <Avatar className="h-[18px] w-[18px] !rounded-[6px]">
+                    <Avatar className="h-[18px] w-[18px]">
                       {member?.picture && (
                         <AvatarImage
                           src={member.picture}
                           alt={displayName}
-                          className="!rounded-[6px]"
                         />
                       )}
-                      <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                      <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                         {displayName.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

@@ -22,7 +22,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useTicketTypes,
   useCreateTicketType,
@@ -30,7 +30,7 @@ import {
   useDeleteTicketType,
   type TicketTypeConfig,
 } from '@/hooks/queries/use-helpdesk-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { TicketTypeEditor } from '../ticket-types/ticket-type-editor';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 

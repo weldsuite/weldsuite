@@ -46,7 +46,7 @@ import {
   type RowRecipient,
 } from '../lib/row-display';
 import { AddMailTaskDialog, type MailTaskDraft } from './add-mail-task-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';

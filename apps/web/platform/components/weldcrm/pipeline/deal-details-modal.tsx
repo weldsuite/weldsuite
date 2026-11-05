@@ -526,11 +526,11 @@ export function DealDetailsModal({
                   {selectedCustomer && (() => {
                     const name = getCustomerName(selectedCustomer);
                     return (
-                      <Avatar className="h-5 w-5 !rounded-[6px]">
+                      <Avatar className="h-5 w-5">
                         {selectedCustomer.logoUrl && (
-                          <AvatarImage src={selectedCustomer.logoUrl} alt={name} className="!rounded-[6px]" />
+                          <AvatarImage src={selectedCustomer.logoUrl} alt={name} />
                         )}
-                        <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+                        <AvatarFallback className="text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
                           {name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -580,11 +580,11 @@ export function DealDetailsModal({
                             className="flex items-center justify-between gap-2 px-1.5"
                           >
                             <span className="flex items-center gap-2 min-w-0 flex-1">
-                              <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+                              <Avatar className="h-5 w-5 flex-shrink-0">
                                 {customer.logoUrl && (
-                                  <AvatarImage src={customer.logoUrl} alt={name} className="!rounded-[7px]" />
+                                  <AvatarImage src={customer.logoUrl} alt={name} />
                                 )}
-                                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {name.charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>

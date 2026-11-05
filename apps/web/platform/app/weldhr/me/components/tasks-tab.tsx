@@ -7,8 +7,10 @@ import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfTask } from '@weldsuite/app-api-client/domains/weldhr';
 import { useMyHrCompleteTask, useMyHrTasks } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import { ErrorBanner, errorMessage, formatDate, todayIso } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { errorMessage, formatDate, todayIso } from '../../components/shared';
 import { TabLoading } from './shared';
 
 interface TaskGroup {

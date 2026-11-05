@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { usePostingCatchUp } from '@/hooks/queries/use-accounting-queries';
 import type { PostingCatchUpResult } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';

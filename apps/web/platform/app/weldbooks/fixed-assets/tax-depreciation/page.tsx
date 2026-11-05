@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { US_STATES } from '@/components/address/us-states';
 import { useTaxDepreciationReport } from '@/hooks/queries/use-weldbooks-assets-queries';
 import { useI18n } from '@/lib/i18n/provider';

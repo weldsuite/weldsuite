@@ -33,7 +33,7 @@ import {
   useImportDnsRecords,
   type ScannedDnsRecord,
 } from '@/hooks/queries/use-host-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   externalDomainProblem,
   isExternalDomainRegistrar,

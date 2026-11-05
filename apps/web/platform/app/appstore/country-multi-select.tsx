@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -34,7 +34,23 @@ export function CountryMultiSelect({ id, value, onChange, placeholder, invalid }
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listboxId = useId();
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+
+  // A close still pending at unmount must not set state on a dead component.
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    },
+    [],
+  );
 
   const options = useMemo<CountryOption[]>(() => {
     let names: Intl.DisplayNames | null = null;
@@ -105,7 +121,10 @@ export function CountryMultiSelect({ id, value, onChange, placeholder, invalid }
               setQuery(e.target.value);
               setOpen(true);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              cancelClose();
+              setOpen(true);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setOpen(false);
               // Backspace on an empty query removes the last chip.
@@ -113,7 +132,11 @@ export function CountryMultiSelect({ id, value, onChange, placeholder, invalid }
             }}
             onBlur={() => {
               // Delay so a click on a menu item still registers.
-              setTimeout(() => setOpen(false), 200);
+              cancelClose();
+              closeTimer.current = setTimeout(() => {
+                closeTimer.current = null;
+                setOpen(false);
+              }, 200);
             }}
             placeholder={value.length === 0 ? placeholder : t('reach.accessUi.countrySearch')}
             role="combobox"

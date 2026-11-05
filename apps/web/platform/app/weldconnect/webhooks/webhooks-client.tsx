@@ -10,7 +10,7 @@ import {
   Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useDeleteWebhook } from '@/hooks/queries/use-automation-queries';
 import {
   EntityList,

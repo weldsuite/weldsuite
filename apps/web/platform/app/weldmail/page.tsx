@@ -2,7 +2,7 @@
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { MailRedirect } from './components/mail-redirect';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { UNIFIED_ACCOUNT } from './lib/mail-preferences';
 
 // The fallback for a cold load: the route's `beforeLoad`

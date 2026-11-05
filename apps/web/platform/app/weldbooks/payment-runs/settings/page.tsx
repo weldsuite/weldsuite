@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Landmark } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBankAccounts } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { PaymentRunsFrame } from '../components/payment-runs-frame';

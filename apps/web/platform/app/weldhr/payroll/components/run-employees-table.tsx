@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayRunDetail, HrPayslipSummary } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { cn } from '@/lib/utils';
-import { EmptyText } from '../../components/page-kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { formatDecimal, formatSignedDecimal } from '../lib/format';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
 import { IssueCountBadges } from './payroll-ui';

@@ -9,7 +9,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@weldsuite/ui/components/form';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildSchema(maxMessage: string) {
   return z.object({ comment: z.string().max(5000, maxMessage) });

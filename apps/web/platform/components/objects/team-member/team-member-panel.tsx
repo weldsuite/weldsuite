@@ -89,7 +89,7 @@ function MemberAvatar({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
 
-  if (!profile) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+  if (!profile) return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
 
   const name = displayNameOf(profile, t('sweep.entities.teamMemberFallback'));
   const presence = getStatus(profile.userId);
@@ -100,11 +100,11 @@ function MemberAvatar({ profile }: Readonly<{ profile?: MemberProfile }>) {
     <div className="relative flex">
       {/* 22×22 rounded square, muted initial fallback. No border, so the
           picture itself is the full 22px. */}
-      <Avatar className="size-[22px] !rounded-[8px]">
+      <Avatar className="size-[22px]">
         {profile.picture && (
-          <AvatarImage src={profile.picture} alt={name} className="!rounded-[8px] object-cover" />
+          <AvatarImage src={profile.picture} alt={name} className="object-cover" />
         )}
-        <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+        <AvatarFallback className="bg-muted text-[10px] font-medium">
           {(name.trim()[0] ?? '#').toUpperCase()}
         </AvatarFallback>
       </Avatar>

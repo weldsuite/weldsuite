@@ -18,7 +18,7 @@ use weldsuite_ports::{BoxFuture, HttpRequest, HttpResponse, OutboundHttp};
 use crate::{encode_component, encode_query_component};
 
 /// `RTK_PRESETS.MEMBER`, the preset a participant gets when none is named.
-pub const MEMBER_PRESET: &str = "group_call_participant_v2";
+pub const MEMBER_PRESET: &str = "group_call_participant_v3";
 
 /// The SDK's default API base.
 const API_BASE: &str = "https://api.cloudflare.com/client/v4";
@@ -193,10 +193,29 @@ fn meeting(id: &str) -> String {
     format!("/meetings/{}", encode_component(id))
 }
 
-/// `RTK_PRESETS`.
-pub const HOST_PRESET: &str = "group_call_host_v3";
-pub const GUEST_PRESET: &str = "group_call_guest_v2";
-pub const GUEST_WAITING_PRESET: &str = "group_call_guest_waiting_v2";
+/// `RTK_PRESETS`: no live transcription.
+pub const HOST_PRESET: &str = "group_call_host_v4";
+pub const GUEST_PRESET: &str = "group_call_guest_v3";
+pub const GUEST_WAITING_PRESET: &str = "group_call_guest_waiting_v3";
+
+/// `RTK_CAPTION_PRESETS`: the same presets with live transcription on, for a
+/// meeting whose host turned on live captions. Each participant on one is
+/// transcribed (Deepgram Nova-3 on Workers AI) for as long as they are in the
+/// call, billed per audio minute.
+pub const HOST_CAPTIONS_PRESET: &str = "group_call_host_captions_v1";
+pub const MEMBER_CAPTIONS_PRESET: &str = "group_call_participant_captions_v1";
+pub const GUEST_CAPTIONS_PRESET: &str = "group_call_guest_captions_v1";
+pub const GUEST_WAITING_CAPTIONS_PRESET: &str = "group_call_guest_waiting_captions_v1";
+
+/// `rtkPreset(isHost ? 'HOST' : 'MEMBER', { captions })`.
+pub fn member_preset(is_host: bool, captions: bool) -> &'static str {
+    match (is_host, captions) {
+        (true, false) => HOST_PRESET,
+        (true, true) => HOST_CAPTIONS_PRESET,
+        (false, false) => MEMBER_PRESET,
+        (false, true) => MEMBER_CAPTIONS_PRESET,
+    }
+}
 
 /// `buildAiConfig(opts)`: the `ai_config` fragment, or `None` when nothing
 /// is set.
@@ -266,7 +285,14 @@ fn to_recording(r: &Value) -> Value {
     Value::Object(out)
 }
 
-/// `buildPresetBody(opts)`: `RealtimeKit`'s strict preset shape.
+/// `opts.transcription` of `buildPresetBody`: live transcription on or off.
+fn transcribing(mut body: Value, on: bool) -> Value {
+    body["permissions"]["transcription_enabled"] = Value::Bool(on);
+    body
+}
+
+/// `buildPresetBody(opts)`: `RealtimeKit`'s strict preset shape, without
+/// live transcription (see `transcribing`).
 fn preset_body(
     name: &str,
     accept_waiting_requests: bool,
@@ -305,7 +331,8 @@ fn preset_body(
             "is_recorder": false,
             "recorder_type": "NONE",
             "show_participant_list": true,
-            "transcription_enabled": true,
+            // Set per variant by `transcribing`.
+            "transcription_enabled": false,
             "can_change_participant_permissions": host,
             "connected_meetings": {
                 "can_alter_connected_meetings": false,
@@ -373,38 +400,61 @@ impl RealtimeKit {
             let request = app.request("POST", "/presets", Some(&body));
             async move { self.call("create RTK preset", request).await.map(|_| ()) }
         };
-        if !has(HOST_PRESET) {
-            match create(preset_body(HOST_PRESET, true, "SKIP", true, true)).await {
-                Ok(()) => {}
-                Err(error) if matches!(error.status, Some(400 | 422)) => {
-                    tracing::error!(%error, "[RTK] host preset with live streaming was rejected, seeding without it");
-                    create(preset_body(HOST_PRESET, true, "SKIP", true, false)).await?;
+        // Each role in both variants: without and with live transcription.
+        for (captions, [host, member, guest, guest_waiting]) in [
+            (
+                false,
+                [
+                    HOST_PRESET,
+                    MEMBER_PRESET,
+                    GUEST_PRESET,
+                    GUEST_WAITING_PRESET,
+                ],
+            ),
+            (
+                true,
+                [
+                    HOST_CAPTIONS_PRESET,
+                    MEMBER_CAPTIONS_PRESET,
+                    GUEST_CAPTIONS_PRESET,
+                    GUEST_WAITING_CAPTIONS_PRESET,
+                ],
+            ),
+        ] {
+            let body = |b: Value| transcribing(b, captions);
+            if !has(host) {
+                match create(body(preset_body(host, true, "SKIP", true, true))).await {
+                    Ok(()) => {}
+                    Err(error) if matches!(error.status, Some(400 | 422)) => {
+                        tracing::error!(%error, "[RTK] host preset with live streaming was rejected, seeding without it");
+                        create(body(preset_body(host, true, "SKIP", true, false))).await?;
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
             }
-        }
-        if !has(MEMBER_PRESET) {
-            create(preset_body(MEMBER_PRESET, false, "SKIP", false, false)).await?;
-        }
-        if !has(GUEST_PRESET) {
-            create(preset_body(
-                GUEST_PRESET,
-                false,
-                "ON_PRIVILEGED_USER_ENTRY",
-                false,
-                false,
-            ))
-            .await?;
-        }
-        if !has(GUEST_WAITING_PRESET) {
-            create(preset_body(
-                GUEST_WAITING_PRESET,
-                false,
-                "SKIP_ON_ACCEPT",
-                false,
-                false,
-            ))
-            .await?;
+            if !has(member) {
+                create(body(preset_body(member, false, "SKIP", false, false))).await?;
+            }
+            if !has(guest) {
+                create(body(preset_body(
+                    guest,
+                    false,
+                    "ON_PRIVILEGED_USER_ENTRY",
+                    false,
+                    false,
+                )))
+                .await?;
+            }
+            if !has(guest_waiting) {
+                create(body(preset_body(
+                    guest_waiting,
+                    false,
+                    "SKIP_ON_ACCEPT",
+                    false,
+                    false,
+                )))
+                .await?;
+            }
         }
         Ok(())
     }

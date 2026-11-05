@@ -48,14 +48,10 @@ import {
   useHrAvailableMembers,
   useHrDepartments,
 } from '@/hooks/queries/use-weldhr-queries';
-import {
-  EmployeePicker,
-  ErrorBanner,
-  errorMessage,
-  todayIso,
-} from '../../components/shared';
+import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
 import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({

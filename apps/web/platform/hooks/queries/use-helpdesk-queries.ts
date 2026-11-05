@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
-import type { AuditLogEntry } from '@/components/audit-timeline';
+import type { AuditLogEntry } from '@weldsuite/ui/components/audit-timeline';
 import { asText } from '@weldsuite/text';
 import { isFeatureAvailable } from '@/lib/edition';
 

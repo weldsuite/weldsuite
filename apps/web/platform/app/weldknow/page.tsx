@@ -4,7 +4,7 @@ import { BookOpen, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useKnowledgePageTree, useKnowledgeSpaces } from '@/hooks/queries/use-knowledge-queries';
 import { CreateSpaceDialog } from './components/create-space-dialog';
 

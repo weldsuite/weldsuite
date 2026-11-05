@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useParams, useRouter } from '@/lib/router';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useTaskById } from '@/components/objects/task/use-task-data';
 
 /**

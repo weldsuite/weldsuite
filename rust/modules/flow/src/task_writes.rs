@@ -196,6 +196,7 @@ fn read_create(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update 
         "projectId",
         "sprintId",
         "milestoneId",
+        "deliverableId",
         "parentTaskId",
         "stageId",
         "assigneeId",
@@ -271,6 +272,7 @@ fn read_update(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update 
         "stageId",
         "sprintId",
         "milestoneId",
+        "deliverableId",
         "parentTaskId",
         "assigneeId",
     ] {
@@ -344,6 +346,7 @@ fn references(data: &Update, with_parent: bool) -> TaskReferences {
     TaskReferences {
         sprint_id: get("sprintId"),
         milestone_id: get("milestoneId"),
+        deliverable_id: get("deliverableId"),
         stage_id: get("stageId"),
         parent_task_id: if with_parent {
             get("parentTaskId")
@@ -358,6 +361,7 @@ fn row_references(row: &Value) -> TaskReferences {
     TaskReferences {
         sprint_id: get("sprintId"),
         milestone_id: get("milestoneId"),
+        deliverable_id: get("deliverableId"),
         stage_id: get("stageId"),
         parent_task_id: get("parentTaskId"),
     }
@@ -684,6 +688,8 @@ async fn write_columns_on<'e>(
         set_text!("sprintId", "sprint_id"),
         ", ",
         set_text!("milestoneId", "milestone_id"),
+        ", ",
+        set_text!("deliverableId", "deliverable_id"),
         ", ",
         set_text!("parentTaskId", "parent_task_id"),
         ", ",
@@ -1213,7 +1219,7 @@ pub(crate) async fn dependencies(
         };
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, &id, &plan, &at).await?;
+        write_dependency_rows(&mut tx, &id, &plan, &at, &caller.user_id).await?;
         tx.commit().await?;
         let task = task.unwrap_or(Value::Null);
         caller.publish(
@@ -1234,7 +1240,7 @@ pub(crate) async fn dependencies(
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
 
 /// `PATCHABLE_TASK_COLUMNS`.
-const PATCHABLE: [&str; 23] = [
+const PATCHABLE: [&str; 24] = [
     "title",
     "description",
     "status",
@@ -1243,6 +1249,7 @@ const PATCHABLE: [&str; 23] = [
     "stageId",
     "sprintId",
     "milestoneId",
+    "deliverableId",
     "parentTaskId",
     "assigneeId",
     "customerId",
@@ -1504,7 +1511,7 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
     if let Some(plan) = &plan {
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, id, plan, &at).await?;
+        write_dependency_rows(&mut tx, id, plan, &at, &caller.user_id).await?;
         write_columns_on(&mut *tx, id, &update, false).await?;
         tx.commit().await?;
     } else {

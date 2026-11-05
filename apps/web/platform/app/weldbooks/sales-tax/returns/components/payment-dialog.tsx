@@ -34,9 +34,9 @@ import {
   type PaymentResult,
   type TaxReturnDetail,
 } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { Notice } from '../../shared/notice';
 import { fill } from '../../shared/text';
 import { paymentAmountProblem, paymentDifference, paymentNeedsReason, parseAmount, roundMoney } from '../return-model';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -250,17 +250,17 @@ export function PaymentDialog({ ret, open, onOpenChange, onPaid }: Readonly<Paym
           </div>
 
           {totalDue < 0 ? (
-            <Notice tone="info">
+            <InfoBanner>
               <p>{tp.creditHint}</p>
-            </Notice>
+            </InfoBanner>
           ) : null}
 
           {differs || serverWantsReason ? (
             <div className="space-y-2" data-testid="difference-section">
               {differs ? (
-                <Notice tone="warning">
+                <InfoBanner variant="warning">
                   <p>{fill(tp.differenceHint, { amount: formatMoney(Math.abs(difference)) })}</p>
-                </Notice>
+                </InfoBanner>
               ) : null}
               <Label htmlFor="payment-reason">{tp.differenceReason}</Label>
               <Textarea

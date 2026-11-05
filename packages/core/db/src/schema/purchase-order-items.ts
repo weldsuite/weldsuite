@@ -53,7 +53,13 @@ export const purchaseOrderItems = pgTable('purchase_order_items', {
 
   // Metadata
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+
+  // The WeldFlow project this line's cost belongs to (FLOW-019). Set in
+  // WeldStash's own UI; WeldFlow only reads it. `projects.id`, deliberately no
+  // foreign key: the project belongs to another module.
+  projectId: varchar('project_id', { length: 255 }),
 }, (table) => [
+  index('po_items_project_idx').on(table.projectId),
   index('po_items_po_idx').on(table.purchaseOrderId),
   index('po_items_product_idx').on(table.productId),
 ]);

@@ -7,17 +7,10 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useMyHrAttendance } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText, SectionCard } from '../../components/page-kit';
-import {
-  ErrorBanner,
-  StatusBadge,
-  errorMessage,
-  formatDate,
-  formatMinutes,
-  useFormatTime,
-  shiftIsoDate,
-  todayIso,
-} from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { StatusBadge, errorMessage, formatDate, formatMinutes, useFormatTime, shiftIsoDate, todayIso } from '../../components/shared';
 import { OpenShiftsCard } from './open-shifts-card';
 import { TabLoading } from './shared';
 import { UpcomingShiftsCard } from './shifts-card';

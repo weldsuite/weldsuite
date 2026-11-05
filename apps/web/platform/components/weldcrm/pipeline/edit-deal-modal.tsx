@@ -26,7 +26,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -180,9 +180,9 @@ export function EditDealModal({
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <Avatar className="h-10 w-10 rounded-lg">
+            <Avatar className="h-10 w-10">
               <AvatarImage src={deal.company?.logoUrl} />
-              <AvatarFallback className="rounded-lg text-xs bg-primary/10 text-primary">
+              <AvatarFallback className="text-xs bg-primary/10 text-primary">
                 {getInitials(getCompanyName())}
               </AvatarFallback>
             </Avatar>

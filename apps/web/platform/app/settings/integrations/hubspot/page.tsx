@@ -17,11 +17,11 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useIntegrationConnections,
   useDisconnectIntegration,

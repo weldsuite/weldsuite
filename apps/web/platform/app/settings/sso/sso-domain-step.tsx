@@ -17,7 +17,7 @@ import {
   FormMessage,
 } from '@weldsuite/ui/components/form';
 import { normalizeSsoDomain, type SsoConfigView } from '@weldsuite/app-api-client/schemas/sso';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRemoveSsoDomain, useSetSsoDomain, useVerifySsoDomain } from '@/hooks/queries/use-sso-queries';
 import { CopyField } from './copy-field';

@@ -9,7 +9,7 @@ using the AI SDK as documented.
   third-party models (Anthropic / OpenAI / Google, via Unified Billing / BYOK)
   share one endpoint and one token.
 - **Canonical model ids.** Call sites pass Cloudflare-shaped ids (e.g.
-  `anthropic/claude-sonnet-4-5`); billing keys on the canonical id, so pricing is
+  `anthropic/claude-sonnet-5-5`); billing keys on the canonical id, so pricing is
   stable across every surface.
 - **Full AI SDK surface:** `generateText`, `streamText`, `generateObject`,
   `streamObject`, `embed`, `embedMany`, `tool` (tool calling), etc.
@@ -76,7 +76,7 @@ const ai = createWeldAI(c.env);            // Worker: pass request env
 await generateText({ model: ai.model('@cf/meta/llama-3.3-70b-instruct-fp8-fast'), prompt });
 
 // Premium third-party when quality matters
-await generateText({ model: ai.model('anthropic/claude-sonnet-4-5'), prompt });
+await generateText({ model: ai.model('anthropic/claude-sonnet-5-5'), prompt });
 
 // Or let the task→model map decide free vs quality
 await generateText({ model: ai.model(recommended.summarize.quality), prompt });
@@ -131,7 +131,7 @@ pnpm --filter @weldsuite/ai smoke
 ```ts
 import { recommended } from '@weldsuite/ai';
 ai.model(recommended.classify.free);      // @cf/meta/llama-3.1-8b-instruct-fast
-ai.model(recommended.copilot.quality);    // anthropic/claude-sonnet-4-5
+ai.model(recommended.copilot.quality);    // anthropic/claude-sonnet-5-5
 ```
 
 ## API

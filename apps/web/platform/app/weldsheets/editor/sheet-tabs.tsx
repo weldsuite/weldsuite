@@ -12,7 +12,7 @@ import {
   ContextMenuTrigger,
 } from '@weldsuite/ui/components/context-menu';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import type { SheetController } from './model/sheet-controller';
 

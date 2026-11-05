@@ -1,7 +1,7 @@
 
 import { useMailAccounts, useMailMessages } from '@/hooks/queries/use-mail-queries';
 import { InboxClient } from './inbox-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { hasLabel } from '../lib/message-labels';

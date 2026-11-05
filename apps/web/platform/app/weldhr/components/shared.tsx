@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { AlertTriangle, Check, ChevronDown, Loader2, X } from 'lucide-react';
+import { Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -21,33 +21,6 @@ import { formatClock, useTimeFormat, type TimeFormat } from '@/app/weldcalendar/
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
-
-export function ErrorBanner({ error, onDismiss }: Readonly<{ error: string | null; onDismiss?: () => void }>) {
-  const t = useTranslations();
-  if (!error) return null;
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      {/* `overflow-wrap:anywhere`: a long unbroken message must wrap, not push the dialog wider. */}
-      <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{error}</span>
-      {onDismiss && (
-        <button onClick={onDismiss} aria-label={t('weldhr.common.dismiss')} className="shrink-0">
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** A heads-up that does not block the action (over allowance, before the start date…). */
-export function WarningNote({ children }: Readonly<{ children: ReactNode }>) {
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{children}</span>
-    </div>
-  );
-}
 
 export function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useSetupTexts } from './setup-texts';
 

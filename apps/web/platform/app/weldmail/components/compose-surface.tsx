@@ -69,7 +69,7 @@ import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
-import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
+import { WeldAgentIcon } from '@weldsuite/ui/components/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/app/weldmail/components/compose-recipients';
 import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
@@ -136,8 +136,8 @@ function FromAccountLabel({ account }: Readonly<{ account: MailAccountOption }>)
   const name = accountDisplayName(account);
   return (
     <span className="flex items-center gap-1.5 min-w-0">
-      <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
-        <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+      <Avatar className="h-4 w-4 flex-shrink-0">
+        <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
           {name.charAt(0).toUpperCase()}
         </AvatarFallback>
       </Avatar>

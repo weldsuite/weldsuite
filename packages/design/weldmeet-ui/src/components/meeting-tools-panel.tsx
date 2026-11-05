@@ -177,6 +177,43 @@ function toolStatus(
   labels: MeetingToolsLabels,
   now: number,
 ): { description: string; live: boolean } {
+  // Both read the live transcription, which only runs with live captions on.
+  if (tools && !tools.liveCaptions && (key === 'translation' || key === 'transcribe')) {
+    return { description: labels.rows.liveCaptionsOff, live: false };
+  }
+  return runningToolStatus(key, tools, labels, now);
+}
+
+type ToolStatus = { description: string; live: boolean };
+
+/** The Timer row while a countdown runs or is paused; null when idle. */
+function timerStatus(
+  timer: MeetingToolsController['state']['timer'],
+  rows: MeetingToolsLabels['rows'],
+  now: number,
+): ToolStatus | null {
+  if (timer.status === 'idle') return null;
+  const time = formatCountdown(timerRemainingMs(timer, now));
+  const template = timer.status === 'paused' ? rows.timerPaused : rows.timerRunning;
+  return { description: formatLabel(template, { time }), live: true };
+}
+
+/** The Live streaming row while live or when it cannot stream; null when idle. */
+function livestreamStatus(
+  livestream: MeetingToolsController['livestream'],
+  rows: MeetingToolsLabels['rows'],
+): ToolStatus | null {
+  if (livestream.isLive) return { description: rows.livestreamLive, live: true };
+  return livestream.canLivestream ? null : { description: rows.livestreamUnavailable, live: false };
+}
+
+/** {@link toolStatus} for a tool that can run: idle, or what it is doing. */
+function runningToolStatus(
+  key: MeetingToolKey,
+  tools: MeetingToolsController | null | undefined,
+  labels: MeetingToolsLabels,
+  now: number,
+): { description: string; live: boolean } {
   const rows = labels.rows;
   const idle = { description: rows[`${key}Description` as const], live: false };
   if (!tools) return idle;
@@ -189,15 +226,10 @@ function toolStatus(
             live: true,
           }
         : idle;
-    case 'timer': {
-      if (state.timer.status === 'idle') return idle;
-      const time = formatCountdown(timerRemainingMs(state.timer, now));
-      const template = state.timer.status === 'paused' ? rows.timerPaused : rows.timerRunning;
-      return { description: formatLabel(template, { time }), live: true };
-    }
+    case 'timer':
+      return timerStatus(state.timer, rows, now) ?? idle;
     case 'livestream':
-      if (tools.livestream.isLive) return { description: rows.livestreamLive, live: true };
-      return tools.livestream.canLivestream ? idle : { description: rows.livestreamUnavailable, live: false };
+      return livestreamStatus(tools.livestream, rows) ?? idle;
     case 'breakout':
       return state.breakout.active
         ? { description: formatLabel(rows.breakoutActive, { count: state.breakout.rooms.length }), live: true }
@@ -355,6 +387,7 @@ function ToolView({
           onCaptionsChange={(captions) => store.setPrefs({ captions })}
           meetingTitle={tools.meetingTitle}
           labels={labels}
+          liveCaptions={tools.liveCaptions}
         />
       );
     case 'translation':

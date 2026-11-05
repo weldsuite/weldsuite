@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useInfiniteProjects, type ProjectListFilters } from '@/hooks/queries/use-projects-queries';
 import { useDebounce } from '@/hooks/use-debounce';
 import { AllProjectsClient } from './all-projects-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { ListLoadError } from '@/app/weldflow/components/list-load-error';
 import type { ActiveFilter, SortState } from '@/components/entity-list';

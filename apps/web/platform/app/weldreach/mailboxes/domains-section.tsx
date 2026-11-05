@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { ReachDomain } from '@weldsuite/app-api-client/schemas/reach';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDisconnectReachDomain,
   useReachAccess,
@@ -31,7 +31,9 @@ import {
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { DomainCandidateList, WeldHostDomainShortcuts } from '../components/domain-candidates';
 import { DnsChecks, DomainStatusBadge } from '../components/status';
-import { EmptyPanel, ErrorPanel, SectionCard } from '../components/page-kit';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 
 export function DomainsSection() {
   const t = useTranslations();
@@ -95,9 +97,9 @@ export function DomainsSection() {
           {t('reach.common.loading')}
         </div>
       )}
-      {domains.isError && <ErrorPanel onRetry={() => void domains.refetch()} />}
+      {domains.isError && <ErrorState onRetry={() => void domains.refetch()} />}
       {domains.data && domains.data.length === 0 && (
-        <EmptyPanel
+        <EmptyState
           icon={Globe}
           title={t('reach.mailboxes.domains.empty')}
           description={t('reach.mailboxes.domains.emptyHint')}
@@ -221,7 +223,7 @@ function ConnectDomainDialog({ open, onOpenChange }: Readonly<{ open: boolean; o
             {t('reach.common.loading')}
           </div>
         )}
-        {candidates.isError && <ErrorPanel onRetry={() => void candidates.refetch()} />}
+        {candidates.isError && <ErrorState onRetry={() => void candidates.refetch()} />}
         {candidates.data && (
           <>
             {candidates.data.length > 6 && (

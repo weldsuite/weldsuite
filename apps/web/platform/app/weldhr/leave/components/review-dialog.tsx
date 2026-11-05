@@ -16,7 +16,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrLeaveBalances, useReviewHrLeaveRequest } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
-import { ErrorBanner, WarningNote, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 export function LeaveReviewDialog({
   request,
@@ -74,14 +76,14 @@ export function LeaveReviewDialog({
             />
           )}
           {balance && shortfall > 0 && !blocked && (
-            <WarningNote>
+            <InfoBanner variant="warning">
               {t('weldhr.leave.requests.overAllowanceOnApprove', {
                 days: request.days,
                 remaining: balance.remaining ?? 0,
                 type: balance.name,
                 over: shortfall,
               })}
-            </WarningNote>
+            </InfoBanner>
           )}
           <div className="space-y-1.5">
             <Label htmlFor="hr-leave-review-note">{t('weldhr.leave.requests.reviewNoteLabel')}</Label>

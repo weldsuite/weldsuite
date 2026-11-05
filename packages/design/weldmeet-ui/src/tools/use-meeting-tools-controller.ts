@@ -30,6 +30,8 @@ export interface MeetingToolsController {
   captions: TranscriptLine[];
   /** This viewer asked for captions (or a translation of them), whatever the host policy says. */
   wantsCaptions: boolean;
+  /** The meeting transcribes speech at all (live captions on). */
+  liveCaptions: boolean;
   isOrganizer: boolean;
   /** Everyone in the meeting, local participant first (not filtered by breakout room). */
   participants: MeetingPeer[];
@@ -72,6 +74,12 @@ interface ControllerOptions {
   labels?: MeetingToolsLabels;
   /** The host app's rolling caption buffer. The live transcript is used when omitted. */
   captions?: TranscriptLine[];
+  /**
+   * The meeting transcribes speech (its host turned on live captions). When
+   * false nobody is transcribed, so Transcribe and Speech translation say so
+   * instead of waiting for text that never comes. Defaults to true.
+   */
+  liveCaptions?: boolean;
   /** The Meeting tools panel is the open right panel. */
   panelOpen: boolean;
   /** Opens the Meeting tools panel (used by the "View" action on a notification). */
@@ -209,6 +217,7 @@ export function useMeetingToolsController(options: ControllerOptions): MeetingTo
       ? captionSource.map((line) => ({ ...line, text: translation.translate(line.text) }))
       : captionSource,
     wantsCaptions: state.prefs.captions || translationEnabled,
+    liveCaptions: options.liveCaptions ?? true,
     isOrganizer,
     participants,
     meetingTitle,

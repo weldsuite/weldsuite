@@ -1584,20 +1584,51 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
     let Some(existing) = existing.map(js_row) else {
         return Err(Refusal::not_found("Time entry", id));
     };
+    if let Some(denial) = review_denial(caller, &existing).await? {
+        return Err(Refusal::forbidden(denial));
+    }
+    apply_review(state, caller, id, &existing, approved).await?;
+    let status = if approved { "approved" } else { "rejected" };
+    Ok(Data(json!({ "id": id, "status": status })).into_response())
+}
+
+/// `reviewDenial(c, entry)` (`services/time-entry-review.ts`), shared with My reviews.
+pub(crate) async fn review_denial(
+    caller: &Caller,
+    existing: &Value,
+) -> Result<Option<&'static str>, sqlx::Error> {
     if existing["userId"].as_str() == Some(caller.user_id.as_str()) {
-        return Err(Refusal::forbidden(
-            "You cannot approve or reject your own time entry",
-        ));
+        return Ok(Some("You cannot approve or reject your own time entry"));
     }
     let allowed = match existing["projectId"].as_str().filter(|p| !p.is_empty()) {
         Some(project) => caller.can_manage(project).await?,
         None => caller.scope_all(),
     };
-    if !allowed {
-        return Err(Refusal::forbidden(
-            "Only a project manager can approve or reject time entries",
-        ));
-    }
+    Ok((!allowed).then_some("Only a project manager can approve or reject time entries"))
+}
+
+/// A live time entry as `js_row` reads it.
+pub(crate) async fn find_entry(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    let found: Option<Value> = sqlx::query_scalar(concat!(
+        "select ",
+        time_entry_json!("t"),
+        " from time_entries t where t.id = $1 and t.deleted_at is null limit 1"
+    ))
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
+    Ok(found.map(js_row))
+}
+
+/// `applyTimeEntryReview(c, entry, status)`: write the status and publish the two entity events.
+pub(crate) async fn apply_review(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    existing: &Value,
+    approved: bool,
+) -> Result<(), sqlx::Error> {
+    let db = &caller.db;
     let (now, _) = now_stamp();
     sqlx::query(
         "update time_entries set status = $2, approved_by = $3,
@@ -1611,7 +1642,7 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
     .bind(&now)
     .execute(db)
     .await?;
-    let payload = entry_payload(id, &existing);
+    let payload = entry_payload(id, existing);
     caller.publish(state, PROJECT_TIME_ENTRY_UPDATED, id, &payload);
     let mut reviewed = payload;
     if let Value::Object(fields) = &mut reviewed {
@@ -1630,8 +1661,7 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
         id,
         &reviewed,
     );
-    let status = if approved { "approved" } else { "rejected" };
-    Ok(Data(json!({ "id": id, "status": status })).into_response())
+    Ok(())
 }
 
 /// `{ id, projectId, taskId, userId, duration: Number(duration) }`.

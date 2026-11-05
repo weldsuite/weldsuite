@@ -4,7 +4,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { WorkflowSettingsContent } from '@/app/weldconnect/workflows/[id]/settings/page';
 import { useSequence } from '@/hooks/queries/use-sequences-queries';
 import { SequenceWizardNav } from '../components/sequence-wizard-nav';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function SequenceSettingsPage() {
   const params = useParams();

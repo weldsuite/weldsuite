@@ -13,7 +13,7 @@ import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useList, useRemoveListMember, listKeys } from '@/hooks/queries/use-lists-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { ArrowLeft } from 'lucide-react';

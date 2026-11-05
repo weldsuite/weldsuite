@@ -5,8 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/componen
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAnnouncement, HrAnnouncementRead } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrAnnouncementReads } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText } from '../../components/page-kit';
-import { EmployeeAvatar, ErrorBanner, errorMessage, formatDateTime } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { EmployeeAvatar, errorMessage, formatDateTime } from '../../components/shared';
 import { TabLoading } from '../../me/components/shared';
 
 function ReadList({ items, empty, showDate }: Readonly<{ items: HrAnnouncementRead[]; empty: string; showDate: boolean }>) {

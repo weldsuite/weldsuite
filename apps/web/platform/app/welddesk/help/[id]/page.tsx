@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { useHelpArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { ArticleViewClient } from './article-view-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
 function toViewArticle(article: Helpdesk.Article) {

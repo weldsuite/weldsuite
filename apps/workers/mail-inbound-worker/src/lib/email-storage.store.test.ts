@@ -199,6 +199,84 @@ describe('storeEmail: object-mode ingest through the mailbox store', () => {
     expect(stats.total).toBe(1);
   });
 
+  describe('mail this account sent, coming back', () => {
+    // Cloudflare gives every envelope its own Message-ID; the SENT copy keeps
+    // the first outside recipient's as its RFC id and the copy delivered back
+    // to this mailbox as its external id (`sentCopyMessageIds`).
+    const OUTSIDE_ID = '<cf-sara@weldmail.com>';
+    const SELF_ID = '<cf-self@weldmail.com>';
+
+    async function seedSentCopy(mailbox: MailboxStore) {
+      await mailbox.apply({
+        kind: 'ingest',
+        message: {
+          id: 'msg_sent_1',
+          source: 'sent',
+          rfcMessageId: OUTSIDE_ID,
+          externalMessageId: SELF_ID,
+          threadId: OUTSIDE_ID,
+          from: { email: 'inbox@weldmail.com' },
+          to: [{ email: 'inbox@weldmail.com' }, { email: 'sara@example.com' }],
+          subject: 'Plan',
+          preview: 'Hi',
+          sentAt: Date.parse('2026-01-01T00:00:00.000Z'),
+          receivedAt: null,
+          createdAt: Date.parse('2026-01-01T00:00:00.000Z'),
+          isRead: true,
+          labels: ['SENT'],
+          isSpam: false,
+          isReply: false,
+          attachments: [],
+        },
+      });
+    }
+
+    it('a copy the account sent to itself is recognised as the SENT message, not stored again', async () => {
+      const { mailbox } = makeMailbox();
+      await seedSentCopy(mailbox);
+
+      const result = await storeEmail(
+        ENV,
+        makeAccount(),
+        makeEmail({
+          messageId: SELF_ID,
+          from: { email: 'inbox@weldmail.com' },
+          to: [{ email: 'inbox@weldmail.com' }, { email: 'sara@example.com' }],
+          subject: 'Plan',
+          dkimStatus: 'pass',
+        }),
+        [],
+        undefined,
+        mailbox,
+      );
+
+      expect(result).toBeNull();
+      expect((await mailbox.stats()).total).toBe(1);
+    });
+
+    it('an outside reply threads onto the SENT message by In-Reply-To', async () => {
+      const { mailbox } = makeMailbox();
+      await seedSentCopy(mailbox);
+
+      const reply = await storeEmail(
+        ENV,
+        makeAccount(),
+        makeEmail({
+          messageId: '<reply-from-sara@example.com>',
+          from: { email: 'sara@example.com' },
+          subject: 'Different subject entirely',
+          inReplyTo: OUTSIDE_ID,
+        }),
+        [],
+        undefined,
+        mailbox,
+      );
+
+      expect(reply).not.toBeNull();
+      expect(reply!.threadId).toBe((await mailbox.getMessage('msg_sent_1'))!.threadId);
+    });
+  });
+
   it('returns null when the workspace account has no mailbox store resolved', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const result = await storeEmail(ENV, makeAccount(), makeEmail(), [], undefined, null);

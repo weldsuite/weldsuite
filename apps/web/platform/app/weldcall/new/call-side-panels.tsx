@@ -100,8 +100,8 @@ function PersonRow({ name, detail, initials, picture, colorSeed, inCall, micEnab
           initials={initials}
           picture={picture}
           colorSeed={colorSeed}
-          className="h-7 w-7 !rounded-[8px]"
-          innerClassName="text-[10px] !rounded-[8px]"
+          className="h-7 w-7"
+          innerClassName="text-[10px]"
         />
         {inCall && (
           <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-500" />

@@ -4,7 +4,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Tabs, TabsContent } from '@weldsuite/ui/components/tabs';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   Captions,
   Sparkles,

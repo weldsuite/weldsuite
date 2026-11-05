@@ -12,6 +12,9 @@ import { hasContextPermission, requirePermission } from '@weldsuite/permissions/
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema, normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
 import { taskStatusAliases } from '@weldsuite/app-api-client/schemas/tasks';
+import { normalizeProjectTabSettings, projectTabSettingsSchema } from '@weldsuite/app-api-client/schemas/project-tabs';
+import { PROJECT_MANAGE_DENIED, parseBody } from '../../lib/schedule-request';
+import { findLiveProject } from '../../services/project-schedule';
 import { stagePlacement } from '@weldsuite/flow-domain/task-stage';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -475,6 +478,48 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
 });
 
 // ============================================================================
+// PUT /:id/tabs — which project tabs are hidden: for the whole project, per
+// non-admin role and per member (`settings.tabs`, written whole). Whoever may
+// manage the project (`canManageProject`: a project owner or admin, the project
+// manager, `projects:scope:all`). Checks run in the order both backends answer alike:
+// permission, the project (404), project access (403), the body (400).
+// It shapes the tab bar only; the data behind a tab is not gated by it.
+// ============================================================================
+
+app.put('/:id/tabs', requirePermission('projects:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const projectId = c.req.param('id');
+  const project = await findLiveProject(db, projectId);
+  if (!project) return error.notFound(c, 'Project', projectId);
+  if (!(await canManageProject(c, projectId))) return error.forbidden(c, PROJECT_MANAGE_DENIED);
+  const body = await parseBody(c, projectTabSettingsSchema);
+  if (!body.ok) return body.response;
+
+  try {
+    const next = normalizeProjectTabSettings(body.data);
+    // A merge of this key only: the other settings keys are other features'.
+    await db
+      .update(t)
+      .set({
+        settings: sql`coalesce(${t.settings}, '{}'::jsonb) || jsonb_build_object('tabs', ${JSON.stringify(next)}::jsonb)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(t.id, projectId));
+    publishEntityEvent({
+      c,
+      entityType: 'project',
+      entityId: projectId,
+      action: 'updated',
+      data: projectAnalyticsPayload(project as Record<string, unknown>),
+    });
+    return success(c, next);
+  } catch (err) {
+    console.error('[flow-api/projects] tab settings update failed:', err);
+    return error.internal(c, 'Failed to update the project tabs');
+  }
+});
+
+// ============================================================================
 // GET /:id/gantt/tasks — tasks formatted for Gantt rendering.
 // Registered BEFORE /:id so the sub-path literal wins.
 // ============================================================================
@@ -855,6 +900,7 @@ async function planTaskTransfer(db: Variables['tenantDb'], sourceId: string, des
     projectId: destId,
     sprintId: null,
     milestoneId: null,
+    deliverableId: null,
     key: null,
     boardPosition: null,
     position: sql`${tasks.position} + ${offset}`,
@@ -915,7 +961,16 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       const transfer = await planTaskTransfer(db, id, moveTasksTo, now);
       moved = transfer.moved;
       // All-or-nothing: the tasks never end up half moved out of a live project.
-      await atomically(db, (handle) => [...transfer.build(handle), softDelete(handle)]);
+      // A dependency's projectId is its tasks' project (both ends share it, see
+      // POST /api/task-dependencies), so the links travel with the tasks.
+      await atomically(db, (handle) => [
+        ...transfer.build(handle),
+        handle
+          .update(schema.taskDependencies)
+          .set({ projectId: moveTasksTo })
+          .where(eq(schema.taskDependencies.projectId, id)),
+        softDelete(handle),
+      ]);
     } else {
       await softDelete(db);
     }

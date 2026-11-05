@@ -56,7 +56,7 @@ import { postBill, PostingError } from '../../services/accounting-document-posti
 import { draftRate } from '../../services/accounting-fx';
 import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
 import { isGstEntity, resolveGstBillSupply } from '../../services/accounting-gst';
-import { assertDimensionsBelongToEntity, reverseJournalEntry } from '../../services/accounting-posting';
+import { assertDimensionsBelongToEntity, assertProjectsExist, reverseJournalEntry } from '../../services/accounting-posting';
 import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { loadSalesTaxEntity, usesSalesTax } from '../../services/sales-tax/document-tax';
 import {
@@ -124,6 +124,8 @@ const lineItemSchema = z.object({
   fiscalData: brLineFiscalSchema,
   classId: z.string().max(30).nullable().optional(),
   locationId: z.string().max(30).nullable().optional(),
+  /** The WeldFlow project the line's cost belongs to (FLOW-019); null clears the tag. */
+  projectId: z.string().max(255).nullable().optional(),
 });
 
 type BillLineInput = z.infer<typeof lineItemSchema>;
@@ -162,6 +164,7 @@ function buildBillItemRecords(
     fiscalData: item.fiscalData ?? null,
     classId: item.classId || null,
     locationId: item.locationId || null,
+    projectId: item.projectId || null,
     createdAt: now,
     updatedAt: now,
   }));
@@ -380,6 +383,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
     const billId = generateId('bil');
     const { itemIds, taxItems } = withLineIds(data.items);
     await assertDimensionsBelongToEntity(db, entityId, data.items);
+    await assertProjectsExist(db, data.items);
     const deliveryAddress = normalizePostalAddress(data.deliveryAddress);
     const vendorAddress = normalizePostalAddress(data.vendorAddress);
     // India GST: the supplier's state against the entity's decides CGST + SGST versus IGST input tax.
@@ -824,6 +828,7 @@ async function storedBillLines(db: Database, billId: string): Promise<BillLineIn
     fiscalData: (item.fiscalData as BillLineInput['fiscalData']) ?? null,
     classId: item.classId,
     locationId: item.locationId,
+    projectId: item.projectId,
   }));
 }
 
@@ -861,7 +866,11 @@ async function applyBillTaxChanges(
   data: BillUpdate,
   updateData: Record<string, unknown>,
 ): Promise<BillItemRecords | undefined> {
-  if (data.items) return replaceBillItems(c, db, bill, data.items, updateData);
+  if (data.items) {
+    // Only lines sent now are checked: a tag on a saved line stays when its project is deleted later.
+    await assertProjectsExist(db, data.items);
+    return replaceBillItems(c, db, bill, data.items, updateData);
+  }
   if (
     (data.fiscalData !== undefined || data.vendorAddress !== undefined || data.contactId !== undefined || data.issueDate !== undefined) &&
     (await hasDocumentTaxHook(db, bill.entityId))

@@ -1,0 +1,1 @@
+ALTER TABLE "flow_workspace_settings" ADD COLUMN "risk_categories" jsonb;

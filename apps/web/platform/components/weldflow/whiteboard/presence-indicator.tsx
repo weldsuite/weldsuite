@@ -108,12 +108,14 @@ export const PresenceIndicator = memo(function PresenceIndicator({
             <PresenceAvatar key={user.id} user={user} index={index} />
           ))}
           {hiddenCount > 0 && (
-            <div
-              className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-medium shadow-sm"
+            <Avatar
+              className="-ml-2 h-7 w-7 border-2 border-background shadow-sm"
               style={{ zIndex: 10 - maxVisible }}
             >
-              +{hiddenCount}
-            </div>
+              <AvatarFallback className="bg-muted text-[10px] font-medium">
+                +{hiddenCount}
+              </AvatarFallback>
+            </Avatar>
           )}
         </div>
       )}
@@ -166,11 +168,9 @@ const _ElementEditIndicator = memo(function ElementEditIndicator({
               style={{ backgroundColor: editor.color }}
             >
               {editor.avatar ? (
-                <img
-                  src={editor.avatar}
-                  alt={editor.name}
-                  className="h-3 w-3 rounded-full"
-                />
+                <Avatar className="h-3 w-3">
+                  <AvatarImage src={editor.avatar} alt={editor.name} />
+                </Avatar>
               ) : (
                 <span>{getInitials(editor.name)}</span>
               )}

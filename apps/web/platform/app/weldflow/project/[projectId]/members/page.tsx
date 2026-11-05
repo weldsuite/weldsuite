@@ -3,7 +3,7 @@ import { useParams } from '@/lib/router';
 import { MembersClient } from './members-client';
 import { useProjectMembers, useProjectAvailableUsers } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function MembersPage() {
   const params = useParams();

@@ -4,7 +4,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCan } from '@weldsuite/permissions/react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { cn } from '@/lib/utils';
 
 export function InboxLayout({ children }: Readonly<{ children: ReactNode }>) {

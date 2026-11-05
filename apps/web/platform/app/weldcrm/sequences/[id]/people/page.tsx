@@ -1,6 +1,6 @@
 
 import { useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useSequence, useSequenceEnrollments } from '@/hooks/queries/use-sequences-queries';
 import { SequencePeopleClient } from './people-client';
 import { getTranslations } from '@/lib/i18n';

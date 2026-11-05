@@ -279,9 +279,9 @@ function ProjectAvatar({ color }: Readonly<{ color?: string | null }>) {
 
 function DmAvatar({ name, picture }: Readonly<{ name: string; picture?: string }>) {
   return (
-    <Avatar className="h-5 w-5 !rounded-[6px]">
-      {picture && <AvatarImage src={picture} className="!rounded-[6px]" />}
-      <AvatarFallback className="text-[9px] !rounded-[6px]">
+    <Avatar className="h-5 w-5">
+      {picture && <AvatarImage src={picture} />}
+      <AvatarFallback className="text-[9px]">
         {(name || '?')[0]!.toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -304,9 +304,9 @@ function GroupDmAvatar({ name }: Readonly<{ name: string }>) {
       {GROUP_DM_AVATAR_SLOTS.map(({ slot, position }, i) => (
         <Avatar
           key={slot}
-          className={cn('h-[13px] w-[13px] absolute !rounded-[4px] border border-background', position)}
+          className={cn('h-[13px] w-[13px] absolute border border-background', position)}
         >
-          <AvatarFallback className="text-[7px] !rounded-[4px]">
+          <AvatarFallback className="text-[7px]">
             {(visible[i]?.[0] || '?').toUpperCase()}
           </AvatarFallback>
         </Avatar>

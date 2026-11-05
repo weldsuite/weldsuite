@@ -3,7 +3,7 @@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@weldsuite/ui/components/sheet';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayrollFiling } from '@weldsuite/app-api-client/domains/weldhr-payroll';
-import { EmptyText } from '../../components/page-kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { formatDate, formatDateTime } from '../../components/shared';
 import { countryCurrency, formatCents, formatDecimal, humanizeKey, periodRange } from '../lib/format';
 import { FilingStatusBadge, InfoLine, ValueRow } from './payroll-ui';

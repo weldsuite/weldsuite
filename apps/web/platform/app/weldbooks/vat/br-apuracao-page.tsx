@@ -17,8 +17,8 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBookBrApuracao, useBrApuracao, isValidApuracaoPeriod } from '@/hooks/queries/use-weldbooks-br-queries';
 import type { BrApuracaoResult } from '@/lib/api/domains/weldbooks-br';
 import { useI18n } from '@/lib/i18n/provider';

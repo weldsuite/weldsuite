@@ -10,8 +10,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { WeldPassSyncTarget } from '@weldsuite/app-api-client/domains/weldpass';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useParams } from '@/lib/router';
 import {
   useDeleteWeldPassCredential,
@@ -23,8 +23,11 @@ import {
   useWeldPassSyncRuns,
   useWeldPassSyncTargets,
 } from '@/hooks/queries/use-weldpass-queries';
-import { EmptyText, SectionCard, TabBody } from '../../components/page-kit';
-import { ErrorBanner, TimeAgo, errorMessage, statusTone } from '../../components/shared';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { TimeAgo, errorMessage, statusTone } from '../../components/shared';
 import { CredentialDialog, TargetDialog, describeConfig } from '../../components/sync-dialogs';
 import { ProjectPage } from '../components/project-page';
 

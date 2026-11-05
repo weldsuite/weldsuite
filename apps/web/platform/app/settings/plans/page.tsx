@@ -3,7 +3,7 @@ import { BillingSettingsSection } from '@/components/settings';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 

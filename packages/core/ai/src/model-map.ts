@@ -4,7 +4,7 @@
  * ## Why canonical ids are Cloudflare-shaped
  *
  * WeldSuite's canonical vocabulary *is* the Cloudflare id set (`@cf/…`,
- * `anthropic/claude-sonnet-4-5`, `google-ai-studio/gemini-2.5-flash`). Because
+ * `anthropic/claude-sonnet-5-5`, `google-ai-studio/gemini-2.5-flash`). Because
  * the only gateway is Cloudflare, translation is the identity map — but the
  * `resolveModelId`/`isModelSupported` seam is kept so a future second gateway
  * slots in here rather than at every call site.

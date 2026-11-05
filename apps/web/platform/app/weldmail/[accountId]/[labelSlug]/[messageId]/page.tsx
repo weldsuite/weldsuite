@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { useEffect } from 'react';
 import { MailMessageView } from '../../../components/mail-message-view';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function LabelMessagePage() {
   const params = useParams();

@@ -6,10 +6,11 @@
  */
 
 import { useTranslations } from '@weldsuite/i18n/client';
-import { DashboardPage, useReachBreadcrumbs } from '../components/page-kit';
+import { useReachBreadcrumbs } from '../components/page-kit';
 import { useBillingReturn } from '../components/use-payment-method-setup';
 import { DomainsSection } from './domains-section';
 import { MailboxesSection } from './mailboxes-section';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
 
 export default function ReachMailboxesPage() {
   const t = useTranslations();

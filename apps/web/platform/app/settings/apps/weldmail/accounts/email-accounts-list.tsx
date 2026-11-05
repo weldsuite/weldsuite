@@ -170,11 +170,11 @@ function buildEmailAccountColumns({
               const avatar = (
                 <Avatar
                   key={u.userId}
-                  className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                  className="h-5 w-5 ring-1 ring-background"
                   title={u.name}
                 >
-                  {u.avatar && <AvatarImage src={u.avatar} alt={u.name} className="!rounded-[7px]" />}
-                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                  {u.avatar && <AvatarImage src={u.avatar} alt={u.name} />}
+                  <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                     {u.name.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>

@@ -45,6 +45,31 @@ export const Default: Story = {
   ),
 };
 
+/** Several field changes on one entry, one line per field. */
+export const MultipleChanges: Story = {
+  args: {
+    logs: [
+      {
+        id: 'a',
+        action: 'updated',
+        description: 'Updated the task',
+        changes: {
+          status: { from: 'todo', to: 'in_progress' },
+          dueDate: { from: null, to: '2026-11-20T00:00:00.000Z' },
+          assigneeName: { from: 'Sam Lee', to: 'Jane Doe' },
+        },
+        createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+      },
+      ...logs,
+    ],
+  },
+  render: (args) => (
+    <div className="max-w-md">
+      <AuditTimeline {...args} />
+    </div>
+  ),
+};
+
 export const Empty: Story = {
   args: { logs: [] },
 };

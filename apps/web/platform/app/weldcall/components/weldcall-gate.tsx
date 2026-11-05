@@ -1,5 +1,5 @@
 import { ReactNode, useEffect } from 'react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useVoipPhoneNumbers,
   useVoipConfigured,

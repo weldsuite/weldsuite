@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { MemberDetailClient } from './member-detail-client';
 import { useHelpdeskAgent, useAgentTickets } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface RawAgentTicket {

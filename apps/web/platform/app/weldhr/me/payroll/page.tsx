@@ -1,6 +1,6 @@
 import { Navigate } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { MY_HR_PATHS } from '../../access';
 import { useMyHrSelf } from '../components/my-hr-context';
 import { MyHrPage } from '../components/my-hr-page';

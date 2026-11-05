@@ -490,6 +490,84 @@ fn to_smtp_message_id(external: &str) -> String {
     }
 }
 
+/// `SentCopyMessageIds`: the ids a SENT copy is recorded under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentCopyMessageIds {
+    /// The row's `message_id`: what the first outside recipient received.
+    pub rfc_message_id: String,
+    /// The row's `external_message_id`: the self-copy's id when there is one,
+    /// else the transport's.
+    pub external_message_id: String,
+    /// The id of the copy delivered back to this mailbox, when the account
+    /// addressed itself.
+    pub self_message_id: Option<String>,
+}
+
+/// `sentCopyMessageIds(accountEmail, recipients, result)`. Cloudflare gives
+/// every envelope its own Message-ID, so the row's `message_id` is the one
+/// the first outside recipient received (to → cc → bcc), which their reply
+/// quotes in In-Reply-To, and `external_message_id` is the one delivered back
+/// to this mailbox when the account wrote to itself, so the inbound path
+/// recognises that copy. Without per-envelope ids both are the transport's
+/// `message_id`, as before.
+pub fn sent_copy_message_ids(
+    account_email: &str,
+    to: &[String],
+    cc: &[String],
+    bcc: &[String],
+    sent: &crate::outbound::SendEmailResponse,
+) -> SentCopyMessageIds {
+    let me = account_email.trim().to_lowercase();
+    let delivered = |recipient: &str| {
+        sent.delivered_message_ids
+            .iter()
+            .find(|(r, _)| r == recipient)
+            .map(|(_, id)| id.clone())
+    };
+    let self_message_id = delivered(&me);
+    let outside = to
+        .iter()
+        .chain(cc)
+        .chain(bcc)
+        .map(|r| r.trim().to_lowercase())
+        .filter(|r| *r != me)
+        .find_map(|r| delivered(&r));
+    let primary = outside
+        .or_else(|| self_message_id.clone())
+        .unwrap_or_else(|| sent.message_id.clone());
+    SentCopyMessageIds {
+        rfc_message_id: to_smtp_message_id(&primary),
+        external_message_id: self_message_id.clone().unwrap_or(primary),
+        self_message_id,
+    }
+}
+
+/// `absorbEarlySelfCopy`: the copy delivered back to this mailbox can be
+/// stored by the inbound path before the SENT row exists; once it does, that
+/// early copy is a duplicate of it and is soft-deleted. Best effort.
+async fn absorb_early_self_copy(
+    db: &PgPool,
+    account_id: &str,
+    sent_id: &str,
+    self_message_id: &str,
+    now: &str,
+) {
+    let result = sqlx::query(
+        "update mail_messages set deleted_at = $4::timestamp, updated_at = $4::timestamp
+         where account_id = $1 and message_id = $2 and id <> $3
+           and (source is null or source <> 'sent') and deleted_at is null",
+    )
+    .bind(account_id)
+    .bind(self_message_id)
+    .bind(sent_id)
+    .bind(now)
+    .execute(db)
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(%error, sent_id, "[mail-send] Could not remove the early self-copy");
+    }
+}
+
 /// `resolveThreadId(db, store, accountId, data, fallback)`.
 async fn resolve_thread_id(
     db: &PgPool,
@@ -658,6 +736,7 @@ pub async fn send_and_persist(
             (
                 crate::outbound::SendEmailResponse {
                     message_id,
+                    delivered_message_ids: error.delivered_message_ids().to_vec(),
                     pending_verification: false,
                     suppressed_recipients: Vec::new(),
                 },
@@ -676,8 +755,9 @@ pub async fn send_and_persist(
     )
     .await;
 
-    let external = sent.message_id.clone();
-    let smtp = to_smtp_message_id(&external);
+    let ids = sent_copy_message_ids(&account.email, &data.to, &cc, &bcc, &sent);
+    let external = ids.external_message_id.clone();
+    let smtp = ids.rfc_message_id.clone();
     let message_id = generate_id("msg");
     let now = iso(now_ms());
     let thread_id = resolve_thread_id(deps.db, account_id, data, &smtp).await?;
@@ -783,6 +863,9 @@ pub async fn send_and_persist(
         .bind(&now)
         .execute(deps.db)
         .await?;
+    }
+    if let Some(self_id) = ids.self_message_id.as_deref() {
+        absorb_early_self_copy(deps.db, account_id, &message_id, self_id, &now).await;
     }
     sqlx::query(
         "update mail_accounts set sent_today = sent_today + 1, updated_at = $2::timestamp where id = $1",
@@ -891,35 +974,13 @@ pub async fn reply_and_persist(
         ));
     };
 
-    // `replyRecipients(original, mailbox, replyAll)`.
-    let email_of = |v: &Value| {
-        v.get("email")
-            .and_then(Value::as_str)
-            .filter(|e| !e.is_empty())
-            .map(str::to_owned)
-    };
-    let mut to_list: Vec<String> = from.as_ref().and_then(email_of).into_iter().collect();
-    let mut cc_list: Vec<String> = Vec::new();
-    if data.reply_all {
-        for addr in to.as_ref().and_then(Value::as_array).into_iter().flatten() {
-            if let Some(email) = email_of(addr)
-                && email != mailbox
-                && !to_list.contains(&email)
-                && !cc_list.contains(&email)
-            {
-                to_list.push(email);
-            }
-        }
-        for addr in cc.as_ref().and_then(Value::as_array).into_iter().flatten() {
-            if let Some(email) = email_of(addr)
-                && email != mailbox
-                && !to_list.contains(&email)
-                && !cc_list.contains(&email)
-            {
-                cc_list.push(email);
-            }
-        }
-    }
+    let (to_list, cc_list) = reply_recipients(
+        from.as_ref(),
+        to.as_ref(),
+        cc.as_ref(),
+        &mailbox,
+        data.reply_all,
+    );
     let mut refs: Vec<String> = references
         .as_ref()
         .and_then(Value::as_array)
@@ -958,6 +1019,76 @@ pub async fn reply_and_persist(
     Ok((result, original_id.to_owned()))
 }
 
+/// `replyRecipients(original, mailbox, replyAll)`: who a reply goes to, as
+/// `(to, cc)`. Answering someone else's mail: the original sender, plus with
+/// reply-all the original To and Cc lines (Cc stays Cc). Following up on mail
+/// this mailbox sent itself: the people it went to (To, plus Cc with
+/// reply-all). The mailbox is never a recipient, except for a note it sent
+/// only to itself. Addresses compare case-insensitively.
+fn reply_recipients(
+    from: Option<&Value>,
+    to: Option<&Value>,
+    cc: Option<&Value>,
+    mailbox: &str,
+    reply_all: bool,
+) -> (Vec<String>, Vec<String>) {
+    let email_of = |v: &Value| {
+        v.get("email")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .map(str::to_owned)
+    };
+    let line = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(email_of)
+            .collect()
+    };
+    let me = mailbox.trim().to_lowercase();
+    let from_email = from.and_then(email_of);
+    let mut seen: Vec<String> = Vec::new();
+    let mut add = |list: &mut Vec<String>, email: String| {
+        let key = email.to_lowercase();
+        if key != me && !seen.contains(&key) {
+            seen.push(key);
+            list.push(email);
+        }
+    };
+    let mut to_list: Vec<String> = Vec::new();
+    let mut cc_list: Vec<String> = Vec::new();
+
+    if let Some(own) = from_email.as_ref().filter(|f| f.to_lowercase() == me) {
+        for email in line(to) {
+            add(&mut to_list, email);
+        }
+        if reply_all {
+            for email in line(cc) {
+                add(&mut cc_list, email);
+            }
+        }
+        // A note to yourself stays one.
+        if to_list.is_empty() && cc_list.is_empty() {
+            to_list.push(own.clone());
+        }
+        return (to_list, cc_list);
+    }
+
+    if let Some(sender) = from_email {
+        add(&mut to_list, sender);
+    }
+    if reply_all {
+        for email in line(to) {
+            add(&mut to_list, email);
+        }
+        for email in line(cc) {
+            add(&mut cc_list, email);
+        }
+    }
+    (to_list, cc_list)
+}
+
 /// `subject.replace(/^Re:\s*/i, '')`.
 fn strip_re(subject: &str) -> &str {
     let bytes = subject.as_bytes();
@@ -992,5 +1123,134 @@ mod tests {
         });
         assert_eq!(html.as_deref(), Some("<p>Hi <b>there</b></p>"));
         assert_eq!(text.as_deref(), Some("Hi there"));
+    }
+
+    fn response(delivered: &[(&str, &str)]) -> crate::outbound::SendEmailResponse {
+        crate::outbound::SendEmailResponse {
+            message_id: "<built@acme.test>".to_owned(),
+            delivered_message_ids: delivered
+                .iter()
+                .map(|(r, id)| ((*r).to_owned(), (*id).to_owned()))
+                .collect(),
+            pending_verification: false,
+            suppressed_recipients: Vec::new(),
+        }
+    }
+
+    fn list(addresses: &[&str]) -> Vec<String> {
+        addresses.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    #[test]
+    fn sent_copy_ids_follow_what_recipients_received() {
+        let ids = sent_copy_message_ids(
+            "Me@Acme.test",
+            &list(&["me@acme.test", "sara@x.test"]),
+            &list(&["bob@x.test"]),
+            &[],
+            &response(&[
+                ("me@acme.test", "<self@acme.test>"),
+                ("sara@x.test", "<sara@acme.test>"),
+                ("bob@x.test", "<bob@acme.test>"),
+            ]),
+        );
+        assert_eq!(
+            ids,
+            SentCopyMessageIds {
+                rfc_message_id: "<sara@acme.test>".to_owned(),
+                external_message_id: "<self@acme.test>".to_owned(),
+                self_message_id: Some("<self@acme.test>".to_owned()),
+            }
+        );
+
+        let only_self = sent_copy_message_ids(
+            "me@acme.test",
+            &list(&["me@acme.test"]),
+            &[],
+            &[],
+            &response(&[("me@acme.test", "<self@acme.test>")]),
+        );
+        assert_eq!(only_self.rfc_message_id, "<self@acme.test>");
+        assert_eq!(only_self.external_message_id, "<self@acme.test>");
+
+        let skipped = sent_copy_message_ids(
+            "me@acme.test",
+            &list(&["pending@x.test"]),
+            &[],
+            &list(&["b@x.test"]),
+            &response(&[("b@x.test", "<b@acme.test>")]),
+        );
+        assert_eq!(skipped.rfc_message_id, "<b@acme.test>");
+        assert_eq!(skipped.self_message_id, None);
+
+        let none = sent_copy_message_ids(
+            "me@acme.test",
+            &list(&["sara@x.test"]),
+            &[],
+            &[],
+            &response(&[]),
+        );
+        assert_eq!(none.rfc_message_id, "<built@acme.test>");
+        assert_eq!(none.external_message_id, "<built@acme.test>");
+    }
+
+    fn addrs(emails: &[&str]) -> Value {
+        Value::Array(emails.iter().map(|e| json!({ "email": e })).collect())
+    }
+
+    fn recipients(
+        from: &str,
+        to: &[&str],
+        cc: &[&str],
+        reply_all: bool,
+    ) -> (Vec<String>, Vec<String>) {
+        reply_recipients(
+            Some(&json!({ "email": from })),
+            Some(&addrs(to)),
+            Some(&addrs(cc)),
+            "Me@Test.dev",
+            reply_all,
+        )
+    }
+
+    #[test]
+    fn reply_to_someone_else() {
+        let to = ["me@test.dev", "teammate@example.com"];
+        let cc = ["watcher@example.com", "ME@test.dev"];
+        assert_eq!(
+            recipients("sender@example.com", &to, &cc, false),
+            (vec!["sender@example.com".to_owned()], vec![])
+        );
+        assert_eq!(
+            recipients("sender@example.com", &to, &cc, true),
+            (
+                vec![
+                    "sender@example.com".to_owned(),
+                    "teammate@example.com".to_owned()
+                ],
+                vec!["watcher@example.com".to_owned()]
+            )
+        );
+    }
+
+    #[test]
+    fn reply_to_own_sent_mail_goes_to_its_recipients() {
+        let to = ["client@example.com", "me@test.dev"];
+        let cc = ["boss@example.com"];
+        assert_eq!(
+            recipients("me@test.dev", &to, &cc, false),
+            (vec!["client@example.com".to_owned()], vec![])
+        );
+        assert_eq!(
+            recipients("me@test.dev", &to, &cc, true),
+            (
+                vec!["client@example.com".to_owned()],
+                vec!["boss@example.com".to_owned()]
+            )
+        );
+        assert_eq!(
+            recipients("me@test.dev", &["me@test.dev"], &[], true),
+            (vec!["me@test.dev".to_owned()], vec![])
+        );
     }
 }

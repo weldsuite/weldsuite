@@ -1,5 +1,5 @@
 import { useSearchParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { CallIntelligenceClient } from '../call-intelligence-client';
 import {
   useVoipCalls,

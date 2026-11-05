@@ -190,9 +190,9 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
           {/* Name (with avatar) */}
           <div className="w-[360px] min-w-0 flex items-center gap-3">
             <div className="flex-shrink-0">
-              <Avatar className="h-7 w-7 !rounded-[8px]">
-                <AvatarImage src={contact.avatarUrl} alt={name} className="!rounded-[8px]" />
-                <AvatarFallback className="!rounded-[8px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+              <Avatar className="h-7 w-7">
+                <AvatarImage src={contact.avatarUrl} alt={name} />
+                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                   {name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -291,9 +291,9 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
           )}
         >
           <RowOverlayButton label={name} onClick={openCompactContact} />
-          <Avatar className="h-[22px] w-[22px] !rounded-[8px] flex-shrink-0">
-            <AvatarImage src={contact.avatarUrl} alt={name} className="!rounded-[8px]" />
-            <AvatarFallback className="!rounded-[8px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          <Avatar className="h-[22px] w-[22px] flex-shrink-0">
+            <AvatarImage src={contact.avatarUrl} alt={name} />
+            <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
               {name.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>

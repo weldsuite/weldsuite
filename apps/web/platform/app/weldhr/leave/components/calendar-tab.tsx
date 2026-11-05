@@ -6,8 +6,9 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
-import { PageLoader } from '@/components/page-loader';
-import { ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { errorMessage, todayIso } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function monthBounds(anchor: string) {
   const [year, month] = anchor.split('-').map(Number) as [number, number];

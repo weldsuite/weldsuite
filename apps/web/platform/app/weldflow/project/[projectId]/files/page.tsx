@@ -2,7 +2,7 @@
 import { useParams } from '@/lib/router';
 import FilesComponent from './files-component';
 import { useProjectFiles } from '@/hooks/queries/use-projects-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import type { FileResponse } from '@/lib/api/legacy-types';
 
 export default function ProjectFilesPage() {

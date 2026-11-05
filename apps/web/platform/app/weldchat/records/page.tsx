@@ -79,9 +79,9 @@ function RecordChatAvatar({ chat }: Readonly<{ chat: RecordChatListItem }>) {
   const picture = typeof chat.icon === 'string' && /^https?:\/\//.test(chat.icon) ? chat.icon : null;
   if (picture) {
     return (
-      <Avatar className="h-6 w-6 flex-shrink-0 !rounded-[8px]">
-        <AvatarImage src={picture} className="!rounded-[8px]" />
-        <AvatarFallback className="!rounded-[8px]">
+      <Avatar className="h-6 w-6 flex-shrink-0">
+        <AvatarImage src={picture} />
+        <AvatarFallback>
           <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         </AvatarFallback>
       </Avatar>

@@ -14,7 +14,7 @@
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 const ID_CHUNK = 50;

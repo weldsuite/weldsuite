@@ -31,18 +31,19 @@ import type {
   WeldPassItemFields,
   WeldPassRevealedItem,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useDeleteWeldPassItem,
   useRevealWeldPassItem,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, TimeAgo, errorMessage } from '../../components/shared';
+import { TimeAgo, errorMessage } from '../../components/shared';
 import { cn } from '@/lib/utils';
 import { safeHref } from '../lib/items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { CopyButton } from './copy-button';
 import { ItemHistoryPanel } from './item-history-panel';
 import { TotpCode } from './totp-code';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const MASK = '••••••••••••';
 

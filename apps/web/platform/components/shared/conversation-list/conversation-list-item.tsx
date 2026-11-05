@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Link } from '@/lib/router';
 import { Star, Pin, Paperclip, Flag, Clock } from 'lucide-react';
@@ -70,20 +71,15 @@ function useLabelDrop(onLabelDrop: LabelDropHandler) {
 function ItemAvatar({ item, showUnreadDot }: Readonly<{ item: ConversationItem; showUnreadDot: boolean }>) {
   return (
     <div className="relative flex-shrink-0 mt-[3px]">
-      {item.avatarUrl ? (
-        <img
-          src={item.avatarUrl}
-          alt={item.name || ''}
-          className="w-7 h-7 rounded-[10px] object-cover"
-        />
-      ) : (
-        <div
-          className="w-7 h-7 rounded-[10px] flex items-center justify-center text-white font-semibold text-xs"
+      <Avatar className="w-7 h-7">
+        {item.avatarUrl && <AvatarImage src={item.avatarUrl} alt={item.name || ''} />}
+        <AvatarFallback
+          className="text-white font-semibold text-xs"
           style={{ backgroundColor: getAvatarColor(item.name || '') }}
         >
           {(item.name || '?').charAt(0).toUpperCase()}
-        </div>
-      )}
+        </AvatarFallback>
+      </Avatar>
       {showUnreadDot && (
         <div className="absolute top-1/2 -translate-y-1/2 -left-2.5 w-1.5 h-1.5 rounded-full bg-blue-600" />
       )}

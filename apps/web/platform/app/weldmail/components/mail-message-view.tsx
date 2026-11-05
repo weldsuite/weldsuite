@@ -22,7 +22,7 @@ import {
 import { MessageDetail } from './message-detail';
 import { getLabelDisplayName } from '../lib/label-config';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 type EmailMessage = Mail.Email;

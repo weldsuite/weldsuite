@@ -10,9 +10,9 @@ function decorateLabel(label: string): string {
 function createDmAvatarIcon(name: string, picture?: string) {
   return function DmAvatar() {
     return (
-      <Avatar className="h-5 w-5 !rounded-[6px]">
-        {picture && <AvatarImage src={picture} className="!rounded-[6px]" />}
-        <AvatarFallback className="text-[9px] !rounded-[6px]">
+      <Avatar className="h-5 w-5">
+        {picture && <AvatarImage src={picture} />}
+        <AvatarFallback className="text-[9px]">
           {(name || '?')[0].toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -33,12 +33,12 @@ function createGroupDmAvatarIcon(
             <Avatar
               key={m.id}
               className={
-                'h-[13px] w-[13px] absolute !rounded-[4px] border border-background ' +
+                'h-[13px] w-[13px] absolute border border-background ' +
                 (i === 0 ? 'top-0 left-0 z-10' : 'bottom-0 right-0')
               }
             >
-              {m.picture && <AvatarImage src={m.picture} className="!rounded-[4px]" />}
-              <AvatarFallback className="text-[7px] !rounded-[4px]">
+              {m.picture && <AvatarImage src={m.picture} />}
+              <AvatarFallback className="text-[7px]">
                 {label[0]!.toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -101,7 +101,7 @@ import type { GroupSettingsTarget } from '../components/group-settings-dialog';
 // Not lazy: ConfirmDialog is a thin wrapper over the shared Dialog primitives
 // that are already in this chunk, and a Suspense gap between "user clicks
 // Delete" and "confirmation appears" is exactly where a mis-click lands.
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useChatSections } from './use-chat-sections';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';

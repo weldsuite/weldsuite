@@ -1,7 +1,7 @@
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { useDebounce } from '@/hooks/use-debounce';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInfiniteWeldstashWarehouses } from '@/hooks/queries/use-weldstash-queries';
 import type { WeldstashWarehouse } from '@weldsuite/core-api-client/schemas/weldstash';
 import { WarehousesList } from './components/warehouses-list';

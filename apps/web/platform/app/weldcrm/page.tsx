@@ -51,7 +51,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from './task-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { CrmTasksPipeline } from './crm-tasks-pipeline';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -204,11 +204,11 @@ const RecordPicker = React.memo(function RecordPicker({
         <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow max-w-full text-left inline-flex items-center gap-1.5 min-w-0">
           {linkedRecord?.name ? (
             <>
-              <Avatar className={cn('h-5 w-5 flex-shrink-0', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
+              <Avatar className="h-5 w-5 flex-shrink-0">
                 {selected?.avatar && (
-                  <AvatarImage src={selected.avatar} alt={linkedRecord.name} className={linkedCompany ? '!rounded-[7px]' : '!rounded-full'} />
+                  <AvatarImage src={selected.avatar} alt={linkedRecord.name} />
                 )}
-                <AvatarFallback className={cn('text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
+                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                   {linkedRecord.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -919,11 +919,11 @@ export default function CrmTasksClient() {
                             const avatar = (
                               <Avatar
                                 key={a.id}
-                                className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                                className="h-5 w-5 ring-1 ring-background"
                                 title={multiple ? undefined : a.name}
                               >
-                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-                                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} />}
+                                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {(a.name || '?').charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
@@ -976,11 +976,11 @@ export default function CrmTasksClient() {
                         className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                       >
                         <span className="flex items-center gap-2">
-                          <Avatar className="h-5 w-5 !rounded-[7px]">
+                          <Avatar className="h-5 w-5">
                             {member.avatar && (
-                              <AvatarImage src={member.avatar} alt={member.name} className="!rounded-[7px]" />
+                              <AvatarImage src={member.avatar} alt={member.name} />
                             )}
-                            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                            <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                               {member.name.charAt(0).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>

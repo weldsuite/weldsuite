@@ -45,7 +45,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -101,6 +101,14 @@ import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
 import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
+import {
+  OPTIMISTIC_ID_PREFIX,
+  addressListToEmails,
+  addressToEmail,
+  hasExtraReplyAllRecipients,
+  recipientsForReplyTo,
+  resolveReplyTarget,
+} from '../lib/reply-recipients';
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { SignaturePicker, useComposeSignature } from './compose-signature';
@@ -156,47 +164,6 @@ function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): s
   if (!from) return '';
   if (typeof from === 'string') return from;
   return from.name ? `${from.name} <${from.email}>` : from.email;
-}
-
-// `to`/`cc`/`bcc` entries may likewise be plain email strings or structured
-// Mail.EmailAddress objects; normalize a single entry down to its email.
-function addressToEmail(addr: string | MailTypes.EmailAddress | undefined): string {
-  if (!addr) return '';
-  return typeof addr === 'string' ? addr : addr.email;
-}
-
-function addressListToEmails(list?: string[] | MailTypes.EmailAddress[]): string[] {
-  return (list || []).map((item) => addressToEmail(item));
-}
-
-// Recipients for a reply. A plain reply goes to the original sender only; a
-// reply-all adds everyone else who was on the To/Cc lines, minus the mailbox
-// we're replying from (replying to yourself is never what's wanted).
-// `replyAndPersist` on the server derives the same set from the stored message,
-// so what we show here matches what actually gets sent.
-function buildReplyRecipients(
-  msg: EmailMessage,
-  { all, selfEmail }: { all: boolean; selfEmail?: string },
-): string[] {
-  const self = selfEmail?.trim().toLowerCase();
-  const seen = new Set<string>();
-  const recipients: string[] = [];
-  const add = (email: string, { allowSelf = false } = {}) => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key) || (!allowSelf && key === self)) return;
-    seen.add(key);
-    recipients.push(trimmed);
-  };
-  // The sender stays even when it's our own address — replying to a message
-  // you sent yourself should still address it to that thread.
-  add(msg.fromEmail || addressToEmail(msg.from), { allowSelf: true });
-  if (all) {
-    addressListToEmails(msg.to).forEach((email) => add(email));
-    addressListToEmails(msg.cc).forEach((email) => add(email));
-  }
-  return recipients;
 }
 
 // Generate consistent label color based on label name
@@ -768,22 +735,16 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
   fallbackChar: string;
   fallbackClassName: string;
 }>) {
-  if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={extractName(sender)}
-        className="w-6 h-6 rounded-md object-cover flex-shrink-0"
-      />
-    );
-  }
   return (
-    <div
-      className={fallbackClassName}
-      style={{ backgroundColor: getAvatarColor(sender) }}
-    >
-      {(sender || fallbackChar).charAt(0).toUpperCase()}
-    </div>
+    <Avatar className="size-6 flex-shrink-0">
+      {avatarUrl && <AvatarImage src={avatarUrl} alt={extractName(sender)} />}
+      <AvatarFallback
+        className={fallbackClassName}
+        style={{ backgroundColor: getAvatarColor(sender) }}
+      >
+        {(sender || fallbackChar).charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -987,7 +948,7 @@ function ThreadMessageCard({
               avatarUrl={getSenderAvatarUrl(threadMsg)}
               sender={fromDisplayString(threadMsg.from)}
               fallbackChar="U"
-              fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
+              fallbackClassName="text-white text-xs font-medium"
             />
             <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
               {fromDisplayString(threadMsg.from)}
@@ -1552,12 +1513,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     [accountsData, accountId],
   );
 
-  // "Reply all" only earns its place when there is somebody else to include.
-  const replyAllRecipients = useMemo(
-    () => (newestMessage ? buildReplyRecipients(newestMessage, { all: true, selfEmail: accountEmail }) : []),
-    [newestMessage, accountEmail],
-  );
-  const canReplyAll = replyAllRecipients.length > 1;
+  // Every reply is addressed from the stored message it will actually answer
+  // (`resolveReplyTarget`): a reply sent a moment ago is only an optimistic
+  // placeholder until the thread refetches, and the server answers the newest
+  // stored message in its place. The To field must show what gets sent.
+  const allThreadMessages = useMemo(() => [message, ...localThread], [message, localThread]);
+  const replyRecipientsFor = (picked: EmailMessage, all: boolean) =>
+    recipientsForReplyTo(allThreadMessages, picked, newestMessage, { all, selfEmail: accountEmail });
+  const replyTargetFor = (picked: EmailMessage) =>
+    resolveReplyTarget(allThreadMessages, picked.id, newestMessage);
+  const canReplyAll = hasExtraReplyAllRecipients(replyTargetFor(newestMessage), accountEmail);
 
   // Fetch attachments for the newest message
   const { data: attachmentsData } = useMailAttachments(
@@ -1610,7 +1575,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         setIsReplyingAll(allRecipients);
         setIsForwarding(false);
         setReplyToMessageId(newestMessage.id);
-        const to = buildReplyRecipients(newestMessage, { all: allRecipients, selfEmail: accountEmail }).join(', ');
+        const to = recipientsForReplyTo(allThreadMessages, newestMessage, newestMessage, {
+          all: allRecipients,
+          selfEmail: accountEmail,
+        }).join(', ');
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
@@ -1624,7 +1592,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
     window.addEventListener('mail:action', handleMailAction);
     return () => window.removeEventListener('mail:action', handleMailAction);
-  }, [message.id, message.subject, newestMessage, accountEmail]);
+  }, [message.id, message.subject, newestMessage, accountEmail, allThreadMessages]);
 
   const { main: mainContent, quoted: quotedContent } = parseMainContent(newestMessage.bodyHtml, newestMessage.bodyText);
   const isHtml = !!newestMessage.bodyHtml;
@@ -1645,11 +1613,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   const addOptimisticMessage = (body: string, to: string, html?: string) => {
     const optimisticMsg: EmailMessage = {
-      id: `optimistic-${Date.now()}`,
+      id: `${OPTIMISTIC_ID_PREFIX}${Date.now()}`,
       messageId: '',
       subject: message.subject,
-      from: newestMessage.to?.[0] || 'Me',
-      fromEmail: addressToEmail(newestMessage.to?.[0]),
+      // We sent it, so it is from this mailbox (not whoever the last mail went to).
+      from: accountEmail || newestMessage.to?.[0] || 'Me',
+      fromEmail: accountEmail || addressToEmail(newestMessage.to?.[0]),
       to: [to],
       cc: [],
       bcc: [],
@@ -1715,7 +1684,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     // The text part keeps line breaks (between the reply and its signature too).
     // Both parts carry the quoted original, like any other mail client's reply.
-    const replyTarget = localThread.find((m) => m.id === replyToMessageId) ?? newestMessage;
+    const replyTarget = resolveReplyTarget(allThreadMessages, replyToMessageId, newestMessage);
     const { body: textContent, htmlBody: htmlContent } = appendQuotedOriginal(
       { body: buildComposeBodies(editorHtml).body, htmlBody: editorHtml },
       {
@@ -1731,7 +1700,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     try {
       const attachments = await uploadAttachedFiles(textContent, htmlContent);
       if (attachments === null) return;
-      const result = await mailApi.messages.reply(accountId, message.id, {
+      // Reply to the message the user picked: the server derives recipients
+      // and threading headers from it, so it must be the one the To field showed.
+      const result = await mailApi.messages.reply(accountId, replyTarget.id, {
         body: textContent,
         htmlBody: htmlContent,
         replyAll: isReplyingAll,
@@ -2120,7 +2091,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateInlineAiReply = (getSuccessMessage: (editor: HTMLDivElement) => string, failureMessage: string) => {
     if (!inlineAiPrompt.trim() || isInlineAiGenerating) return;
     setIsInlineAiGenerating(true);
-    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: replyToMessageId || undefined, accountId })
+    // Like the send itself: never a placeholder's id, which the server doesn't know.
+    const aiTargetId = replyToMessageId
+      ? resolveReplyTarget(allThreadMessages, replyToMessageId, newestMessage).id
+      : undefined;
+    generateAIReplyMutation.mutateAsync({ userPrompt: inlineAiPrompt, messageId: aiTargetId, accountId })
       .then((result) => {
         const editor = editorRef.current;
         if (result.success && result.body && editor) {
@@ -2333,7 +2308,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(newestMessage.id);
     setComposeData({
-      to: newestMessage.fromEmail || addressToEmail(newestMessage.from),
+      // A plain reply's recipients, as the send derives them (not just the
+      // sender, which on our own mail is ourselves).
+      to: replyRecipientsFor(newestMessage, false).join(', '),
       subject: draft.subject || `Re: ${message.subject}`,
       body: draft.body || '',
     });
@@ -2358,7 +2335,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const handleAutoDraft = async () => {
     setIsAutoGenerating(true);
     try {
-      const result = await generateAutoDraftMutation.mutateAsync({ messageId: newestMessage.id, accountId });
+      const result = await generateAutoDraftMutation.mutateAsync({
+        messageId: replyTargetFor(newestMessage).id,
+        accountId,
+      });
       if (result.success && result.draft) {
         applyAutoDraft(result.draft);
         toast.success(t.mail.messageDetail.draftUpdated);
@@ -2380,7 +2360,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setReplyToMessageId(!wasReplying ? newestMessage.id : null);
     if (!wasReplying) {
       setComposeData({
-        to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
+        to: replyRecipientsFor(newestMessage, false).join(', '),
         subject: `Re: ${message.subject}`,
         body: '',
       });
@@ -2394,7 +2374,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
     if (!wasReplyingAll) {
-      setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
+      setComposeData({
+        to: replyRecipientsFor(newestMessage, true).join(', '),
+        subject: `Re: ${message.subject}`,
+        body: '',
+      });
     }
   };
 
@@ -2417,7 +2401,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsForwarding(false);
     setReplyToMessageId(threadMsg.id);
     setComposeData({
-      to: buildReplyRecipients(threadMsg, { all: replyAll, selfEmail: accountEmail }).join(', '),
+      to: replyRecipientsFor(threadMsg, replyAll).join(', '),
       subject: `Re: ${threadMsg.subject || message.subject}`,
       body: '',
     });
@@ -2596,7 +2580,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 avatarUrl={getSenderAvatarUrl(newestMessage)}
                 sender={fromDisplayString(newestMessage.from)}
                 fallbackChar="?"
-                fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
+                fallbackClassName="text-white font-semibold text-xs"
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -2827,7 +2811,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   <ThreadMessageCard
                     threadMsg={threadMsg}
                     isExpanded={expandedThreadIds.has(threadMsg.id)}
-                    canReplyAll={buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail }).length > 1}
+                    canReplyAll={hasExtraReplyAllRecipients(replyTargetFor(threadMsg), accountEmail)}
                     onToggle={() => toggleThreadExpanded(threadMsg.id)}
                     onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
                     onReply={() => startThreadReply(threadMsg, false)}

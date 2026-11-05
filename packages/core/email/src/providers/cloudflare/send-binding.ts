@@ -26,6 +26,18 @@ export type EmailMessageCtor = new (
   raw: ReadableStream | string,
 ) => EmailMessage;
 
+/**
+ * What `send()` resolves with. `messageId` is the Message-ID the recipient
+ * receives (`<id@sender-domain>`): Cloudflare replaces the message's own
+ * Message-ID header with one it generates, a different one for every
+ * `send()` call. `@cloudflare/workers-types` still types the call
+ * `Promise<void>`; the runtime returns this (verified with a live send,
+ * 2026-11-04), and older runtimes or a local simulation may return nothing.
+ */
+export interface EmailSendResult {
+  messageId: string;
+}
+
 export interface SendEmail {
-  send(message: EmailMessage): Promise<void>;
+  send(message: EmailMessage): Promise<EmailSendResult | void>;
 }

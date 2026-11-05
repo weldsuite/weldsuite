@@ -34,8 +34,10 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { useTeamMembers } from '@/hooks/queries/use-team-queries';
 import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
 import { useHrAvailableMembers, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
-import { EmptyText, SectionCard } from '../../components/page-kit';
+import { errorMessage } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 
 type Props = Readonly<{
   employee: HrEmployeeDetail;

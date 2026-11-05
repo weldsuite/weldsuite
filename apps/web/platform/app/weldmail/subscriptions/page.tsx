@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { nl } from 'date-fns/locale';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
 import { Loader2, MailX, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -14,8 +15,8 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import type { MailSubscription } from '@weldsuite/app-api-client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { interpolate, useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
@@ -154,9 +155,11 @@ function SubscriptionRow({
     new Date(sub.lastReceivedAt) > new Date(sub.unsubscribedAt);
   return (
     <li className="flex items-center gap-3 px-4 py-3">
-      <div className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase">
-        {sender.charAt(0)}
-      </div>
+      <Avatar className="size-9 shrink-0">
+        <AvatarFallback className="bg-muted text-muted-foreground text-sm font-semibold uppercase">
+          {sender.charAt(0)}
+        </AvatarFallback>
+      </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium">{sender}</span>

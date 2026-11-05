@@ -34,7 +34,7 @@ import {
 } from "@weldsuite/ui/components/popover";
 import { Calendar } from "@weldsuite/ui/components/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar";
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { DeleteProjectDialog } from '../components/delete-project-dialog';
 import {
   Dialog,
@@ -593,11 +593,11 @@ export function AllProjectsClient({
               }
             }}
           >
-            <Avatar className="h-5 w-5 !rounded-[7px]">
+            <Avatar className="h-5 w-5">
               {project.owner.avatar && (
-                <AvatarImage src={project.owner.avatar} alt={project.owner.name} className="!rounded-[7px]" />
+                <AvatarImage src={project.owner.avatar} alt={project.owner.name} />
               )}
-              <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+              <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                 {project.owner.name.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>

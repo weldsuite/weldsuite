@@ -28,8 +28,9 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAbsence } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrAbsence, useMyHrReportSick, useUpdateHrAbsence } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, todayIso } from '../../components/shared';
+import { EmployeePicker, todayIso } from '../../components/shared';
 import { absenceFailure } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Mode = { kind: 'self' } | { kind: 'create' } | { kind: 'edit'; absence: HrAbsence };
 

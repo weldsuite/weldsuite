@@ -3,7 +3,7 @@ import React, { useState, useMemo, useTransition, useEffect, useCallback, useRef
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
@@ -460,11 +460,11 @@ type TaskAssigneeEntry = NonNullable<Task['assignees']>[number];
 function AssigneeStackAvatar({ assignee, src, multiple }: Readonly<{ assignee: TaskAssigneeEntry; src: string | undefined; multiple: boolean }>) {
   const avatar = (
     <Avatar
-      className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background"
+      className="h-[18px] w-[18px] ring-1 ring-background"
       title={multiple ? undefined : assignee.name}
     >
-      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[6px]" />}
-      <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+      {src && <AvatarImage src={src} alt={assignee.name} />}
+      <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
         {assignee.name.charAt(0).toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -519,11 +519,11 @@ function TaskAssigneeTriggerContent({ task, projectMembers }: Readonly<{ task: T
     : undefined;
   return (
     <div className="flex items-center gap-1.5">
-      <Avatar className="h-5 w-5 !rounded-[7px]">
+      <Avatar className="h-5 w-5">
         {memberAvatar && (
-          <AvatarImage src={memberAvatar} alt={task.assignee} className="!rounded-[7px]" />
+          <AvatarImage src={memberAvatar} alt={task.assignee} />
         )}
-        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
           {task.assignee.charAt(0).toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -645,15 +645,14 @@ function TaskAssigneeOptions({
             className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
           >
             <span className="flex items-center gap-2">
-              <Avatar className="h-5 w-5 !rounded-[7px]">
+              <Avatar className="h-5 w-5">
                 {member.user?.avatar && (
                   <AvatarImage
                     src={member.user.avatar}
                     alt={member.user!.name}
-                    className="!rounded-[7px]"
                   />
                 )}
-                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                   {member.user!.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -1530,9 +1529,9 @@ export function TasksClient({
           label: name,
           sortOrder: i + 1,
           leadingContent: (
-            <Avatar className="h-4 w-4 rounded-[5.5px] -translate-y-px">
+            <Avatar className="h-4 w-4 -translate-y-px">
               {m.user?.avatar && <AvatarImage src={m.user.avatar} alt={name} />}
-              <AvatarFallback className="rounded-[5.5px] text-[8px] font-medium">{initials || '?'}</AvatarFallback>
+              <AvatarFallback className="text-[8px] font-medium">{initials || '?'}</AvatarFallback>
             </Avatar>
           ),
           filter: (t: Task) => getTaskAssigneeIds(t).includes(m.userId),

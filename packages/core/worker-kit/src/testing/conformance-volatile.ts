@@ -235,6 +235,10 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldFlow's project finance figures are stamped with the moment they
+  // were computed (`asOf`, each backend's own "now"); a read, so the
+  // timestamp is not masked as a write's would be.
+  { method: 'GET', route: '/api/project-finance/:projectId', fields: [{ path: 'data.asOf' }] },
   // WeldCommerce: a webhook's drawn signing secret (`whksec_` + 32 random
   // characters), and how long its test delivery took.
   {
@@ -264,6 +268,8 @@ const ROUTES: VolatileRoute[] = [
     fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
   },
   { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
+  // The client project portal's session token: 32 random bytes per run (FLOW-020).
+  { method: 'POST', route: '/public/project-portal/auth/verify', fields: [{ path: 'data.token' }] },
   // WeldMeet's instant meeting reports how long each step took (and leaves the
   // user's other sessions, which can end one).
   {

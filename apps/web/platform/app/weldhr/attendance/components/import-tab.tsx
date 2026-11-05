@@ -12,8 +12,9 @@ import type { HrAttendanceStatus, HrImportResult } from '@weldsuite/app-api-clie
 import type { ImportHrAttendanceInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useHrAttendanceImportCheck, useImportHrAttendance } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { readTextFile } from '@/lib/read-text-file';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const STATUSES: Set<HrAttendanceStatus> = new Set(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 const TEMPLATE = 'employee,date,clock_in,clock_out,break_minutes,status,notes\njane@example.com,2025-01-06,09:00,17:30,30,,\n';

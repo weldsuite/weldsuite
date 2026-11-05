@@ -22,17 +22,13 @@ import {
 } from '@/hooks/queries/use-reach-inbox-queries';
 import { REPLY_LABEL_ORDER, replyLabelKey } from '@/app/weldreach/components/engage/badges';
 import { useReachFormat } from '@/app/weldreach/components/engage/format';
-import {
-  ErrorBanner,
-  FilterSelect,
-  InlineSpinner,
-  emptyIcon,
-  errorMessage,
-  useReachBreadcrumbs,
-} from '@/app/weldreach/components/engage/kit';
+import { emptyIcon, errorMessage, useReachBreadcrumbs } from '@/app/weldreach/components/engage/kit';
 import { ThreadList } from './components/thread-list';
 import { ThreadView } from './components/thread-view';
 import { INBOX_STATES, type InboxState } from './lib/thread-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { FilterSelect } from '@weldsuite/ui/components/filter-select';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 const STATE_KEYS: Record<InboxState, string> = {
   open: 'reachEngage.inbox.states.open',

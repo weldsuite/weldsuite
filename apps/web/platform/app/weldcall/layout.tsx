@@ -1,6 +1,6 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { WeldCallLayoutClient } from './components/weldcall-layout-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
 export default function WeldCallLayout({ children }: Readonly<{ children: React.ReactNode }>) {

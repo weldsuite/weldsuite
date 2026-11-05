@@ -11,9 +11,15 @@
  *
  * Cloudflare's newer Email Service exposes a structured
  * `send({to, cc, bcc, ...})` on the same binding name, which would replace the
- * envelope fan-out below with one call. It is NOT available to this account's
- * binding — calling it throws inside the binding and every send 500s — so we
- * stay on the `EmailMessage` form. Revisit only with a live send to prove it.
+ * envelope fan-out below with one call and give every recipient the same
+ * Message-ID. It once threw inside this account's binding (every send 500'd);
+ * a live send through a remote binding on 2026-11-04 accepted it. Moving to it
+ * changes how per-recipient refusals surface, so it is a change of its own.
+ *
+ * Message-IDs: Cloudflare replaces the Message-ID header with one it
+ * generates, a different one for every `send()` call, and resolves `send()`
+ * with it (`{ messageId: '<id@sender-domain>' }`). The id `buildRfc5322` wrote
+ * reaches nobody, so `send()` reports the ids recipients actually got.
  */
 
 import {
@@ -66,11 +72,16 @@ export class CloudflareSendProvider implements IEmailSendProvider {
    *
    * The binding takes a single envelope recipient per `EmailMessage`, so the
    * send is fanned out — but the RFC-5322 payload is built ONCE and reused for
-   * every envelope. That distinction is the whole point: all copies share one
-   * Message-ID and carry the same To/Cc headers, so recipients see a single
-   * message addressed to the group and their clients thread it as one. Build
-   * per recipient instead and a reply-all lands as N separate messages, each
+   * every envelope, so every copy carries the same To/Cc headers and
+   * recipients see a single message addressed to the group. Build per
+   * recipient instead and a reply-all lands as N separate messages, each
    * appearing to be addressed to one person.
+   *
+   * The Message-ID is the exception: Cloudflare stamps each envelope with an
+   * id of its own. `messageId` is the first recipient's delivered id and
+   * `deliveredMessageIds` has every recipient's, so a caller can recognise a
+   * reply from any of them. The built id stands in only when the binding
+   * reports none.
    *
    * Bcc recipients get an envelope but are absent from the headers (see
    * `buildRfc5322`), so the blind list stays blind.
@@ -87,14 +98,16 @@ export class CloudflareSendProvider implements IEmailSendProvider {
       );
     }
 
-    const { raw, messageId } = buildRfc5322(options);
+    const { raw, messageId: builtMessageId } = buildRfc5322(options);
     const from = formatEmailAddress(options.from);
 
-    const outcome: EnvelopeOutcome = { sent: [], pending: [], suppressed: [] };
+    const outcome: EnvelopeOutcome = { sent: [], pending: [], suppressed: [], delivered: {}, builtMessageId };
     for (const rcpt of envelopeRecipients) {
-      await this.sendEnvelope(new this.opts.EmailMessage(from, rcpt.email, raw), rcpt.email, outcome, messageId);
+      await this.sendEnvelope(new this.opts.EmailMessage(from, rcpt.email, raw), rcpt.email, outcome);
     }
     const { sent: sentRecipients, pending: pendingRecipients, suppressed: suppressedRecipients } = outcome;
+    const messageId = firstDeliveredId(outcome);
+    const deliveredMessageIds = Object.keys(outcome.delivered).length ? outcome.delivered : undefined;
 
     if (sentRecipients.length === 0 && pendingRecipients.length === 0 && suppressedRecipients.length > 0) {
       throw new ProviderRefusedError(
@@ -114,6 +127,7 @@ export class CloudflareSendProvider implements IEmailSendProvider {
     };
     return {
       messageId,
+      ...(deliveredMessageIds ? { deliveredMessageIds } : {}),
       metadata: Object.keys(metadata).length ? metadata : undefined,
     };
   }
@@ -123,15 +137,12 @@ export class CloudflareSendProvider implements IEmailSendProvider {
    * suppressed is noted and skipped; any other failure ends the send, carrying
    * the recipients that already got it.
    */
-  private async sendEnvelope(
-    message: EmailMessage,
-    recipient: string,
-    outcome: EnvelopeOutcome,
-    messageId: string,
-  ): Promise<void> {
+  private async sendEnvelope(message: EmailMessage, recipient: string, outcome: EnvelopeOutcome): Promise<void> {
     try {
-      await this.opts.sendEmail.send(message);
+      const result = await this.opts.sendEmail.send(message);
       outcome.sent.push(recipient);
+      const delivered = deliveredMessageIdOf(result);
+      if (delivered) outcome.delivered[recipient.toLowerCase()] = delivered;
     } catch (err) {
       // A recipient outside the account's allowed destination list is a
       // "needs verifying" state the caller can surface to the user, not a
@@ -148,10 +159,12 @@ export class CloudflareSendProvider implements IEmailSendProvider {
         return;
       }
       const text = `send_email failed for ${recipient}: ${describeError(err)}`;
+      const messageId = firstDeliveredId(outcome);
+      const delivered = Object.keys(outcome.delivered).length ? { ...outcome.delivered } : undefined;
       if (refusal) {
-        throw new ProviderRefusedError(refusal, recipient, text, PROVIDER, err, outcome.sent, messageId);
+        throw new ProviderRefusedError(refusal, recipient, text, PROVIDER, err, outcome.sent, messageId, delivered);
       }
-      throw new TransientProviderError(text, PROVIDER, err, outcome.sent, messageId);
+      throw new TransientProviderError(text, PROVIDER, err, outcome.sent, messageId, delivered);
     }
   }
 }
@@ -160,6 +173,33 @@ interface EnvelopeOutcome {
   sent: string[];
   pending: string[];
   suppressed: string[];
+  /** The Message-ID Cloudflare gave each sent envelope, by lower-cased recipient. */
+  delivered: Record<string, string>;
+  /** The id `buildRfc5322` wrote, which Cloudflare replaces. */
+  builtMessageId: string;
+}
+
+/** The first sent envelope's delivered id, else the built one (a binding that reports none). */
+function firstDeliveredId(outcome: EnvelopeOutcome): string {
+  for (const recipient of outcome.sent) {
+    const id = outcome.delivered[recipient.toLowerCase()];
+    if (id) return id;
+  }
+  return outcome.builtMessageId;
+}
+
+/**
+ * The Message-ID in a `send()` result, angle-bracketed (`<id@domain>`), or
+ * null when the binding returned nothing usable (older runtimes, a local
+ * simulation, test stubs).
+ */
+export function deliveredMessageIdOf(result: unknown): string | null {
+  if (typeof result !== 'object' || result === null) return null;
+  const raw = (result as { messageId?: unknown }).messageId;
+  if (typeof raw !== 'string') return null;
+  const bare = raw.trim().replace(/^<|>$/g, '');
+  if (!bare || /[\s<>]/.test(bare)) return null;
+  return `<${bare}>`;
 }
 
 /** Cloudflare's Email Service error codes we act on (others stay a plain transient error). */

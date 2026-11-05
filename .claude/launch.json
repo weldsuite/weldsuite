@@ -66,6 +66,22 @@
       "autoPort": true
     },
     {
+      "name": "api-docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "api-docs",
+        "exec",
+        "next",
+        "dev",
+        "--webpack",
+        "--port",
+        "3009"
+      ],
+      "port": 3009,
+      "autoPort": true
+    },
+    {
       "name": "admin",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -96,6 +112,16 @@
         "dev"
       ],
       "port": 3017
+    },
+    {
+      "name": "project-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "project-portal",
+        "dev"
+      ],
+      "port": 3024
     },
     {
       "name": "sign-portal",

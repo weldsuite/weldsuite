@@ -11,9 +11,10 @@ import type { HrLeaveBalance } from '@weldsuite/app-api-client/domains/weldhr';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrLeaveBalances, useSetHrLeaveAllowance } from '@/hooks/queries/use-weldhr-queries';
-import { PageLoader } from '@/components/page-loader';
-import { EmptyText } from '../../components/page-kit';
-import { EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];

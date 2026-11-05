@@ -23,7 +23,7 @@ import { territoryErrorDetails } from '@/lib/partner/api-errors';
 import { detectUserCountry } from '@/app/onboarding/types';
 import { useDatabaseStatus, useCreateWorkspace, useFinalizeOnboarding, useAvailableApps } from '@/hooks/use-onboarding';
 import { getAppIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { setPendingOrganization } from '@/lib/pending-organization';
 import { workspacePath } from '@/lib/workspace-url';
 

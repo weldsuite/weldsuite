@@ -11,9 +11,13 @@ import type { HrSelfOverview, HrSelfProfile } from '@weldsuite/app-api-client/do
 import type { HrGeoPointInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useMyHrClock, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
 import { MY_HR_PATHS, type MyHrPath } from '../../access';
-import { EmptyText, FieldGrid, KpiCard, KpiGrid, SectionCard } from '../../components/page-kit';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { FieldGrid } from '@weldsuite/ui/components/field-grid';
+import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
-import { ErrorBanner, errorMessage, formatDate, formatDateTime, formatTime } from '../../components/shared';
+import { errorMessage, formatDate, formatDateTime, formatTime } from '../../components/shared';
 import { GeolocationError, getDevicePosition, type GeolocationFailure } from '../../lib/geolocation';
 import { useMyHrSelf } from './my-hr-context';
 import { LeaveBalanceTiles } from './leave-balances';

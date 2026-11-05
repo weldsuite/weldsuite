@@ -228,6 +228,23 @@ export function collectRecipientEmails(email: ParsedEmail): string[] {
   return [...new Set(all)];
 }
 
+/**
+ * The mailboxes this delivery belongs in: its envelope recipients when the
+ * transport supplies them, else the To/Cc headers.
+ *
+ * Unlike {@link collectRecipientEmails}, the headers are not added on top of
+ * the envelope. Each envelope is its own delivery: a message to two of our
+ * mailboxes arrives twice, once per recipient, and matching every delivery on
+ * the shared To/Cc stored a copy in each mailbox per delivery. The copies only
+ * looked like one message while they carried the same Message-ID, and mail
+ * sent through Cloudflare does not: it gives every envelope its own.
+ */
+export function deliveryRecipientEmails(email: ParsedEmail): string[] {
+  const envelope = (email.envelopeTo ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (envelope.length > 0) return [...new Set(envelope)];
+  return collectRecipientEmails(email);
+}
+
 type MasterDb = ReturnType<typeof getMasterDb>;
 
 /** Active mail-account registry rows for the given (lower-cased) addresses. */
@@ -897,9 +914,10 @@ export async function processInboundEmail(
   attachments: ParsedAttachment[] | undefined,
   ctx: Pick<ExecutionContext, 'waitUntil'>,
 ): Promise<{ stored: number; notified: number; recipients: number }> {
-  // Match on the envelope recipient + To/Cc so CC- and BCC-only recipients
-  // still resolve to their account (see collectRecipientEmails).
-  const recipientEmails = collectRecipientEmails(email);
+  // Match on the envelope recipient, which is how CC- and BCC-only recipients
+  // resolve to their account, and on To/Cc only without one
+  // (see deliveryRecipientEmails).
+  const recipientEmails = deliveryRecipientEmails(email);
   const accounts = await findRecipientAccounts(env, recipientEmails);
 
   if (accounts.length === 0) {

@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/al
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useWeldPanelProjects } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';

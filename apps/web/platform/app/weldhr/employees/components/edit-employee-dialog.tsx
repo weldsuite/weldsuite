@@ -29,9 +29,10 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrDepartments, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
+import { EmployeePicker, errorMessage } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
 import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({

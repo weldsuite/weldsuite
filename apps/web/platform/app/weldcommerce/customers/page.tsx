@@ -13,7 +13,7 @@
 
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useInfiniteCompanies } from '@/hooks/queries/use-companies-queries';
 import { useInfinitePeople } from '@/components/objects/person/use-person-data';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';

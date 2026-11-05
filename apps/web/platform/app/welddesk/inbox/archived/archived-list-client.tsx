@@ -6,7 +6,7 @@ import {
   ArchiveRestore,
   Trash2,
 } from 'lucide-react';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useAppApiClient } from '@/lib/api/use-app-api';

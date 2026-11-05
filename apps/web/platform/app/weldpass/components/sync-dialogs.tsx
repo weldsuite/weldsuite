@@ -30,7 +30,8 @@ import {
   useCreateWeldPassCredential,
   useCreateWeldPassSyncTarget,
 } from '@/hooks/queries/use-weldpass-queries';
-import { ErrorBanner, errorMessage } from './shared';
+import { errorMessage } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 const PROVIDER_IDS: WeldPassProviderId[] = [
   'cloudflare_workers',

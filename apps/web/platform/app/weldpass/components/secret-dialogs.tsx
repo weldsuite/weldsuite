@@ -28,7 +28,9 @@ import {
   useUpdateWeldPassSecret,
   useWeldPassSecretVersions,
 } from '@/hooks/queries/use-weldpass-queries';
-import { ErrorBanner, InlineSpinner, TimeAgo, errorMessage } from './shared';
+import { TimeAgo, errorMessage } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 export function SecretDialog({
   projectId,

@@ -71,7 +71,7 @@ import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-s
 import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
@@ -133,7 +133,7 @@ function personGravatar(email: string | null | undefined): string | undefined {
 }
 
 function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload?: (url: string) => void }>) {
-  if (!person) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+  if (!person) return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
   const initial = personInitial(person);
   // Treat empty strings as "no avatar" so the fallback initial renders.
   const explicit = person.avatarUrl && person.avatarUrl.length > 0 ? person.avatarUrl : undefined;
@@ -150,9 +150,9 @@ function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload
     );
   }
   return (
-    <Avatar className="size-[22px] !rounded-[8px]">
-      {src && <AvatarImage src={src} className="!rounded-[8px] object-cover" />}
-      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+    <Avatar className="size-[22px]">
+      {src && <AvatarImage src={src} className="object-cover" />}
+      <AvatarFallback className="bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>

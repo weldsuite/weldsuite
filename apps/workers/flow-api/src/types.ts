@@ -1,3 +1,4 @@
+import type { RateLimitNamespace } from '@weldsuite/commerce-domain/portal-tokens';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
@@ -61,6 +62,11 @@ export interface Env extends KitEnv {
    *  RESEND_API_KEY is unset. */
   SEND_EMAIL?: SendEmail;
 
+  // --- Client portal (/public/project-portal, FLOW-020) --------------------
+  /** Atomic counters behind the portal's sign-in limits (the `PortalRateLimiter`
+   *  Durable Object, hosted in this worker). Sign-in is refused without it. */
+  PORTAL_RATE_LIMITER?: RateLimitNamespace;
+
   /** CF Workflow that pushes a task mutation to its linked GitHub Project item
    *  (Projects-v2 outbound). Class hosted in integration-webhook-worker; bound
    *  here via `script_name` in test/production. */
@@ -79,6 +85,8 @@ export interface Env extends KitEnv {
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
+  /** Base URL of the client portal (`https://projects.weldsuite.org`): the link in the portal invitation and in a status report sent to a client contact. */
+  PROJECT_PORTAL_URL?: string;
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window. Hosted in app-api (`deferred-notification-email*`
    *  names), bound here cross-script via `script_name` in test/production. */

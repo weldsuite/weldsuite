@@ -1,5 +1,5 @@
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useAccountingBill,
   useUpdateBill,

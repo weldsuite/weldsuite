@@ -4,7 +4,7 @@ import { AlertCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksHeader } from './weldbooks-header';
 import { ModuleContent } from '@/components/layout/module-content';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { EntityEmptyState } from '@/components/accounting/entity-empty-state';
 import { setWeldbooksEntityId, weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useWorkspaceId } from '@/contexts/workspace-context';

@@ -32,17 +32,18 @@ import {
   WELDREACH_SENDING_DEFAULTS,
   type ReachSettings,
 } from '@weldsuite/app-api-client/schemas/reach';
-import { PageLoader } from '@/components/page-loader';
-import { NumberInput } from '@/components/shared/number-input';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { NumberInput } from '@weldsuite/ui/components/number-input';
 import { useReachSettings, useUpdateReachSettings } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
 import { isFeatureAvailable } from '@/lib/edition';
 import { TIMEZONES } from '@/lib/timezones';
-import { ErrorPanel, useReachBreadcrumbs } from '../components/page-kit';
+import { useReachBreadcrumbs } from '../components/page-kit';
 import { useBillingReturn } from '../components/use-payment-method-setup';
 import { BillingSection } from './billing-section';
 import { SuppressionsSection } from './suppressions-section';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 
 /** The settings form: everything the PATCH accepts except the onboarding flag. */
 const settingsFormSchema = updateReachSettingsSchema.omit({ completeOnboarding: true });
@@ -76,7 +77,7 @@ export default function ReachSettingsPage() {
   if (settings.isError || !settings.data) {
     return (
       <div className="p-6">
-        <ErrorPanel onRetry={() => void settings.refetch()} />
+        <ErrorState onRetry={() => void settings.refetch()} />
       </div>
     );
   }

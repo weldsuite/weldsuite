@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -602,12 +603,14 @@ export function PeopleTab({
                     <span className="flex items-start gap-2.5">
                       {/* Avatar */}
                       <span className="relative flex-shrink-0 mt-[3px]">
-                        <span
-                          className="w-7 h-7 rounded-[10px] flex items-center justify-center text-white font-semibold text-xs"
-                          style={{ backgroundColor: getAvatarColor(name) }}
-                        >
-                          {(name || '?').charAt(0).toUpperCase()}
-                        </span>
+                        <Avatar className="w-7 h-7">
+                          <AvatarFallback
+                            className="text-white font-semibold text-xs"
+                            style={{ backgroundColor: getAvatarColor(name) }}
+                          >
+                            {(name || '?').charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                       </span>
 
                       {/* Content */}
@@ -680,12 +683,14 @@ export function PeopleTab({
             {/* Person header */}
             <div className="flex items-center justify-between px-6 border-b border-border h-[53px]">
               <div className="flex items-center gap-3">
-                <div
-                  className="w-7 h-7 rounded-[10px] flex items-center justify-center text-white font-semibold text-[10px]"
-                  style={{ backgroundColor: getAvatarColor(getCustomerName(selectedEnrollment)) }}
-                >
-                  {(getCustomerName(selectedEnrollment) || '?').charAt(0).toUpperCase()}
-                </div>
+                <Avatar className="w-7 h-7">
+                  <AvatarFallback
+                    className="text-white font-semibold text-[10px]"
+                    style={{ backgroundColor: getAvatarColor(getCustomerName(selectedEnrollment)) }}
+                  >
+                    {(getCustomerName(selectedEnrollment) || '?').charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[15px] font-medium text-foreground">

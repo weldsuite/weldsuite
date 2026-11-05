@@ -38,7 +38,7 @@ import { cn } from '@/lib/utils';
 import { FilePreviewModal } from './file-preview-modal';
 import { CreateFolderDialog } from './create-folder-dialog';
 import { DriveRenameDialog } from './drive-rename-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
 import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { FileDetailPanel } from './file-detail-panel';

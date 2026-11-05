@@ -1,7 +1,7 @@
 
 import type { ComponentProps } from 'react';
 import { Link, useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { useWorkflowEditorData } from '@/hooks/use-workflow-editor-data';
 import { WorkflowEditorClient, WorkflowEditorShell } from '@/components/workflow-editor';

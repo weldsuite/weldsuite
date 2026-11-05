@@ -123,6 +123,7 @@ export const weldmeet = {
         livestreamDescription: 'Stream to view-only users',
         livestreamLive: 'Live now',
         livestreamUnavailable: 'Not enabled for this meeting',
+        liveCaptionsOff: 'Live captions are off in Host controls',
         breakout: 'Breakout rooms',
         breakoutDescription: 'Break into smaller groups',
         breakoutActive: 'Rooms open: {count}',

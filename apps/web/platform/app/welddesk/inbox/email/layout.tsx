@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import EmailListClient from './email-list-client';
-import { ListDetailLayout } from '@/components/list-detail-layout';
+import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
+import { useIsDetailSelected } from '@/hooks/use-is-detail-selected';
 import { useConversations } from '@/hooks/queries/use-helpdesk-queries';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
@@ -23,10 +24,12 @@ export default function EmailInboxLayout({
     });
   }, [getToken]);
 
+  const isDetailSelected = useIsDetailSelected('/welddesk/inbox/email');
+
   return (
     <ListDetailLayout
       listWidth={420}
-      basePath="/welddesk/inbox/email"
+      isDetailSelected={isDetailSelected}
       list={
         <EmailListClient
           initialConversations={conversations}

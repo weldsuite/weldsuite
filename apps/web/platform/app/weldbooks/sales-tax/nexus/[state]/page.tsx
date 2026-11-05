@@ -18,7 +18,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useNexusDetail } from '@/hooks/queries/use-weldbooks-sales-tax-center-queries';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { isSalesTaxRequestError, type NexusDetail } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { Notice } from '../../shared/notice';
 import { EmptyState, ErrorState } from '../../shared/query-states';
 import { SalesTaxGate } from '../../shared/sales-tax-frame';
 import { RegisterStateLink } from '../../shared/setup-links';
@@ -26,6 +25,7 @@ import { fill } from '../../shared/text';
 import { MonthlyChart } from '../monthly-chart';
 import { alertVariant, statusVariant } from '../nexus-model';
 import { NexusProgressBar } from '../nexus-progress-bar';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 function Field({ label, children, testId }: Readonly<{ label: string; children: ReactNode; testId?: string }>) {
   return (
@@ -95,9 +95,9 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
       </div>
 
       {detail.pending ? (
-        <Notice tone="warning" title={td.pendingTitle} data-testid="nexus-pending">
+        <InfoBanner variant="warning" title={td.pendingTitle} data-testid="nexus-pending">
           <p>{fill(tn.pending, { date: formatDate(detail.pending.collectFrom), crossed: formatDate(detail.pending.exceededOn) })}</p>
-        </Notice>
+        </InfoBanner>
       ) : null}
 
       <Card>
@@ -210,14 +210,14 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
             </p>
           ) : null}
           {detail.unverified.length > 0 ? (
-            <Notice tone="warning" title={td.unverifiedTitle} data-testid="nexus-unverified">
+            <InfoBanner variant="warning" title={td.unverifiedTitle} data-testid="nexus-unverified">
               <p>{td.unverifiedDescription}</p>
               <ul className="list-disc pl-5">
                 {detail.unverified.map((flag) => (
                   <li key={flag}>{(td.unverifiedFlags as Record<string, string>)[flag] ?? flag}</li>
                 ))}
               </ul>
-            </Notice>
+            </InfoBanner>
           ) : null}
           {detail.ruleNotes ? (
             <div className="space-y-1">

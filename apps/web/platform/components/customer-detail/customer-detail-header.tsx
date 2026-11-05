@@ -56,7 +56,7 @@ import { useUpdatePerson } from '@/components/objects/person/use-person-data';
 import { useCustomerLists, useAddCustomersToList, useAddContactsToList, type CustomerList } from '@/hooks/queries/use-customer-lists-queries';
 import { coloredSquareIcons } from '@/components/app-sidebar-layout';
 import { NewEventDialog } from '@/app/weldcalendar/events/components/new-event-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useCreateCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
@@ -694,21 +694,16 @@ function HeaderAvatarButton({
       size="icon"
       onClick={onClick}
       disabled={isUploading}
-      className="relative w-7 h-7 rounded-lg flex-shrink-0 group overflow-hidden"
+      className="relative w-7 h-7 rounded-[32%] flex-shrink-0 group overflow-hidden"
       title={t('sweep.weldcrm.contactDetailView.uploadAvatar')}
     >
-      {avatarUrl ? (
-        <img
-          src={avatarUrl}
-          alt={customerName}
-          className="w-full h-full object-cover rounded-lg"
-        />
-      ) : (
-        <div className={cn("w-full h-full rounded-lg flex items-center justify-center", tone.background)}>
+      <Avatar className="w-full h-full">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt={customerName} />}
+        <AvatarFallback className={tone.background}>
           <FallbackIcon className={cn('h-3.5 w-3.5', tone.iconColor)} />
-        </div>
-      )}
-      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        </AvatarFallback>
+      </Avatar>
+      <div className="absolute inset-0 bg-black/50 rounded-[32%] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
         {isUploading ? (
           <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
         ) : (
@@ -787,7 +782,7 @@ function HeaderIdentity({
   if (!isDataReady) {
     return (
       <>
-        <div className="w-7 h-7 rounded-lg bg-muted animate-pulse flex-shrink-0" />
+        <div className="w-7 h-7 rounded-[32%] bg-muted animate-pulse flex-shrink-0" />
         <div className={styles.skeletonName} />
       </>
     );
@@ -1205,9 +1200,9 @@ function channelShareKind(ch: ChatChannel): 'private' | 'group' | 'channel' {
 function ShareTargetChipIcon({ target }: Readonly<{ target: ShareTarget }>) {
   if (target.kind === 'user') {
     return (
-      <Avatar className="h-3.5 w-3.5 !rounded-[4px]">
-        {target.picture && <AvatarImage src={target.picture} alt={target.name} className="!rounded-[4px]" />}
-        <AvatarFallback className="!rounded-[4px] text-[8px] font-medium bg-gray-200 dark:bg-background text-gray-600 dark:text-muted-foreground">
+      <Avatar className="h-3.5 w-3.5">
+        {target.picture && <AvatarImage src={target.picture} alt={target.name} />}
+        <AvatarFallback className="text-[8px] font-medium bg-gray-200 dark:bg-background text-gray-600 dark:text-muted-foreground">
           {(target.name || '?').charAt(0).toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -1497,9 +1492,9 @@ function ShareDialog({
           <div className="rounded-md border border-input bg-transparent dark:bg-input/30 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
             <div className="px-3 pt-2 flex flex-wrap items-start gap-1.5">
               <span className="inline-flex items-center gap-1.5 rounded bg-primary/10 text-primary px-1.5 py-[3px] text-xs font-medium flex-shrink-0">
-                <Avatar className="h-3.5 w-3.5 !rounded-[4px]">
-                  {recordAvatar && <AvatarImage src={recordAvatar} alt={recordTitle} className="!rounded-[4px]" />}
-                  <AvatarFallback className="!rounded-[4px] text-[8px] font-semibold bg-primary/20 text-primary">
+                <Avatar className="h-3.5 w-3.5">
+                  {recordAvatar && <AvatarImage src={recordAvatar} alt={recordTitle} />}
+                  <AvatarFallback className="text-[8px] font-semibold bg-primary/20 text-primary">
                     {(recordTitle || '?').charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>

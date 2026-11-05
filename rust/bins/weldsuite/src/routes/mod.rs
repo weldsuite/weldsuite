@@ -1308,6 +1308,59 @@ fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         })
 }
 
+/// WeldFlow's client portal API at `/public/project-portal` (FLOW-020): no
+/// session, flow-api mounts it above `apiAuth()`. Served with the flow module.
+/// The portal slice adds the workspace and portal-session resolution, and the
+/// conformance tenant layers (`crate::conformance::public_tenant`), as the
+/// commerce portal does in `commerce_public`.
+fn flow_public(state: &AppState) -> Router<AppState> {
+    if !mounts("flow") {
+        return Router::new();
+    }
+    let portal = weldsuite_flow::public_router(flow_state(state), portal_state(state));
+    #[cfg(feature = "conformance")]
+    let portal = portal
+        .layer(axum::middleware::from_fn(
+            crate::conformance::public_session,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ));
+    Router::new().nest("/public/project-portal", portal)
+}
+
+/// What the client portal shares beyond the flow state: the workspace cache,
+/// system mail, the rate-limit counters (on the shared cache's atomic
+/// counters), the master database and the workspace directory. Conformance
+/// builds take the test's cache and limiter, and open the test's tenant, per
+/// request instead.
+fn portal_state(state: &AppState) -> weldsuite_flow::PortalState {
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_flow::PortalState {
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        mail: state.infra.mail.clone(),
+        limiter: if conformance {
+            None
+        } else {
+            state.infra.cache.clone().map(|cache| {
+                Arc::new(weldsuite_commerce_domain::rate_limit::CacheRateLimitCounters::new(cache))
+                    as Arc<dyn weldsuite_commerce_domain::rate_limit::RateLimitCounters>
+            })
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        workspaces: Some(Arc::clone(&state.workspaces)),
+        env: Arc::new(std::collections::HashMap::from([(
+            "ENVIRONMENT".to_owned(),
+            state.environment.clone(),
+        )])),
+    }
+}
+
 /// WeldFlow's handle on the app: events, files, the master database, jobs.
 pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
     weldsuite_flow::FlowState {
@@ -1335,6 +1388,8 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
         // `GITHUB_PROJECT_OUTBOUND`.
         github_outbound: (!cfg!(feature = "conformance"))
             .then(|| integrations::flow_github_outbound(state)),
+        system_mail: state.infra.mail.clone(),
+        project_portal_url: state.project_portal_url.clone(),
     }
 }
 
@@ -1499,6 +1554,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(books::public(state))
         .merge(host::public(state))
         .merge(commerce_public(state))
+        .merge(flow_public(state))
         .merge(connect_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));

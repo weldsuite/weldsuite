@@ -138,7 +138,7 @@ function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUp
   // website — the same fallback as the Companies grid (`getCompanyAvatar`), so
   // the row and the panel it opens show one avatar.
   const websiteLogo = useCompanyLogo(company ? logoDomainForCompany(company) : undefined);
-  if (!company) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+  if (!company) return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
   const initial = companyInitial(company.displayName);
   // `||`: an empty string is "no avatar", so the logo or the initial renders.
   const avatarSrc = company.avatarUrl || websiteLogo || undefined;
@@ -154,11 +154,11 @@ function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUp
     );
   }
   return (
-    <Avatar className="size-[22px] !rounded-[8px]">
+    <Avatar className="size-[22px]">
       {avatarSrc && (
-        <AvatarImage src={avatarSrc} className="!rounded-[8px] object-cover" />
+        <AvatarImage src={avatarSrc} className="object-cover" />
       )}
-      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+      <AvatarFallback className="bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>

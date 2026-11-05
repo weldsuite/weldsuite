@@ -4,7 +4,7 @@ import { useRouter } from '@/lib/router'
 import { useI18n } from '@/lib/i18n/provider'
 import type { TranslationNamespaces } from '@/lib/i18n'
 import { ChevronRight } from "lucide-react"
-import { PageLoader } from "@/components/page-loader"
+import { PageLoader } from "@weldsuite/ui/components/page-loader"
 import { Button } from "@weldsuite/ui/components/button"
 import { Badge } from "@weldsuite/ui/components/badge"
 import { cn } from "@/lib/utils"

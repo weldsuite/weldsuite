@@ -29,13 +29,14 @@ import {
   useUpdateHrDepartment,
   useDeleteHrDepartment,
 } from '@/hooks/queries/use-weldhr-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
-import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
+import { EmployeePicker, errorMessage } from '../../components/shared';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
 import { ColorField } from './color-field';
 import { subtreeOf } from './department-tree';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 interface FormState {
   id: string | null;

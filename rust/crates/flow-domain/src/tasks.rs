@@ -182,14 +182,14 @@ pub async fn create_task(
 
     sqlx::query(
         "insert into tasks (id, number, project_id, title, description, status, stage_id, priority,
-             type, assignee_id, assignee_ids, reporter_id, sprint_id, milestone_id, parent_task_id,
-             start_date, due_date, estimated_hours, duration, story_points, tags, labels,
-             is_billable, customer_id, contact_id, person_id, custom_fields, depends_on, blocks,
-             repeat, position, progress, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                 $16::timestamp, $17::timestamp, ($18::jsonb #>> '{}')::numeric,
-                 ($19::jsonb #>> '{}')::int, ($20::jsonb #>> '{}')::int, $21, $22,
-                 $23, $24, $25, $26, $27, $28, $29, $30, $31, '0', $32::timestamp, $32::timestamp)",
+             type, assignee_id, assignee_ids, reporter_id, sprint_id, milestone_id, deliverable_id,
+             parent_task_id, start_date, due_date, estimated_hours, duration, story_points, tags,
+             labels, is_billable, customer_id, contact_id, person_id, custom_fields, depends_on,
+             blocks, repeat, position, progress, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                 $17::timestamp, $18::timestamp, ($19::jsonb #>> '{}')::numeric,
+                 ($20::jsonb #>> '{}')::int, ($21::jsonb #>> '{}')::int, $22, $23,
+                 $24, $25, $26, $27, $28, $29, $30, $31, $32, '0', $33::timestamp, $33::timestamp)",
     )
     .bind(&id)
     .bind(number)
@@ -205,6 +205,7 @@ pub async fn create_task(
     .bind(reporter)
     .bind(text(data, "sprintId"))
     .bind(text(data, "milestoneId"))
+    .bind(text(data, "deliverableId"))
     .bind(text(data, "parentTaskId"))
     .bind(start_date)
     .bind(due_date)

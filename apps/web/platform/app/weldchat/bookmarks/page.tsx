@@ -212,9 +212,9 @@ export default function BookmarksPage() {
           className="flex flex-1 min-w-0 items-center gap-4 text-left cursor-pointer"
         >
           <span className="w-[220px] flex-shrink-0 flex items-center gap-3 min-w-0">
-            <Avatar className="h-6 w-6 flex-shrink-0 !rounded-[8px]">
-              {bk.messageAuthorAvatar && <AvatarImage src={bk.messageAuthorAvatar} className="!rounded-[8px]" />}
-              <AvatarFallback className="text-[10px] !rounded-[8px]">{authorName[0].toUpperCase()}</AvatarFallback>
+            <Avatar className="h-6 w-6 flex-shrink-0">
+              {bk.messageAuthorAvatar && <AvatarImage src={bk.messageAuthorAvatar} />}
+              <AvatarFallback className="text-[10px]">{authorName[0].toUpperCase()}</AvatarFallback>
             </Avatar>
             <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{authorName}</span>
           </span>

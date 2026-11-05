@@ -39,7 +39,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useDeleteWorkflow, useUpdateWorkflow, useUpdateWorkflowStatus, useDuplicateWorkflow, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { isUnsupportedWorkflowError } from '../../mvp';
 import { getTriggerLabel } from '../../trigger-labels';
 

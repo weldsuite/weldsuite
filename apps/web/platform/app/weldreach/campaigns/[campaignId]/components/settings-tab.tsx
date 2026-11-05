@@ -27,7 +27,10 @@ import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-querie
 import { TIMEZONES } from '@/lib/timezones';
 import { cn } from '@/lib/utils';
 import { useReachFormat, weekdayLabels } from '@/app/weldreach/components/engage/format';
-import { ErrorBanner, SectionCard, TabBody, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
 
 const NO_OWNER = '__none__';
 

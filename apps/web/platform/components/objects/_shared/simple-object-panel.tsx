@@ -128,11 +128,11 @@ export interface SimpleObjectPanelProps extends ObjectPanelComponentProps {
 function PanelAvatar({ title }: Readonly<{ title?: string }>) {
   const initial = (title?.trim()[0] ?? '#').toUpperCase();
   if (!title) {
-    return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+    return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
   }
   return (
-    <Avatar className="size-[22px] !rounded-[8px] border border-border">
-      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+    <Avatar className="size-[22px] border border-border">
+      <AvatarFallback className="bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>

@@ -346,8 +346,8 @@ export function ForwardMessageDialog({
           {/* Original message preview */}
           <div className="rounded-md border bg-muted/30 px-2.5">
             <div className="flex items-start gap-2.5 py-2.5">
-              <Avatar className="h-7 w-7 flex-shrink-0 !rounded-[6px]">
-                <AvatarFallback className="text-xs !rounded-[6px] bg-primary/10 text-primary font-semibold">
+              <Avatar className="h-7 w-7 flex-shrink-0">
+                <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
                   {(originalAuthor || '?')[0].toUpperCase()}
                 </AvatarFallback>
               </Avatar>

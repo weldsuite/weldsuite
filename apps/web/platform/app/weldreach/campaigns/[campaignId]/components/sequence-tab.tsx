@@ -17,7 +17,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useReplaceReachSteps, useReachEnrollments } from '@/hooks/queries/use-reach-campaign-queries';
 import { useReachProspects } from '@/hooks/queries/use-reach-prospect-queries';
-import { ErrorBanner, Notice, TabBody, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
 import {
   MAX_STEPS,
   customFieldNames,
@@ -27,6 +27,9 @@ import {
 } from '../../lib/sequence';
 import { PreviewPane, type PreviewProspect } from './preview-pane';
 import { StepCard, type SequenceValues } from './step-card';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const SAMPLE_SIZE = 100;
 const PREVIEW_PROSPECTS = 50;
@@ -108,9 +111,9 @@ export function SequenceTab({
   return (
     <TabBody>
       {locked && (
-        <Notice tone="warning" title={t('reachEngage.sequence.lockedTitle')}>
+        <InfoBanner variant="warning" title={t('reachEngage.sequence.lockedTitle')}>
           {t('reachEngage.sequence.lockedHint')}
-        </Notice>
+        </InfoBanner>
       )}
       <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 

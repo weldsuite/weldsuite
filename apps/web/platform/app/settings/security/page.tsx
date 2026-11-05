@@ -36,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { DeleteAccountSection } from './delete-account-section';
 import { PasskeysSection } from './passkeys-section';

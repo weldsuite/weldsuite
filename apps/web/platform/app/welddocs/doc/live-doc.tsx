@@ -9,7 +9,7 @@ import type { DocPeer } from '@weldsuite/docs-engine';
 import { Users } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';

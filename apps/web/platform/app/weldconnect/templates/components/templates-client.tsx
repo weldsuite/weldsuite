@@ -8,7 +8,7 @@ import type { WorkflowTemplateItem } from '@weldsuite/app-api-client/schemas/wel
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useCreateWorkflowFromTemplate,
   useDeleteTemplate,

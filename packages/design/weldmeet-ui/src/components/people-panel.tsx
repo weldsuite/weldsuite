@@ -154,8 +154,8 @@ function WaitlistedRow({
         initials={getInitials(peer.name ?? '?')}
         picture={peer.picture}
         colorSeed={getPeerColorSeed(peer)}
-        className="h-7 w-7 !rounded-[8px]"
-        innerClassName="text-[10px] !rounded-[8px]"
+        className="h-7 w-7"
+        innerClassName="text-[10px]"
       />
       <span className="flex-1 text-[13px] font-medium truncate">{peer.name ?? 'Guest'}</span>
       <div className="flex items-center gap-1.5">
@@ -210,8 +210,8 @@ function ParticipantRow({
           initials={getInitials(p.name ?? '?')}
           picture={p.picture}
           colorSeed={getPeerColorSeed(p)}
-          className="h-7 w-7 !rounded-[8px]"
-          innerClassName="text-[10px] !rounded-[8px]"
+          className="h-7 w-7"
+          innerClassName="text-[10px]"
         />
         {/* Presence = "is in the call". Mic / camera state has its own badges on
             the right, so muting (e.g. by the host) must not grey this out. */}

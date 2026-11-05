@@ -14,7 +14,7 @@ import {
 import { MessageDetail } from '../../../components/message-detail';
 import { getLabelDisplayName } from '../../../lib/label-config';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 type EmailMessage = Mail.Email;
 

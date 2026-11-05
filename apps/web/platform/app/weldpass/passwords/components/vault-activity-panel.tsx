@@ -6,9 +6,11 @@ import {
   useWeldPassVaultActivity,
   useWeldPassVaultMembers,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, InlineSpinner, TimeAgo, errorMessage } from '../../components/shared';
+import { TimeAgo, errorMessage } from '../../components/shared';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { memberLabel } from './vault-members-panel';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 const KNOWN_ACTIONS = new Set([
   'vault.created',

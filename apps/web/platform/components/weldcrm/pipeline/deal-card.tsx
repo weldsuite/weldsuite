@@ -120,9 +120,9 @@ function DealOwnerRow({
   const isClickable = !!activate;
   return (
     <CardLinkRow className="flex items-center gap-2 mt-2" onActivate={activate}>
-      <Avatar className="h-4 w-4 rounded">
+      <Avatar className="h-4 w-4">
         <AvatarImage src={displayOwner.avatarUrl} />
-        <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">
+        <AvatarFallback className="text-[9px] bg-cyan-500 text-white">
           {getInitials(displayOwner.name || displayOwner.email || 'U')}
         </AvatarFallback>
       </Avatar>

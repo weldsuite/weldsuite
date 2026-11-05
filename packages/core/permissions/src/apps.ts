@@ -73,7 +73,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     label: 'WeldFlow',
     objects: [
       'projects', 'tasks', 'milestones', 'time', 'files', 'companies', 'channels',
-      'messages', 'integrations',
+      'messages', 'integrations', 'portfolio', 'project_templates',
     ],
   },
   {

@@ -57,7 +57,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { SendForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
@@ -70,7 +70,7 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { PickerCheck } from '@/components/shared/picker-menu';
+import { PickerCheck } from '@weldsuite/ui/components/picker-menu';
 import { cn } from '@/lib/utils';
 import {
   useOpportunity,
@@ -103,10 +103,10 @@ function opportunityInitial(name: string): string {
 }
 
 function OpportunityAvatar({ opportunity }: Readonly<{ opportunity?: Opportunity }>) {
-  if (!opportunity) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
+  if (!opportunity) return <div className="size-[22px] rounded-[32%] bg-muted animate-pulse" />;
   return (
-    <Avatar className="size-[22px] !rounded-[8px] border border-border">
-      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
+    <Avatar className="size-[22px] border border-border">
+      <AvatarFallback className="bg-muted text-[10px] font-medium">
         {opportunityInitial(opportunity.name)}
       </AvatarFallback>
     </Avatar>
@@ -622,8 +622,8 @@ function OpportunityCompanyTab({
           onClick={() => onOpenCompany(opportunity.customerId)}
           className="w-full text-left text-sm flex items-center gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors min-w-0"
         >
-          <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
-            <AvatarFallback className="rounded-md text-[10px]">
+          <Avatar className="h-7 w-7 flex-shrink-0">
+            <AvatarFallback className="text-[10px]">
               {opportunityInitial(name)}
             </AvatarFallback>
           </Avatar>
@@ -673,8 +673,8 @@ function OpportunityContactsTab({
             onClick={() => onOpenPerson(id)}
             className="w-full text-left text-sm flex items-center gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors min-w-0"
           >
-            <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
-              <AvatarFallback className="rounded-md text-[10px]">·</AvatarFallback>
+            <Avatar className="h-7 w-7 flex-shrink-0">
+              <AvatarFallback className="text-[10px]">·</AvatarFallback>
             </Avatar>
             <span className="flex flex-col min-w-0">
               <span className="text-sm text-foreground truncate">

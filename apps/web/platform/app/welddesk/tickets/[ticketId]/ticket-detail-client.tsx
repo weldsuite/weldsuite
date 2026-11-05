@@ -29,6 +29,7 @@ import {
   Hash,
   CalendarDays,
 } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { WeldAgentInput, type AttachmentPreview } from '@weldsuite/ui/components/weldagent-input';
@@ -36,7 +37,7 @@ import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type {
   TicketMessage,
   TicketTypeConfig,
@@ -446,12 +447,14 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
                         <div key={note.id} className="flex">
                           {/* Tree connector */}
                           <div className="relative flex-shrink-0" style={{ width: 20 }}>
-                            <div className={cn(
-                              'relative z-10 w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-semibold',
-                              getAuthorColor(note.author),
-                            )} style={{ marginTop: 0 }}>
-                              {note.author.charAt(0).toUpperCase()}
-                            </div>
+                            <Avatar className="relative z-10 w-5 h-5" style={{ marginTop: 0 }}>
+                              <AvatarFallback className={cn(
+                                'text-white text-[9px] font-semibold',
+                                getAuthorColor(note.author),
+                              )}>
+                                {note.author.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
                             {!isLast && (
                               <div className="absolute bg-border" style={{ left: 9, top: 25, bottom: 5, width: 1 }} />
                             )}
@@ -696,11 +699,11 @@ function TrackerView({
                     onClick={() => router.push(`/welddesk/tickets/${report.ticketId}`)}
                     className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
                   >
-                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                      <span className="text-[10px] font-medium text-muted-foreground">
+                    <Avatar className="w-6 h-6 flex-shrink-0">
+                      <AvatarFallback className="bg-muted text-[10px] font-medium text-muted-foreground">
                         {report.customerName.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
+                      </AvatarFallback>
+                    </Avatar>
                     <div className="flex-1 min-w-0">
                       <span className="text-[13px] text-foreground truncate block">
                         {report.customerName}
@@ -955,12 +958,14 @@ function TicketSidebar({
       {/* Panel Header */}
       <div className="px-4 h-[53px] flex items-center border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className={cn(
-            "w-7 h-7 rounded-lg flex items-center justify-center text-white font-semibold text-[11px] flex-shrink-0",
-            getPriorityColor(ticket.priority)
-          )}>
-            {(ticket.from || ticket.fromEmail || '?').charAt(0).toUpperCase()}
-          </div>
+          <Avatar className="w-7 h-7 flex-shrink-0">
+            <AvatarFallback className={cn(
+              "text-white font-semibold text-[11px]",
+              getPriorityColor(ticket.priority)
+            )}>
+              {(ticket.from || ticket.fromEmail || '?').charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-foreground truncate">
               {ticket.from || panelFallbackTitle}
@@ -1201,11 +1206,11 @@ function TicketSidebar({
                       onClick={() => router.push(`/welddesk/tickets/${report.ticketId}`)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 -mx-2 rounded-md hover:bg-accent transition-colors text-left"
                     >
-                      <div className="w-5 h-5 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
-                        <span className="text-[10px] font-medium text-muted-foreground">
+                      <Avatar className="w-5 h-5 flex-shrink-0">
+                        <AvatarFallback className="bg-accent text-[10px] font-medium text-muted-foreground">
                           {report.customerName.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
+                        </AvatarFallback>
+                      </Avatar>
                       <span className="text-[12px] text-muted-foreground truncate flex-1">{report.customerName}</span>
                       <span className={cn("text-[10px] px-1.5 py-px rounded font-medium flex-shrink-0", trackerStatusColors[report.status] || trackerStatusColors.closed)}>
                         {report.status}

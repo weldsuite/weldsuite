@@ -2,7 +2,7 @@ import { useParams } from '@/lib/router';
 import { useRouter } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PaginatedDocEditor } from '@/components/paginated-doc-editor/paginated-doc-editor';
 import { useHtmlDoc } from '@/lib/documents/use-html-doc';
 import { getTranslations } from '@/lib/i18n';

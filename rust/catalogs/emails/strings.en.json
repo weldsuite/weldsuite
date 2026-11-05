@@ -235,6 +235,19 @@
     "useCode": "Enter this code to sign in:",
     "useLink": "Or enter this code:"
   },
+  "portalInvite": {
+    "body": "In the project portal of {workspace} you can follow the progress of this project, read its status reports and approve what needs your decision.",
+    "footer": "This invitation was sent on behalf of {workspace}. If you didn't expect it, you can ignore this email.",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "kicker": "{inviter} invited you to follow a project",
+    "kickerNoInviter": "You have been invited to follow a project",
+    "open": "Open the project portal",
+    "preview": "{inviter} invited you to follow {project}.",
+    "previewNoInviter": "You have been invited to follow {project}.",
+    "signIn": "You do not need a password. Open the portal and enter this email address: we send you a one-time code to sign in.",
+    "subject": "You have been invited to follow {project}"
+  },
   "reachApproved": {
     "body": "We approved {workspace} for WeldReach. Open it to add your sender details, a payment method for inboxes and your first domain.",
     "greeting": "Hi {name},",
@@ -314,6 +327,22 @@
       "reason": "Their reason",
       "subject": "\"{title}\" was cancelled"
     }
+  },
+  "statusReport": {
+    "footer": "You're receiving this because you follow {project}.",
+    "intro": "Hi {name}, here is the latest status report.",
+    "introNoName": "Here is the latest status report.",
+    "kicker": "Status report · {period}",
+    "preview": "{project}: {status}. Status report for {period}.",
+    "publishedBy": "Published by {name}.",
+    "status": {
+      "amber": "At risk",
+      "green": "On track",
+      "red": "Off track"
+    },
+    "statusLabel": "Overall status",
+    "subject": "Status report: {project}, {period} ({status})",
+    "view": "View the full report"
   },
   "task": {
     "due": "Due",

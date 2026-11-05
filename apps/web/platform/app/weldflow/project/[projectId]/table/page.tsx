@@ -26,8 +26,8 @@ import { useProjectPermissions } from '@/app/weldflow/contexts/project-permissio
 import { tablesApi } from '@/app/weldflow/lib/api-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
-import { PageLoader } from '@/components/page-loader';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 
 interface TableItem {

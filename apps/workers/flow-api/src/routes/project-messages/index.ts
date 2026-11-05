@@ -53,6 +53,7 @@ const createMessageSchema = z.object({
 const updateMessageSchema = z.object({
   message: z.string().min(1).optional(),
   isPinned: z.boolean().optional(),
+  clientVisible: z.boolean().optional(),
 });
 
 const reactionSchema = z.object({
@@ -186,12 +187,21 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Project message', id);
-      if (existing.senderId !== userId) {
+      // Sharing with the client is the one change a project admin may make on
+      // someone else's message; anything else still needs the sender.
+      const onlyClientVisible =
+        data.clientVisible !== undefined && Object.keys(data).every((key) => key === 'clientVisible');
+      const isAdminShare =
+        existing.senderId !== userId &&
+        onlyClientVisible &&
+        !!existing.projectId &&
+        (await resolveProjectAccess(c, existing.projectId)).isAdmin;
+      if (existing.senderId !== userId && !isAdminShare) {
         return error.forbidden(c, 'You can only edit your own messages');
       }
       // Authorship is not enough: a removed member, or one demoted to viewer,
       // must not keep editing their old messages.
-      if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      if (!isAdminShare && existing.projectId && !(await canWriteProject(c, existing.projectId))) {
         return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
       const update: Record<string, any> = { updatedAt: new Date() };
@@ -200,6 +210,7 @@ app.patch(
         update.editedAt = new Date();
       }
       if (data.isPinned !== undefined) update.isPinned = data.isPinned;
+      if (data.clientVisible !== undefined) update.clientVisible = data.clientVisible;
       await db.update(t).set(update).where(eq(t.id, id));
       publishEntityEvent({
         c,

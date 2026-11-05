@@ -106,6 +106,8 @@ export interface MenuItemProps {
   bold?: boolean;
   /** Badge text shown next to the title (e.g. "@2" for mention count) */
   badge?: string;
+  /** Spoken name of the badge ("3 reviews waiting for you"), when its text alone says too little. */
+  badgeLabel?: string;
   subItems?: MenuItemProps[];
   onAddSubItem?: () => void;
   /** Use colored square background for icon */
@@ -647,7 +649,7 @@ function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: 
           <Link href={item.href} aria-current={pathname === item.href ? 'page' : undefined} className="flex items-center flex-1 min-w-0">
             <Icon className="h-4 w-4 ml-2 shrink-0" />
             <span className={cn("ml-2 truncate", item.bold || isActive ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
-            {item.badge && <span className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+            {item.badge && <span role={item.badgeLabel ? 'img' : undefined} aria-label={item.badgeLabel} title={item.badgeLabel} className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
           </Link>
           <div className="flex items-center gap-0">
             {item.actions && item.actions.length > 0 && (
@@ -844,7 +846,7 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
               <TooltipContent side="top" sideOffset={4}>{t.common.sidebarItemMenu.joinCall}</TooltipContent>
             </Tooltip>
           )}
-          {item.badge && <span className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+          {item.badge && <span role={item.badgeLabel ? 'img' : undefined} aria-label={item.badgeLabel} title={item.badgeLabel} className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
         </Link>
       </SidebarMenuButton>
       {item.actions && item.actions.length > 0 && !item.activeCall && (
@@ -1368,7 +1370,7 @@ export function AppSidebarLayout({
         // content card read as one outlined area; the card's left border is
         // the divider between them.
         !isMobile &&
-          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-xl [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
+          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-md [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
       )}
       {...props}
     >

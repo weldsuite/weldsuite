@@ -32,7 +32,7 @@ import {
 } from '@weldsuite/ui/components/tooltip';
 import { Slider } from '@weldsuite/ui/components/slider';
 import { cn } from '@/lib/utils';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Billing } from '@/lib/api/types/apps/billing.types';
 import { useChangePlan } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';

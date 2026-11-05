@@ -23,7 +23,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (permission: string) => state.permissions.has(permission) }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
-vi.mock('@/components/confirm-dialog', () => ({
+vi.mock('@weldsuite/ui/components/confirm-dialog', () => ({
   ConfirmDialog: (props: { open: boolean; title: string; description: string; onConfirm: () => void | Promise<void> }) =>
     props.open ? (
       <div role="dialog" aria-label={props.title}>

@@ -12,7 +12,7 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
 import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbooks';

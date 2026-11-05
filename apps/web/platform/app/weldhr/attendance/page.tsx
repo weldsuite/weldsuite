@@ -3,12 +3,13 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useHrShiftRequests } from '@/hooks/queries/use-weldhr-queries';
-import { HrTabsPage, TabBody, useHrBreadcrumbs } from '../components/page-kit';
+import { HrTabsPage, useHrBreadcrumbs } from '../components/page-kit';
 import { ImportTab } from './components/import-tab';
 import { OpenShiftsTab } from './components/open-shifts-tab';
 import { RecordsTab } from './components/records-tab';
 import { RequestsTab } from './components/requests-tab';
 import { ScheduleTab } from './components/schedule-tab';
+import { TabBody } from '@weldsuite/ui/components/page-layout';
 
 type Tab = 'records' | 'schedule' | 'open-shifts' | 'requests' | 'import';
 

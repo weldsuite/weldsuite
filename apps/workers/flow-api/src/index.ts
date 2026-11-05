@@ -2,7 +2,8 @@
  * WeldSuite flow-api — the WeldFlow (projects, project members, labels,
  * messages, files, documents, sheets, pipeline stages and analytics, tasks,
  * task comments / tags / projects, my tasks, sprints, milestones, goals,
- * whiteboards, documents, time entries and task digest settings) module's API
+ * whiteboards, documents, time entries, task digest settings and the project-
+ * control RAID log and links) module's API
  * worker, plus the SendDigest and ImportTasks workflows and the hourly task
  * digest cron.
  *
@@ -12,24 +13,49 @@
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { isBenefitMeasureCron, runBenefitMeasure } from './cron/benefit-measure';
 import { runDigestSweep } from './cron/digest-sweep';
+import { isApprovalDueCron, runApprovalReminders } from './cron/approval-reminders';
+import { isFinanceSnapshotCron, runFinanceSnapshots } from './cron/finance-snapshot';
 import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
+import { isStatusReportCron, runStatusReportSweep } from './cron/status-report-sweep';
+import { approvalsRoutes } from './routes/approvals';
+import { capacityRoutes } from './routes/capacity';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { documentsRoutes } from './routes/documents';
 import { goalsRoutes } from './routes/goals';
 import { milestonesRoutes } from './routes/milestones';
 import { myTasksRoutes } from './routes/my-tasks';
 import { projectAnalyticsRoutes } from './routes/project-analytics';
+import { projectBaselinesRoutes } from './routes/project-baselines';
+import { projectBenefitsRoutes } from './routes/project-benefits';
+import { projectChangesRoutes } from './routes/project-changes';
+import { projectCloseRoutes } from './routes/project-close';
+import { projectControlLinksRoutes } from './routes/project-control-links';
+import { projectDecisionsRoutes } from './routes/project-decisions';
+import { projectDeliverablesRoutes } from './routes/project-deliverables';
 import { projectDocumentsRoutes } from './routes/project-documents';
 import { projectFilesRoutes } from './routes/project-files';
+import { projectFinanceRoutes } from './routes/project-finance';
 import { projectLabelsRoutes } from './routes/project-labels';
+import { projectLessonsRoutes } from './routes/project-lessons';
 import { projectMembersRoutes } from './routes/project-members';
 import { projectMessagesRoutes } from './routes/project-messages';
+import { projectPhasesRoutes } from './routes/project-phases';
 import { projectPipelineStagesRoutes } from './routes/project-pipeline-stages';
+import { projectRaidRoutes } from './routes/project-raid';
+import { projectRequestsRoutes } from './routes/project-requests';
+import { projectScheduleRoutes } from './routes/project-schedule';
+import { projectScopeRoutes } from './routes/project-scope';
 import { projectSheetsRoutes } from './routes/project-sheets';
+import { projectStakeholdersRoutes } from './routes/project-stakeholders';
+import { projectStatusReportsRoutes } from './routes/project-status-reports';
+import { projectTemplatesRoutes } from './routes/project-templates';
 import { projectsRoutes } from './routes/projects';
+import { publicProjectPortalRoutes } from './routes/public-project-portal';
 import { sprintsRoutes } from './routes/sprints';
 import { taskCommentsRoutes } from './routes/task-comments';
+import { taskDependenciesRoutes } from './routes/task-dependencies';
 import { taskProjectsRoutes } from './routes/task-projects';
 import { taskTagsRoutes } from './routes/task-tags';
 import { tasksRoutes } from './routes/tasks';
@@ -47,12 +73,14 @@ app.route('/api/documents', documentsRoutes);
 app.route('/api/goals', goalsRoutes);
 app.route('/api/milestones', milestonesRoutes);
 app.route('/api/project-analytics', projectAnalyticsRoutes);
+app.route('/api/project-control-links', projectControlLinksRoutes);
 app.route('/api/project-files', projectFilesRoutes);
 app.route('/api/project-labels', projectLabelsRoutes);
 app.route('/api/project-documents', projectDocumentsRoutes);
 app.route('/api/project-members', projectMembersRoutes);
 app.route('/api/project-messages', projectMessagesRoutes);
 app.route('/api/project-pipeline-stages', projectPipelineStagesRoutes);
+app.route('/api/project-raid', projectRaidRoutes);
 app.route('/api/project-sheets', projectSheetsRoutes);
 app.route('/api/projects', projectsRoutes);
 app.route('/api/sprints', sprintsRoutes);
@@ -65,12 +93,39 @@ app.route('/api/my-tasks', myTasksRoutes);
 app.route('/api/time-entries', timeEntriesRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
 
+// WeldFlow project control and delivery (design: weldflow-project-control.md and
+// weldflow-delivery-and-portfolio.md). Stubs until their slices fill them in.
+app.route('/api/approvals', approvalsRoutes);
+app.route('/api/capacity', capacityRoutes);
+app.route('/api/project-baselines', projectBaselinesRoutes);
+app.route('/api/project-benefits', projectBenefitsRoutes);
+app.route('/api/project-changes', projectChangesRoutes);
+app.route('/api/project-close', projectCloseRoutes);
+app.route('/api/project-decisions', projectDecisionsRoutes);
+app.route('/api/project-deliverables', projectDeliverablesRoutes);
+app.route('/api/project-finance', projectFinanceRoutes);
+app.route('/api/project-lessons', projectLessonsRoutes);
+app.route('/api/project-phases', projectPhasesRoutes);
+app.route('/api/project-requests', projectRequestsRoutes);
+app.route('/api/project-schedule', projectScheduleRoutes);
+app.route('/api/project-scope', projectScopeRoutes);
+app.route('/api/project-stakeholders', projectStakeholdersRoutes);
+app.route('/api/project-status-reports', projectStatusReportsRoutes);
+app.route('/api/project-templates', projectTemplatesRoutes);
+app.route('/api/task-dependencies', taskDependenciesRoutes);
+
+// The client portal is public (a portal session, not Clerk): outside `/api/*`, so
+// `apiAuth()` does not run.
+app.route('/public/project-portal', publicProjectPortalRoutes);
+
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // Daily task digests and bulk task imports, under the `send-digest-v3*` and
 // `import-tasks-v3*` names: app-api keeps the `-v2*` names only while their
 // in-flight instances drain.
 export { SendDigestWorkflow } from '@weldsuite/flow-domain/workflows/send-digest';
 export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tasks';
+// The client portal's sign-in rate-limit counters (PORTAL_RATE_LIMITER).
+export { PortalRateLimiter } from './durable-objects/portal-rate-limiter';
 
 export default {
   fetch: app.fetch,
@@ -90,6 +145,43 @@ export default {
       ctx.waitUntil(
         runDeletedFilesPurge(env).catch((err) => {
           console.error('[FilePurge] Failed:', err);
+        }),
+      );
+    }
+    // Daily: remind approvers a day before a review is due and tell the requester when
+    // it is overdue. Reads only the D1 due index (kind `approval_due`) and opens just
+    // the workspaces that have a reminder due (FLOW-016, ADR DATA-008).
+    if (isApprovalDueCron(event.cron)) {
+      ctx.waitUntil(
+        runApprovalReminders(env).catch((err) => {
+          console.error('[ApprovalDue] Failed:', err);
+        }),
+      );
+    }
+    // Daily: measure the benefits of the workspaces the `benefit_measure` due index
+    // lists (the month that just ended; FLOW-014).
+    if (isBenefitMeasureCron(event.cron)) {
+      ctx.waitUntil(
+        runBenefitMeasure(env).catch((err) => {
+          console.error('[BenefitMeasure] Failed:', err);
+        }),
+      );
+    }
+    // Daily, next to the purge: draft the status reports whose cadence has come due
+    // (ADR FLOW-018). Reads only the `status_report_due` D1 due index.
+    if (isStatusReportCron(event.cron)) {
+      ctx.waitUntil(
+        runStatusReportSweep(env).catch((err) => {
+          console.error('[StatusReports] Failed:', err);
+        }),
+      );
+    }
+    // Daily: the weekly project finance snapshot, for the workspaces the
+    // `finance_snapshot` due index lists (FLOW-019).
+    if (isFinanceSnapshotCron(event.cron)) {
+      ctx.waitUntil(
+        runFinanceSnapshots(env).catch((err) => {
+          console.error('[FinanceSnapshot] Failed:', err);
         }),
       );
     }

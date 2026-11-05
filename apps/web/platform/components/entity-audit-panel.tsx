@@ -1,15 +1,13 @@
 import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
-import { AuditTimeline, AuditTimelineSkeleton } from './audit-timeline';
-import type { AuditLogEntry } from './audit-timeline';
+import { AuditTimeline, AuditTimelineSkeleton } from '@weldsuite/ui/components/audit-timeline';
+import type { AuditLogEntry } from '@weldsuite/ui/components/audit-timeline';
 
 interface EntityAuditPanelProps {
   entityType: string;
   entityId: string;
-  /** Show each entry's field changes inline instead of behind "Details". */
-  alwaysShowChanges?: boolean;
 }
 
-export function EntityAuditPanel({ entityType, entityId, alwaysShowChanges }: Readonly<EntityAuditPanelProps>) {
+export function EntityAuditPanel({ entityType, entityId }: Readonly<EntityAuditPanelProps>) {
   const { data, isLoading } = useEntityAuditLogs(entityType, entityId);
 
   if (isLoading) {
@@ -32,7 +30,7 @@ export function EntityAuditPanel({ entityType, entityId, alwaysShowChanges }: Re
 
   return (
     <div className="px-4 py-6">
-      <AuditTimeline logs={logs} alwaysShowChanges={alwaysShowChanges} />
+      <AuditTimeline logs={logs} />
     </div>
   );
 }

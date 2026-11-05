@@ -18,8 +18,8 @@ import {
   type ReturnSummary,
   type TaxReturnDetail,
 } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { Notice } from '../../shared/notice';
 import { fill, toCents, visibleJurisdictionCode } from '../../shared/text';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 interface WorksheetRowProps {
   label: string;
@@ -116,8 +116,7 @@ function WorksheetNotices({ summary }: Readonly<{ summary: ReturnSummary }>) {
   return (
     <div className="space-y-2">
       {summary.uncuredExempt.lines > 0 ? (
-        <Notice
-          tone="warning"
+        <InfoBanner variant="warning"
           title={tw.uncuredTitle}
           data-testid="uncured-notice"
           action={
@@ -133,10 +132,10 @@ function WorksheetNotices({ summary }: Readonly<{ summary: ReturnSummary }>) {
               tax: formatMoney(summary.uncuredExempt.tax),
             })}
           </p>
-        </Notice>
+        </InfoBanner>
       ) : null}
       {summary.previouslyReported ? (
-        <Notice tone="info" data-testid="previously-reported-notice">
+        <InfoBanner data-testid="previously-reported-notice">
           <p>
             {fill(tw.previouslyReported, {
               sales: formatMoney(summary.previouslyReported.salesTaxDue),
@@ -150,31 +149,31 @@ function WorksheetNotices({ summary }: Readonly<{ summary: ReturnSummary }>) {
               {t.weldbooksUs.salesTax.center.returnPage.amends}
             </Link>
           </p>
-        </Notice>
+        </InfoBanner>
       ) : null}
       {summary.carriedForward && summary.carriedForward.rowCount > 0 ? (
-        <Notice tone="info" data-testid="carried-forward-notice">
+        <InfoBanner data-testid="carried-forward-notice">
           <p>
             {fill(summary.carriedForward.rowCount === 1 ? tw.carriedForwardOne : tw.carriedForwardMany, {
               count: summary.carriedForward.rowCount,
               tax: formatMoney(summary.carriedForward.taxAmount),
             })}
           </p>
-        </Notice>
+        </InfoBanner>
       ) : null}
       {summary.totalTaxDue < 0 ? (
-        <Notice tone="warning">
+        <InfoBanner variant="warning">
           <p>{tw.creditNotice}</p>
-        </Notice>
+        </InfoBanner>
       ) : null}
       {summary.foreignCurrencyRows > 0 ? (
-        <Notice tone="info">
+        <InfoBanner>
           <p>
             {fill(summary.foreignCurrencyRows === 1 ? tw.foreignCurrencyOne : tw.foreignCurrencyMany, {
               count: summary.foreignCurrencyRows,
             })}
           </p>
-        </Notice>
+        </InfoBanner>
       ) : null}
     </div>
   );

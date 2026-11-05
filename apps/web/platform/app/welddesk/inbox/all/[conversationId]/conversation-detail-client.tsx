@@ -26,7 +26,7 @@ import { WeldAgentInput, type AttachmentPreview } from '@weldsuite/ui/components
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { helpdeskWorkerApi } from '@/lib/api/domains/welddesk';
@@ -38,7 +38,7 @@ import { CreateTicketDialog } from '../create-ticket-dialog';
 import { playMessageReceivedSound, playMessageSentSound } from '@/lib/utils/notification-sound';
 import { ContactDetailView } from '@/components/customer-detail/contact-detail-view';
 import { CreateTaskDialog } from '@/components/tasks/create-task-dialog';
-import { AuditTimeline } from '@/components/audit-timeline';
+import { AuditTimeline } from '@weldsuite/ui/components/audit-timeline';
 import { useConversationAuditLogs } from '@/hooks/queries/use-helpdesk-queries';
 import { decrementHelpdeskBadge } from '@/hooks/use-sidebar-badges';
 import { CannedResponsePicker } from '@/components/welddesk/canned-response-picker';

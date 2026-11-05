@@ -512,7 +512,7 @@ function ActivitySkeleton() {
           <Skeleton className="mb-3 h-3 w-20" />
           {[0, 1].map((j) => (
             <div key={j} className="relative pb-5 pl-9">
-              <Skeleton className="absolute left-0 top-0 size-6 rounded-full" />
+              <Skeleton className="absolute left-0 top-0 size-6 rounded-[32%]" />
               <div className="flex h-6 items-center justify-between">
                 <Skeleton className="h-3 w-2/5" />
                 <Skeleton className="h-3 w-10" />

@@ -3,7 +3,7 @@ import { useParams } from '@/lib/router';
 import { useAvailableApps, useCanManageApps, type AvailableApp } from '@/hooks/queries/use-settings-queries';
 import { AppDetailClient } from './app-detail-client';
 import { AppStoreNoAccess } from '../appstore-no-access';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 
 export default function AppDetailPage() {

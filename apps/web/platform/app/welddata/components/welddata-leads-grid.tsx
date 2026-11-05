@@ -110,7 +110,7 @@ function GridSkeleton() {
           // `backwards` keeps rows hidden during their delay (no pre-flash).
           style={{ animationDelay: `${i * 45}ms`, animationFillMode: 'backwards' }}
         >
-          <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+          <Skeleton className="h-8 w-8 shrink-0 rounded-[32%]" />
           <Skeleton className="h-4 w-44" />
           <Skeleton className="h-4 w-32" />
           <Skeleton className="hidden h-4 w-28 sm:block" />

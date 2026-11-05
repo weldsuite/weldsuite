@@ -16,7 +16,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { SIGN_LIMITS, type SignDocumentDto, type SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyStateIllustration, EntityList, type HeaderColumn } from '@/components/entity-list';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { PANEL_ROW } from './editor-frame';

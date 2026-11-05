@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 
@@ -103,8 +103,8 @@ export function PendingInvitationsSection({
                 <TableRow key={member.id} className="group h-10 hover:bg-muted/50">
                   <TableCell className="py-2">
                     <div className="flex items-center gap-2">
-                      <Avatar className="h-[22px] w-[22px] rounded-md">
-                        <AvatarFallback className="rounded-md text-[11px] font-mono leading-none">
+                      <Avatar className="h-[22px] w-[22px]">
+                        <AvatarFallback className="text-[11px] font-mono leading-none">
                           {(member.name?.[0] || email?.[0] || '?').toUpperCase()}
                         </AvatarFallback>
                       </Avatar>

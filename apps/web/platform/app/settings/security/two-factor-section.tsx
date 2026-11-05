@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { getClerkErrorMessage } from '@/app/auth/utils';

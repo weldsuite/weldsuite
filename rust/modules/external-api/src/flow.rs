@@ -733,7 +733,9 @@ async fn create_task_route(
     let mut row = made.row;
     let id = field(&row, "id").as_str().unwrap_or_default().to_owned();
     if has_links {
-        if let Some(failure) = link_created_task(&caller.db, &id, &links).await? {
+        if let Some(failure) =
+            link_created_task(&caller.db, &id, &links, caller.session.actor()).await?
+        {
             return Err(bad_request(failure.message()).into());
         }
         if let Some(linked) = TASKS.find_any(&caller.db, &id).await? {
@@ -888,7 +890,7 @@ async fn update_task(
     match plan {
         Some(plan) => {
             let mut tx = caller.db.begin().await?;
-            write_dependency_rows(&mut tx, &id, &plan, &now()).await?;
+            write_dependency_rows(&mut tx, &id, &plan, &now(), caller.session.actor()).await?;
             TASKS
                 .patch(&mut *tx, &id, &update, true, &date_props)
                 .await?;

@@ -19,9 +19,9 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useFileTaxReturn } from '@/hooks/queries/use-weldbooks-sales-tax-center-queries';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { FileReturnResult, TaxReturnDetail } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { Notice } from '../../shared/notice';
 import { fill } from '../../shared/text';
 import { isRecalculateConflict } from '../return-model';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -131,14 +131,14 @@ export function FileReturnDialog({
         {result ? (
           <div className="space-y-3" data-testid="file-result">
             {result.warnings.length === 0 ? (
-              <Notice tone="success">
+              <InfoBanner variant="success">
                 <p>{tf.noWarnings}</p>
-              </Notice>
+              </InfoBanner>
             ) : (
               result.warnings.map((warning) => (
-                <Notice key={warning.code} tone="warning" title={warningTitles[warning.code] ?? warning.code}>
+                <InfoBanner key={warning.code} variant="warning" title={warningTitles[warning.code] ?? warning.code}>
                   <p>{warningDescriptions[warning.code] ?? warning.message}</p>
-                </Notice>
+                </InfoBanner>
               ))
             )}
             <DialogFooter>
@@ -159,8 +159,7 @@ export function FileReturnDialog({
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             {recalcNeeded ? (
-              <Notice
-                tone="danger"
+              <InfoBanner variant="danger"
                 title={tf.recalcTitle}
                 data-testid="recalculate-notice"
                 action={
@@ -171,12 +170,12 @@ export function FileReturnDialog({
                 }
               >
                 <p>{tf.recalcDescription}</p>
-              </Notice>
+              </InfoBanner>
             ) : null}
             {findingsCount > 0 ? (
-              <Notice tone="warning">
+              <InfoBanner variant="warning">
                 <p>{findingsCount === 1 ? tf.findingsNoteOne : fill(tf.findingsNoteMany, { count: findingsCount })}</p>
-              </Notice>
+              </InfoBanner>
             ) : null}
 
             <div className="space-y-2">
@@ -202,9 +201,9 @@ export function FileReturnDialog({
             </div>
 
             {late && ret.dueDate ? (
-              <Notice tone="warning" data-testid="late-notice">
+              <InfoBanner variant="warning" data-testid="late-notice">
                 <p>{fill(tf.late, { date: formatDate(ret.dueDate) })}</p>
-              </Notice>
+              </InfoBanner>
             ) : null}
 
             <DialogFooter>

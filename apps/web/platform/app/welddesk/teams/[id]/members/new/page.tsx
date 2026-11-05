@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { MemberForm } from '../../../components/member-form';
 import { useDepartment, useHelpdeskUsers } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 export default function NewMemberPage() {
   const params = useParams();

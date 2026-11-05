@@ -69,15 +69,14 @@ function MemberAvatarWithPresence({ user }: Readonly<{ user: TeamMember }>) {
   const presence = user.userId ? getStatus(user.userId) : undefined;
   return (
     <div className="relative inline-flex">
-      <Avatar className="h-[22px] w-[22px] rounded-md">
+      <Avatar className="h-[22px] w-[22px]">
         {user.picture && (
           <AvatarImage
             src={user.picture}
             alt={user.name || user.email}
-            className="rounded-md"
           />
         )}
-        <AvatarFallback className="rounded-md text-xs">
+        <AvatarFallback className="text-xs">
           {(user.name?.[0] || user.email?.[0] || '?').toUpperCase()}
         </AvatarFallback>
       </Avatar>

@@ -10,22 +10,20 @@ import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { WELDREACH_SENDING_DEFAULTS } from '@weldsuite/app-api-client/schemas/reach';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link } from '@/lib/router';
 import { useReachAccess, useReachMailboxes, useReachOverview, useReachSettings } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
 import { cn } from '@/lib/utils';
 import { ActivityChart } from './components/activity-chart';
-import {
-  DashboardPage,
-  EmptyText,
-  ErrorPanel,
-  KpiCard,
-  KpiGrid,
-  SectionCard,
-  useReachBreadcrumbs,
-} from './components/page-kit';
+import { useReachBreadcrumbs } from './components/page-kit';
 import { WARMUP_MIN_INBOX_RATE, averageInboxPlacement, warmupCopyParams } from './lib/warmup';
+import { DashboardPage } from '@weldsuite/ui/components/page-layout';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { KpiCardLink } from '@/components/kpi-card-link';
+import { SectionCard } from '@weldsuite/ui/components/section-card';
 
 /** Bounce rate above which the campaign guardrail pauses a campaign. */
 const BOUNCE_WARNING_RATE = WELDREACH_SENDING_DEFAULTS.campaignBounceRate;
@@ -45,7 +43,7 @@ export default function ReachOverviewPage() {
   if (overview.isError || !overview.data) {
     return (
       <DashboardPage title={t('reach.overview.title')}>
-        <ErrorPanel onRetry={() => void overview.refetch()} />
+        <ErrorState onRetry={() => void overview.refetch()} />
       </DashboardPage>
     );
   }
@@ -123,13 +121,13 @@ export default function ReachOverviewPage() {
               : t('reach.overview.hints.last7d')
           }
         />
-        <KpiCard
+        <KpiCardLink
           label={t('reach.overview.tiles.activeCampaigns')}
           value={format.number(data.activeCampaigns)}
           icon={Rocket}
           href={can('reach_campaigns:read') ? '/weldreach/campaigns' : undefined}
         />
-        <KpiCard
+        <KpiCardLink
           label={t('reach.overview.tiles.unreadReplies')}
           value={format.number(data.unreadReplies)}
           icon={Inbox}

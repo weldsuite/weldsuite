@@ -8,10 +8,11 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrPayslip, HrPayslipLine } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { PAYSLIP_LABELS } from '@weldsuite/payroll-domain/labels';
 import { useDownloadHrPayslipPdf, useHrPayslip } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
+import { errorMessage, formatDate } from '../../components/shared';
 import { formatCents, formatDecimal, formatQuantity, humanizeKey, periodRange } from '../lib/format';
 import { usePayrollLabels } from '../lib/use-payroll-labels';
 import { IssueList, PayslipStatusBadge } from './payroll-ui';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 type Section = HrPayslipLine['section'];
 

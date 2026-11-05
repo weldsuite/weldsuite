@@ -36,7 +36,7 @@ import {
   useDeleteTicketType,
   type TicketTypeConfig,
 } from '@/hooks/queries/use-helpdesk-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { TicketTypeEditor } from './ticket-type-editor';
 
 const ICON_MAP: Record<string, LucideIcon> = {

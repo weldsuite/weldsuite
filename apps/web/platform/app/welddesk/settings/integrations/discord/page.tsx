@@ -9,10 +9,10 @@ import {
 } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { DiscordSettingsClient } from './discord-settings-client';
 import { Globe, FileText, Plus } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
 import { Button } from '@weldsuite/ui/components/button';
 import {

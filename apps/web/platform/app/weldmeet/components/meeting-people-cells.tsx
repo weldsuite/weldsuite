@@ -2,20 +2,18 @@
  * Organizer and Participants cells shared by the Upcoming and History lists.
  */
 
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip';
 import type { MeetingPerson } from '@/lib/weldmeet/meeting-people';
 
 function PersonInitial({ person, className }: Readonly<{ person: MeetingPerson; className?: string }>) {
-  const base = 'w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center shrink-0 overflow-hidden';
-  if (person.avatar) {
-    return <img src={person.avatar} alt={person.name} className={`${base} object-cover ${className ?? ''}`} />;
-  }
   return (
-    <div className={`${base} ${className ?? ''}`}>
-      <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
+    <Avatar className={`w-[23px] h-[23px] shrink-0 ${className ?? ''}`}>
+      {person.avatar && <AvatarImage src={person.avatar} alt={person.name} />}
+      <AvatarFallback className="bg-gray-200 dark:bg-accent text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
         {person.name?.charAt(0)?.toUpperCase() ?? '?'}
-      </span>
-    </div>
+      </AvatarFallback>
+    </Avatar>
   );
 }
 

@@ -15,11 +15,16 @@
 mod rows;
 pub mod github_outbound;
 
+pub mod benefit_measure;
 pub mod calendar;
+mod control_links;
 mod custom_values;
 mod digest_settings;
 mod documents;
 mod goals;
+mod governance_approvals;
+mod governance_body;
+mod governance_store;
 mod import_jobs;
 mod import_tasks;
 mod js;
@@ -34,8 +39,15 @@ mod project_analytics;
 mod project_files;
 mod projects;
 pub mod purge;
+mod raid;
+mod raid_body;
+mod raid_store;
+mod reporting_body;
+mod reporting_notify;
+mod reporting_store;
 mod sprints;
 mod stages;
+pub mod status_report_sweep;
 mod task_changes;
 mod task_comments;
 mod task_enrich;
@@ -44,7 +56,37 @@ mod tasks;
 mod time_entries;
 mod whiteboards;
 
+// Project control and delivery (designs weldflow-project-control.md and
+// weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
+// their slices fill them in.
+pub mod approvals;
+mod capacity;
+mod closing_body;
+mod closing_store;
+mod portal_mail;
+mod portal_store;
+mod project_baselines;
+mod project_benefits;
+mod project_changes;
+mod project_close;
+mod project_decisions;
+mod project_deliverables;
+pub mod project_finance;
+mod project_lessons;
+mod project_phases;
+mod project_requests;
+mod project_schedule;
+mod project_scope;
+mod project_stakeholders;
+mod project_status_reports;
+mod project_tabs;
+mod project_templates;
+mod public_project_portal;
+mod task_dependencies;
+mod templates_store;
+
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
+pub use public_project_portal::PortalState;
 
 use std::sync::Arc;
 
@@ -94,6 +136,11 @@ pub struct FlowState {
     /// `GITHUB_PROJECT_OUTBOUND`: the integration workers' job that pushes a
     /// task change to its GitHub issue. None: nothing is dispatched.
     pub github_outbound: Option<github_outbound::SharedGithubOutboundRuns>,
+    /// System mail (`@weldsuite/emails`): the portal invitation and the status report
+    /// email to client contacts. None: nothing is sent.
+    pub system_mail: Option<Arc<dyn weldsuite_ports::DynSystemMail>>,
+    /// `PROJECT_PORTAL_URL`: the client portal's origin, for the links in those emails.
+    pub project_portal_url: Option<Arc<str>>,
 }
 
 impl std::fmt::Debug for FlowState {
@@ -120,7 +167,7 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    vec![
+    let mut routers = vec![
         (
             "/digest-settings",
             digest_settings::router(state.clone(), gate),
@@ -134,6 +181,10 @@ where
         ("/my-tasks", my_tasks::router(state.clone(), gate)),
         ("/project-files", project_files::router(state.clone(), gate)),
         (
+            "/project-control-links",
+            control_links::router(state.clone(), gate),
+        ),
+        (
             "/project-analytics",
             project_analytics::router(state.clone(), gate),
         ),
@@ -144,6 +195,7 @@ where
         ),
         ("/project-members", members::router(state.clone(), gate)),
         ("/project-messages", messages::router(state.clone(), gate)),
+        ("/project-raid", raid::router(state.clone(), gate)),
         (
             "/project-pipeline-stages",
             stages::router(state.clone(), gate),
@@ -166,7 +218,96 @@ where
         ),
         ("/time-entries", time_entries::router(state.clone(), gate)),
         ("/whiteboards", whiteboards::router(state.clone(), gate)),
+    ];
+    routers.extend(delivery_routers(state, gate));
+    routers
+}
+
+/// The routers of project control and delivery (designs
+/// weldflow-project-control.md and weldflow-delivery-and-portfolio.md), by
+/// `/api` prefix: stubs until their slices fill them in. Apart from
+/// `routers` so neither outgrows clippy's line limit.
+fn delivery_routers<S, Q>(
+    state: &FlowState,
+    gate: &Arc<PermissionGate<Q>>,
+) -> Vec<(&'static str, Router<S>)>
+where
+    S: Clone + Send + Sync + 'static,
+    Q: PermissionQueries + 'static,
+{
+    vec![
+        ("/approvals", approvals::router(state.clone(), gate)),
+        ("/capacity", capacity::router(state.clone(), gate)),
+        (
+            "/project-baselines",
+            project_baselines::router(state.clone(), gate),
+        ),
+        (
+            "/project-benefits",
+            project_benefits::router(state.clone(), gate),
+        ),
+        (
+            "/project-changes",
+            project_changes::router(state.clone(), gate),
+        ),
+        ("/project-close", project_close::router(state.clone(), gate)),
+        (
+            "/project-decisions",
+            project_decisions::router(state.clone(), gate),
+        ),
+        (
+            "/project-deliverables",
+            project_deliverables::router(state.clone(), gate),
+        ),
+        (
+            "/project-finance",
+            project_finance::router(state.clone(), gate),
+        ),
+        (
+            "/project-lessons",
+            project_lessons::router(state.clone(), gate),
+        ),
+        (
+            "/project-phases",
+            project_phases::router(state.clone(), gate),
+        ),
+        (
+            "/project-requests",
+            project_requests::router(state.clone(), gate),
+        ),
+        (
+            "/project-schedule",
+            project_schedule::router(state.clone(), gate),
+        ),
+        ("/project-scope", project_scope::router(state.clone(), gate)),
+        (
+            "/project-stakeholders",
+            project_stakeholders::router(state.clone(), gate),
+        ),
+        (
+            "/project-status-reports",
+            project_status_reports::router(state.clone(), gate),
+        ),
+        (
+            "/project-templates",
+            project_templates::router(state.clone(), gate),
+        ),
+        (
+            "/task-dependencies",
+            task_dependencies::router(state.clone(), gate),
+        ),
     ]
+}
+
+/// The client portal's routes (`/public/project-portal`, FLOW-020), relative
+/// to that prefix: served before authentication, like flow-api's
+/// `app.route('/public/project-portal', ...)` above `apiAuth()`. The server
+/// nests it at the prefix (`flow_public` in `rust/bins/weldsuite`).
+pub fn public_router<S>(state: FlowState, portal: PortalState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    public_project_portal::router(state, portal)
 }
 
 /// Who is asking, in which workspace, with what permissions.

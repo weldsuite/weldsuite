@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useHrSettings, useUpdateHrSettings } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, errorMessage } from '../../components/shared';
-import { SettingsPage, SettingsSection, SettingRow } from '../../components/page-kit';
+import { errorMessage } from '../../components/shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { SettingsPage, SettingsSection, SettingRow } from '@weldsuite/ui/components/settings-layout';
 
 interface FormState {
   employeeSelfClockIn: boolean;

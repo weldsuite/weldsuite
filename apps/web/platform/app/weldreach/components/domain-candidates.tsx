@@ -15,7 +15,7 @@ import type { ReachDomain, ReachDomainCandidate } from '@weldsuite/app-api-clien
 import { Link } from '@/lib/router';
 import { useConnectReachDomain } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
-import { EmptyPanel } from './page-kit';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
 
 /** WeldHost's own screens for getting a domain: buying one, or bringing one you already have. */
 export const WELDHOST_BUY_DOMAIN_PATH = '/weldhost/domains/register';
@@ -64,7 +64,7 @@ export function DomainCandidateList({
   const connectingId = connect.isPending ? connect.variables?.hostDomainId : undefined;
 
   if (candidates.length === 0) {
-    return <EmptyPanel title={t('reach.setup.domains.candidatesEmpty')} />;
+    return <EmptyState title={t('reach.setup.domains.candidatesEmpty')} />;
   }
 
   const handleConnect = async (candidate: ReachDomainCandidate) => {

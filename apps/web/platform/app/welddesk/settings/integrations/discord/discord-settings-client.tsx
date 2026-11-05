@@ -36,7 +36,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useUpdateDiscordSettings, useDiscordChannels, usePostTicketPanel } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   ColorPicker,
@@ -415,18 +415,17 @@ export function DiscordSettingsClient({
 
             <div className="flex items-center gap-4 pt-4">
               <div className="relative">
-                <Avatar className="h-20 w-20 rounded-[1.25rem]">
-                  {botAvatarUrl ? (
-                    <img src={botAvatarUrl} alt={st('sweep.welddesk.discordSettings.botAvatarAlt')} className="object-cover w-full h-full" />
-                  ) : (
-                    <AvatarFallback className="rounded-[1.25rem] bg-muted">
-                      <img
-                        src="/assets/images/weldagent/logo-light.png"
-                        alt="WeldAgent"
-                        className="h-10 w-10 object-contain"
-                      />
-                    </AvatarFallback>
+                <Avatar className="h-20 w-20">
+                  {botAvatarUrl && (
+                    <AvatarImage src={botAvatarUrl} alt={st('sweep.welddesk.discordSettings.botAvatarAlt')} />
                   )}
+                  <AvatarFallback className="bg-muted">
+                    <img
+                      src="/assets/images/weldagent/logo-light.png"
+                      alt="WeldAgent"
+                      className="h-10 w-10 object-contain"
+                    />
+                  </AvatarFallback>
                 </Avatar>
               </div>
               <div className="flex-1">

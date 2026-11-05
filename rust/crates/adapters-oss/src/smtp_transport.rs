@@ -102,16 +102,17 @@ impl MailTransport for SmtpMailTransport {
         &'a self,
         envelope: &'a Envelope,
         raw: &'a [u8],
-    ) -> BoxFuture<'a, Result<(), TransportFailure>> {
+    ) -> BoxFuture<'a, Result<Option<String>, TransportFailure>> {
         Box::pin(async move {
             let from = address(envelope.mail_from())?;
             let to = address(&envelope.to)?;
             let lettre_envelope = LettreEnvelope::new(Some(from), vec![to])
                 .map_err(|error| TransportFailure::new(None, error.to_string()))?;
+            // A relay keeps the message's own Message-ID.
             self.transport
                 .send_raw(&lettre_envelope, raw)
                 .await
-                .map(|_| ())
+                .map(|_| None)
                 .map_err(|error| {
                     let text = error.to_string();
                     let code = refusal_code(error.is_permanent(), &text);

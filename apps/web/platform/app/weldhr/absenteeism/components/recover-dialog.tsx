@@ -12,8 +12,9 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useMyHrReportRecovered, useRecoverHrAbsence } from '@/hooks/queries/use-weldhr-queries';
-import { ErrorBanner, formatDate, todayIso } from '../../components/shared';
+import { formatDate, todayIso } from '../../components/shared';
 import { absenceFailure, suggestedLastSickDay } from './shared';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function RecoverDialog({
   absence,

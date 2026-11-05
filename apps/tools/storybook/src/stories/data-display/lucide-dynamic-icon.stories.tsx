@@ -22,6 +22,15 @@ export const PascalCaseName: Story = {
   args: { name: 'ShoppingCart', size: 24 },
 };
 
+/** An unknown name renders `fallback` (a `Hash` icon by default). */
+export const UnknownNameFallback: Story = {
+  args: {
+    name: 'not-an-icon',
+    size: 24,
+    fallback: <span className="text-xs text-muted-foreground">no icon</span>,
+  },
+};
+
 export const Gallery: Story = {
   render: () => (
     <div className="flex gap-4">

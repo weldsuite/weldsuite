@@ -1,6 +1,6 @@
 import { useAppAccess } from '@/hooks/use-app-access';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 /**

@@ -2,7 +2,7 @@
 import { useParams, useRouter } from '@/lib/router';
 import { useNewsArticle, type NewsArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { NewsViewer } from './news-viewer';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 
 /** Raw row shape returned by `GET /helpdesk-news/:id` (app-api). */
 interface RawNewsItem {

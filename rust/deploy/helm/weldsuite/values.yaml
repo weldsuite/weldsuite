@@ -175,6 +175,10 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # WeldFlow: the client portal's origin for the portal invitation and the status report
+  # emails to client contacts (empty: those emails are not sent).
+  flow:
+    projectPortalUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
   # onboarding creates a workspace's organization through it, the team
   # routes change members, and the identity-sync cron reads its changes.
@@ -657,12 +661,24 @@ cron:
       enabled: false
       schedule: "* * * * *"
       activeDeadlineSeconds: 55
+    # WeldFlow: drafts the status reports whose cadence has come due, in the
+    # workspaces the status_report_due due index lists.
+    flow-status-reports:
+      enabled: true
+      schedule: "30 3 * * *"
+      activeDeadlineSeconds: 3000
     # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
     # rates, in every workspace that used books (the books due index).
     books-sweep:
       enabled: true
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldFlow: the weekly project finance snapshot of every workspace the
+    # `finance_snapshot` due index lists (FLOW-019).
+    flow-finance-snapshot:
+      enabled: true
+      schedule: "45 3 * * *"
+      activeDeadlineSeconds: 900
     # WeldBooks' bank feeds whose next sync is due (the master
     # bank_feed_connection_index): the polled providers' syncs and the daily
     # safety net for the ones with webhooks (integration-sync-worker's cron).

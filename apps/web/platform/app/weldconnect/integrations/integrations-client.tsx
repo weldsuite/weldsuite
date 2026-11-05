@@ -39,7 +39,7 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   useIntegrationCatalog,
   useWorkflowIntegrations,

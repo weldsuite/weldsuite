@@ -23,11 +23,12 @@ import {
   useUpdateHrLeaveType,
   useDeleteHrLeaveType,
 } from '@/hooks/queries/use-weldhr-queries';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
-import { ErrorBanner, errorMessage } from '../../components/shared';
+import { errorMessage } from '../../components/shared';
 import { emptyIcon } from '../../components/page-kit';
 import { ColorField } from './color-field';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 interface FormState {
   id: string | null;

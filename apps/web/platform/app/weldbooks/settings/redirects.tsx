@@ -7,7 +7,7 @@
 
 import { useEffect } from 'react';
 import { Navigate } from '@tanstack/react-router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useCurrentAccountingEntityRow } from '@/hooks/use-current-entity-currency';
 import { useParams } from '@/lib/router';
 

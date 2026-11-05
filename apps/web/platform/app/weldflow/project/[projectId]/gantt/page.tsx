@@ -12,7 +12,7 @@ import {
   GanttTreeView,
 } from '@weldsuite/ui/components/gantt';
 import { CalendarIcon, Check, ChevronDown, EyeIcon, LinkIcon, Milestone, MinusIcon, PencilIcon, PlusIcon, Search, SquarePen, TrashIcon, Trash2 } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
 import { toast } from 'sonner';
@@ -65,6 +65,7 @@ import { useDateLocale } from '@/lib/i18n/date-locale';
 import { copyText } from '@/lib/clipboard';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
+import { BaselineOverlay } from './_baseline/baseline-overlay';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -424,7 +425,7 @@ const GanttPage = () => {
   const params = useParams();
   const workspaceUrl = useWorkspaceUrl();
   const projectId = params.projectId as string;
-  const { canWrite } = useProjectPermissions();
+  const { canWrite, isAdmin: canManageBaseline } = useProjectPermissions();
   const { t } = useI18n();
   const { dateFnsLocale, formatMedium } = useDateLocale();
 
@@ -1093,6 +1094,7 @@ const GanttPage = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      <BaselineOverlay projectId={projectId} currency={null} canManage={canManageBaseline} />
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 pt-[10px] pb-[10px] border-b bg-background">
         <div className="flex items-center gap-2">

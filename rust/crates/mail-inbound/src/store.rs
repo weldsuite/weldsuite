@@ -117,8 +117,11 @@ pub async fn resolve_inbound(
     email: &ParsedEmail,
 ) -> Result<ResolvedThread, sqlx::Error> {
     if !email.message_id.is_empty() {
+        // `external_message_id` too: a SENT copy keeps there the id of the
+        // copy Cloudflare delivered back to this mailbox (`sentCopyMessageIds`).
         let existing: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, thread_id from mail_messages where account_id = $1 and message_id = $2 limit 1",
+            "select id, thread_id from mail_messages
+             where account_id = $1 and (message_id = $2 or external_message_id = $2) limit 1",
         )
         .bind(account_id)
         .bind(&email.message_id)

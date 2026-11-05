@@ -31,6 +31,8 @@ export interface BillLineValues extends Partial<BrLineValues> {
   form1099Box?: string;
   classId?: string;
   locationId?: string;
+  /** The WeldFlow project the line's cost belongs to (FLOW-019); `''` = none. */
+  projectId?: string;
 }
 
 export interface BillFormShape extends Partial<BrDocumentValues> {
@@ -84,6 +86,8 @@ export interface BillPayload {
     form1099Box?: string | null;
     classId: string | null;
     locationId: string | null;
+    /** null = no project (and takes a stored tag off on edit). */
+    projectId: string | null;
     /** Brazil. */
     ncm?: string | null;
     cfop?: string | null;
@@ -145,6 +149,7 @@ export function buildBillPayload(values: BillFormShape, options: BillPayloadOpti
       ...(form1099 ? { form1099Box: item.form1099Box || null } : {}),
       ...(options.br ? brLinePayload(item) : {}),
       ...dimensionPayload(item),
+      projectId: item.projectId || null,
     })),
   };
 }

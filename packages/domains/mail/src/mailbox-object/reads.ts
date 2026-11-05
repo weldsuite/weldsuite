@@ -858,7 +858,15 @@ function findThreadBySubject(sql: SqlStorage, q: InboundThreadQuery, opts: { req
  */
 export function resolveInbound(sql: SqlStorage, q: InboundThreadQuery): { duplicate: boolean; threadId: string; isExistingHamThread: boolean } {
   if (q.rfcMessageId) {
-    const existing = sql.exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE rfc_message_id = ? LIMIT 1', q.rfcMessageId).toArray()[0];
+    // `external_message_id` too: a SENT copy keeps there the id of the copy
+    // Cloudflare delivered back to this mailbox (`sentCopyMessageIds`).
+    const existing = sql
+      .exec<{ id: string; thread_key: string }>(
+        'SELECT id, thread_key FROM messages WHERE rfc_message_id = ? OR external_message_id = ? LIMIT 1',
+        q.rfcMessageId,
+        q.rfcMessageId,
+      )
+      .toArray()[0];
     if (existing) return { duplicate: true, threadId: existing.thread_key, isExistingHamThread: false };
   }
 

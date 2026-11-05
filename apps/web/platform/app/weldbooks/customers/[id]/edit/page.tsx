@@ -4,7 +4,7 @@ import {
   useAccountingCustomer,
   useUpdateAccountingCustomer,
 } from '@/hooks/queries/use-accounting-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';

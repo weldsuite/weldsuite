@@ -334,9 +334,16 @@ const declarationFields = {
   currency: z.enum(HR_DECLARATION_CURRENCIES).optional(),
 };
 
-export const createHrDeclarationSchema = z.object({ employeeId: id, ...declarationFields });
+/**
+ * The WeldFlow project the expense counts toward (FLOW-019); null takes the tag
+ * off. Back office only: a claim filed in My HR (`hrSelfDeclarationSchema`) has
+ * none, HR tags it.
+ */
+const declarationProject = { projectId: z.string().min(1).max(255).nullable().optional() };
 
-export const updateHrDeclarationSchema = z.object(declarationFields).partial();
+export const createHrDeclarationSchema = z.object({ employeeId: id, ...declarationFields, ...declarationProject });
+
+export const updateHrDeclarationSchema = z.object({ ...declarationFields, ...declarationProject }).partial();
 
 export const reviewHrDeclarationSchema = z.object({
   decision: z.enum(['approved', 'rejected']),

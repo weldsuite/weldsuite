@@ -34,7 +34,8 @@ import {
 } from '@weldsuite/app-api-client/schemas/reach';
 import { useAddReachThreadToCrm } from '@/hooks/queries/use-reach-inbox-queries';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
-import { ErrorBanner, errorMessage } from '@/app/weldreach/components/engage/kit';
+import { errorMessage } from '@/app/weldreach/components/engage/kit';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function AddToCrmDialog({
   threadKey,

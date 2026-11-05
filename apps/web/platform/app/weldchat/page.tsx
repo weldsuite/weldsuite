@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { useLastWeldChatPage } from './hooks/use-last-weldchat-page';

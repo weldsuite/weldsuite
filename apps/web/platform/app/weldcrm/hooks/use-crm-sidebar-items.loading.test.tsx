@@ -44,7 +44,7 @@ vi.mock('@/components/app-sidebar-layout', () => ({
 vi.mock('../components/pipeline-template-dialog', () => ({ PipelineTemplateDialog: () => null }));
 vi.mock('../components/rename-dialog', () => ({ RenameDialog: () => null }));
 vi.mock('../components/create-list-dialog', () => ({ CreateListDialog: () => null }));
-vi.mock('@/components/confirm-dialog', () => ({ ConfirmDialog: () => null }));
+vi.mock('@weldsuite/ui/components/confirm-dialog', () => ({ ConfirmDialog: () => null }));
 
 import { useCrmSidebarItems } from './use-crm-sidebar-items';
 

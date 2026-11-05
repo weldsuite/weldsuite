@@ -11,9 +11,9 @@ export interface PersonAvatarProps extends Omit<ComponentProps<typeof Avatar>, '
   picture?: string | null;
   /** Stable id the colour is derived from: the same one the in-call tile uses. */
   colorSeed: string;
-  /** Size and radius of the avatar box. */
+  /** Size of the avatar box. The shape is the shared Avatar's; don't override it. */
   className?: string;
-  /** Radius (again, for the image) and text size of the initials. */
+  /** Text size of the initials. */
   innerClassName?: string;
 }
 

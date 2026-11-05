@@ -15,7 +15,7 @@ vi.mock('@weldsuite/i18n/client', () => ({
   useTranslations: () => (path: string) => path,
 }));
 
-vi.mock('@/components/page-loader', () => ({
+vi.mock('@weldsuite/ui/components/page-loader', () => ({
   PageLoader: () => <div data-testid="page-loader" />,
 }));
 

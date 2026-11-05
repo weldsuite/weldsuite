@@ -17,8 +17,9 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrOpenShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrOpenShift, useHrDepartments, useUpdateHrOpenShift } from '@/hooks/queries/use-weldhr-queries';
-import { CompanyPicker, ErrorBanner, errorMessage, instantAt } from '../../components/shared';
+import { CompanyPicker, errorMessage, instantAt } from '../../components/shared';
 import { dateOf, shiftWindow, timeOf } from './shift-dialog';
+import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 /** Value of the department select that means "everyone". */
 const EVERYONE = '__everyone';

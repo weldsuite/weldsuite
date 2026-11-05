@@ -4,7 +4,7 @@ import { Megaphone, PlusCircle, Download, Eye, TrendingUp } from 'lucide-react';
 import { EntityPageHeader, type StatItem, type ActionButton } from '@/components/entity-overview/entity-page-header';
 import { useAnnouncements, type Announcement } from '@/hooks/queries/use-helpdesk-queries';
 import { AnnouncementsClient } from './announcements-client';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
 /** Raw row shape returned by `GET /helpdesk-announcements` (app-api). */

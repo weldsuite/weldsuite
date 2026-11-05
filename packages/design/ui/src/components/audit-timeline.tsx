@@ -1,19 +1,11 @@
-import {
-  ArrowRightLeft,
-  UserPlus,
-  AlertTriangle,
-  Flag,
-  Settings,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  Trash2,
-  Archive,
-} from 'lucide-react';
+'use client';
+
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNowStrict } from 'date-fns';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { useUiLabels, type UiLabels } from '@weldsuite/ui/providers/ui-labels-provider';
 import { asText } from '@weldsuite/text';
 
 export interface AuditLogEntry {
@@ -28,48 +20,60 @@ export interface AuditLogEntry {
   entityType?: string;
 }
 
-const actionIcons: Record<string, typeof ArrowRightLeft> = {
-  created: Plus,
-  deleted: Trash2,
-  archived: Archive,
-  status_changed: ArrowRightLeft,
-  assigned: UserPlus,
-  escalated: AlertTriangle,
-  priority_changed: Flag,
-};
+type AuditValueLabels = UiLabels['auditTimeline'];
 
-const DEFAULT_ACTION_COLOR = { icon: 'text-gray-400', bg: 'bg-gray-500/10' };
-
-const actionColors: Record<string, { icon: string; bg: string }> = {
-  created: { icon: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-  deleted: { icon: 'text-red-500', bg: 'bg-red-500/10' },
-  archived: DEFAULT_ACTION_COLOR,
-  status_changed: { icon: 'text-blue-500', bg: 'bg-blue-500/10' },
-  assigned: { icon: 'text-green-500', bg: 'bg-green-500/10' },
-  escalated: { icon: 'text-amber-500', bg: 'bg-amber-500/10' },
-  priority_changed: { icon: 'text-orange-500', bg: 'bg-orange-500/10' },
-  updated: DEFAULT_ACTION_COLOR,
-};
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return 'none';
+function formatValue(value: unknown, labels: AuditValueLabels): string {
+  if (value === null || value === undefined) return labels.none;
   if (typeof value === 'object') return JSON.stringify(value);
   return asText(value);
 }
 
+/** "dueDate" -> "Due date", "assigneeName" -> "Assignee". */
+function formatFieldLabel(key: string): string {
+  const words = key
+    .replace(/(Name|Id)$/, '')
+    .replaceAll('_', ' ')
+    .replaceAll(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
+const ENUM_LIKE_FIELDS = new Set(['status', 'priority', 'type']);
+const ENUM_LABEL_OVERRIDES: Record<string, 'todo'> = { todo: 'todo' };
+
+/** "in_progress" -> "In progress", "todo" -> "To Do" for status-like fields. */
+function formatChangeValue(key: string, value: unknown, labels: AuditValueLabels): string {
+  if (key === 'repeat' && value && typeof value === 'object') {
+    const frequency = (value as { frequency?: unknown }).frequency;
+    if (typeof frequency === 'string') return frequency;
+  }
+  if (typeof value === 'string' && ENUM_LIKE_FIELDS.has(key)) {
+    const override = ENUM_LABEL_OVERRIDES[value];
+    if (override) return labels[override];
+    const words = value.replaceAll('_', ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && /(Date|At)$/.test(key)) {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
+  }
+  return formatValue(value, labels);
+}
+
 function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
+  const labels = useUiLabels().auditTimeline;
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
   return (
-    <div className="mt-1.5 space-y-0.5">
+    <div>
       {entries.map(([key, { from, to }]) => (
-        <div key={key} className="text-[11px] text-muted-foreground">
-          <span className="font-medium">{key}</span>:{' '}
-          <span className="line-through opacity-60">{formatValue(from)}</span>
-          {' → '}
-          <span>{formatValue(to)}</span>
-        </div>
+        <p key={key} className="text-xs leading-[18px] text-muted-foreground">
+          {formatFieldLabel(key)}: {formatChangeValue(key, from, labels)}
+          <ChevronRight aria-hidden className="mx-1 inline size-3 align-[-2px]" />
+          <span className="text-foreground/80">{formatChangeValue(key, to, labels)}</span>
+        </p>
       ))}
     </div>
   );
@@ -78,6 +82,7 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
 const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
 function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
+  const labels = useUiLabels().auditTimeline;
   const entries = Object.entries(data).filter(
     ([key, value]) =>
       !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
@@ -85,25 +90,40 @@ function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
   if (entries.length === 0) return null;
 
   return (
-    <div className="mt-1.5 space-y-0.5">
+    <div>
       {entries.map(([key, value]) => (
-        <div key={key} className="text-[11px] text-muted-foreground">
-          <span className="font-medium">{key}</span>: <span>{formatValue(value)}</span>
-        </div>
+        <p key={key} className="text-xs leading-[18px] text-muted-foreground">
+          {formatFieldLabel(key)}: {formatValue(value, labels)}
+        </p>
       ))}
+    </div>
+  );
+}
+
+/** Dot on the title line plus the hairline down to the next entry's dot. */
+function TimelineRail({ isLast }: Readonly<{ isLast: boolean }>) {
+  return (
+    <div className="relative w-[5px] shrink-0">
+      <span className="absolute left-0 top-[7.5px] size-[5px] rounded-full bg-muted-foreground/50" />
+      {!isLast && <span className="absolute left-[2px] top-4 -bottom-1 w-px bg-border" />}
     </div>
   );
 }
 
 export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }>) {
   return (
-    <div className="space-y-0">
-      {Array.from({ length: count }, (_, i) => `skeleton-${i}`).map((rowKey) => (
-        <div key={rowKey} className="flex gap-3 py-2 pl-0 pr-2">
-          <Skeleton className="h-5 w-5 shrink-0 rounded-[6px]" />
-          <div className="flex-1 space-y-1.5 pt-0.5">
-            <Skeleton className="h-3.5 w-3/4" />
-            <Skeleton className="h-2.5 w-1/3" />
+    <div>
+      {Array.from({ length: count }, (_, n) => `skeleton-row-${n}`).map((rowKey, index) => (
+        <div key={rowKey} className="flex gap-3">
+          <TimelineRail isLast={index === count - 1} />
+          <div
+            className={cn(
+              'flex flex-1 items-center justify-between gap-4',
+              index < count - 1 && 'pb-4',
+            )}
+          >
+            <Skeleton className="my-[3px] h-3.5 w-1/2" />
+            <Skeleton className="h-3 w-14" />
           </div>
         </div>
       ))}
@@ -113,16 +133,24 @@ export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }
 
 export interface AuditTimelineProps {
   logs: AuditLogEntry[];
+  /** Prefix each entry with its entity type (for timelines that mix record types). */
   showEntityType?: boolean;
 }
 
+/**
+ * A record's activity history: one row per audit event with a dot on a
+ * hairline rail, the description, a relative time and the field changes.
+ * A full record snapshot (an event without changes) waits behind "Details".
+ * Its text comes from the `auditTimeline` labels of `UiLabelsProvider`.
+ */
 export function AuditTimeline({ logs, showEntityType }: Readonly<AuditTimelineProps>) {
+  const labels = useUiLabels().auditTimeline;
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {
     return (
       <div className="flex items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground">No activity yet</p>
+        <p className="text-sm text-muted-foreground">{labels.noActivity}</p>
       </div>
     );
   }
@@ -139,76 +167,46 @@ export function AuditTimeline({ logs, showEntityType }: Readonly<AuditTimelinePr
   return (
     <div>
       {logs.map((log, index) => {
-        const Icon = actionIcons[log.action] || Settings;
-        const colors = actionColors[log.action] || DEFAULT_ACTION_COLOR;
         const hasChanges = log.changes && Object.keys(log.changes).length > 0;
         const hasData = log.data && Object.keys(log.data).length > 0;
-        const hasDetails = hasChanges || hasData;
         const isExpanded = expandedIds.has(log.id);
         const isLast = index === logs.length - 1;
 
         return (
-          <div key={log.id} className="flex">
-            {/* Tree connector */}
-            <div style={{ width: 20, flexShrink: 0, position: 'relative' }}>
-              {/* Icon */}
-              <div
-                className={cn(
-                  'relative z-10 flex items-center justify-center rounded-[6px]',
-                  colors.bg,
-                  colors.icon,
-                )}
-                style={{ width: 20, height: 20, marginTop: 2 }}
-              >
-                <Icon style={{ width: 10, height: 10 }} />
-              </div>
-              {/* Vertical line below icon */}
-              {!isLast && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 9,
-                    top: 24,
-                    bottom: 0,
-                    width: 1,
-                    backgroundColor: 'var(--color-border)',
-                  }}
-                />
-              )}
-            </div>
+          <div key={log.id} className="flex gap-3">
+            <TimelineRail isLast={isLast} />
 
-            {/* Content */}
-            <div className="flex-1 min-w-0 pl-2.5 pb-4">
-              <p className="text-[13px] leading-snug text-foreground pt-0.5">
-                {showEntityType && log.entityType && (
-                  <span className="mr-1.5 inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {log.entityType.replaceAll('_', ' ')}
-                  </span>
-                )}
-                {log.description}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[11px] text-muted-foreground/70">
-                  {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
-                </span>
+            <div className={cn('min-w-0 flex-1', !isLast && 'pb-4')}>
+              <div className="flex items-start justify-between gap-4">
+                <p className="min-w-0 text-[13px] leading-5 text-foreground">
+                  {showEntityType && log.entityType && (
+                    <span className="text-muted-foreground">
+                      {log.entityType.replaceAll('_', ' ')} ·{' '}
+                    </span>
+                  )}
+                  {log.description}
+                </p>
+                <time
+                  dateTime={log.createdAt}
+                  className="relative top-px shrink-0 text-xs leading-5 tabular-nums text-muted-foreground"
+                >
+                  {formatDistanceToNowStrict(new Date(log.createdAt), { addSuffix: true })}
+                </time>
               </div>
 
-              {/* Expandable details */}
-              {hasDetails && (
+              {/* Field changes always show; a full record snapshot waits behind "Details". */}
+              {hasChanges && <ChangeDetails changes={log.changes!} />}
+              {!hasChanges && hasData && (
                 <>
                   <button
+                    type="button"
                     onClick={() => toggleExpanded(log.id)}
-                    className="flex items-center gap-0.5 mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    aria-expanded={isExpanded}
+                    className="text-xs leading-[18px] text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    {isExpanded ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                    Details
+                    {labels.details}
                   </button>
-                  {isExpanded && hasChanges && <ChangeDetails changes={log.changes!} />}
-                  {isExpanded && !hasChanges && hasData && <DataSnapshot data={log.data!} />}
+                  {isExpanded && <DataSnapshot data={log.data!} />}
                 </>
               )}
             </div>

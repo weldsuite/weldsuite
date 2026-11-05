@@ -13,7 +13,7 @@
 
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   useInfiniteCommerceCategories,
   useCommerceCategoryTree,

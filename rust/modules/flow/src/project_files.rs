@@ -34,7 +34,7 @@ const STORAGE_KEY_REJECTED: &str =
     "storagePath / fileKey must be an unused upload key of this project";
 
 /// `WRITABLE_FILE_COLUMNS`.
-const WRITABLE: [&str; 13] = [
+const WRITABLE: [&str; 14] = [
     "fileName",
     "originalName",
     "mimeType",
@@ -46,6 +46,7 @@ const WRITABLE: [&str; 13] = [
     "storageProvider",
     "fileType",
     "isPublic",
+    "clientVisible",
     "metadata",
     "parentId",
 ];
@@ -554,6 +555,7 @@ fn read_file(
     issues.text(fields, "parentId", Presence::Nullish, Some(1), None);
     issues.boolean(fields, "isFolder", Presence::Optional);
     issues.text(fields, "fileType", Presence::Optional, None, Some(50));
+    issues.boolean(fields, "clientVisible", Presence::Optional);
     fields.clone()
 }
 
@@ -670,7 +672,7 @@ async fn create_file(
     sqlx::query(concat!(
         "insert into project_files (id, project_id, uploaded_by_id, created_at, updated_at,",
         " parent_id, file_name, original_name, mime_type, file_size, storage_path, file_key, url,",
-        " thumbnail_url, storage_provider, file_type, is_public, metadata)",
+        " thumbnail_url, storage_provider, file_type, is_public, client_visible, metadata)",
         " values ($2, $3, $4, $5::timestamp, $5::timestamp, ",
         val_text!("parentId", "null"),
         ", ",
@@ -695,6 +697,8 @@ async fn create_file(
         val_text!("fileType", "'file'"),
         ", ",
         val_bool!("isPublic", "false"),
+        ", ",
+        val_bool!("clientVisible", "false"),
         ", ",
         val_json!("metadata", "null"),
         ")"
@@ -846,6 +850,8 @@ async fn update_file(
         set_text!("fileType", "file_type"),
         ", ",
         set_bool!("isPublic", "is_public"),
+        ", ",
+        set_bool!("clientVisible", "client_visible"),
         ", ",
         set_json!("metadata", "metadata"),
         ", ",

@@ -30,6 +30,9 @@ import {
   removeParticipant,
   seedPresets,
   RTK_PRESETS,
+  RTK_CAPTION_PRESETS,
+  rtkPreset,
+  rtkPresetRole,
   type CloudflareRealtimeEnv,
   type RealtimeFetch,
 } from '@weldsuite/cloudflare-realtime';
@@ -164,7 +167,7 @@ describe('participants', () => {
     expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1/participants');
     expect(calls[0]!.body).toEqual({
       name: 'Gert',
-      preset_name: 'group_call_host_v3',
+      preset_name: 'group_call_host_v4',
       custom_participant_id: 'user_42',
     });
     expect(participant).toEqual({
@@ -195,11 +198,37 @@ describe('participants', () => {
   });
 });
 
+/** The caption presets as a preset list's `data`, for lists where they all exist. */
+const CAPTION_PRESETS_LISTED = Object.values(RTK_CAPTION_PRESETS).map((name) => ({ name }));
+
+describe('preset choice', () => {
+  it('transcribes only when the meeting has live captions on', () => {
+    expect(rtkPreset('HOST', { captions: false })).toBe(RTK_PRESETS.HOST);
+    expect(rtkPreset('HOST', { captions: true })).toBe(RTK_CAPTION_PRESETS.HOST);
+    expect(rtkPreset('GUEST_WAITING', { captions: true })).toBe(RTK_CAPTION_PRESETS.GUEST_WAITING);
+  });
+
+  it('reads the role back from either variant', () => {
+    for (const role of ['HOST', 'MEMBER', 'GUEST', 'GUEST_WAITING'] as const) {
+      expect(rtkPresetRole(RTK_PRESETS[role])).toBe(role);
+      expect(rtkPresetRole(RTK_CAPTION_PRESETS[role])).toBe(role);
+    }
+    expect(rtkPresetRole('group_call_host_v3')).toBeUndefined();
+    expect(rtkPresetRole(undefined)).toBeUndefined();
+  });
+});
+
 describe('presets', () => {
   it('creates only the presets that are missing', async () => {
     const { env, calls } = withResponses([
-      // List: HOST and MEMBER already exist.
-      { body: { success: true, data: [{ name: RTK_PRESETS.HOST }, { name: RTK_PRESETS.MEMBER }], paging: {} } },
+      // List: HOST and MEMBER already exist, and every caption preset.
+      {
+        body: {
+          success: true,
+          data: [{ name: RTK_PRESETS.HOST }, { name: RTK_PRESETS.MEMBER }, ...CAPTION_PRESETS_LISTED],
+          paging: {},
+        },
+      },
       { body: ok({ id: 'preset_guest' }) },
       { body: ok({ id: 'preset_guest_waiting' }) },
     ]);
@@ -217,10 +246,7 @@ describe('presets', () => {
   it('sends the waiting-room and screenshare config the call UI depends on', async () => {
     const { env, calls } = withResponses([
       { body: { success: true, data: [], paging: {} } },
-      { body: ok({ id: 'p' }) },
-      { body: ok({ id: 'p' }) },
-      { body: ok({ id: 'p' }) },
-      { body: ok({ id: 'p' }) },
+      ...Array.from({ length: 8 }, () => ({ body: ok({ id: 'p' }) })),
     ]);
 
     await seedPresets(env);
@@ -271,6 +297,18 @@ describe('presets', () => {
     // body outright otherwise.
     expect(preset(RTK_PRESETS.HOST)).toHaveProperty('ui.design_tokens.colors.brand.500');
     expect(preset(RTK_PRESETS.HOST).config.view_type).toBe('GROUP_CALL');
+
+    // Live transcription is billed per participant minute: only the caption
+    // presets have it, and they are otherwise the same role.
+    expect(presets.size).toBe(8);
+    for (const role of ['HOST', 'MEMBER', 'GUEST', 'GUEST_WAITING'] as const) {
+      const plain = preset(RTK_PRESETS[role]);
+      const captions = preset(RTK_CAPTION_PRESETS[role]);
+      expect(plain.permissions.transcription_enabled).toBe(false);
+      expect(captions.permissions.transcription_enabled).toBe(true);
+      expect({ ...captions.permissions, transcription_enabled: false }).toEqual(plain.permissions);
+      expect(captions.config).toEqual(plain.config);
+    }
   });
 
   it('seeds the host preset without live streaming when RealtimeKit rejects it', async () => {
@@ -280,7 +318,12 @@ describe('presets', () => {
       {
         body: {
           success: true,
-          data: [{ name: RTK_PRESETS.MEMBER }, { name: RTK_PRESETS.GUEST }, { name: RTK_PRESETS.GUEST_WAITING }],
+          data: [
+            { name: RTK_PRESETS.MEMBER },
+            { name: RTK_PRESETS.GUEST },
+            { name: RTK_PRESETS.GUEST_WAITING },
+            ...CAPTION_PRESETS_LISTED,
+          ],
           paging: {},
         },
       },

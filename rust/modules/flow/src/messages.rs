@@ -289,6 +289,9 @@ async fn update(
         if let Field::Set(pinned) = issues.boolean(fields, "isPinned", Presence::Optional) {
             data.insert("isPinned".to_owned(), json!(pinned));
         }
+        if let Field::Set(visible) = issues.boolean(fields, "clientVisible", Presence::Optional) {
+            data.insert("clientVisible".to_owned(), json!(visible));
+        }
         data
     }) {
         Ok(data) => data,
@@ -305,10 +308,21 @@ async fn update(
             let Some((sender, project)) = existing else {
                 return Err(Refusal::not_found("Project message", &id));
             };
-            if sender != caller.user_id {
+            // Sharing with the client is the one change a project admin may make
+            // on someone else's message; anything else still needs the sender.
+            let only_client_visible = data.len() == 1 && data.contains_key("clientVisible");
+            let mut admin_share = false;
+            if sender != caller.user_id
+                && only_client_visible
+                && let Some(project) = project.as_deref().filter(|p| !p.is_empty())
+            {
+                admin_share = caller.access(project).await?.is_admin;
+            }
+            if sender != caller.user_id && !admin_share {
                 return Err(Refusal::forbidden("You can only edit your own messages"));
             }
-            if let Some(project) = project.as_deref().filter(|p| !p.is_empty())
+            if !admin_share
+                && let Some(project) = project.as_deref().filter(|p| !p.is_empty())
                 && !caller.can_write(project).await?
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
@@ -317,6 +331,7 @@ async fn update(
             sqlx::query(
                 "update project_messages set
                      message = coalesce($2, message),
+                     client_visible = coalesce($4::boolean, client_visible),
                      edited_at = case when $2::text is not null then $3::timestamp else edited_at end,
                      updated_at = $3::timestamp
                  where id = $1",
@@ -324,6 +339,7 @@ async fn update(
             .bind(&id)
             .bind(data.get("message").and_then(Value::as_str))
             .bind(now())
+            .bind(data.get("clientVisible").and_then(Value::as_bool))
             .execute(&caller.db)
             .await?;
             let mut out = data.clone();

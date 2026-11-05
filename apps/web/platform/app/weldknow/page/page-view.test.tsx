@@ -31,7 +31,7 @@ vi.mock('@/contexts/breadcrumb-context', () => ({
   useBreadcrumbs: () => undefined,
 }));
 
-vi.mock('@/components/page-loader', () => ({
+vi.mock('@weldsuite/ui/components/page-loader', () => ({
   PageLoader: () => <div>loading</div>,
 }));
 

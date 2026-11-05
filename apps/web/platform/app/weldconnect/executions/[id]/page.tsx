@@ -3,7 +3,7 @@ import { AlertCircle, SearchX } from 'lucide-react';
 import { isApiError } from '@weldsuite/api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { Link, useParams } from '@/lib/router';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   isActiveExecutionStatus,
   useExecution,

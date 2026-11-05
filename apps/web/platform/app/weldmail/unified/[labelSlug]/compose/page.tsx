@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import ComposePage from '../../../[accountId]/[labelSlug]/compose/page';
 
 export default function UnifiedComposePage() {

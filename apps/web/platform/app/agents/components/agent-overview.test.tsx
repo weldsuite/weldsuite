@@ -12,7 +12,7 @@ vi.mock('@/lib/i18n', async () => {
 });
 
 vi.mock('./agent-avatar', () => ({ AgentAvatar: () => <span data-testid="avatar" /> }));
-vi.mock('@/components/icons/weldagent-icon', () => ({ WeldAgentIcon: () => <span /> }));
+vi.mock('@weldsuite/ui/components/weldagent-icon', () => ({ WeldAgentIcon: () => <span /> }));
 
 import { AgentOverview } from './agent-overview';
 

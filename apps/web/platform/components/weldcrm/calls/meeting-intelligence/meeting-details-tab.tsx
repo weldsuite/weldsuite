@@ -1,5 +1,6 @@
 
 import type { ReactNode } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { format } from 'date-fns';
 import { Link } from '@tanstack/react-router';
 import { LogIn, LogOut, Phone, Timer, Video, UserCircle2, ExternalLink } from 'lucide-react';
@@ -171,17 +172,14 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
               return (
                 <div key={`${participant.userId}-${participant.firstJoinedAt ?? participant.joinedAt}`} className="py-1">
                   <div className="flex items-center gap-2">
-                    {participant.userAvatar ? (
-                      <img
-                        src={participant.userAvatar}
-                        alt={participant.userName}
-                        className="w-[22px] h-[22px] rounded-md flex-shrink-0 object-cover"
-                      />
-                    ) : (
-                      <div className={cn("w-[22px] h-[22px] rounded-md flex items-center justify-center text-[10px] leading-none font-semibold text-white flex-shrink-0", participantColor)}>
+                    <Avatar className="w-[22px] h-[22px] flex-shrink-0">
+                      {participant.userAvatar && (
+                        <AvatarImage src={participant.userAvatar} alt={participant.userName} />
+                      )}
+                      <AvatarFallback className={cn("text-[10px] leading-none font-semibold text-white", participantColor)}>
                         <span>{participant.userName.charAt(0).toUpperCase()}</span>
-                      </div>
-                    )}
+                      </AvatarFallback>
+                    </Avatar>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
                         {participant.userName}
@@ -314,17 +312,12 @@ function ParticipantRow({ participant, index }: Readonly<{ participant: MeetingA
 
   const inner = (
     <>
-      {participant.avatar ? (
-        <img
-          src={participant.avatar}
-          alt={label}
-          className="w-[22px] h-[22px] rounded-md flex-shrink-0 object-cover"
-        />
-      ) : (
-        <div className={cn('w-[22px] h-[22px] rounded-md flex items-center justify-center text-[10px] leading-none font-semibold text-white flex-shrink-0', color)}>
+      <Avatar className="w-[22px] h-[22px] flex-shrink-0">
+        {participant.avatar && <AvatarImage src={participant.avatar} alt={label} />}
+        <AvatarFallback className={cn('text-[10px] leading-none font-semibold text-white', color)}>
           <span>{initials}</span>
-        </div>
-      )}
+        </AvatarFallback>
+      </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{label}</p>

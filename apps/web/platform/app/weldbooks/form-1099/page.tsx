@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
 import { EmptyStateIllustration } from '@/components/entity-list';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useForm1099Summary } from '@/hooks/queries/use-weldbooks-1099-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';

@@ -39,12 +39,12 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { Loader2, Upload, Trash2, Check, ChevronsUpDown } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { TIMEZONES } from '@/lib/timezones';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useWorkspaceSettings, useUpdateWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
-import { PageLoader } from '@/components/page-loader';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { CountrySelect } from '@/components/settings/country-select';
@@ -179,15 +179,14 @@ function LogoUpload({ currentLogoUrl, companyName, onLogoUploaded, onLogoRemoved
   return (
     <div className="flex items-center gap-4">
       <div className="relative">
-        <Avatar className="h-20 w-20 rounded-[1.25rem]">
-          {currentLogoUrl ? (
-            <img src={currentLogoUrl} alt={t('sweep.settings.business.logo.alt')} className="object-cover" />
-          ) : (
-            <AvatarFallback className="text-2xl rounded-[1.25rem]">{initial}</AvatarFallback>
+        <Avatar className="h-20 w-20">
+          {currentLogoUrl && (
+            <AvatarImage src={currentLogoUrl} alt={t('sweep.settings.business.logo.alt')} />
           )}
+          <AvatarFallback className="text-2xl">{initial}</AvatarFallback>
         </Avatar>
         {uploading && (
-          <div className="absolute inset-0 rounded-[1.25rem] bg-background/60 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-[32%] bg-background/60 flex items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         )}

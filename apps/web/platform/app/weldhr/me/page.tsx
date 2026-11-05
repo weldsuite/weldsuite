@@ -1,5 +1,5 @@
 import { useTranslations } from '@weldsuite/i18n/client';
-import { DetailHeader, DetailPage } from '../components/page-kit';
+import { DetailHeader, DetailPage } from '@weldsuite/ui/components/page-layout';
 import { EmployeeAvatar, StatusBadge } from '../components/shared';
 import { useMyHrSelf } from './components/my-hr-context';
 import { useMyHrBreadcrumbs } from './components/my-hr-page';

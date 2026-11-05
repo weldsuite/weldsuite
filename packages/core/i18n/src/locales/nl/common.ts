@@ -40,6 +40,8 @@ export const common = {
       addKey: 'Sleutel toevoegen',
       readWrite: 'Lezen/Schrijven',
       upgrade: 'Upgraden',
+      dismiss: 'Sluiten',
+      retry: 'Opnieuw proberen',
     },
     status: {
       active: 'Actief',
@@ -75,6 +77,7 @@ export const common = {
       noData: 'Geen gegevens beschikbaar',
       notAvailable: 'N.v.t.',
       loading: 'Laden...',
+      loadError: 'Er ging iets mis bij het laden.',
       error: 'Fout',
       success: 'Succes',
       select: 'Selecteer',

@@ -31,7 +31,6 @@ import { z } from 'zod';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, ilike, isNull, lt, notInArray, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
 import {
   createCalendarEventForTask,
   rescheduleCalendarEvent,
@@ -52,14 +51,22 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { atomically } from '@weldsuite/worker-kit/atomically';
+import {
+  dependencyRowChanges,
+  dependencyRowStatements,
+  detectCycle as detectDependencyCycle,
+  waitsForAfter,
+  type DependencyRowChanges,
+} from '@weldsuite/flow-domain/task-dependencies';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { dispatchAssignmentNotifications } from '../../lib/task-notifications';
 import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
-import { getMasterDb, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createFile } from '@weldsuite/core-domain/files';
 import {
   accessibleProjectIds,
@@ -77,7 +84,6 @@ import { dayBoundsInTimezone, workspaceDayBounds, type DayBounds } from '@weldsu
 import { containsPattern, queryBoolean } from '../../lib/query-params';
 import { markFilePurgeDue } from '../../lib/file-purge';
 import { taskInLiveProject } from '../../lib/task-scope';
-import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -338,23 +344,9 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
 // Dependency cycle detection
 // ============================================================================
 
-async function detectCycle(db: any, taskId: string, newDependsOn: string[]): Promise<boolean> {
-  const visited = new Set<string>();
-  const queue = [...newDependsOn];
-  const { tasks } = schema;
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (current === taskId) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    const [task] = await db
-      .select({ dependsOn: tasks.dependsOn })
-      .from(tasks)
-      .where(eq(tasks.id, current))
-      .limit(1);
-    if (task?.dependsOn) queue.push(...task.dependsOn);
-  }
-  return false;
+/** The shared walk (`@weldsuite/flow-domain/task-dependencies`): it follows the `task_dependencies` rows and the arrays. */
+function detectCycle(db: TaskDb, taskId: string, newDependsOn: string[]): Promise<boolean> {
+  return detectDependencyCycle(db as unknown as Parameters<typeof detectDependencyCycle>[0], taskId, newDependsOn);
 }
 
 // ============================================================================
@@ -382,98 +374,6 @@ async function insertTask(
   opts: { projectId?: string | null; userId: string },
 ) {
   return createTask(db, data, opts);
-}
-
-// ============================================================================
-// Assignment notification dispatcher
-// ============================================================================
-
-function dispatchAssignmentNotifications(
-  c: {
-    env: Env;
-    executionCtx: ExecutionContext;
-    get: (k: 'tenantDb' | 'userId' | 'workspaceId' | 'clerkOrgId') => any;
-  },
-  opts: {
-    assigneeIds: string[];
-    taskId: string;
-    taskTitle: string;
-    projectId: string | null;
-    taskPriority?: string | null;
-    dueDate?: Date | string | null;
-    taskDescription?: string | null;
-  },
-): void {
-  if (opts.assigneeIds.length === 0) return;
-
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  // sendTaskAssignmentNotification builds the app links and persists with the Clerk org id.
-  const clerkOrgId = c.get('clerkOrgId');
-  const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
-  // Web in-app opens the task itself via the stable `/weldflow/task/{id}` link
-  // (it resolves the project and opens the panel); mobile push uses
-  // projectId/taskId from the Expo data payload for a direct
-  // `/task/{projectId}/{taskId}` deep link.
-  const actionUrl = opts.projectId
-    ? `/weldflow/task/${opts.taskId}`
-    : `/weldcrm/tasks`;
-
-  const enrichment = (async () => {
-    const [projectName, workspaceName] = await Promise.all([
-      opts.projectId
-        ? db
-            .select({ name: schema.projects.name })
-            .from(schema.projects)
-            .where(eq(schema.projects.id, opts.projectId))
-            .limit(1)
-            .then((rows: { name: string | null }[]) => rows[0]?.name ?? null)
-            .catch(() => null)
-        : Promise.resolve(null),
-      (async () => {
-        try {
-          const masterDb = getMasterDb(c.env);
-          const [row] = await masterDb
-            .select({ name: masterSchema.workspaces.name })
-            .from(masterSchema.workspaces)
-            .where(matchWorkspaceRef(c.get('workspaceId')))
-            .limit(1);
-          return row?.name ?? null;
-        } catch {
-          return null;
-        }
-      })(),
-    ]);
-    return { projectName, workspaceName };
-  })();
-
-  for (const assigneeId of opts.assigneeIds) {
-    c.executionCtx.waitUntil(
-      enrichment
-        .then(({ projectName, workspaceName }) =>
-          sendTaskAssignmentNotification({
-            db,
-            env: c.env,
-            workspaceId: clerkOrgId,
-            assigneeId,
-            assignedByUserId: userId,
-            taskId: opts.taskId,
-            taskTitle: opts.taskTitle,
-            category,
-            actionUrl,
-            projectId: opts.projectId,
-            projectName,
-            taskPriority: opts.taskPriority ?? null,
-            dueDate: opts.dueDate ?? null,
-            taskDescription: opts.taskDescription ?? null,
-            workspaceName,
-          }),
-        )
-        .catch((err) =>
-          console.error('[app-api/tasks] assignment notification failed:', err),
-        ),
-    );
-  }
 }
 
 // ============================================================================
@@ -796,6 +696,8 @@ type DependencyPlan = {
   dependsOn: string[];
   blocks: string[];
   reciprocal: ReciprocalLink[];
+  /** The typed rows the lists imply (FLOW-015, transition release). */
+  rows: DependencyRowChanges;
 };
 
 const LINKED_TASK_DENIED = "You are not a member of a linked task's project";
@@ -869,15 +771,19 @@ async function planDependencyUpdate(
   // the blocked task is reachable from this task's (new) dependsOn.
   const cyclic =
     (addedDeps.length > 0 && (await detectCycle(db, id, addedDeps))) ||
-    (await anyAsync(addedBlocks, (blockedId) => detectCycle(db, blockedId, newDependsOn)));
+    (addedBlocks.length > 0 &&
+      (await anyAsync(addedBlocks, async (blockedId) =>
+        detectCycle(
+          db,
+          blockedId,
+          await waitsForAfter(db as unknown as Parameters<typeof waitsForAfter>[0], id, newDependsOn, removedDeps),
+        ),
+      )));
   if (cyclic) return { ok: false, kind: 'invalid', message: 'Circular dependency detected' };
 
-  const reciprocal = await reciprocalLinkUpdates(db, id, {
-    addedDeps,
-    removedDeps,
-    addedBlocks,
-    removedBlocks,
-  });
+  const diff = { addedDeps, removedDeps, addedBlocks, removedBlocks };
+  const reciprocal = await reciprocalLinkUpdates(db, id, diff);
+  const rows = await dependencyRowChanges(db as unknown as Parameters<typeof dependencyRowChanges>[0], id, diff);
 
   return {
     ok: true,
@@ -885,6 +791,7 @@ async function planDependencyUpdate(
     dependsOn: newDependsOn,
     blocks: newBlocks,
     reciprocal,
+    rows,
   };
 }
 
@@ -896,6 +803,7 @@ async function commitDependencyUpdate(
   db: TaskDb,
   id: string,
   plan: DependencyPlan,
+  userId: string,
   columns: Record<string, any> = {},
 ): Promise<void> {
   const now = new Date();
@@ -907,6 +815,7 @@ async function commitDependencyUpdate(
       .update(t)
       .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
       .where(and(eq(t.id, id), isNull(t.deletedAt))),
+    ...dependencyRowStatements(handle as unknown as Parameters<typeof dependencyRowStatements>[0], plan.rows, userId, now),
   ]);
 }
 
@@ -974,6 +883,7 @@ const PATCHABLE_TASK_COLUMNS = [
   'stageId',
   'sprintId',
   'milestoneId',
+  'deliverableId',
   'parentTaskId',
   'assigneeId',
   'customerId',
@@ -1021,10 +931,11 @@ async function validateTaskRelations(
   }
   // Sprint / milestone / stage must belong to the task's own project (a stage
   // also drives the status, so another project's would leak its systemStatus).
-  const { sprintId, milestoneId, stageId } = changedTaskReferences(existing, data);
+  const { sprintId, milestoneId, deliverableId, stageId } = changedTaskReferences(existing, data);
   const referenceError = await findInvalidTaskReference(db, currentProjectId, {
     sprintId,
     milestoneId,
+    deliverableId,
     stageId,
   });
   if (referenceError) return referenceError;
@@ -2357,7 +2268,7 @@ app.put(
     try {
       const plan = await planDependencyUpdate(c, db, id, data);
       if (!plan.ok) return dependencyFailureResponse(c, id, plan);
-      await commitDependencyUpdate(db, id, plan);
+      await commitDependencyUpdate(db, id, plan, c.get('userId'));
 
       publishEntityEvent({
         c,
@@ -2497,8 +2408,8 @@ app.post(
       // project) and sprint/milestone/stage are reset to the destination's
       // defaults. One all-or-nothing batch, so a failure can't leave the parent
       // and its subtasks split across projects.
-      await atomically(db, (handle) =>
-        allIds.map((taskId, i) =>
+      await atomically(db, (handle) => [
+        ...allIds.map((taskId, i) =>
           handle
             .update(t)
             .set({
@@ -2506,6 +2417,7 @@ app.post(
               ...(taskId === id && { parentTaskId: null }),
               sprintId: null,
               milestoneId: null,
+              deliverableId: null,
               stageId: resetStageId,
               status: resetStatus,
               key: null,
@@ -2515,7 +2427,16 @@ app.post(
             })
             .where(eq(t.id, taskId)),
         ),
-      );
+        // A typed dependency stays inside one project (FLOW-015): the moved tasks' rows go.
+        handle
+          .delete(schema.taskDependencies)
+          .where(
+            or(
+              inArray(schema.taskDependencies.predecessorId, allIds),
+              inArray(schema.taskDependencies.successorId, allIds),
+            ),
+          ),
+      ]);
 
       // One event per moved task, so audit, analytics and subscriptions see every row that changed.
       const moved = [{ id, title: (existing as any).title as string }, ...descendants];
@@ -2560,12 +2481,13 @@ async function writePatchedTask(
     update: Record<string, any>;
     resolvedStatus: unknown;
     dependencyPlan: DependencyPlan | null;
+    userId: string;
   },
 ): Promise<boolean> {
-  const { id, existing, update, resolvedStatus, dependencyPlan } = args;
+  const { id, existing, update, resolvedStatus, dependencyPlan, userId } = args;
   const completed = await claimCompletion(db, id, existing.status, resolvedStatus);
   if (dependencyPlan) {
-    await commitDependencyUpdate(db, id, dependencyPlan, update);
+    await commitDependencyUpdate(db, id, dependencyPlan, userId, update);
   } else {
     await db.update(t).set(update).where(liveTask(id));
   }
@@ -2659,7 +2581,7 @@ app.patch(
       const update = buildTaskUpdate(data);
       const resolvedStatus = await applyStatusChange(db, existing, data, update);
 
-      const completed = await writePatchedTask(db, { id, existing, update, resolvedStatus, dependencyPlan });
+      const completed = await writePatchedTask(db, { id, existing, update, resolvedStatus, dependencyPlan, userId });
 
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);

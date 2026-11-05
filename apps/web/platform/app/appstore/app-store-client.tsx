@@ -7,7 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import { getTranslations } from '@/lib/i18n';
@@ -16,7 +16,7 @@ import { useAppLicence } from '@/components/partner/use-app-licence';
 import { isNotLicensedError } from '@/lib/partner/api-errors';
 import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
 import { AppAccessRequestDialog } from './app-access-request-dialog';
-import { SoftBadge } from '@/components/shared/soft-badge';
+import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { accessBadgeTone, canRequestAccess, getAppAccessInfo, type AppAccessState } from './app-access-state';
 
 interface AppStoreClientProps {

@@ -36,7 +36,7 @@ import { reachErrorMessage } from '@/lib/reach/errors';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
 import { CreateMailboxForm } from '../components/create-mailbox-form';
 import { warmupCopyParams } from '../lib/warmup';
-import { NumberInput } from '@/components/shared/number-input';
+import { NumberInput } from '@weldsuite/ui/components/number-input';
 
 // ---------------------------------------------------------------------------
 // New mailbox

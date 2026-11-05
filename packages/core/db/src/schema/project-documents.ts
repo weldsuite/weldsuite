@@ -57,6 +57,9 @@ export const projectDocuments = pgTable('project_documents', {
   isPublished: boolean('is_published').notNull().default(false),
   publishedAt: timestamp('published_at'),
 
+  // Shown to the project's clients in the client portal (FLOW-020).
+  clientVisible: boolean('client_visible').notNull().default(false),
+
   // Editing info
   lastEditedBy: varchar('last_edited_by', { length: 255 }),
 }, (table) => [
