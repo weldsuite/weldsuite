@@ -127,7 +127,9 @@ const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
  * What only Rust · image and chart reads, or what can break it while
  * Rust · checks passes: the Dockerfile and its helpers, the chart and the kind
  * smoke test, the MX image, and the toolchain and Cargo lockfile (the arm64
- * cross-build). ci.yml is here so a change to the job itself is tested.
+ * cross-build). Cargo.toml is here for its [profile.release]: the image job
+ * runs the only release build in CI. ci.yml is here so a change to the job
+ * itself is tested.
  */
 const IMAGE_PATHS = [
   'rust/Dockerfile',
@@ -137,6 +139,7 @@ const IMAGE_PATHS = [
   'rust/deploy/kind/',
   'rust/deploy/haraka/',
   'rust/rust-toolchain.toml',
+  'rust/Cargo.toml',
   'rust/Cargo.lock',
   'rust/.cargo/',
   '.github/workflows/ci.yml',
