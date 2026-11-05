@@ -14,8 +14,10 @@ import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Form } from '@weldsuite/ui/components/form';
 import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
 import type { Deliverable } from '@weldsuite/app-api-client/domains/project-governance';
 import { useI18n } from '@/lib/i18n/provider';
+import { CrmPersonSelect } from '@/components/objects/person/crm-person-select';
 import {
   useAcceptDeliverable,
   useCreateDeliverable,
@@ -450,13 +452,14 @@ function RequestSignoffDialog({ id, onDone }: Readonly<{ id: string; onDone: () 
   const { t } = useI18n();
   const d = t.flowGovernance.scope.deliverableDetail;
   const request = useRequestSignoff();
-  const form = useForm<{ contactId: string; dueAt: string }>({ defaultValues: { contactId: '', dueAt: '' } });
+  const form = useForm<{ dueAt: string }>({ defaultValues: { dueAt: '' } });
+  const [contactId, setContactId] = useState('');
   const submit = form.handleSubmit(async (values) => {
     try {
       await request.mutateAsync({
         id,
         data: {
-          ...(values.contactId.trim() ? { contactId: values.contactId.trim() } : {}),
+          ...(contactId ? { contactId } : {}),
           ...(values.dueAt ? { dueAt: fromDateInput(values.dueAt) ?? undefined } : {}),
         },
       });
@@ -469,7 +472,18 @@ function RequestSignoffDialog({ id, onDone }: Readonly<{ id: string; onDone: () 
   return (
     <FormDialog open onClose={onDone} title={d.requestTitle} description={d.requestDescription} submitLabel={d.submitRequest} pending={request.isPending} onSubmit={() => void submit()}>
       <Form {...form}>
-        <TextField control={form.control} name="contactId" label={d.contactId} description={d.contactHelp} />
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="signoff-contact">{d.contactId}</Label>
+          <CrmPersonSelect
+            id="signoff-contact"
+            value={contactId}
+            onChange={(personId) => setContactId(personId)}
+            placeholder={d.contactPlaceholder}
+            searchPlaceholder={d.contactSearch}
+            clearable
+          />
+          <p className="text-sm text-muted-foreground">{d.contactHelp}</p>
+        </div>
         <TextField control={form.control} name="dueAt" label={d.dueAt} type="date" />
       </Form>
     </FormDialog>
