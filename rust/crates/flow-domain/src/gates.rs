@@ -68,6 +68,7 @@ pub mod messages {
     pub const WAIVE_AFTER_REQUEST: &str = "The gate is already waiting for approval";
     pub const REORDER_INCOMPLETE: &str = "List every phase of the project exactly once";
     pub const REORDER_PASSED: &str = "Passed phases keep their place at the start";
+    pub const REORDER_ACTIVE: &str = "The active phase stays ahead of the phases still to come";
     pub const NOTE_REQUIRED: &str = "A note is required to waive a criterion";
 }
 
@@ -642,8 +643,10 @@ pub fn next_upcoming_phase(phases: &[PhaseLike], phase_id: &str) -> Option<Strin
         .map(|phase| phase.id.clone())
 }
 
-/// `reorderError(phases, ids)`: every live phase exactly once, and the passed
-/// phases first, in the order they had.
+/// `reorderError(phases, ids)`: every live phase exactly once, the passed
+/// phases first, in the order they had, then the active phase ahead of every
+/// upcoming one (`next_upcoming_phase` only looks after the phase that just
+/// passed, so an upcoming phase placed before the active one would never start).
 pub fn reorder_error(phases: &[PhaseLike], ids: &[String]) -> Option<&'static str> {
     let live: HashSet<&str> = phases.iter().map(|phase| phase.id.as_str()).collect();
     let distinct: HashSet<&str> = ids.iter().map(String::as_str).collect();
@@ -672,6 +675,13 @@ pub fn reorder_error(phases: &[PhaseLike], ids: &[String]) -> Option<&'static st
         .any(|(index, id)| passed.get(index) != Some(&id.as_str()));
     if rest_passed || leading_moved {
         return Some(messages::REORDER_PASSED);
+    }
+    if let Some(active_at) = ids.iter().position(|id| status_of(id) == Some("active"))
+        && ids[..active_at]
+            .iter()
+            .any(|id| status_of(id) == Some("upcoming"))
+    {
+        return Some(messages::REORDER_ACTIVE);
     }
     None
 }
@@ -1134,6 +1144,22 @@ mod tests {
             reorder_error(&phases, &ids(&["p2", "p3", "p4", "p1"])),
             Some(messages::REORDER_PASSED)
         );
+        assert_eq!(
+            reorder_error(&phases, &ids(&["p1", "p3", "p2", "p4"])),
+            Some(messages::REORDER_ACTIVE)
+        );
+        assert_eq!(
+            reorder_error(&phases, &ids(&["p1", "p4", "p3", "p2"])),
+            Some(messages::REORDER_ACTIVE)
+        );
+        // With no active phase, upcoming ones may go in any order.
+        let idle = [
+            phase("p1", 0, "passed"),
+            phase("p2", 1, "upcoming"),
+            phase("p3", 2, "upcoming"),
+            phase("p4", 3, "upcoming"),
+        ];
+        assert_eq!(reorder_error(&idle, &ids(&["p1", "p4", "p2", "p3"])), None);
     }
 
     #[test]

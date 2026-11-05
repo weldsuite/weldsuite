@@ -156,6 +156,14 @@ describe('phase lifecycle rules', () => {
     expect(reorderError(phases, ['p2', 'p3', 'p4', 'p1'])).toBe(GATE_MESSAGES.reorderPassed);
   });
 
+  it('refuses a reorder that puts an upcoming phase ahead of the active one', () => {
+    expect(reorderError(phases, ['p1', 'p3', 'p2', 'p4'])).toBe(GATE_MESSAGES.reorderActive);
+    expect(reorderError(phases, ['p1', 'p4', 'p3', 'p2'])).toBe(GATE_MESSAGES.reorderActive);
+    // With no active phase, upcoming ones may go in any order.
+    const idle = phases.map((phase) => (phase.status === 'active' ? { ...phase, status: 'upcoming' } : phase));
+    expect(reorderError(idle, ['p1', 'p4', 'p2', 'p3'])).toBeNull();
+  });
+
   it('says why a gate cannot be requested, in a fixed order', () => {
     const ready = { allSatisfied: true };
     expect(gateRequestError({ status: 'active', gateRequestedAt: null }, ready, true)).toBeNull();

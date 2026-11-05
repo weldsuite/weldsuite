@@ -326,6 +326,17 @@ impl WorkingCalendar {
         current
     }
 
+    /// The day itself when it is a working day, else the one before.
+    fn previous_working(&self, day: i64) -> i64 {
+        let mut current = day;
+        let mut guard = 0;
+        while guard < MAX_SEARCH_DAYS && !self.is_working(current) {
+            current -= 1;
+            guard += 1;
+        }
+        current
+    }
+
     /// `n` working days later (earlier when negative); zero returns the day as it is.
     fn add(&self, day: i64, n: i64) -> i64 {
         let mut current = day;
@@ -907,8 +918,10 @@ pub fn preview_move(
         (Some(start), Some(due)) => (start, due),
         (Some(start), None) => (start, cal.add(cal.next_working(start), duration - 1)),
         (None, due) => {
+            // Count back from the last working day on or before the due date:
+            // rolling a weekend due date forward would put the start after it.
             let due = due.unwrap_or(0);
-            (cal.add(cal.next_working(due), -(duration - 1)), due)
+            (cal.add(cal.previous_working(due), -(duration - 1)), due)
         }
     };
     let (task_start, task_due) = (iso_date(new_start), iso_date(new_due));

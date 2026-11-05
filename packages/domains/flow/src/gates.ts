@@ -55,6 +55,7 @@ export const GATE_MESSAGES = {
   waiveAfterRequest: 'The gate is already waiting for approval',
   reorderIncomplete: 'List every phase of the project exactly once',
   reorderPassed: 'Passed phases keep their place at the start',
+  reorderActive: 'The active phase stays ahead of the phases still to come',
   noteRequired: 'A note is required to waive a criterion',
 } as const;
 
@@ -435,8 +436,10 @@ export function nextUpcomingPhase(phases: readonly PhaseLike[], phaseId: string)
 }
 
 /**
- * The refusal for a reorder: every live phase exactly once, and the passed
- * phases first, in the order they had.
+ * The refusal for a reorder: every live phase exactly once, the passed phases
+ * first, in the order they had, then the active phase ahead of every upcoming
+ * one. `nextUpcomingPhase` only looks after the phase that just passed, so an
+ * upcoming phase placed before the active one would never be started.
  */
 export function reorderError(phases: readonly PhaseLike[], ids: readonly string[]): string | null {
   const live = new Set(phases.map((phase) => phase.id));
@@ -451,6 +454,10 @@ export function reorderError(phases: readonly PhaseLike[], ids: readonly string[
   const leading = ids.slice(0, passed.length);
   const restPassed = ids.slice(passed.length).some((id) => byId.get(id)?.status === 'passed');
   if (restPassed || leading.some((id, index) => id !== passed[index])) return GATE_MESSAGES.reorderPassed;
+  const activeAt = ids.findIndex((id) => byId.get(id)?.status === 'active');
+  if (activeAt >= 0 && ids.slice(0, activeAt).some((id) => byId.get(id)?.status === 'upcoming')) {
+    return GATE_MESSAGES.reorderActive;
+  }
   return null;
 }
 
