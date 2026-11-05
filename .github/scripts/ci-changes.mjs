@@ -12,10 +12,17 @@
  *   desktop      apps/desktop is affected
  *   packages     any package but the platform is affected: Build · packages
  *   rust         rust/ or another input of the Rust jobs changed (RUST_PATHS,
- *                RUST_PACKAGES): Rust · checks, image and chart, deploy config.
- *                The image also bundles the platform SPA and the sign portal,
- *                but those are built by Build on their own PRs; the image
- *                catches a Docker-only break on develop.
+ *                RUST_PACKAGES): Rust · checks, deploy config.
+ *   image        a file only the image build reads changed (IMAGE_PATHS):
+ *                Rust · image and chart. It is the slowest job (40+ minutes
+ *                for each architecture on a cache miss), and Rust · checks
+ *                already compiles and tests the code it packages, so on a PR
+ *                it runs only for the Dockerfile, the chart, the kind smoke
+ *                test and the toolchain/lockfile, even when a global file
+ *                such as pnpm-lock.yaml turns every other area on. Pushes to
+ *                develop and main build it every time, which is where a
+ *                Docker-only break (the image also bundles the platform SPA
+ *                and the sign portal) shows up.
  *   conformance  rust, api, or a file a conformance suite covers (CONFORMANCE_SUITES):
  *                Rust · conformance (the suites narrow it further)
  *   workers      a file under apps/workers/ changed: Rust · conformance coverage
@@ -40,7 +47,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'conformance', 'workers'];
+const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'conformance', 'workers'];
 
 /** Read by every job: a change here runs everything. */
 const GLOBAL = [
@@ -115,6 +122,25 @@ const RUST_PATHS = [
   'apps/workers/sheets-api/src/engine-ops',
 ];
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
+
+/**
+ * What only Rust · image and chart reads, or what can break it while
+ * Rust · checks passes: the Dockerfile and its helpers, the chart and the kind
+ * smoke test, the MX image, and the toolchain and Cargo lockfile (the arm64
+ * cross-build). ci.yml is here so a change to the job itself is tested.
+ */
+const IMAGE_PATHS = [
+  'rust/Dockerfile',
+  'rust/Dockerfile.dockerignore',
+  'rust/docker/',
+  'rust/deploy/helm/',
+  'rust/deploy/kind/',
+  'rust/deploy/haraka/',
+  'rust/rust-toolchain.toml',
+  'rust/Cargo.lock',
+  'rust/.cargo/',
+  '.github/workflows/ci.yml',
+];
 
 /**
  * Each conformance suite names the paths it covers, and
@@ -258,8 +284,17 @@ function allAreas(reason) {
   return Object.fromEntries(AREAS.map((area) => [area, [reason]]));
 }
 
-/** area → the reasons it is on (an empty list means off). */
+/**
+ * area → the reasons it is on (an empty list means off). The image area is
+ * decided by IMAGE_PATHS alone, whatever turned the other areas on.
+ */
 function decide(files) {
+  const reasons = decideAreas(files);
+  reasons.image = files.filter((f) => startsWithAny(f, IMAGE_PATHS)).map((f) => `${f} is read by the image build`);
+  return reasons;
+}
+
+function decideAreas(files) {
   const reasons = Object.fromEntries(AREAS.map((area) => [area, []]));
   const on = (area, why) => reasons[area].push(why);
 
