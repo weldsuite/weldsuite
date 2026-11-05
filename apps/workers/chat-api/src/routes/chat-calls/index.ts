@@ -20,7 +20,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { createMeeting, addParticipant } from '@weldsuite/cloudflare-realtime';
+import { createMeeting, addParticipant, ensurePresets } from '@weldsuite/cloudflare-realtime';
 import { sendIncomingCallNotification } from '@weldsuite/notifications';
 import { signCallRingToken } from '@weldsuite/chat-domain/call-ring-token';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
@@ -81,6 +81,18 @@ type ChatCallRow = typeof schema.chatCalls.$inferSelect;
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Make sure the RealtimeKit presets that addParticipant names exist. They are
+ * renamed whenever their settings change (RTK_PRESETS), and RealtimeKit turns
+ * down a participant whose preset is missing, so calls must not rely on
+ * WeldMeet having seeded them. Once seeded this is a single KV get; run it
+ * alongside the request's other lookups. Best effort: a failed or racing seed
+ * is logged, and addParticipant reports a preset that really is missing.
+ */
+function presetsReady(env: Env): Promise<void> {
+  return ensurePresets(env).catch((e) => console.error('[Chat:Calls] Seeding RealtimeKit presets failed:', e));
+}
 
 /** Message for a call type the channel has switched off, or null when allowed. */
 function disabledCallMessage(
@@ -710,7 +722,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     const { chatCalls, chatChannels, chatChannelMembers, workspaceMembers } = schema;
 
     // Run membership check + channel permissions + active call check + user info
-    // + the DM's persistent room in parallel
+    // + the DM's persistent room + the RealtimeKit presets in parallel
     const [membershipResult, channelResult, activeCallResult, authorResult, dmRoomId] = await Promise.all([
       db
         .select({ channelId: chatChannelMembers.channelId })
@@ -734,6 +746,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
         .limit(1),
       // Read for every channel (it is one KV get); only a DM uses it.
       getDmCallRoom(c.env.WORKSPACE_CACHE, orgId, data.channelId),
+      presetsReady(c.env),
     ]);
 
     if (!membershipResult[0]) {
@@ -793,7 +806,8 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     });
     return success(c, started, 201);
   } catch (err) {
-    console.error('[Chat:Calls] Failed to start-and-join call:', err);
+    // Message first: Workers Logs printed the bare Error as stack frames, without it.
+    console.error('[Chat:Calls] Failed to start-and-join call:', err instanceof Error ? err.message : err, err);
     return error.internal(c, 'Failed to start call');
   }
 });
@@ -824,6 +838,7 @@ app.post('/:callId/prepare', requirePermission('channels:read'), async (c) => {
       db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
       db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
       readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
+      presetsReady(c.env),
     ]);
 
     const [call] = callResult;
@@ -859,7 +874,7 @@ app.post('/:callId/prepare', requirePermission('channels:read'), async (c) => {
       authToken: ready.token,
     });
   } catch (err) {
-    console.error('[Chat:Calls] Failed to prepare call join:', err);
+    console.error('[Chat:Calls] Failed to prepare call join:', err instanceof Error ? err.message : err, err);
     return error.internal(c, 'Failed to prepare call');
   }
 });
@@ -879,11 +894,13 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
     const db = c.get('tenantDb');
     const { chatCalls, workspaceMembers } = schema;
 
-    // Fetch call + user info + a participant prepared while it rang, in parallel
+    // Fetch call + user info + a participant prepared while it rang + the
+    // RealtimeKit presets, in parallel
     const [callResult, authorResult, prepared] = await Promise.all([
       db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
       db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
       readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
+      presetsReady(c.env),
     ]);
 
     const [call] = callResult;
