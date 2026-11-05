@@ -64,11 +64,20 @@ config:
   tenants:
     region: eu
   aadWrites: true
+  # WeldMeet and WeldChat calls on the in-cluster LiveKit
+  # (infrastructure/video): browsers connect to livekit.${DOMAIN}, the
+  # server reaches its API inside the cluster. The key pair is in the Secret
+  # (LIVEKIT_API_KEY, LIVEKIT_API_SECRET).
+  video:
+    provider: livekit
+    livekit:
+      url: wss://livekit.${DOMAIN}
+      apiUrl: http://livekit.livekit.svc:7880
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET:
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET:
 # secrets/examples/secrets.example.yaml.
 secret:
   existingSecret: weldsuite-env

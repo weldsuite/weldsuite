@@ -1,6 +1,6 @@
 # The layers Flux applies, in order: chart sources, operators and the
 # ingress, the encrypted secrets, Postgres and the issuer, the services, and
-# the weldsuite server. `flux bootstrap ... --path=rust/deploy/flux/clusters/eu`
+# the weldsuite server, with video (LiveKit) next to it. `flux bootstrap ... --path=rust/deploy/flux/clusters/eu`
 # applies this directory (README.md, step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -110,6 +110,30 @@ spec:
   prune: true
   wait: true
   timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+# WeldMeet's media server (LiveKit) and its TURN, beside the apps rather than
+# before them: until the livekit. and turn. records resolve and their
+# certificates are issued, only video waits.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: video
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: services
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/video
+  prune: true
+  wait: true
+  timeout: 20m
   sourceRef:
     kind: GitRepository
     name: flux-system

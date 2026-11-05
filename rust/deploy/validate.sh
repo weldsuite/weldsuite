@@ -39,6 +39,7 @@ for dir in \
   flux/infrastructure/configs/eu \
   flux/infrastructure/configs/drill \
   flux/infrastructure/services \
+  flux/infrastructure/video \
   flux/apps/eu \
   flux/secrets/eu \
   flux/secrets/drill; do
@@ -60,6 +61,7 @@ releases=(
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
   "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/sources/helm-repositories.yaml"
   "zitadel zitadel https://charts.zitadel.com|zitadel 10.4.0 flux/infrastructure/services/values/zitadel.yaml flux/infrastructure/services/releases.yaml"
+  "livekit livekit https://helm.livekit.io|livekit-server 1.9.0 flux/infrastructure/video/values/livekit.yaml flux/infrastructure/video/release.yaml"
 )
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

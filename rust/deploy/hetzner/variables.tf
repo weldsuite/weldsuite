@@ -104,6 +104,17 @@ variable "worker_type" {
   default = "cpx32"
 }
 
+variable "livekit_worker_count" {
+  description = "General workers that also run LiveKit, WeldMeet's media server, counted from worker-1, so the default two sit in both locations. They get the node.weldsuite.org/livekit label and the livekit firewall (WebRTC and TURN ports). 0: no video."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.livekit_worker_count >= 0 && var.livekit_worker_count <= var.worker_count
+    error_message = "livekit_worker_count: between 0 and worker_count."
+  }
+}
+
 variable "postgres_locations" {
   description = "CloudNativePG nodes, one per entry: primary and synchronous replica in different locations."
   type        = list(string)

@@ -1,6 +1,8 @@
 # Every node: name, location labels, the private network for kubelet and
 # etcd traffic, an EU DNS resolver, and the host path OpenEBS LocalPV
-# provisions volumes under (local NVMe, no Cloud Volumes).
+# provisions volumes under (local NVMe, no Cloud Volumes). The LiveKit
+# workers also get node.weldsuite.org/livekit, which LiveKit's pods select
+# (rust/deploy/flux/infrastructure/video).
 machine:
   network:
     hostname: ${hostname}
@@ -13,6 +15,9 @@ machine:
     topology.kubernetes.io/region: ${region}
     topology.kubernetes.io/zone: ${location}
     node.weldsuite.org/pool: ${pool}
+%{ if livekit ~}
+    node.weldsuite.org/livekit: "true"
+%{ endif ~}
   kubelet:
     nodeIP:
       validSubnets:

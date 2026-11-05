@@ -12,13 +12,15 @@ infrastructure/
   controllers/  namespaces, OpenEBS LocalPV, cert-manager, Traefik, CloudNativePG, barman-cloud plugin
   configs/      base: the issuer, Postgres clusters, poolers, backups; eu / drill overlays
   services/     NATS JetStream, Valkey, Restate, Zitadel
+  video/        LiveKit (WeldMeet and WeldChat calls), its signalling host and TURN over TLS through Traefik
 apps/eu/        the weldsuite HelmRelease
 secrets/        eu/ and drill/: SOPS-encrypted Secrets; examples/: every Secret the layers expect
 ```
 
 Order: `sources` → `controllers` → `secrets` → `configs` → `services` →
-`apps`. Each HelmRelease's values are in a `values/` file next to it (a
-generated ConfigMap), which `../validate.sh` renders with the chart at the
+`apps`, and `video` after `services`, beside `apps` (eu only; the drill
+leaves it out). Each HelmRelease's values are in a `values/` file next to it
+(a generated ConfigMap), which `../validate.sh` renders with the chart at the
 pinned version.
 
 Rules:

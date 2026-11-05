@@ -31,6 +31,7 @@ data "talos_machine_configuration" "node" {
         location     = each.value.location
         region       = var.network_zone
         pool         = each.value.pool
+        livekit      = each.value.livekit
         nodes_subnet = var.nodes_subnet_cidr
         pod_cidr     = var.pod_cidr
         service_cidr = var.service_cidr

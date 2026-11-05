@@ -62,6 +62,15 @@ spec:
   interval: 12h
   url: https://charts.zitadel.com
 ---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: livekit
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://helm.livekit.io
+---
 # Restate publishes its chart as an OCI artifact only.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
