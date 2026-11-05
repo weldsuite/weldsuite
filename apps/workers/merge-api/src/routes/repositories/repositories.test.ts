@@ -8,7 +8,7 @@
  *      calls GitHub.
  *   2. Adding a repository loads open pull requests and those closed or merged
  *      in the last 30 days, links them to issues by key, and moves NO issue.
- *   3. issue_sync accepts only `off` in phase 1 (422).
+ *   3. issue_sync accepts off, import and two_way on GitHub and GitLab, only off elsewhere (422).
  *   4. Changing connections and repositories needs merge_connections:manage.
  *   5. GitHub failing is a 502, a worker without the App's credentials a 503.
  */
@@ -357,7 +357,7 @@ describe('repositories: list, update, delete, refresh', () => {
     expect((await repositories([]).request('/api/merge/repositories')).status).toBe(403);
   });
 
-  it('updates team and pr_sync, accepts issueSync off, and refuses any other issue sync with 422', async () => {
+  it('updates team and pr_sync, accepts issueSync modes on GitHub, and refuses them with 422 on providers without issue sync', async () => {
     const connection = await seedConnection(db);
     const repo = await seedRepository(db, connection.id);
     const team = await seedTeam(db, 'PLAT');
@@ -372,8 +372,15 @@ describe('repositories: list, update, delete, refresh', () => {
     expect((await ok<MergeRepositoryDto>(await patch({ teamId: null }))).teamId).toBeNull();
 
     clearEvents();
-    for (const issueSync of ['two_way', 'import']) {
+    for (const issueSync of ['two_way', 'import', 'off']) {
       const res = await patch({ issueSync });
+      expect((await ok<MergeRepositoryDto>(res)).issueSync, issueSync).toBe(issueSync);
+    }
+    clearEvents();
+    const bitbucket = await seedConnection(db, { provider: 'bitbucket', externalAccountId: 'bb-1' });
+    const bbRepo = await seedRepository(db, bitbucket.id, { provider: 'bitbucket', externalId: 'bb-900', fullName: 'acme/bb' });
+    for (const issueSync of ['two_way', 'import']) {
+      const res = await patch({ issueSync }, bbRepo.id);
       expect(res.status, issueSync).toBe(422);
       expect(await errorCode(res)).toBe('UNPROCESSABLE_ENTITY');
     }

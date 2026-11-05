@@ -33,6 +33,7 @@ function makeIssue(overrides: Partial<MergeIssueDto> = {}): MergeIssueDto {
     estimate: null,
     dueDate: null,
     flowProjectId: null,
+    agentId: null,
     sortOrder: 0,
     pullRequestCount: 0,
     startedAt: null,

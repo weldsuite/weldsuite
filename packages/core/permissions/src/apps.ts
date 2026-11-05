@@ -176,7 +176,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldmerge',
     label: 'WeldMerge',
-    objects: ['merge_issues', 'merge_pull_requests', 'merge_teams', 'merge_connections'],
+    objects: ['merge_issues', 'merge_pull_requests', 'merge_releases', 'merge_teams', 'merge_connections'],
   },
   {
     code: 'weldreach',

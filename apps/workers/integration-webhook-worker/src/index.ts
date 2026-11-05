@@ -50,6 +50,7 @@ import {
 import { verifyTwilioSignature, parseTwilioSms } from './lib/workflow-events/twilio';
 import { verifyGithubSignature, parseGithubEvent } from './lib/workflow-events/github';
 import { githubAppWebhookRoutes } from './github/webhook';
+import { mergeProviderWebhookRoutes } from './merge/provider-webhook';
 import type { MergeInternalBinding } from './github/merge-forward';
 import { bankFeedWebhookRoutes } from './bank-feeds/webhook';
 import type { BankFeedEnv } from '@weldsuite/bank-feeds';
@@ -198,6 +199,9 @@ app.use('*', cors());
 
 // GitHub App webhook receiver (HMAC-verified) → POST /webhooks/github
 app.route('/webhooks', githubAppWebhookRoutes);
+
+// GitLab, Bitbucket Cloud and Azure DevOps webhooks for WeldMerge → POST /webhooks/merge/:provider/:key
+app.route('/webhooks', mergeProviderWebhookRoutes);
 
 // Bank feed provider webhooks (Plaid, Stripe Financial Connections) → POST /webhooks/bank-feeds/:provider
 app.route('/webhooks', bankFeedWebhookRoutes());

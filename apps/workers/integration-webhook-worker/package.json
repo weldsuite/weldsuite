@@ -19,10 +19,11 @@
     "@weldsuite/connectors": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/merge-domain": "workspace:*",
     "@weldsuite/meta-ads": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
-    "@weldsuite/realtime": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.13",
     "postgres": "^3.4.7"

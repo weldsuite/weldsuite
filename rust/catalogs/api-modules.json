@@ -680,7 +680,8 @@
     "devPort": 8827,
     "id": "merge",
     "prefixes": [
-      "/api/merge"
+      "/api/merge",
+      "/public/merge"
     ],
     "rust": true,
     "worker": "merge-api"

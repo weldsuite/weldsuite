@@ -30,6 +30,7 @@ function issue(id: string, status: MergeIssueStatus, sortOrder: number, createdA
     estimate: null,
     dueDate: null,
     flowProjectId: null,
+    agentId: null,
     sortOrder,
     pullRequestCount: 0,
     startedAt: null,

@@ -51,7 +51,13 @@ export async function linkedIssuesByPullRequest(db: Db, pullRequestIds: string[]
     .from(mergeIssuePullRequests)
     .innerJoin(mergeIssues, eq(mergeIssues.id, mergeIssuePullRequests.issueId))
     .innerJoin(mergeTeams, eq(mergeTeams.id, mergeIssues.teamId))
-    .where(and(inArray(mergeIssuePullRequests.pullRequestId, pullRequestIds), isNull(mergeIssues.deletedAt)))
+    .where(
+      and(
+        inArray(mergeIssuePullRequests.pullRequestId, pullRequestIds),
+        isNull(mergeIssuePullRequests.dismissedAt),
+        isNull(mergeIssues.deletedAt),
+      ),
+    )
     .orderBy(mergeTeams.key, mergeIssues.number);
   for (const r of rows) {
     const list = out.get(r.pullRequestId) ?? [];
@@ -236,7 +242,16 @@ export async function linkPullRequest(
     .limit(1);
 
   let events: PendingEvent[] = [];
-  if (existing) {
+  if (existing?.dismissedAt) {
+    // A dismissed automatic link, linked again by hand: it is a manual link now, and new.
+    await db
+      .update(mergeIssuePullRequests)
+      .set({ source: 'manual', closes, dismissedAt: null, createdByUserId: userId })
+      .where(eq(mergeIssuePullRequests.id, existing.id));
+    const phase = pullRequestPhase(target.pr);
+    const link: LinkedIssue = { linkId: existing.id, closes, source: 'manual', isNew: true, issue, teamKey };
+    events = await runAutomation(db, target.pr, phase, [link]);
+  } else if (existing) {
     await db.update(mergeIssuePullRequests).set({ closes }).where(eq(mergeIssuePullRequests.id, existing.id));
   } else {
     await db
@@ -260,11 +275,26 @@ export async function linkPullRequest(
   return { ok: true, events };
 }
 
-/** Removes a link. An `auto` link comes back when the pull request next syncs and still mentions the key. */
+/**
+ * Removes a link. A manual link is deleted. An `auto` link is kept with
+ * `dismissed_at` set instead, so it stays removed: sync skips dismissed pairs
+ * even while the pull request still mentions the key.
+ */
 export async function unlinkPullRequest(db: Db, issueId: string, pullRequestId: string): Promise<boolean> {
+  const pair = and(
+    eq(mergeIssuePullRequests.issueId, issueId),
+    eq(mergeIssuePullRequests.pullRequestId, pullRequestId),
+    isNull(mergeIssuePullRequests.dismissedAt),
+  );
+  const dismissed = await db
+    .update(mergeIssuePullRequests)
+    .set({ dismissedAt: new Date() })
+    .where(and(pair, eq(mergeIssuePullRequests.source, 'auto')))
+    .returning({ id: mergeIssuePullRequests.id });
+  if (dismissed.length > 0) return true;
   const removed = await db
     .delete(mergeIssuePullRequests)
-    .where(and(eq(mergeIssuePullRequests.issueId, issueId), eq(mergeIssuePullRequests.pullRequestId, pullRequestId)))
+    .where(and(pair, eq(mergeIssuePullRequests.source, 'manual')))
     .returning({ id: mergeIssuePullRequests.id });
   return removed.length > 0;
 }

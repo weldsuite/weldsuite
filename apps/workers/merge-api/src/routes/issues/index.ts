@@ -26,9 +26,9 @@ import {
   updateMergeIssueSchema,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
 import type { Env, Variables } from '../../types';
-import type { Ctx } from '../shared';
+import { hookContext, type Ctx } from '../shared';
 import { diffFields, publishEntityEvents, type PendingEvent } from '../../services/events';
-import { commentDto, issueEventData } from '../../services/mappers';
+import { commentDto, issueEventData, recordLinkEventData } from '../../services/mappers';
 import type { MergeIssueRow } from '../../services/db';
 import { createComment, listComments } from '../../services/comments';
 import {
@@ -42,12 +42,18 @@ import {
   updateIssue,
   type IssueRefFailure,
 } from '../../services/issues';
+import { afterCommentChanged, afterIssueCreated, afterIssueUpdated } from '../../services/hooks';
 import { linkPullRequest, unlinkPullRequest } from '../../services/pull-requests';
 import { getTeam } from '../../services/teams';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-function issueEvent(issue: MergeIssueRow, teamKey: string, action: 'created' | 'updated' | 'deleted', changes?: PendingEvent['changes']): PendingEvent {
+function issueEvent(
+  issue: MergeIssueRow,
+  teamKey: string,
+  action: 'created' | 'updated' | 'deleted' | 'agent_assigned',
+  changes?: PendingEvent['changes'],
+): PendingEvent {
   return { entityType: 'merge_issue', action, entityId: issue.id, data: issueEventData(issue, teamKey), changes };
 }
 
@@ -91,7 +97,16 @@ app.post('/', requirePermission('merge_issues:create'), zValidator('json', creat
     if (result.reason === 'team_not_found') return error.notFound(c, 'Team');
     return refFailure(c, result.reason);
   }
-  publishIssueEvent(c, issueEvent(result.issue, result.team.key, 'created'));
+  publishEntityEvents(c, [
+    issueEvent(result.issue, result.team.key, 'created'),
+    ...result.links.map((link) => ({
+      entityType: 'merge_record_link' as const,
+      action: 'created' as const,
+      entityId: link.id,
+      data: recordLinkEventData(link),
+    })),
+  ]);
+  await afterIssueCreated(hookContext(c), result.issue, result.team.key);
   return success(c, await oneDto(c, result.issue), 201);
 });
 
@@ -107,7 +122,13 @@ app.patch('/:id', requirePermission('merge_issues:update'), zValidator('json', u
     result.issue as unknown as Record<string, unknown>,
     ISSUE_CHANGE_FIELDS,
   );
-  publishIssueEvent(c, issueEvent(result.issue, result.teamKey, 'updated', changes));
+  const events = [issueEvent(result.issue, result.teamKey, 'updated', changes)];
+  // Assigning an agent also publishes `agent_assigned`: agent-api runs that agent with the issue as its task.
+  if (result.issue.agentId && result.issue.agentId !== result.before.agentId) {
+    events.push(issueEvent(result.issue, result.teamKey, 'agent_assigned', changes));
+  }
+  publishEntityEvents(c, events);
+  await afterIssueUpdated(hookContext(c), result.before, result.issue, result.teamKey);
   return success(c, await oneDto(c, result.issue));
 });
 
@@ -135,6 +156,7 @@ app.post('/:id/comments', requirePermission('merge_issues:update'), zValidator('
   const id = c.req.param('id');
   const db = c.get('tenantDb');
   if (!(await findIssue(db, id))) return error.notFound(c, 'Issue', id);
+  const issue = (await findIssue(db, id))!;
   const comment = await createComment(db, id, c.get('userId'), c.req.valid('json').body);
   publishEntityEvents(c, [
     {
@@ -144,6 +166,8 @@ app.post('/:id/comments', requirePermission('merge_issues:update'), zValidator('
       data: { id: comment.id, issueId: comment.issueId, authorUserId: comment.authorUserId },
     },
   ]);
+  const team = await getTeam(db, issue.teamId);
+  await afterCommentChanged(hookContext(c), 'created', comment, issue, team?.row.key ?? '');
   return success(c, commentDto(comment), 201);
 });
 

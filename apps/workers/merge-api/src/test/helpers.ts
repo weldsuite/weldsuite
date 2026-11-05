@@ -53,6 +53,10 @@ export const ADMIN = [
   'merge_issues:update',
   'merge_issues:delete',
   'merge_pull_requests:read',
+  'merge_pull_requests:review',
+  'merge_pull_requests:merge',
+  'merge_releases:read',
+  'merge_releases:manage',
   'merge_teams:read',
   'merge_teams:manage',
   'merge_connections:read',
@@ -64,10 +68,19 @@ export const MEMBER = [
   'merge_issues:create',
   'merge_issues:update',
   'merge_pull_requests:read',
+  'merge_pull_requests:review',
+  'merge_pull_requests:merge',
+  'merge_releases:read',
   'merge_teams:read',
   'merge_connections:read',
 ];
-export const VIEWER = ['merge_issues:read', 'merge_pull_requests:read', 'merge_teams:read', 'merge_connections:read'];
+export const VIEWER = [
+  'merge_issues:read',
+  'merge_pull_requests:read',
+  'merge_releases:read',
+  'merge_teams:read',
+  'merge_connections:read',
+];
 
 export const ALICE = 'user_alice';
 export const BOB = 'user_bob';
@@ -93,6 +106,12 @@ export async function openDb(): Promise<Database> {
 /** Empties every merge table (and the GitHub installation rows the connection tests adopt). */
 export async function resetTables(db: Database) {
   const s = schema;
+  await db.delete(s.mergeRecordLinks);
+  await db.delete(s.mergeExternalIssues);
+  await db.delete(s.mergeReleasePullRequests);
+  await db.delete(s.mergeReleases);
+  await db.delete(s.mergeChatSubscriptions);
+  await db.delete(s.mergeInboxStates);
   await db.delete(s.mergeIssuePullRequests);
   await db.delete(s.mergeComments);
   await db.delete(s.mergePullRequests);

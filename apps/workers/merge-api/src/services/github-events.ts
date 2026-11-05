@@ -24,6 +24,8 @@ import {
 } from './db';
 import type { PendingEvent } from './events';
 import { listCheckSuites, listPullRequestReviews, type GithubClient } from './github-client';
+import { afterPullRequestSynced, type HookContext } from './hooks';
+import { handleGithubIssueSyncEvent } from './issue-sync/hooks';
 import { pullRequestEventData, upsertPullRequest } from './pr-sync';
 import { linkedIssuesByPullRequest } from './pull-requests';
 import { repositoryEventData } from './repositories';
@@ -31,11 +33,12 @@ import { repositoryEventData } from './repositories';
 export interface GithubEventResult {
   /** What happened: `applied`, or why the event was dropped. */
   outcome: 'applied' | 'ignored';
-  reason?: 'untracked_repository' | 'pr_sync_off' | 'stale' | 'unknown_pull_request' | 'no_installation' | 'no_payload';
+  /** Why the event was dropped (`untracked_repository`, `pr_sync_off`, `stale`, `unknown_pull_request`, `no_installation`, `no_payload`, …). */
+  reason?: string;
   events: PendingEvent[];
 }
 
-const ignored = (reason: NonNullable<GithubEventResult['reason']>): GithubEventResult => ({
+const ignored = (reason: string): GithubEventResult => ({
   outcome: 'ignored',
   reason,
   events: [],
@@ -115,14 +118,14 @@ async function installationRepositoriesEvent(db: Db, payload: Json): Promise<Git
   };
 }
 
-async function pullRequestEvent(db: Db, payload: Json): Promise<GithubEventResult> {
+async function pullRequestEvent(db: Db, payload: Json, hooks?: HookContext): Promise<GithubEventResult> {
   const pull = obj(payload.pull_request);
   if (!pull) return ignored('no_payload');
   const repository = await trackedRepository(db, payload);
   if (!repository) return ignored('untracked_repository');
   if (!repository.prSync) return ignored('pr_sync_off');
 
-  const outcome = await upsertPullRequest(db, repository, pull as unknown as GithubPullRequest, { automate: true });
+  const outcome = await upsertPullRequest(db, repository, pull as unknown as GithubPullRequest, { automate: true, hooks });
   if (outcome.status === 'stale') return ignored('stale');
   return { outcome: 'applied', events: outcome.events };
 }
@@ -149,7 +152,7 @@ async function updateEvent(db: Db, pr: MergePullRequestRow): Promise<PendingEven
   };
 }
 
-async function reviewEvent(db: Db, payload: Json, client: GithubClient): Promise<GithubEventResult> {
+async function reviewEvent(db: Db, payload: Json, client: GithubClient, hooks?: HookContext): Promise<GithubEventResult> {
   const number = obj(payload.pull_request)?.number;
   if (typeof number !== 'number') return ignored('no_payload');
   const repository = await trackedRepository(db, payload);
@@ -167,10 +170,11 @@ async function reviewEvent(db: Db, payload: Json, client: GithubClient): Promise
     .returning();
   const event = await updateEvent(db, updated!);
   event.changes = { reviewDecision: { old: pr.reviewDecision, new: decision } };
+  if (hooks) await afterPullRequestSynced(hooks, pr, updated!, [event]);
   return { outcome: 'applied', events: [event] };
 }
 
-async function checkSuiteEvent(db: Db, payload: Json, client: GithubClient): Promise<GithubEventResult> {
+async function checkSuiteEvent(db: Db, payload: Json, client: GithubClient, hooks?: HookContext): Promise<GithubEventResult> {
   const sha = obj(payload.check_suite)?.head_sha;
   if (typeof sha !== 'string' || sha === '') return ignored('no_payload');
   const repository = await trackedRepository(db, payload);
@@ -200,6 +204,7 @@ async function checkSuiteEvent(db: Db, payload: Json, client: GithubClient): Pro
     const event = await updateEvent(db, updated!);
     event.changes = { checksStatus: { old: pr.checksStatus, new: status } };
     events.push(event);
+    if (hooks) await afterPullRequestSynced(hooks, pr, updated!, [event]);
   }
   return { outcome: 'applied', events };
 }
@@ -212,6 +217,8 @@ export async function handleGithubEvent(
   db: Db,
   envelope: MergeGithubEventEnvelope,
   makeClient: (installationId: string) => GithubClient,
+  /** Area hooks (issue sync, chat posts) run with it after a write; the tests leave it out. */
+  hooks?: HookContext,
 ): Promise<GithubEventResult> {
   const payload = envelope.payload as Json;
   const clientFor = () => {
@@ -221,12 +228,17 @@ export async function handleGithubEvent(
   };
   switch (envelope.event) {
     case 'pull_request':
-      return pullRequestEvent(db, payload);
+      return pullRequestEvent(db, payload, hooks);
     case 'pull_request_review':
-      return installationOf(payload) ? reviewEvent(db, payload, clientFor()) : ignored('no_installation');
+      return installationOf(payload) ? reviewEvent(db, payload, clientFor(), hooks) : ignored('no_installation');
     case 'check_suite':
-      return installationOf(payload) ? checkSuiteEvent(db, payload, clientFor()) : ignored('no_installation');
+      return installationOf(payload) ? checkSuiteEvent(db, payload, clientFor(), hooks) : ignored('no_installation');
     case 'installation_repositories':
       return installationRepositoriesEvent(db, payload);
+    // Area A: issue sync (issues, issue_comment) and the installation lifecycle.
+    case 'issues':
+    case 'issue_comment':
+    case 'installation':
+      return handleGithubIssueSyncEvent(db, envelope, hooks);
   }
 }

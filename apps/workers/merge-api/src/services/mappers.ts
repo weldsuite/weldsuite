@@ -6,7 +6,9 @@ import type {
   MergeCycleDto,
   MergeIssueDto,
   MergeLabelDto,
+  MergeProviderAccountDto,
   MergePullRequestSummary,
+  MergeRecordLinkDto,
   MergeRepositoryDto,
   MergeTeamDto,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
@@ -17,7 +19,9 @@ import {
   type MergeCycleRow,
   type MergeIssueRow,
   type MergeLabelRow,
+  type MergeProviderAccountRow,
   type MergePullRequestRow,
+  type MergeRecordLinkRow,
   type MergeRepositoryRow,
   type MergeTeamRow,
 } from './db';
@@ -71,6 +75,7 @@ export function issueDto(row: MergeIssueRow, teamKey: string, pullRequestCount: 
     estimate: row.estimate,
     dueDate: row.dueDate,
     flowProjectId: row.flowProjectId,
+    agentId: row.agentId,
     sortOrder: row.sortOrder,
     pullRequestCount,
     startedAt: iso(row.startedAt),
@@ -87,6 +92,9 @@ export function commentDto(row: MergeCommentRow): MergeCommentDto {
     issueId: row.issueId,
     authorUserId: row.authorUserId,
     body: row.body,
+    source: row.source,
+    externalAuthorLogin: row.externalAuthorLogin,
+    externalAuthorAvatarUrl: row.externalAuthorAvatarUrl,
     createdAt: iso(row.createdAt)!,
     updatedAt: iso(row.updatedAt)!,
   };
@@ -102,6 +110,7 @@ export function connectionDto(row: MergeConnectionRow, repositoryCount: number):
     host: row.host,
     status: row.status,
     credentialsExpireAt: iso(row.credentialsExpireAt),
+    oauthUserLogin: row.oauthUserLogin,
     repositoryCount,
     createdAt: iso(row.createdAt)!,
   };
@@ -120,6 +129,7 @@ export function repositoryDto(row: MergeRepositoryRow, openPullRequestCount: num
     teamId: row.teamId,
     issueSync: row.issueSync,
     prSync: row.prSync,
+    externalProject: row.externalProject,
     openPullRequestCount,
     lastSyncedAt: iso(row.lastSyncedAt),
     createdAt: iso(row.createdAt)!,
@@ -166,6 +176,36 @@ export function issueEventData(row: MergeIssueRow, teamKey: string, movedByPullR
     status: row.status,
     priority: row.priority,
     assigneeUserId: row.assigneeUserId,
+    ...(row.agentId ? { agentId: row.agentId } : {}),
     ...(movedByPullRequestId ? { movedByPullRequestId } : {}),
+  };
+}
+
+export function recordLinkDto(row: MergeRecordLinkRow): MergeRecordLinkDto {
+  return {
+    id: row.id,
+    issueId: row.issueId,
+    recordType: row.recordType,
+    recordId: row.recordId,
+    title: row.title,
+    createdAt: iso(row.createdAt)!,
+  };
+}
+
+/** What a record link's entity event carries. */
+export function recordLinkEventData(row: MergeRecordLinkRow) {
+  return { id: row.id, issueId: row.issueId, recordType: row.recordType, recordId: row.recordId };
+}
+
+/** A linked account for the member; the token and its expiry never leave the backend. */
+export function providerAccountDto(row: MergeProviderAccountRow): MergeProviderAccountDto {
+  return {
+    id: row.id,
+    provider: row.provider,
+    host: row.host,
+    login: row.login,
+    verified: row.verifiedAt !== null,
+    avatarUrl: row.avatarUrl,
+    displayName: row.displayName,
   };
 }

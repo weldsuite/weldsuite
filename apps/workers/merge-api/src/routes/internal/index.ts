@@ -3,8 +3,11 @@
  * entrypoint (src/index.ts): trusted by topology, no Clerk and no secret. They
  * are not part of the public app.
  *
- *   POST /github-event -> one forwarded GitHub webhook (integration-webhook-worker has verified its HMAC
- *                         and resolved the workspace). Also what `MergeInternal.githubEvent()` calls.
+ *   POST /github-event    -> one forwarded GitHub webhook (integration-webhook-worker has verified its HMAC
+ *                            and resolved the workspace). Also what `MergeInternal.githubEvent()` calls.
+ *   POST /provider-event  -> one forwarded GitLab / Bitbucket / Azure DevOps webhook (provider-event.ts, area B)
+ *   POST /workflow-action -> a WeldConnect merge.* action (workflow-action.ts, area E)
+ *   POST /agent-tool      -> a WeldAgent WeldMerge tool call (agent.ts, area E)
  */
 
 import { Hono } from 'hono';
@@ -13,7 +16,10 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { getWorkspaceContextForOrg, type Database } from '@weldsuite/worker-kit/db';
 import { mergeGithubEventEnvelopeSchema } from '@weldsuite/app-api-client/schemas/weldmerge';
 import type { Env, Variables } from '../../types';
-import { githubClientFor, githubFailure } from '../shared';
+import { githubClientFor, githubFailure, hookContext } from '../shared';
+import agentRoutes from './agent';
+import providerEventRoutes from './provider-event';
+import workflowActionRoutes from './workflow-action';
 import { publishEntityEvents } from '../../services/events';
 import { handleGithubEvent } from '../../services/github-events';
 
@@ -29,6 +35,7 @@ app.post('/github-event', zValidator('json', mergeGithubEventEnvelopeSchema), as
       const workspace = await getWorkspaceContextForOrg(c.env, envelope.workspaceId);
       if (workspace.suspended) return success(c, { outcome: 'ignored' as const, reason: 'workspace_suspended' });
       db = workspace.db;
+      c.set('tenantDb', db);
       c.set('workspaceId', workspace.id);
       c.set('clerkOrgId', workspace.clerkOrgId ?? envelope.workspaceId);
     } catch {
@@ -39,7 +46,7 @@ app.post('/github-event', zValidator('json', mergeGithubEventEnvelopeSchema), as
   c.set('userId', 'system');
 
   try {
-    const result = await handleGithubEvent(db, envelope, githubClientFor(c));
+    const result = await handleGithubEvent(db, envelope, githubClientFor(c), hookContext(c));
     publishEntityEvents(c, result.events, 'system');
     return success(c, { outcome: result.outcome, ...(result.reason ? { reason: result.reason } : {}) });
   } catch (err) {
@@ -49,5 +56,9 @@ app.post('/github-event', zValidator('json', mergeGithubEventEnvelopeSchema), as
     throw err;
   }
 });
+
+app.route('/', providerEventRoutes);
+app.route('/', workflowActionRoutes);
+app.route('/', agentRoutes);
 
 export default app;

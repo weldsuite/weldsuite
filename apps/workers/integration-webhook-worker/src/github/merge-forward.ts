@@ -10,10 +10,16 @@ import type {
   MergeGithubEventEnvelope,
   MergeGithubForwardedEvent,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
+import type {
+  MergeProviderEventAck,
+  MergeProviderEventEnvelope,
+} from '@weldsuite/app-api-client/schemas/weldmerge-providers';
 
 /** The part of `MergeInternal` this worker calls (RPC over the service binding). */
 export interface MergeInternalBinding {
   githubEvent(envelope: MergeGithubEventEnvelope): Promise<unknown>;
+  /** GitLab, Bitbucket and Azure DevOps webhooks (merge/provider-webhook.ts). */
+  providerEvent?(envelope: MergeProviderEventEnvelope): Promise<MergeProviderEventAck>;
 }
 
 const FORWARDED: ReadonlySet<string> = new Set<MergeGithubForwardedEvent>([

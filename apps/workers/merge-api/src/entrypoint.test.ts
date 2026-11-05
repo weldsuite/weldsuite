@@ -100,7 +100,7 @@ describe('MergeInternal.githubEvent', () => {
     state.suspended = false;
     state.unknown = true;
     await expect(entrypoint().githubEvent(openedEvent('org_nobody'))).rejects.toThrow(/404/);
-    await expect(entrypoint().githubEvent({ ...openedEvent('org_alpha'), event: 'issues' as never })).rejects.toThrow(/400/);
+    await expect(entrypoint().githubEvent({ ...openedEvent('org_alpha'), event: 'push' as never })).rejects.toThrow(/400/);
     expect(sent).toEqual([]);
   });
 

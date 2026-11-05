@@ -12,6 +12,7 @@ import { statusTimestamps } from '@weldsuite/merge-domain/automation';
 import type { z } from 'zod';
 import type {
   CreateMergeIssueInput,
+  CreateMergeRecordLinkInput,
   MergeIssueDetailDto,
   MergeIssueDto,
   UpdateMergeIssueInput,
@@ -22,17 +23,20 @@ import {
   iso,
   likePattern,
   mergeCycles,
+  mergeExternalIssues,
   mergeIssuePullRequests,
   mergeIssues,
   mergeLabels,
   mergePullRequests,
+  mergeRecordLinks,
   mergeRepositories,
   mergeTeams,
   type Db,
   type MergeIssueRow,
+  type MergeRecordLinkRow,
   type MergeTeamRow,
 } from './db';
-import { issueDto, pullRequestSummary } from './mappers';
+import { issueDto, pullRequestSummary, recordLinkDto } from './mappers';
 import { findTeam } from './teams';
 
 /** The validated query: statuses already split, limit defaulted. */
@@ -54,9 +58,12 @@ export async function hydrateIssues(db: Db, rows: MergeIssueRow[]): Promise<Merg
     .select({ issueId: mergeIssuePullRequests.issueId, count: sql<number>`count(*)::int` })
     .from(mergeIssuePullRequests)
     .where(
-      inArray(
-        mergeIssuePullRequests.issueId,
-        rows.map((r) => r.id),
+      and(
+        inArray(
+          mergeIssuePullRequests.issueId,
+          rows.map((r) => r.id),
+        ),
+        isNull(mergeIssuePullRequests.dismissedAt),
       ),
     )
     .groupBy(mergeIssuePullRequests.issueId);
@@ -114,11 +121,36 @@ export async function getIssueDetail(db: Db, idOrKey: string): Promise<MergeIssu
     .from(mergeIssuePullRequests)
     .innerJoin(mergePullRequests, eq(mergePullRequests.id, mergeIssuePullRequests.pullRequestId))
     .innerJoin(mergeRepositories, eq(mergeRepositories.id, mergePullRequests.repositoryId))
-    .where(and(eq(mergeIssuePullRequests.issueId, row.id), isNull(mergeRepositories.deletedAt)))
+    .where(
+      and(
+        eq(mergeIssuePullRequests.issueId, row.id),
+        isNull(mergeIssuePullRequests.dismissedAt),
+        isNull(mergeRepositories.deletedAt),
+      ),
+    )
     .orderBy(desc(mergePullRequests.providerUpdatedAt), desc(mergePullRequests.id));
+
+  const [external] = await db
+    .select({ link: mergeExternalIssues, repositoryFullName: mergeRepositories.fullName })
+    .from(mergeExternalIssues)
+    .innerJoin(mergeRepositories, eq(mergeRepositories.id, mergeExternalIssues.repositoryId))
+    .where(eq(mergeExternalIssues.issueId, row.id))
+    .limit(1);
+  const recordLinks = await listRecordLinks(db, row.id);
 
   return {
     ...base!,
+    external: external
+      ? {
+          provider: external.link.provider,
+          number: external.link.number,
+          url: external.link.url,
+          state: external.link.state,
+          repositoryId: external.link.repositoryId,
+          repositoryFullName: external.repositoryFullName,
+        }
+      : null,
+    recordLinks: recordLinks.map(recordLinkDto),
     pullRequests: linked.map((l) => ({
       ...pullRequestSummary(l.pr, l.repositoryFullName),
       link: { source: l.source, closes: l.closes },
@@ -252,7 +284,7 @@ async function validateRefs(
 // ---------------------------------------------------------------------------
 
 export type IssueCreateResult =
-  | { ok: true; issue: MergeIssueRow; team: MergeTeamRow }
+  | { ok: true; issue: MergeIssueRow; team: MergeTeamRow; links: MergeRecordLinkRow[] }
   | { ok: false; reason: 'team_not_found' | IssueRefFailure };
 
 /**
@@ -305,7 +337,53 @@ export async function createIssue(db: Db, input: CreateMergeIssueInput, userId: 
   );
   if (inserted.length === 0) return { ok: false, reason: 'team_not_found' };
   const issue = await findIssue(db, id);
-  return { ok: true, issue: issue!, team };
+  const links = await insertRecordLinks(db, id, input.links ?? [], userId);
+  return { ok: true, issue: issue!, team, links };
+}
+
+// ---------------------------------------------------------------------------
+// Record links created with an issue (a desk agent escalating a ticket)
+// ---------------------------------------------------------------------------
+
+/** Links an issue to records elsewhere in WeldSuite; a repeated record is stored once. */
+export async function insertRecordLinks(
+  db: Db,
+  issueId: string,
+  links: CreateMergeRecordLinkInput[],
+  userId: string | null,
+): Promise<MergeRecordLinkRow[]> {
+  if (links.length === 0) return [];
+  // The first mention of a record wins (it may carry the title).
+  const byRecord = new Map<string, CreateMergeRecordLinkInput>();
+  for (const link of links) {
+    const key = `${link.recordType}:${link.recordId}`;
+    if (!byRecord.has(key)) byRecord.set(key, link);
+  }
+  const unique = [...byRecord.values()];
+  const now = new Date();
+  return db
+    .insert(mergeRecordLinks)
+    .values(
+      unique.map((l) => ({
+        id: generateId('mrk'),
+        issueId,
+        recordType: l.recordType,
+        recordId: l.recordId,
+        title: l.title?.trim() || null,
+        createdByUserId: userId,
+        createdAt: now,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning();
+}
+
+export async function listRecordLinks(db: Db, issueId: string): Promise<MergeRecordLinkRow[]> {
+  return db
+    .select()
+    .from(mergeRecordLinks)
+    .where(eq(mergeRecordLinks.issueId, issueId))
+    .orderBy(asc(mergeRecordLinks.createdAt), asc(mergeRecordLinks.id));
 }
 
 export type IssueUpdateResult =
@@ -329,6 +407,7 @@ function buildIssuePatch(
   if (input.estimate !== undefined) patch.estimate = input.estimate;
   if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
   if (input.flowProjectId !== undefined) patch.flowProjectId = input.flowProjectId;
+  if (input.agentId !== undefined) patch.agentId = input.agentId;
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
   if (input.status !== undefined && input.status !== before.status) {
     patch.status = input.status;
@@ -399,4 +478,5 @@ export const ISSUE_CHANGE_FIELDS = [
   'estimate',
   'dueDate',
   'flowProjectId',
+  'agentId',
 ] as const;

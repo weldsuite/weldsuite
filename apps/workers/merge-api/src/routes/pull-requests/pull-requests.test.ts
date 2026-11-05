@@ -186,15 +186,21 @@ describe('accounts/me', () => {
   const ME = '/api/merge/accounts/me';
 
   it('saves the login lower-case, reads it back, and removes it with an empty value', async () => {
-    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME))).toEqual({ github: null });
-    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: ' Alice-GH ' }, 'PUT')))).toEqual({ github: 'alice-gh' });
-    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME))).toEqual({ github: 'alice-gh' });
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME))).toMatchObject({ github: null });
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: ' Alice-GH ' }, 'PUT')))).toMatchObject({ github: 'alice-gh' });
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME))).toMatchObject({ github: 'alice-gh' });
     // Changing it keeps one row.
     await accounts().request(ME, jsonInit({ github: 'alice-two' }, 'PUT'));
     expect(await db.select().from(schema.mergeProviderAccounts)).toHaveLength(1);
-    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: '' }, 'PUT')))).toEqual({ github: null });
+    // The account list carries a typed login unverified, and never a token.
+    const me = await ok<MergeProviderAccountsDto>(await accounts().request(ME));
+    expect(me.accounts).toEqual([
+      expect.objectContaining({ provider: 'github', host: null, login: 'alice-two', verified: false, avatarUrl: null, displayName: null }),
+    ]);
+    expect(JSON.stringify(me)).not.toMatch(/credentials|token/i);
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: '' }, 'PUT')))).toMatchObject({ github: null });
     expect(await db.select().from(schema.mergeProviderAccounts)).toEqual([]);
-    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: null }, 'PUT')))).toEqual({ github: null });
+    expect(await ok<MergeProviderAccountsDto>(await accounts().request(ME, jsonInit({ github: null }, 'PUT')))).toMatchObject({ github: null });
     expect(events).toEqual([]);
   });
 
@@ -203,8 +209,8 @@ describe('accounts/me', () => {
     const clash = await accounts(ADMIN, BOB).request(ME, jsonInit({ github: 'OCTO' }, 'PUT'));
     expect(clash.status).toBe(409);
     expect(await errorCode(clash)).toBe('CONFLICT');
-    expect(await ok<MergeProviderAccountsDto>(await accounts(ADMIN, BOB).request(ME))).toEqual({ github: null });
-    expect(await ok<MergeProviderAccountsDto>(await accounts(ADMIN, ALICE).request(ME))).toEqual({ github: 'octo' });
+    expect(await ok<MergeProviderAccountsDto>(await accounts(ADMIN, BOB).request(ME))).toMatchObject({ github: null });
+    expect(await ok<MergeProviderAccountsDto>(await accounts(ADMIN, ALICE).request(ME))).toMatchObject({ github: 'octo' });
   });
 
   it('refuses a malformed login, and needs merge_pull_requests:read', async () => {

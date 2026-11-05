@@ -520,3 +520,72 @@ describe('pull request links', () => {
     expect((await ok<MergeIssueDetailDto>(await issues().request(`${BASE}/${issue.id}`))).pullRequests).toEqual([]);
   });
 });
+
+describe('agent assignment, record links on create, dismissed automatic links', () => {
+  it('publishes merge_issue:agent_assigned besides updated when an agent is assigned, and not when it is removed', async () => {
+    const team = await seedTeam(db, 'PLAT');
+    const issue = await newIssue(team.id);
+    expect(issue.agentId).toBeNull();
+    clearEvents();
+    const assigned = await ok<MergeIssueDto>(await issues().request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_triage' }, 'PATCH')));
+    expect(assigned.agentId).toBe('agt_triage');
+    expect(eventTypes()).toEqual(['merge_issue:updated', 'merge_issue:agent_assigned']);
+    expect(events[1]!.data).toMatchObject({ id: issue.id, agentId: 'agt_triage' });
+
+    clearEvents();
+    await ok<MergeIssueDto>(await issues().request(`${BASE}/${issue.id}`, jsonInit({ agentId: 'agt_triage', title: 'Renamed' }, 'PATCH')));
+    expect(eventTypes()).toEqual(['merge_issue:updated']);
+
+    clearEvents();
+    const removed = await ok<MergeIssueDto>(await issues().request(`${BASE}/${issue.id}`, jsonInit({ agentId: null }, 'PATCH')));
+    expect(removed.agentId).toBeNull();
+    expect(eventTypes()).toEqual(['merge_issue:updated']);
+  });
+
+  it('links records on create (once each) and publishes merge_record_link:created', async () => {
+    const team = await seedTeam(db, 'PLAT');
+    clearEvents();
+    const issue = await newIssue(team.id, {
+      links: [
+        { recordType: 'desk_ticket', recordId: 'tkt_1', title: 'Cannot log in' },
+        { recordType: 'crm_company', recordId: 'cmp_1' },
+        { recordType: 'desk_ticket', recordId: 'tkt_1' },
+      ],
+    });
+    expect(eventTypes()).toEqual(['merge_issue:created', 'merge_record_link:created', 'merge_record_link:created']);
+    const rows = await db.select().from(schema.mergeRecordLinks).where(eq(schema.mergeRecordLinks.issueId, issue.id));
+    expect(rows.map((r) => [r.recordType, r.recordId, r.title]).sort()).toEqual([
+      ['crm_company', 'cmp_1', null],
+      ['desk_ticket', 'tkt_1', 'Cannot log in'],
+    ]);
+    const detail = await ok<MergeIssueDetailDto>(await issues().request(`${BASE}/${issue.id}`));
+    expect(detail.recordLinks).toHaveLength(2);
+    expect(detail.external).toBeNull();
+    expect((await issues().request(BASE, jsonInit({ teamId: team.id, title: 'x', links: [{ recordType: 'bogus', recordId: 'a' }] }))).status).toBe(400);
+  });
+
+  it('keeps an unlinked automatic link dismissed: sync does not link the pair again', async () => {
+    const team = await seedTeam(db, 'PLAT');
+    const issue = await seedIssue(db, team.id, 1);
+    const connection = await seedConnection(db);
+    const repo = await seedRepository(db, connection.id);
+    const pr = await seedPullRequest(db, repo.id, 7, { title: 'PLAT-1 fix the tabs' });
+    await db.insert(schema.mergeIssuePullRequests).values({ id: 'mip_auto', issueId: issue.id, pullRequestId: pr.id, source: 'auto', closes: true });
+
+    expect((await issues().request(`${BASE}/${issue.id}/pull-requests/${pr.id}`, { method: 'DELETE' })).status).toBe(204);
+    const [dismissed] = await db.select().from(schema.mergeIssuePullRequests);
+    expect(dismissed!.dismissedAt).toBeInstanceOf(Date);
+    expect((await ok<MergeIssueDetailDto>(await issues().request(`${BASE}/${issue.id}`))).pullRequests).toEqual([]);
+    expect((await issues().request(`${BASE}/${issue.id}/pull-requests/${pr.id}`, { method: 'DELETE' })).status).toBe(404);
+
+    const { syncAutoLinks } = await import('../../services/pr-sync');
+    const synced = await syncAutoLinks(db, pr);
+    expect(synced).toEqual({ links: [], created: 0 });
+    expect(await db.select().from(schema.mergeIssuePullRequests)).toHaveLength(1);
+
+    // Linking the pair by hand revives it as a manual link.
+    const relinked = await ok<MergeIssueDetailDto>(await issues().request(`${BASE}/${issue.id}/pull-requests`, jsonInit({ pullRequestId: pr.id })));
+    expect(relinked.pullRequests).toHaveLength(1);
+    expect(relinked.pullRequests[0]!.link).toEqual({ source: 'manual', closes: true });
+  });
+});

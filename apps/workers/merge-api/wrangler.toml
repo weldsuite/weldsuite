@@ -7,16 +7,30 @@
 # The path prefixes it owns live in packages/core/api-modules.
 #
 # Secrets (scripts/secrets/manifest.ts → "merge-api"):
-#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY(+_V2),
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
-#   GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY (the same GitHub App as connect-api and
-#     workflow-worker: installation tokens are minted per call to list and read
-#     repositories; nothing long-lived is stored)
+#   GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_SLUG (the same GitHub App
+#     as connect-api and workflow-worker: installation tokens are minted per
+#     call; nothing long-lived is stored)
+#   GITHUB_APP_CLIENT_ID + GITHUB_APP_CLIENT_SECRET (the App's user authorization:
+#     members link their own GitHub account to review and merge as themselves)
+#   GITLAB_OAUTH_CLIENT_ID/_SECRET, BITBUCKET_OAUTH_CLIENT_ID/_SECRET,
+#     AZURE_DEVOPS_CLIENT_ID/_SECRET (the OAuth apps; redirect URI
+#     {APP_URL}/weldmerge/oauth/callback on each)
+#   AI_GATEWAY_API_TOKEN (release notes, @weldsuite/ai; CF_ACCOUNT_ID is a [vars] value)
+# Vars: APP_URL (the SPA: install and OAuth redirects), WEBHOOK_BASE_URL
+#   (integration-webhook-worker: where GitLab/Bitbucket/Azure DevOps webhooks point).
 #
 # Entrypoint: `MergeInternal` (src/index.ts), bound as MERGE_INTERNAL by
-# integration-webhook-worker, which forwards the GitHub App's pull_request,
-# pull_request_review, check_suite and installation_repositories events to
-# `githubEvent()`. A named entrypoint is only reachable over a service binding.
+# integration-webhook-worker (GitHub App events via `githubEvent()`, GitLab /
+# Bitbucket / Azure DevOps events via `providerEvent()`), by workflow-worker
+# (WeldConnect merge.* actions via `workflowAction()`) and by agent-api (the
+# WeldAgent merge tools via `agentTool()`). A named entrypoint is only reachable
+# over a service binding.
+#
+# Cron (hourly, src/cron/digest-sweep.ts): the WeldChat daily digest. It reads
+# only the SCHEDULE_INDEX D1 workspace_due_index (kind merge_digest) and opens
+# just the workspaces whose digest hour came due (ADR DATA-008).
 # app-api forwards /api/merge here over MERGE_API (API_FORWARD_MODULES).
 # Deploy order: this worker before integration-webhook-worker and app-api.
 
@@ -41,10 +55,24 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+APP_URL = "http://localhost:3000"
+WEBHOOK_BASE_URL = "https://integration-webhooks-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
+
+# D1 schedule index, shared with workflow-worker: the daily digest due rows
+# (kind merge_digest). Dev uses the test database.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Daily digest sweep, hourly (src/cron/digest-sweep.ts, scheduled() in src/index.ts).
+[triggers]
+crons = ["0 * * * *"]
 
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -56,6 +84,32 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
 
+# Cloudflare Email Sending, for publishing release notes by email
+# (@weldsuite/mail-domain/outbound). Locally there's no MTA, so a send fails.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): mail-api's Durable
+# Objects, bound by name. OUTBOUND_BACKSTOP is the per-sender burst limit the
+# guard falls back on when the ledger can't be reached; its namespace is shared
+# with the other sending workers on purpose.
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-dev"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -66,6 +120,9 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+APP_URL = "https://app-test.weldsuite.org"
+WEBHOOK_BASE_URL = "https://integration-webhooks-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -83,6 +140,38 @@ queue = "entity-events-test"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+# Outbound mail guard (test): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# D1 schedule index (shared with workflow-worker): the daily digest due rows.
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Daily digest sweep (see [triggers] above).
+[env.test.triggers]
+crons = ["0 * * * *"]
+
 [env.test.observability]
 enabled = true
 head_sampling_rate = 1
@@ -97,6 +186,9 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+APP_URL = "https://app.weldsuite.org"
+WEBHOOK_BASE_URL = "https://integration-webhooks.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -113,6 +205,38 @@ queue = "entity-events"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+# Outbound mail guard (production): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# D1 schedule index (shared with workflow-worker): the daily digest due rows.
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+# Daily digest sweep (see [triggers] above).
+[env.production.triggers]
+crons = ["0 * * * *"]
 
 [env.production.observability]
 enabled = true

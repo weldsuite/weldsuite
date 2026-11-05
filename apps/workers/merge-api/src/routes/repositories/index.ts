@@ -3,7 +3,7 @@
  *
  *   GET    /           -> tracked repositories (merge_connections:read)
  *   POST   /           -> add one: look it up through the installation, then load its open and recently merged pull requests
- *   PATCH  /:id        -> team, prSync; issueSync only accepts `off` in phase 1 (422)
+ *   PATCH  /:id        -> team, prSync; issueSync accepts off|import|two_way on GitHub and GitLab, only off elsewhere (422)
  *   DELETE /:id        -> stop tracking (soft delete)
  *   POST   /:id/sync   -> read the pull requests again (Refresh)
  *
@@ -108,7 +108,7 @@ app.patch('/:id', requirePermission('merge_connections:manage'), zValidator('jso
       case 'team_not_found':
         return error.notFound(c, 'Team');
       case 'issue_sync_unsupported':
-        return unprocessable(c, 'Issue sync is not available yet: only "off" is accepted');
+        return unprocessable(c, 'This provider has no issue sync: only "off" is accepted');
     }
   }
   publishRepositoryEvent(

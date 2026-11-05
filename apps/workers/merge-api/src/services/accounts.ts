@@ -1,9 +1,22 @@
 /** A member's own login on a git provider: "needs your review" and "yours" match on it. */
 
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne } from 'drizzle-orm';
+import type { MergeProviderAccountsDto } from '@weldsuite/app-api-client/schemas/weldmerge';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { mergeProviderAccounts, mergePullRequests, type Db } from './db';
+import { providerAccountDto } from './mappers';
+
+/** Every account the member has linked (typed logins and OAuth links), without credentials. */
+export async function listAccounts(db: Db, userId: string): Promise<MergeProviderAccountsDto> {
+  const rows = await db
+    .select()
+    .from(mergeProviderAccounts)
+    .where(eq(mergeProviderAccounts.userId, userId))
+    .orderBy(asc(mergeProviderAccounts.provider), asc(mergeProviderAccounts.createdAt));
+  const github = rows.find((r) => r.provider === 'github' && !r.host);
+  return { github: github?.login ?? null, accounts: rows.map(providerAccountDto) };
+}
 
 export async function getGithubLogin(db: Db, userId: string): Promise<string | null> {
   const [row] = await db

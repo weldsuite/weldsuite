@@ -904,6 +904,26 @@ export const manifest: Record<string, SecretEntry[]> = {
     // installation token per call to list and read repositories.
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
+    // The App's slug (the install page URL) and its user authorization client
+    // (members link their own GitHub account to review and merge).
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
+    // OAuth apps: GitLab.com, Bitbucket Cloud, Microsoft Entra ID (Azure
+    // DevOps). Redirect URI {APP_URL}/weldmerge/oauth/callback on each.
+    "GITLAB_OAUTH_CLIENT_ID",
+    "GITLAB_OAUTH_CLIENT_SECRET",
+    "BITBUCKET_OAUTH_CLIENT_ID",
+    "BITBUCKET_OAUTH_CLIENT_SECRET",
+    "AZURE_DEVOPS_CLIENT_ID",
+    "AZURE_DEVOPS_CLIENT_SECRET",
+    // Release notes (@weldsuite/ai uses AI_GATEWAY_API_TOKEN, else
+    // CLOUDFLARE_API_TOKEN). CF_ACCOUNT_ID, APP_URL and WEBHOOK_BASE_URL are
+    // [vars] in wrangler.toml.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 };
 

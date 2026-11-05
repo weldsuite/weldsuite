@@ -4,6 +4,10 @@
  * Placeholders in `{braces}` are filled by the page (see `fill` in
  * apps/web/platform/app/weldmerge/lib/format.ts).
  */
+import { weldmergeAcross } from './weldmerge-across';
+import { weldmergeReviewing } from './weldmerge-reviewing';
+import { weldmergeSync } from './weldmerge-sync';
+
 export const weldmerge = {
   title: 'WeldMerge',
   breadcrumb: {
@@ -436,4 +440,9 @@ export const weldmerge = {
       saveFailed: 'Could not save your username',
     },
   },
+
+  // Phases 2-5, one file per build area (see docs/plans/weldmerge-phases-2-5.md).
+  sync: weldmergeSync,
+  reviewing: weldmergeReviewing,
+  across: weldmergeAcross,
 };

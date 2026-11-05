@@ -590,6 +590,8 @@ export interface MergeIssueEventData {
   assigneeUserId?: string | null;
   /** Set when a pull request's sync moved the issue (`opened`, `ready_for_review`, `merged`). */
   movedByPullRequestId?: string | null;
+  /** The WeldAgent agent the issue is assigned to (`agent_assigned`). */
+  agentId?: string | null;
 }
 
 export interface MergeCommentEventData {
@@ -611,6 +613,34 @@ export interface MergeRepositoryEventData {
   provider?: string;
   fullName?: string;
   teamId?: string | null;
+}
+
+export interface MergeReleaseEventData {
+  id: string;
+  teamId?: string;
+  repositoryId?: string;
+  name?: string;
+  version?: string | null;
+  status?: string;
+  /** `shipped`: what the release carried. */
+  pullRequestIds?: string[];
+  issueIds?: string[];
+  deskTicketIds?: string[];
+}
+
+export interface MergeRecordLinkEventData {
+  id: string;
+  issueId?: string;
+  recordType?: string;
+  recordId?: string;
+}
+
+export interface MergeChatSubscriptionEventData {
+  id: string;
+  channelId?: string;
+  teamId?: string | null;
+  repositoryId?: string | null;
+  events?: string[];
 }
 
 export interface MergePullRequestEventData {
@@ -804,6 +834,9 @@ export interface EntityEventData {
   merge_connection: MergeConnectionEventData;
   merge_repository: MergeRepositoryEventData;
   merge_pull_request: MergePullRequestEventData;
+  merge_release: MergeReleaseEventData;
+  merge_record_link: MergeRecordLinkEventData;
+  merge_chat_subscription: MergeChatSubscriptionEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

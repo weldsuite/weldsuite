@@ -5350,6 +5350,9 @@ importers:
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
+      '@weldsuite/merge-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/merge
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications
@@ -6183,6 +6186,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/merge-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/merge
       '@weldsuite/meta-ads':
         specifier: workspace:*
         version: link:../../../packages/core/meta-ads
@@ -6609,24 +6615,42 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.4.0
         version: 0.4.3(hono@4.13.13)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
       '@weldsuite/api-modules':
         specifier: workspace:*
         version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
+      '@weldsuite/chat-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/chat
       '@weldsuite/connect-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/connect
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/know-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/know
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
       '@weldsuite/merge-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/merge
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
@@ -7303,6 +7327,9 @@ importers:
       '@weldsuite/ai':
         specifier: workspace:*
         version: link:../../../packages/core/ai
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/connect-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/connect
@@ -9475,9 +9502,15 @@ importers:
 
   packages/domains/merge:
     dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../clients/app-api-client
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0

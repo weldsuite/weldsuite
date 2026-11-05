@@ -7,7 +7,9 @@
   "exports": {
     "./keys": "./src/keys.ts",
     "./automation": "./src/automation.ts",
-    "./github": "./src/github.ts"
+    "./github": "./src/github.ts",
+    "./installations": "./src/installations.ts",
+    "./providers/*": "./src/providers/*.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -16,7 +18,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@weldsuite/db": "workspace:*"
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

@@ -314,6 +314,7 @@
       "objects": [
         "merge_issues",
         "merge_pull_requests",
+        "merge_releases",
         "merge_teams",
         "merge_connections"
       ]
@@ -1670,7 +1671,32 @@
       "permissions": [
         {
           "key": "merge_pull_requests:read",
-          "label": "View pull requests (weldmerge)"
+          "label": "View pull requests"
+        },
+        {
+          "description": "Approve, request changes and comment on the provider, as the member's own linked account.",
+          "key": "merge_pull_requests:review",
+          "label": "Review pull requests"
+        },
+        {
+          "description": "Merge on the provider, as the member's own linked account.",
+          "key": "merge_pull_requests:merge",
+          "label": "Merge pull requests"
+        }
+      ]
+    },
+    {
+      "key": "merge_releases",
+      "label": "Releases (WeldMerge)",
+      "permissions": [
+        {
+          "key": "merge_releases:read",
+          "label": "View releases"
+        },
+        {
+          "description": "Includes generating release notes with AI (billed) and publishing them to WeldKnow and email.",
+          "key": "merge_releases:manage",
+          "label": "Create, ship and publish releases"
         }
       ]
     },
@@ -3464,6 +3490,10 @@
         "merge_issues:update",
         "merge_issues:delete",
         "merge_pull_requests:read",
+        "merge_pull_requests:review",
+        "merge_pull_requests:merge",
+        "merge_releases:read",
+        "merge_releases:manage",
         "merge_teams:read",
         "merge_teams:manage",
         "merge_connections:read",
@@ -3693,6 +3723,9 @@
         "merge_issues:create",
         "merge_issues:update",
         "merge_pull_requests:read",
+        "merge_pull_requests:review",
+        "merge_pull_requests:merge",
+        "merge_releases:read",
         "merge_teams:read",
         "merge_connections:read",
         "employees:self",
@@ -3806,6 +3839,7 @@
         "panel_reports:read",
         "merge_issues:read",
         "merge_pull_requests:read",
+        "merge_releases:read",
         "merge_teams:read",
         "merge_connections:read",
         "reach_campaigns:read",

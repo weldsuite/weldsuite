@@ -743,6 +743,11 @@
     "deleted",
     "admitted"
   ],
+  "merge_chat_subscription": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "merge_comment": [
     "created",
     "updated",
@@ -761,7 +766,8 @@
   "merge_issue": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "agent_assigned"
   ],
   "merge_label": [
     "created",
@@ -773,6 +779,16 @@
     "updated",
     "merged",
     "closed"
+  ],
+  "merge_record_link": [
+    "created",
+    "deleted"
+  ],
+  "merge_release": [
+    "created",
+    "updated",
+    "deleted",
+    "shipped"
   ],
   "merge_repository": [
     "created",

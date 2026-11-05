@@ -16,11 +16,14 @@ export type MergeEntityType =
   | 'merge_cycle'
   | 'merge_connection'
   | 'merge_repository'
-  | 'merge_pull_request';
+  | 'merge_pull_request'
+  | 'merge_release'
+  | 'merge_record_link'
+  | 'merge_chat_subscription';
 
 export interface PendingEvent {
   entityType: MergeEntityType;
-  action: 'created' | 'updated' | 'deleted' | 'merged' | 'closed';
+  action: 'created' | 'updated' | 'deleted' | 'merged' | 'closed' | 'shipped' | 'agent_assigned';
   entityId: string;
   data: Record<string, unknown>;
   changes?: Record<string, { old: unknown; new: unknown }> | null;

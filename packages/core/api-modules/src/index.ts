@@ -483,8 +483,9 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('board', 8826, ['weldboard', 'weldflow'], ['/api/boards']),
   // WeldMerge (pull requests and issues across git providers; ADR MERGE-001).
   // Provider webhooks reach it through integration-webhook-worker over the
-  // MERGE_INTERNAL entrypoint, never on this path.
-  mod('merge', 8827, ['weldmerge'], ['/api/merge']),
+  // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
+  // GitHub App's setup redirect (no Clerk session: the signed state decides).
+  mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

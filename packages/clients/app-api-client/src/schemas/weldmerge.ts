@@ -5,6 +5,9 @@
  * Phase 1: teams, issues, labels, cycles, comments; GitHub connections by
  * adopting the workspace's GitHub App installation; repositories; the pull
  * request mirror with issue links; the derived inbox; provider accounts.
+ * Phases 2-5 add their own files next to this one: weldmerge-sync.ts,
+ * weldmerge-providers.ts, weldmerge-review.ts, weldmerge-across.ts. This file
+ * holds the DTOs those phases extend.
  *
  * The enums mirror `packages/core/db/src/schema/weldmerge.ts`; keep them in
  * step. Design: design/modules/weldmerge.md (weldsuite-documentation).
@@ -43,6 +46,16 @@ export type MergeReviewDecision = (typeof MERGE_REVIEW_DECISIONS)[number];
 
 export const MERGE_LINK_SOURCES = ['auto', 'manual'] as const;
 export type MergeLinkSource = (typeof MERGE_LINK_SOURCES)[number];
+
+export const MERGE_COMMENT_SOURCES = ['weldmerge', 'provider'] as const;
+export type MergeCommentSource = (typeof MERGE_COMMENT_SOURCES)[number];
+
+export const MERGE_EXTERNAL_ISSUE_STATES = ['open', 'closed'] as const;
+export type MergeExternalIssueState = (typeof MERGE_EXTERNAL_ISSUE_STATES)[number];
+
+/** WeldSuite records an issue can be linked to. */
+export const MERGE_RECORD_TYPES = ['desk_ticket', 'crm_company', 'chat_channel'] as const;
+export type MergeRecordType = (typeof MERGE_RECORD_TYPES)[number];
 
 /** Pull request list views. */
 export const MERGE_PULL_REQUEST_VIEWS = ['needs_review', 'mine', 'open', 'merged', 'closed'] as const;
@@ -136,6 +149,14 @@ export const listMergeCyclesQuerySchema = z.object({ teamId: z.string().optional
 // Inputs: issues and comments
 // ---------------------------------------------------------------------------
 
+/** Link an issue to a record elsewhere in WeldSuite. `title` is a cached label shown without a lookup. */
+export const createMergeRecordLinkSchema = z.object({
+  recordType: z.enum(MERGE_RECORD_TYPES),
+  recordId: z.string().min(1).max(255),
+  title: z.string().trim().max(500).nullish(),
+});
+export type CreateMergeRecordLinkInput = z.input<typeof createMergeRecordLinkSchema>;
+
 export const createMergeIssueSchema = z.object({
   teamId: z.string().min(1),
   title: z.string().trim().min(1).max(500),
@@ -149,6 +170,8 @@ export const createMergeIssueSchema = z.object({
   estimate: z.number().int().min(0).max(1000).nullish(),
   dueDate: dateOnlySchema.nullish(),
   flowProjectId: z.string().nullish(),
+  /** Records to link the new issue to in the same call (a desk agent escalating a ticket). */
+  links: z.array(createMergeRecordLinkSchema).max(20).optional(),
 });
 export type CreateMergeIssueInput = z.input<typeof createMergeIssueSchema>;
 
@@ -169,6 +192,8 @@ export const updateMergeIssueSchema = z
     estimate: z.number().int().min(0).max(1000).nullable(),
     dueDate: dateOnlySchema.nullable(),
     flowProjectId: z.string().nullable(),
+    /** A WeldAgent agent to assign the issue to; null unassigns. Publishes `merge_issue.agent_assigned`. */
+    agentId: z.string().max(30).nullable(),
     sortOrder: z.number().finite(),
   })
   .partial()
@@ -218,6 +243,8 @@ export const addMergeRepositorySchema = z.object({
   connectionId: z.string().min(1),
   /** The provider's repository id, from `available-repositories`. */
   externalId: z.string().min(1),
+  /** Bitbucket workspace slug, Azure DevOps project, GitLab namespace: from `available-repositories`. */
+  externalProject: z.string().max(500).nullish(),
   teamId: z.string().nullish(),
   prSync: z.boolean().default(true),
 });
@@ -227,7 +254,7 @@ export const updateMergeRepositorySchema = z
   .object({
     teamId: z.string().nullable(),
     prSync: z.boolean(),
-    /** Only `off` is accepted in phase 1. */
+    /** `two_way` and `import` work for GitHub and GitLab repositories. */
     issueSync: z.enum(MERGE_ISSUE_SYNC_MODES),
   })
   .partial()
@@ -359,6 +386,8 @@ export const mergeIssueDtoSchema = z.object({
   estimate: z.number().nullable(),
   dueDate: z.string().nullable(),
   flowProjectId: z.string().nullable(),
+  /** The WeldAgent agent the issue is assigned to. */
+  agentId: z.string().nullable(),
   sortOrder: z.number(),
   /** Linked pull requests: their count in lists, the rows on `GET /issues/:idOrKey`. */
   pullRequestCount: z.number(),
@@ -370,7 +399,31 @@ export const mergeIssueDtoSchema = z.object({
 });
 export type MergeIssueDto = z.infer<typeof mergeIssueDtoSchema>;
 
+/** The provider issue a WeldMerge issue syncs with. */
+export const mergeExternalIssueDtoSchema = z.object({
+  provider: z.enum(MERGE_PROVIDERS),
+  number: z.number(),
+  url: z.string(),
+  state: z.enum(MERGE_EXTERNAL_ISSUE_STATES),
+  repositoryId: z.string(),
+  repositoryFullName: z.string(),
+});
+export type MergeExternalIssueDto = z.infer<typeof mergeExternalIssueDtoSchema>;
+
+export const mergeRecordLinkDtoSchema = z.object({
+  id: z.string(),
+  issueId: z.string(),
+  recordType: z.enum(MERGE_RECORD_TYPES),
+  recordId: z.string(),
+  title: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type MergeRecordLinkDto = z.infer<typeof mergeRecordLinkDtoSchema>;
+
 export const mergeIssueDetailDtoSchema = mergeIssueDtoSchema.extend({
+  /** The provider issue it syncs with, if any. */
+  external: mergeExternalIssueDtoSchema.nullable(),
+  recordLinks: z.array(mergeRecordLinkDtoSchema),
   pullRequests: z.array(
     mergePullRequestSummarySchema.extend({ link: z.object({ source: z.enum(MERGE_LINK_SOURCES), closes: z.boolean() }) }),
   ),
@@ -381,8 +434,12 @@ export type MergeIssueDetailDto = z.infer<typeof mergeIssueDetailDtoSchema>;
 export const mergeCommentDtoSchema = z.object({
   id: z.string(),
   issueId: z.string(),
-  authorUserId: z.string(),
+  /** Null for a provider comment from someone who isn't a member. */
+  authorUserId: z.string().nullable(),
   body: z.string(),
+  source: z.enum(MERGE_COMMENT_SOURCES),
+  externalAuthorLogin: z.string().nullable(),
+  externalAuthorAvatarUrl: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -397,6 +454,8 @@ export const mergeConnectionDtoSchema = z.object({
   host: z.string().nullable(),
   status: z.enum(MERGE_CONNECTION_STATUSES),
   credentialsExpireAt: z.string().nullable(),
+  /** Who authorized an OAuth connection. */
+  oauthUserLogin: z.string().nullable(),
   repositoryCount: z.number(),
   createdAt: z.string(),
 });
@@ -419,6 +478,8 @@ export const mergeAvailableRepositorySchema = z.object({
   private: z.boolean(),
   defaultBranch: z.string().nullable(),
   url: z.string().nullable(),
+  /** Bitbucket workspace slug, Azure DevOps project, GitLab namespace. */
+  externalProject: z.string().nullable(),
   /** Already tracked by WeldMerge. */
   added: z.boolean(),
 });
@@ -436,6 +497,7 @@ export const mergeRepositoryDtoSchema = z.object({
   teamId: z.string().nullable(),
   issueSync: z.enum(MERGE_ISSUE_SYNC_MODES),
   prSync: z.boolean(),
+  externalProject: z.string().nullable(),
   openPullRequestCount: z.number(),
   lastSyncedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -474,11 +536,31 @@ export const mergeInboxItemSchema = z.object({
   at: z.string(),
   pullRequest: mergePullRequestListItemSchema.nullable(),
   issue: mergeIssueDtoSchema.nullable(),
+  /** The member has opened or read the item. */
+  read: z.boolean(),
+  /** Hidden until this time; null when not snoozed. */
+  snoozedUntil: z.string().nullable(),
 });
 export type MergeInboxItem = z.infer<typeof mergeInboxItemSchema>;
 
+/** One of the member's linked accounts. Never carries the token. */
+export const mergeProviderAccountDtoSchema = z.object({
+  id: z.string(),
+  provider: z.enum(MERGE_PROVIDERS),
+  /** Self-managed GitLab base URL, Azure DevOps organisation URL; null for cloud. */
+  host: z.string().nullable(),
+  login: z.string(),
+  /** True when linked through OAuth (or a validated token); false for a typed login. */
+  verified: z.boolean(),
+  avatarUrl: z.string().nullable(),
+  displayName: z.string().nullable(),
+});
+export type MergeProviderAccountDto = z.infer<typeof mergeProviderAccountDtoSchema>;
+
 export const mergeProviderAccountsDtoSchema = z.object({
+  /** The typed GitHub login (phase 1), kept for "needs your review". */
   github: z.string().nullable(),
+  accounts: z.array(mergeProviderAccountDtoSchema),
 });
 export type MergeProviderAccountsDto = z.infer<typeof mergeProviderAccountsDtoSchema>;
 
@@ -491,6 +573,9 @@ export const MERGE_GITHUB_FORWARDED_EVENTS = [
   'pull_request_review',
   'check_suite',
   'installation_repositories',
+  'issues',
+  'issue_comment',
+  'installation',
 ] as const;
 export type MergeGithubForwardedEvent = (typeof MERGE_GITHUB_FORWARDED_EVENTS)[number];
 

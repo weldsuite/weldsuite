@@ -4004,6 +4004,7 @@
     "merge_issue.created",
     "merge_issue.updated",
     "merge_issue.deleted",
+    "merge_issue.agent_assigned",
     "merge_comment.created",
     "merge_comment.updated",
     "merge_comment.deleted",
@@ -4022,6 +4023,15 @@
     "merge_pull_request.created",
     "merge_pull_request.updated",
     "merge_pull_request.merged",
-    "merge_pull_request.closed"
+    "merge_pull_request.closed",
+    "merge_release.created",
+    "merge_release.updated",
+    "merge_release.deleted",
+    "merge_release.shipped",
+    "merge_record_link.created",
+    "merge_record_link.deleted",
+    "merge_chat_subscription.created",
+    "merge_chat_subscription.updated",
+    "merge_chat_subscription.deleted"
   ]
 }

@@ -1,6 +1,6 @@
 /**
- * The inbox: computed per request, nothing stored (phase 1). Read, snooze and
- * archive need `merge_inbox_states`, which comes in phase 2.
+ * The inbox: computed per request. Read, snooze and archive state is per member
+ * in `merge_inbox_states` (phase 2, area A applies it to these items).
  */
 
 import { and, desc, eq, gte, isNull, type SQL } from 'drizzle-orm';
@@ -49,6 +49,9 @@ export async function buildInbox(db: Db, options: InboxOptions): Promise<MergeIn
         at: iso(at(row))!,
         pullRequest: listItems[i]!,
         issue: null,
+        // Per-member state (merge_inbox_states) is applied by area A.
+        read: false,
+        snoozedUntil: null,
       });
     });
   };
@@ -92,7 +95,7 @@ export async function buildInbox(db: Db, options: InboxOptions): Promise<MergeIn
       .limit(PER_KIND);
     const issues = await hydrateIssues(db, rows);
     rows.forEach((row, i) => {
-      items.push({ id: `assigned:${row.id}`, kind: 'assigned', at: iso(row.updatedAt)!, pullRequest: null, issue: issues[i]! });
+      items.push({ id: `assigned:${row.id}`, kind: 'assigned', at: iso(row.updatedAt)!, pullRequest: null, issue: issues[i]!, read: false, snoozedUntil: null });
     });
   }
 

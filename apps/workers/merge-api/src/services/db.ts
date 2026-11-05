@@ -13,6 +13,12 @@ export const {
   mergePullRequests,
   mergeIssuePullRequests,
   mergeProviderAccounts,
+  mergeExternalIssues,
+  mergeInboxStates,
+  mergeReleases,
+  mergeReleasePullRequests,
+  mergeRecordLinks,
+  mergeChatSubscriptions,
   githubConnections,
 } = schema;
 
@@ -25,6 +31,13 @@ export type MergeConnectionRow = typeof mergeConnections.$inferSelect;
 export type MergeRepositoryRow = typeof mergeRepositories.$inferSelect;
 export type MergePullRequestRow = typeof mergePullRequests.$inferSelect;
 export type MergeIssuePullRequestRow = typeof mergeIssuePullRequests.$inferSelect;
+export type MergeProviderAccountRow = typeof mergeProviderAccounts.$inferSelect;
+export type MergeExternalIssueRow = typeof mergeExternalIssues.$inferSelect;
+export type MergeInboxStateRow = typeof mergeInboxStates.$inferSelect;
+export type MergeReleaseRow = typeof mergeReleases.$inferSelect;
+export type MergeReleasePullRequestRow = typeof mergeReleasePullRequests.$inferSelect;
+export type MergeRecordLinkRow = typeof mergeRecordLinks.$inferSelect;
+export type MergeChatSubscriptionRow = typeof mergeChatSubscriptions.$inferSelect;
 
 /** Rows of a `db.execute()` result, whichever driver ran it (neon-http and pglite differ in shape). */
 export function executeRows<T>(result: unknown): T[] {

@@ -15,6 +15,7 @@ import {
 import type { PendingEvent } from './events';
 import { getRepositoryById, listPullRequestsForBackfill, type GithubClient } from './github-client';
 import { upsertPullRequest } from './pr-sync';
+import { ISSUE_SYNC_MODES_BY_PROVIDER } from './providers/types';
 import { findTeam } from './teams';
 
 export async function openPullRequestCounts(db: Db, repositoryIds: string[]): Promise<Map<string, number>> {
@@ -153,7 +154,10 @@ export type UpdateRepositoryResult =
 export async function updateRepository(db: Db, id: string, input: UpdateMergeRepositoryInput): Promise<UpdateRepositoryResult> {
   const before = await findRepository(db, id);
   if (!before) return { ok: false, reason: 'not_found' };
-  if (input.issueSync !== undefined && input.issueSync !== 'off') return { ok: false, reason: 'issue_sync_unsupported' };
+  // `import` and `two_way` work for GitHub and GitLab; the other providers have no issue sync.
+  if (input.issueSync !== undefined && !ISSUE_SYNC_MODES_BY_PROVIDER[before.provider].includes(input.issueSync)) {
+    return { ok: false, reason: 'issue_sync_unsupported' };
+  }
   if (input.teamId && !(await findTeam(db, input.teamId))) return { ok: false, reason: 'team_not_found' };
 
   const patch: Partial<typeof mergeRepositories.$inferInsert> = { updatedAt: new Date() };

@@ -4,7 +4,10 @@
  *
  * Phase 1: teams, labels, cycles, issues and comments; GitHub connections,
  * repositories, the pull request mirror, the inbox and the member's provider
- * accounts.
+ * accounts. Phase 2: the GitHub App install flow, issue sync, inbox state.
+ * Phase 3: OAuth connections and member accounts for GitLab, Bitbucket and
+ * Azure DevOps. Phase 4: review and merge. Phase 5: releases, record links and
+ * chat subscriptions.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
@@ -15,6 +18,7 @@ import type {
   CreateMergeCycleInput,
   CreateMergeIssueInput,
   CreateMergeLabelInput,
+  CreateMergeRecordLinkInput,
   CreateMergeTeamInput,
   LinkMergePullRequestInput,
   ListMergeIssuesQuery,
@@ -28,6 +32,7 @@ import type {
   MergeIssueDto,
   MergeLabelDto,
   MergeProviderAccountsDto,
+  MergeRecordLinkDto,
   MergePullRequestDetailDto,
   MergePullRequestListItem,
   MergeRepositoryDto,
@@ -41,6 +46,51 @@ import type {
   UpdateMergeTeamInput,
   UpdateMyMergeAccountsInput,
 } from '../schemas/weldmerge';
+import type {
+  CreateMergeExternalIssueInput,
+  ListMergeInboxQuery,
+  MergeExternalIssueResult,
+  MergeImportIssuesResult,
+  MergeInboxItemStateDto,
+  MergeInboxReadAllResult,
+  MergeInstallUrlDto,
+  UpdateMergeInboxItemInput,
+} from '../schemas/weldmerge-sync';
+import type {
+  MergeAuthorizeUrlDto,
+  MergeAuthorizeUrlQuery,
+  MergeAzureOrganizationInput,
+  MergeGitlabTokenInput,
+  MergeOauthCallbackInput,
+  MergeOauthCallbackResult,
+  MergeOauthConnectionProvider,
+  MergeOauthAccountProvider,
+} from '../schemas/weldmerge-providers';
+import type {
+  CreateMergePullRequestCommentInput,
+  MergeMergePullRequestInput,
+  MergePullRequestCommentResult,
+  MergePullRequestFile,
+  MergeReviewResult,
+  MergeReviewThread,
+  SubmitMergeReviewInput,
+} from '../schemas/weldmerge-review';
+import type {
+  CreateMergeChatSubscriptionInput,
+  CreateMergeReleaseInput,
+  ListMergeChatSubscriptionsQuery,
+  ListMergeRecordLinksQuery,
+  ListMergeReleasesQuery,
+  MergeChatSubscriptionDto,
+  MergeGenerateNotesResult,
+  MergePublishReleaseResult,
+  MergeRecordLinkedIssue,
+  MergeReleaseDetailDto,
+  MergeReleaseDto,
+  PublishMergeReleaseInput,
+  UpdateMergeChatSubscriptionInput,
+  UpdateMergeReleaseInput,
+} from '../schemas/weldmerge-across';
 
 const base = '/merge';
 
@@ -148,6 +198,29 @@ export function createWeldMergeApi(api: ClientApi) {
       unlinkPullRequest(issueId: string, pullRequestId: string): Promise<void> {
         return api.delete(`${base}/issues/${issueId}/pull-requests/${pullRequestId}`);
       },
+      /** The provider issue this issue syncs with (GitHub, GitLab). */
+      external: {
+        /** Creates the issue on the repository's provider and links it. */
+        create(issueId: string, input: CreateMergeExternalIssueInput): Promise<DataResponse<MergeExternalIssueResult>> {
+          return api.post(`${base}/issues/${issueId}/external`, input);
+        },
+        /** Stops syncing; the provider issue stays. */
+        remove(issueId: string): Promise<void> {
+          return api.delete(`${base}/issues/${issueId}/external`);
+        },
+      },
+      /** Links to tickets, companies and chat channels. */
+      links: {
+        list(issueId: string): Promise<ListResponse<MergeRecordLinkDto>> {
+          return api.get(`${base}/issues/${issueId}/links`);
+        },
+        create(issueId: string, input: CreateMergeRecordLinkInput): Promise<DataResponse<MergeRecordLinkDto>> {
+          return api.post(`${base}/issues/${issueId}/links`, input);
+        },
+        remove(issueId: string, linkId: string): Promise<void> {
+          return api.delete(`${base}/issues/${issueId}/links/${linkId}`);
+        },
+      },
     },
 
     comments: {
@@ -175,11 +248,41 @@ export function createWeldMergeApi(api: ClientApi) {
       get(id: string): Promise<DataResponse<MergePullRequestDetailDto>> {
         return api.get(`${base}/pull-requests/${id}`);
       },
+      /** Changed files with their patches, live from the provider. */
+      files(id: string): Promise<ListResponse<MergePullRequestFile>> {
+        return api.get(`${base}/pull-requests/${id}/files`);
+      },
+      /** Review threads and general comments, live from the provider. */
+      threads(id: string): Promise<ListResponse<MergeReviewThread>> {
+        return api.get(`${base}/pull-requests/${id}/threads`);
+      },
+      /** Approve, request changes or comment, as the member's own linked account. */
+      review(id: string, input: SubmitMergeReviewInput): Promise<DataResponse<MergeReviewResult>> {
+        return api.post(`${base}/pull-requests/${id}/reviews`, input);
+      },
+      /** A general comment, a line comment or a reply, as the member's own linked account. */
+      comment(
+        id: string,
+        input: CreateMergePullRequestCommentInput,
+      ): Promise<DataResponse<MergePullRequestCommentResult>> {
+        return api.post(`${base}/pull-requests/${id}/comments`, input);
+      },
+      /** Merges on the provider as the member, then re-reads the mirror. */
+      merge(id: string, input: MergeMergePullRequestInput = {}): Promise<DataResponse<MergeReviewResult>> {
+        return api.post(`${base}/pull-requests/${id}/merge`, input);
+      },
     },
 
     inbox: {
-      list(): Promise<ListResponse<MergeInboxItem>> {
-        return api.get(`${base}/inbox`);
+      list(params: ListMergeInboxQuery = {}): Promise<ListResponse<MergeInboxItem>> {
+        return api.get(`${base}/inbox${query({ include: params.include })}`);
+      },
+      /** Marks one item read or unread, snoozes it, or archives it. The member's own state only. */
+      updateItem(itemKey: string, input: UpdateMergeInboxItemInput): Promise<DataResponse<MergeInboxItemStateDto>> {
+        return api.patch(`${base}/inbox/items/${encodeURIComponent(itemKey)}`, input);
+      },
+      readAll(): Promise<DataResponse<MergeInboxReadAllResult>> {
+        return api.post(`${base}/inbox/read-all`, {});
       },
     },
 
@@ -197,6 +300,32 @@ export function createWeldMergeApi(api: ClientApi) {
       },
       availableRepositories(id: string): Promise<ListResponse<MergeAvailableRepository>> {
         return api.get(`${base}/connections/${id}/available-repositories`);
+      },
+      /** The GitHub App install page; `returnTo` is a same-app relative path. */
+      githubInstallUrl(returnTo?: string): Promise<DataResponse<MergeInstallUrlDto>> {
+        return api.get(`${base}/connections/github/install-url${query({ returnTo })}`);
+      },
+      /** The provider's OAuth consent page for a workspace connection. */
+      authorizeUrl(
+        provider: MergeOauthConnectionProvider,
+        returnTo?: string,
+      ): Promise<DataResponse<MergeAuthorizeUrlDto>> {
+        return api.get(`${base}/connections/${provider}/authorize-url${query({ returnTo })}`);
+      },
+      /** Self-managed GitLab: validates the token against `{host}/api/v4/user`. */
+      connectGitlab(input: MergeGitlabTokenInput): Promise<DataResponse<MergeConnectionDto>> {
+        return api.post(`${base}/connections/gitlab`, input);
+      },
+      /** Azure DevOps with more than one organisation: pick which one the connection uses. */
+      setAzureOrganization(input: MergeAzureOrganizationInput): Promise<DataResponse<MergeConnectionDto>> {
+        return api.post(`${base}/connections/azure_devops/organization`, input);
+      },
+    },
+
+    oauth: {
+      /** Called by the SPA page `/weldmerge/oauth/callback` with what the provider redirected back with. */
+      callback(input: MergeOauthCallbackInput): Promise<DataResponse<MergeOauthCallbackResult>> {
+        return api.post(`${base}/oauth/callback`, input);
       },
     },
 
@@ -218,6 +347,10 @@ export function createWeldMergeApi(api: ClientApi) {
       sync(id: string): Promise<DataResponse<MergeRepositorySyncResult>> {
         return api.post(`${base}/repositories/${id}/sync`, {});
       },
+      /** Imports the repository's open provider issues (up to 500) as WeldMerge issues. */
+      importIssues(id: string): Promise<DataResponse<MergeImportIssuesResult>> {
+        return api.post(`${base}/repositories/${id}/import-issues`, {});
+      },
     },
 
     accounts: {
@@ -226,6 +359,87 @@ export function createWeldMergeApi(api: ClientApi) {
       },
       updateMe(input: UpdateMyMergeAccountsInput): Promise<DataResponse<MergeProviderAccountsDto>> {
         return api.put(`${base}/accounts/me`, input);
+      },
+      /** The provider's consent page for linking the member's own account (`host`: self-managed GitLab). */
+      authorizeUrl(
+        provider: MergeOauthAccountProvider,
+        params: MergeAuthorizeUrlQuery = {},
+      ): Promise<DataResponse<MergeAuthorizeUrlDto>> {
+        return api.get(
+          `${base}/accounts/${provider}/authorize-url${query({ returnTo: params.returnTo, host: params.host })}`,
+        );
+      },
+      /** Self-managed GitLab: link with a personal access token. */
+      linkGitlabToken(input: MergeGitlabTokenInput): Promise<DataResponse<MergeProviderAccountsDto>> {
+        return api.post(`${base}/accounts/gitlab-token`, input);
+      },
+      unlink(provider: MergeOauthAccountProvider, host?: string): Promise<void> {
+        return api.delete(`${base}/accounts/${provider}${query({ host })}`);
+      },
+    },
+
+    releases: {
+      list(params: ListMergeReleasesQuery = {}): Promise<ListResponse<MergeReleaseDto>> {
+        return api.get(
+          `${base}/releases${query({
+            teamId: params.teamId,
+            repositoryId: params.repositoryId,
+            status: params.status,
+            limit: params.limit,
+            cursor: params.cursor,
+          })}`,
+        );
+      },
+      get(id: string): Promise<DataResponse<MergeReleaseDetailDto>> {
+        return api.get(`${base}/releases/${id}`);
+      },
+      create(input: CreateMergeReleaseInput): Promise<DataResponse<MergeReleaseDetailDto>> {
+        return api.post(`${base}/releases`, input);
+      },
+      update(id: string, input: UpdateMergeReleaseInput): Promise<DataResponse<MergeReleaseDetailDto>> {
+        return api.patch(`${base}/releases/${id}`, input);
+      },
+      remove(id: string): Promise<void> {
+        return api.delete(`${base}/releases/${id}`);
+      },
+      /** Re-reads the merged pull requests between `baseRef` and `headRef` from the provider. */
+      refresh(id: string): Promise<DataResponse<MergeReleaseDetailDto>> {
+        return api.post(`${base}/releases/${id}/refresh`, {});
+      },
+      generateNotes(id: string): Promise<DataResponse<MergeGenerateNotesResult>> {
+        return api.post(`${base}/releases/${id}/generate-notes`, {});
+      },
+      ship(id: string): Promise<DataResponse<MergeReleaseDetailDto>> {
+        return api.post(`${base}/releases/${id}/ship`, {});
+      },
+      publish(id: string, input: PublishMergeReleaseInput): Promise<DataResponse<MergePublishReleaseResult>> {
+        return api.post(`${base}/releases/${id}/publish`, input);
+      },
+    },
+
+    recordLinks: {
+      /** The issues linked to a ticket, company or chat channel. */
+      list(params: ListMergeRecordLinksQuery): Promise<ListResponse<MergeRecordLinkedIssue>> {
+        return api.get(
+          `${base}/record-links${query({ recordType: params.recordType, recordId: params.recordId })}`,
+        );
+      },
+    },
+
+    chatSubscriptions: {
+      list(params: ListMergeChatSubscriptionsQuery = {}): Promise<ListResponse<MergeChatSubscriptionDto>> {
+        return api.get(
+          `${base}/chat-subscriptions${query({ channelId: params.channelId, teamId: params.teamId })}`,
+        );
+      },
+      create(input: CreateMergeChatSubscriptionInput): Promise<DataResponse<MergeChatSubscriptionDto>> {
+        return api.post(`${base}/chat-subscriptions`, input);
+      },
+      update(id: string, input: UpdateMergeChatSubscriptionInput): Promise<DataResponse<MergeChatSubscriptionDto>> {
+        return api.patch(`${base}/chat-subscriptions/${id}`, input);
+      },
+      remove(id: string): Promise<void> {
+        return api.delete(`${base}/chat-subscriptions/${id}`);
       },
     },
   };

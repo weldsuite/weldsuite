@@ -386,10 +386,40 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   },
 
   // ── Engineering (WeldMerge) ───────────────────────────────────────────
-  // Pull requests are mirrors of the git provider, so they are read-only here.
-  // Connecting providers and choosing repositories is kept apart from teams.
+  // Pull requests are mirrors of the git provider: their fields are read-only
+  // here, but a member with a linked provider account can review and merge as
+  // themselves. Connecting providers and choosing repositories is kept apart
+  // from teams.
   objectPermissions('merge_issues', 'Issues (WeldMerge)'),
-  objectPermissions('merge_pull_requests', 'Pull requests (WeldMerge)', ['read']),
+  {
+    key: 'merge_pull_requests',
+    label: 'Pull requests (WeldMerge)',
+    permissions: [
+      { key: 'merge_pull_requests:read', label: 'View pull requests' },
+      {
+        key: 'merge_pull_requests:review',
+        label: 'Review pull requests',
+        description: 'Approve, request changes and comment on the provider, as the member\'s own linked account.',
+      },
+      {
+        key: 'merge_pull_requests:merge',
+        label: 'Merge pull requests',
+        description: 'Merge on the provider, as the member\'s own linked account.',
+      },
+    ],
+  },
+  {
+    key: 'merge_releases',
+    label: 'Releases (WeldMerge)',
+    permissions: [
+      { key: 'merge_releases:read', label: 'View releases' },
+      {
+        key: 'merge_releases:manage',
+        label: 'Create, ship and publish releases',
+        description: 'Includes generating release notes with AI (billed) and publishing them to WeldKnow and email.',
+      },
+    ],
+  },
   {
     key: 'merge_teams',
     label: 'Teams, labels and cycles (WeldMerge)',
@@ -870,7 +900,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'panel_people:read', 'panel_people:delete',
   // WeldMerge — admins also manage teams and connect git providers
   'merge_issues:read', 'merge_issues:create', 'merge_issues:update', 'merge_issues:delete',
-  'merge_pull_requests:read',
+  'merge_pull_requests:read', 'merge_pull_requests:review', 'merge_pull_requests:merge',
+  'merge_releases:read', 'merge_releases:manage',
   'merge_teams:read', 'merge_teams:manage',
   'merge_connections:read', 'merge_connections:manage',
   // WeldReach — admins also run mailboxes (billed) and settings
@@ -1009,7 +1040,8 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'panel_recordings:read', 'panel_people:read',
   // WeldMerge — work on issues and see pull requests; teams and providers are read-only
   'merge_issues:read', 'merge_issues:create', 'merge_issues:update',
-  'merge_pull_requests:read', 'merge_teams:read', 'merge_connections:read',
+  'merge_pull_requests:read', 'merge_pull_requests:review', 'merge_pull_requests:merge',
+  'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
@@ -1049,7 +1081,7 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   // WeldPanel — shared reports and dashboards only; no recordings or profiles
   'panel_projects:read', 'panel_reports:read',
   // WeldMerge — read-only
-  'merge_issues:read', 'merge_pull_requests:read', 'merge_teams:read', 'merge_connections:read',
+  'merge_issues:read', 'merge_pull_requests:read', 'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];

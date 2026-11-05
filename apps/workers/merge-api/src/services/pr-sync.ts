@@ -19,6 +19,7 @@ import {
   mapGithubPullRequest,
   mergeMirrorUpdate,
   type GithubPullRequest,
+  type MirrorFields,
 } from '@weldsuite/merge-domain/github';
 import {
   mergeIssuePullRequests,
@@ -27,11 +28,13 @@ import {
   mergePullRequests,
   mergeTeams,
   type Db,
+  type MergeIssuePullRequestRow,
   type MergeIssueRow,
   type MergePullRequestRow,
   type MergeRepositoryRow,
 } from './db';
 import type { PendingEvent } from './events';
+import { afterIssueUpdated, afterPullRequestSynced, type HookContext } from './hooks';
 import { moveIssueStatus } from './issues';
 import { issueEventData } from './mappers';
 
@@ -71,36 +74,45 @@ export async function syncAutoLinks(db: Db, pr: MergePullRequestRow): Promise<{ 
     for (const mention of mentions) {
       const hit = candidates.find((c) => c.teamKey === mention.teamKey && c.issue.number === mention.number);
       if (!hit) continue;
-      const existing = byIssue.get(hit.issue.id);
-      if (!existing) {
-        const [inserted] = await db
-          .insert(mergeIssuePullRequests)
-          .values({
-            id: generateId('mip'),
-            issueId: hit.issue.id,
-            pullRequestId: pr.id,
-            source: 'auto',
-            closes: mention.closes,
-          })
-          .onConflictDoNothing()
-          .returning();
-        if (inserted) {
-          byIssue.set(hit.issue.id, inserted);
-          newlyCreated.add(inserted.id);
-        }
-      } else if (existing.source === 'auto' && existing.closes !== mention.closes) {
-        const [updated] = await db
-          .update(mergeIssuePullRequests)
-          .set({ closes: mention.closes })
-          .where(eq(mergeIssuePullRequests.id, existing.id))
-          .returning();
-        byIssue.set(hit.issue.id, updated!);
-      }
+      await applyMention(db, pr, hit.issue.id, mention.closes, byIssue, newlyCreated);
     }
   }
 
   const links = await loadLinks(db, pr.id, newlyCreated);
   return { links, created: newlyCreated.size };
+}
+
+/** One issue key the pull request mentions: a new `auto` link, or the existing one's `closes` brought up to date. */
+async function applyMention(
+  db: Db,
+  pr: MergePullRequestRow,
+  issueId: string,
+  closes: boolean,
+  byIssue: Map<string, MergeIssuePullRequestRow>,
+  newlyCreated: Set<string>,
+): Promise<void> {
+  const existing = byIssue.get(issueId);
+  // A removed automatic link stays removed: the pair is not linked again.
+  if (existing?.dismissedAt) return;
+  if (existing) {
+    if (existing.source !== 'auto' || existing.closes === closes) return;
+    const [updated] = await db
+      .update(mergeIssuePullRequests)
+      .set({ closes })
+      .where(eq(mergeIssuePullRequests.id, existing.id))
+      .returning();
+    byIssue.set(issueId, updated!);
+    return;
+  }
+  const [inserted] = await db
+    .insert(mergeIssuePullRequests)
+    .values({ id: generateId('mip'), issueId, pullRequestId: pr.id, source: 'auto', closes })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted) {
+    byIssue.set(issueId, inserted);
+    newlyCreated.add(inserted.id);
+  }
 }
 
 async function loadLinks(db: Db, pullRequestId: string, newIds: ReadonlySet<string>): Promise<LinkedIssue[]> {
@@ -109,7 +121,13 @@ async function loadLinks(db: Db, pullRequestId: string, newIds: ReadonlySet<stri
     .from(mergeIssuePullRequests)
     .innerJoin(mergeIssues, eq(mergeIssues.id, mergeIssuePullRequests.issueId))
     .innerJoin(mergeTeams, eq(mergeTeams.id, mergeIssues.teamId))
-    .where(and(eq(mergeIssuePullRequests.pullRequestId, pullRequestId), isNull(mergeIssues.deletedAt)));
+    .where(
+      and(
+        eq(mergeIssuePullRequests.pullRequestId, pullRequestId),
+        isNull(mergeIssuePullRequests.dismissedAt),
+        isNull(mergeIssues.deletedAt),
+      ),
+    );
   return rows.map((r) => ({
     linkId: r.link.id,
     closes: r.link.closes,
@@ -126,6 +144,8 @@ export async function runAutomation(
   pr: MergePullRequestRow,
   previous: PullRequestPhase | null,
   links: LinkedIssue[],
+  /** Set by webhook-driven syncs: lets the issue sync push the status the pull request moved the issue to. */
+  hooks?: HookContext,
 ): Promise<PendingEvent[]> {
   const next = pullRequestPhase(pr);
   const events: PendingEvent[] = [];
@@ -141,6 +161,7 @@ export async function runAutomation(
       data: issueEventData(moved, link.teamKey, pr.id),
       changes: { status: { old: link.issue.status, new: moved.status } },
     });
+    if (hooks) await afterIssueUpdated(hooks, link.issue, moved, link.teamKey);
     link.issue = moved;
   }
   return events;
@@ -189,6 +210,8 @@ export interface UpsertOptions {
   automate: boolean;
   /** Skip the row write when the stored copy has the same `updated_at` and state (a backfill re-reading rows). */
   skipUnchanged?: boolean;
+  /** Webhook-driven syncs pass it: the area hooks (issue sync, chat posts) run after the write. A backfill leaves it out. */
+  hooks?: HookContext;
 }
 
 export interface UpsertOutcome {
@@ -209,7 +232,6 @@ async function matchMembers(db: Db, logins: string[]): Promise<Map<string, strin
   return new Map(rows.map((r) => [r.login, r.userId]));
 }
 
-type MirrorFields = ReturnType<typeof mapGithubPullRequest>;
 type Reviewers = MergePullRequestRow['requestedReviewers'];
 
 async function updateMirror(
@@ -267,7 +289,7 @@ async function insertMirror(
     .values({
       id: generateId('mpr'),
       repositoryId: repository.id,
-      provider: 'github',
+      provider: repository.provider,
       externalId: fields.externalId,
       number: fields.number,
       title: fields.title,
@@ -323,13 +345,23 @@ function upsertStatus(unchanged: boolean, existing: MergePullRequestRow | undefi
   return existing ? 'updated' : 'created';
 }
 
-export async function upsertPullRequest(
+/** A GitHub pull request payload: mapped, then mirrored. */
+export function upsertPullRequest(
   db: Db,
   repository: MergeRepositoryRow,
   github: GithubPullRequest,
   options: UpsertOptions,
 ): Promise<UpsertOutcome> {
-  const fields = mapGithubPullRequest(github);
+  return upsertMirror(db, repository, mapGithubPullRequest(github), options);
+}
+
+/** Mirrors a pull request already mapped to `MirrorFields` (every provider's mapper ends here). */
+export async function upsertMirror(
+  db: Db,
+  repository: MergeRepositoryRow,
+  fields: MirrorFields,
+  options: UpsertOptions,
+): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
     .from(mergePullRequests)
@@ -356,7 +388,7 @@ export async function upsertPullRequest(
 
   const { links, created } = await syncAutoLinks(db, row);
   const events: PendingEvent[] = [];
-  if (options.automate) events.push(...(await runAutomation(db, row, previous, links)));
+  if (options.automate) events.push(...(await runAutomation(db, row, previous, links, options.hooks)));
   if (!unchanged) {
     events.unshift(
       ...pullRequestEvents(
@@ -368,6 +400,7 @@ export async function upsertPullRequest(
       ),
     );
   }
+  if (options.hooks && !unchanged) await afterPullRequestSynced(options.hooks, existing ?? null, row, events);
   return {
     status: upsertStatus(unchanged, existing),
     pullRequest: row,

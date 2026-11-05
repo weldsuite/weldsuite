@@ -42,7 +42,9 @@ export type DueIndexKind =
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
   | 'desk_sla'
   // WeldFlow (flow-api): approval reminders a day before they are due, and overdue notices to the requester (FLOW-016).
-  | 'approval_due';
+  | 'approval_due'
+  // WeldMerge (merge-api): chat subscriptions whose daily digest hour comes due.
+  | 'merge_digest';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

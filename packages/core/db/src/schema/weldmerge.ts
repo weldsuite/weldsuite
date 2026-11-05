@@ -59,7 +59,7 @@ export type MergeProvider = (typeof MERGE_PROVIDERS)[number];
 export const MERGE_CONNECTION_STATUSES = ['active', 'suspended', 'revoked', 'needs_attention'] as const;
 export type MergeConnectionStatus = (typeof MERGE_CONNECTION_STATUSES)[number];
 
-/** How a repository's provider issues sync with WeldMerge issues. Phase 1 supports `off` only. */
+/** How a repository's provider issues sync with WeldMerge issues (GitHub and GitLab). */
 export const MERGE_ISSUE_SYNC_MODES = ['two_way', 'import', 'off'] as const;
 export type MergeIssueSyncMode = (typeof MERGE_ISSUE_SYNC_MODES)[number];
 
@@ -74,6 +74,40 @@ export type MergeReviewDecision = (typeof MERGE_REVIEW_DECISIONS)[number];
 
 export const MERGE_LINK_SOURCES = ['auto', 'manual'] as const;
 export type MergeLinkSource = (typeof MERGE_LINK_SOURCES)[number];
+
+/** Where a comment was written: in WeldMerge, or on the provider and synced in. */
+export const MERGE_COMMENT_SOURCES = ['weldmerge', 'provider'] as const;
+export type MergeCommentSource = (typeof MERGE_COMMENT_SOURCES)[number];
+
+export const MERGE_EXTERNAL_ISSUE_STATES = ['open', 'closed'] as const;
+export type MergeExternalIssueState = (typeof MERGE_EXTERNAL_ISSUE_STATES)[number];
+
+/** Which side wrote an externally synced issue last (loop guard). */
+export const MERGE_EXTERNAL_WRITERS = ['weldmerge', 'provider'] as const;
+export type MergeExternalWriter = (typeof MERGE_EXTERNAL_WRITERS)[number];
+
+export const MERGE_RELEASE_STATUSES = ['draft', 'shipped'] as const;
+export type MergeReleaseStatus = (typeof MERGE_RELEASE_STATUSES)[number];
+
+/** WeldSuite records an issue can be linked to. */
+export const MERGE_RECORD_TYPES = ['desk_ticket', 'crm_company', 'chat_channel'] as const;
+export type MergeRecordType = (typeof MERGE_RECORD_TYPES)[number];
+
+/** Events a chat subscription can post about. */
+export const MERGE_CHAT_EVENTS = [
+  'review_requested',
+  'checks_failed',
+  'pull_request_merged',
+  'issue_created',
+  'issue_done',
+  'release_shipped',
+  'daily_digest',
+] as const;
+export type MergeChatEvent = (typeof MERGE_CHAT_EVENTS)[number];
+
+/** Master `merge_provider_index.kind`. */
+export const MERGE_PROVIDER_INDEX_KINDS = ['installation', 'webhook'] as const;
+export type MergeProviderIndexKind = (typeof MERGE_PROVIDER_INDEX_KINDS)[number];
 
 /** A reviewer the provider asked for: a person (login) or a team (slug). */
 export type MergeRequestedReviewer = {
@@ -174,6 +208,8 @@ export const mergeIssues = pgTable(
     dueDate: date('due_date'),
     /** Optional WeldFlow project this issue belongs to (a roadmap). */
     flowProjectId: varchar('flow_project_id', { length: 30 }),
+    /** A WeldAgent agent the issue is assigned to. */
+    agentId: varchar('agent_id', { length: 30 }),
     /** Order inside a board column; smaller first. */
     sortOrder: doublePrecision('sort_order').notNull().default(0),
 
@@ -199,9 +235,15 @@ export const mergeComments = pgTable(
   {
     id: varchar('id', { length: 30 }).primaryKey(), // mcm_
     issueId: varchar('issue_id', { length: 30 }).notNull(),
-    authorUserId: varchar('author_user_id', { length: 255 }).notNull(),
+    /** Null for a provider comment written by someone who isn't a member. */
+    authorUserId: varchar('author_user_id', { length: 255 }),
     /** Markdown. */
     body: text('body').notNull(),
+    /** The provider's comment id, for comments synced with a provider issue. */
+    externalId: varchar('external_id', { length: 255 }),
+    externalAuthorLogin: varchar('external_author_login', { length: 255 }),
+    externalAuthorAvatarUrl: varchar('external_author_avatar_url', { length: 1000 }),
+    source: varchar('source', { length: 20 }).$type<MergeCommentSource>().notNull().default('weldmerge'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -231,6 +273,15 @@ export const mergeConnections = pgTable(
     /** Encrypted provider credentials; null for the GitHub App (tokens are minted per call). Never returned. */
     credentials: text('credentials'),
     credentialsExpireAt: timestamp('credentials_expire_at', { withTimezone: true }),
+    /** Encrypted. GitHub's per-installation fallback webhook secret. Never returned. */
+    webhookSecret: text('webhook_secret'),
+    /** GitHub App slug the installation belongs to. */
+    appSlug: varchar('app_slug', { length: 255 }),
+    scopes: jsonb('scopes').$type<string[]>(),
+    installedAt: timestamp('installed_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** Who authorized an OAuth connection (the provider login). */
+    oauthUserLogin: varchar('oauth_user_login', { length: 255 }),
 
     createdByUserId: varchar('created_by_user_id', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -263,6 +314,14 @@ export const mergeRepositories = pgTable(
     issueSync: varchar('issue_sync', { length: 20 }).$type<MergeIssueSyncMode>().notNull().default('off'),
     prSync: boolean('pr_sync').notNull().default(true),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    /** Bitbucket workspace slug, Azure DevOps project name, GitLab namespace path. */
+    externalProject: varchar('external_project', { length: 500 }),
+    /** The provider's hook / subscription id. */
+    webhookId: varchar('webhook_id', { length: 255 }),
+    /** Random routing key in the webhook URL; unique among non-null. */
+    webhookKey: varchar('webhook_key', { length: 64 }),
+    /** Encrypted. Verifies this repository's provider webhooks. Never returned. */
+    webhookSecret: text('webhook_secret'),
 
     createdByUserId: varchar('created_by_user_id', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -274,6 +333,9 @@ export const mergeRepositories = pgTable(
       .on(table.connectionId, table.externalId)
       .where(sql`${table.deletedAt} IS NULL`),
     index('merge_repositories_external_lookup_idx').on(table.provider, table.externalId),
+    uniqueIndex('merge_repositories_webhook_key_idx')
+      .on(table.webhookKey)
+      .where(sql`${table.webhookKey} IS NOT NULL`),
   ],
 );
 
@@ -335,6 +397,8 @@ export const mergeIssuePullRequests = pgTable(
     source: varchar('source', { length: 10 }).$type<MergeLinkSource>().notNull(),
     /** Merging the pull request moves the issue to Done. False after "refs", "part of", "related to". */
     closes: boolean('closes').notNull().default(true),
+    /** A removed automatic link stays removed: sync skips dismissed pairs. */
+    dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
 
     createdByUserId: varchar('created_by_user_id', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -355,12 +419,174 @@ export const mergeProviderAccounts = pgTable(
     /** Stored lower-case; provider logins are case-insensitive. */
     login: varchar('login', { length: 255 }).notNull(),
     externalUserId: varchar('external_user_id', { length: 255 }),
+    /** Self-managed GitLab base URL, Azure DevOps org URL; null for cloud. */
+    host: varchar('host', { length: 500 }),
+    /** Encrypted member token JSON `{accessToken, refreshToken?, expiresAt?, tokenType?}`. Never returned. */
+    credentials: text('credentials'),
+    credentialsExpireAt: timestamp('credentials_expire_at', { withTimezone: true }),
+    /** Set when linked through OAuth; null = a typed login. */
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    avatarUrl: varchar('avatar_url', { length: 1000 }),
+    displayName: varchar('display_name', { length: 255 }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('merge_provider_accounts_login_idx').on(table.provider, table.login),
-    uniqueIndex('merge_provider_accounts_user_idx').on(table.userId, table.provider),
+    uniqueIndex('merge_provider_accounts_login_idx').on(
+      table.provider,
+      sql`coalesce(${table.host}, '')`,
+      table.login,
+    ),
+    uniqueIndex('merge_provider_accounts_user_idx').on(
+      table.userId,
+      table.provider,
+      sql`coalesce(${table.host}, '')`,
+    ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Provider issue sync, inbox state
+// ---------------------------------------------------------------------------
+
+/** Link between a WeldMerge issue and the provider issue it syncs with. */
+export const mergeExternalIssues = pgTable(
+  'merge_external_issues',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mxi_
+    issueId: varchar('issue_id', { length: 30 }).notNull(),
+    repositoryId: varchar('repository_id', { length: 30 }).notNull(),
+    provider: varchar('provider', { length: 20 }).$type<MergeProvider>().notNull(),
+    externalId: varchar('external_id', { length: 255 }).notNull(),
+    number: integer('number').notNull(),
+    url: varchar('url', { length: 1000 }).notNull(),
+    state: varchar('state', { length: 10 }).$type<MergeExternalIssueState>().notNull(),
+    /** sha-256 of the synced fields: an event that matches it is an echo and is ignored. */
+    checksum: varchar('checksum', { length: 64 }).notNull(),
+    lastWriter: varchar('last_writer', { length: 20 }).$type<MergeExternalWriter>().notNull(),
+    providerUpdatedAt: timestamp('provider_updated_at', { withTimezone: true }),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('merge_external_issues_issue_idx').on(table.issueId),
+    uniqueIndex('merge_external_issues_repo_number_idx').on(table.repositoryId, table.number),
+  ],
+);
+
+/** A member's own state for an inbox item (the inbox itself is derived). */
+export const mergeInboxStates = pgTable(
+  'merge_inbox_states',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mib_
+    userId: varchar('user_id', { length: 255 }).notNull(),
+    /** The inbox item's id. */
+    itemKey: varchar('item_key', { length: 200 }).notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('merge_inbox_states_user_item_idx').on(table.userId, table.itemKey)],
+);
+
+// ---------------------------------------------------------------------------
+// Releases, record links, chat subscriptions
+// ---------------------------------------------------------------------------
+
+export const mergeReleases = pgTable(
+  'merge_releases',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mrl_
+    teamId: varchar('team_id', { length: 30 }).notNull(),
+    repositoryId: varchar('repository_id', { length: 30 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    version: varchar('version', { length: 100 }),
+    baseRef: varchar('base_ref', { length: 500 }),
+    headRef: varchar('head_ref', { length: 500 }),
+    status: varchar('status', { length: 20 }).$type<MergeReleaseStatus>().notNull().default('draft'),
+    /** Markdown. */
+    notes: text('notes'),
+    notesGeneratedAt: timestamp('notes_generated_at', { withTimezone: true }),
+    knowledgePageId: varchar('knowledge_page_id', { length: 30 }),
+    shippedAt: timestamp('shipped_at', { withTimezone: true }),
+
+    createdByUserId: varchar('created_by_user_id', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('merge_releases_team_idx').on(table.teamId, table.status),
+    index('merge_releases_repository_idx').on(table.repositoryId),
+  ],
+);
+
+export const mergeReleasePullRequests = pgTable(
+  'merge_release_pull_requests',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mrr_
+    releaseId: varchar('release_id', { length: 30 }).notNull(),
+    pullRequestId: varchar('pull_request_id', { length: 30 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('merge_release_pull_requests_pair_idx').on(table.releaseId, table.pullRequestId),
+    index('merge_release_pull_requests_pr_idx').on(table.pullRequestId),
+  ],
+);
+
+/** An issue linked to a record elsewhere in WeldSuite (a ticket, a company, a chat channel). */
+export const mergeRecordLinks = pgTable(
+  'merge_record_links',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mrk_
+    issueId: varchar('issue_id', { length: 30 }).notNull(),
+    recordType: varchar('record_type', { length: 30 }).$type<MergeRecordType>().notNull(),
+    recordId: varchar('record_id', { length: 255 }).notNull(),
+    /** Cached label of the record. */
+    title: varchar('title', { length: 500 }),
+    createdByUserId: varchar('created_by_user_id', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('merge_record_links_unique_idx').on(table.issueId, table.recordType, table.recordId),
+    index('merge_record_links_record_idx').on(table.recordType, table.recordId),
+  ],
+);
+
+/** A chat channel that gets posts about a team's or repository's activity. */
+export const mergeChatSubscriptions = pgTable(
+  'merge_chat_subscriptions',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(), // mcs_
+    channelId: varchar('channel_id', { length: 30 }).notNull(),
+    teamId: varchar('team_id', { length: 30 }),
+    repositoryId: varchar('repository_id', { length: 30 }),
+    events: jsonb('events').$type<MergeChatEvent[]>().notNull().default([]),
+    /** UTC hour (0-23) the daily digest is posted. */
+    digestHour: integer('digest_hour').notNull().default(9),
+
+    createdByUserId: varchar('created_by_user_id', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('merge_chat_subscriptions_channel_idx').on(table.channelId),
+    index('merge_chat_subscriptions_team_idx').on(table.teamId),
+    index('merge_chat_subscriptions_repository_idx').on(table.repositoryId),
+  ],
+);
+
+export type MergeExternalIssue = typeof mergeExternalIssues.$inferSelect;
+export type MergeInboxState = typeof mergeInboxStates.$inferSelect;
+export type MergeRelease = typeof mergeReleases.$inferSelect;
+export type MergeReleasePullRequest = typeof mergeReleasePullRequests.$inferSelect;
+export type MergeRecordLink = typeof mergeRecordLinks.$inferSelect;
+export type MergeChatSubscription = typeof mergeChatSubscriptions.$inferSelect;

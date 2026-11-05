@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
+import type { HookContext } from '../services/hooks';
 import { createGithubClient, GithubApiError, GithubNotConfiguredError, type GithubClient } from '../services/github-client';
 
 export type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
@@ -21,3 +22,12 @@ export function githubFailure(c: Ctx, err: unknown): Response | null {
   if (err instanceof GithubApiError) return c.json({ error: { code: 'UPSTREAM_ERROR', message: 'GitHub answered with an error' } }, 502);
   return null;
 }
+
+/** What the area hooks (issue sync, chat posts) need, from the request. */
+export const hookContext = (c: Ctx): HookContext => ({
+  db: c.get('tenantDb'),
+  env: c.env,
+  userId: c.get('userId'),
+  workspaceId: c.get('workspaceId'),
+  clerkOrgId: c.get('clerkOrgId'),
+});

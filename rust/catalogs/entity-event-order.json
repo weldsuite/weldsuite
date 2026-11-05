@@ -269,5 +269,8 @@
   "merge_cycle",
   "merge_connection",
   "merge_repository",
-  "merge_pull_request"
+  "merge_pull_request",
+  "merge_release",
+  "merge_record_link",
+  "merge_chat_subscription"
 ]

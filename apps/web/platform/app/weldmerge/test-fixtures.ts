@@ -54,6 +54,7 @@ export function makeIssue(overrides: Partial<MergeIssueDto> = {}): MergeIssueDto
     estimate: null,
     dueDate: null,
     flowProjectId: null,
+    agentId: null,
     sortOrder: 0,
     pullRequestCount: 1,
     startedAt: null,
@@ -72,6 +73,8 @@ export function makeReviewRequest(overrides: Partial<MergeInboxItem> = {}): Merg
     at: '2026-11-05T11:00:00.000Z',
     pullRequest: makePullRequest(),
     issue: null,
+    read: false,
+    snoozedUntil: null,
     ...overrides,
   };
 }
@@ -83,6 +86,8 @@ export function makeAssignedIssue(overrides: Partial<MergeInboxItem> = {}): Merg
     at: '2026-11-05T10:00:00.000Z',
     pullRequest: null,
     issue: makeIssue({ id: 'mis_2', key: 'API-97', title: 'Webhook retries drop events' }),
+    read: false,
+    snoozedUntil: null,
     ...overrides,
   };
 }

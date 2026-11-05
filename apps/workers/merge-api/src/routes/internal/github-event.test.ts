@@ -240,7 +240,7 @@ describe('pull_request: stale, untracked and off', () => {
     for (const body of [
       {},
       { event: 'pull_request', payload: {} },
-      { workspaceId: 'org_alpha', event: 'issues', payload: {} },
+      { workspaceId: 'org_alpha', event: 'push', payload: {} },
       { workspaceId: 'org_alpha', event: 'pull_request' },
     ]) {
       expect((await send(body)).status, JSON.stringify(body)).toBe(400);

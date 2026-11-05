@@ -4,6 +4,10 @@
  * Plaatshouders in `{accolades}` worden door de pagina ingevuld (zie `fill` in
  * apps/web/platform/app/weldmerge/lib/format.ts).
  */
+import { weldmergeAcross } from './weldmerge-across';
+import { weldmergeReviewing } from './weldmerge-reviewing';
+import { weldmergeSync } from './weldmerge-sync';
+
 export const weldmerge = {
   title: 'WeldMerge',
   breadcrumb: {
@@ -438,4 +442,9 @@ export const weldmerge = {
       saveFailed: 'Je gebruikersnaam kon niet worden opgeslagen',
     },
   },
+
+  // Phases 2-5, one file per build area (see docs/plans/weldmerge-phases-2-5.md).
+  sync: weldmergeSync,
+  reviewing: weldmergeReviewing,
+  across: weldmergeAcross,
 };
