@@ -656,25 +656,19 @@ async fn run_request_code(
     let ws = workspace.workspace_id.as_str();
 
     // Per address first, so one bombarded address cannot drain the workspace's
-    // budget, then per workspace across all addresses. Over a limit looks
-    // exactly like "no access": the same 204.
-    for (key, max) in [
-        (format!("e:{email}"), PORTAL_REQUEST_LIMIT_EMAIL),
-        ("request-ws".to_owned(), PORTAL_REQUEST_LIMIT_WORKSPACE),
-    ] {
-        match consume_rate_limit(
-            req.limiter.as_ref(),
-            ws,
-            &key,
-            max,
-            PORTAL_REQUEST_WINDOW_SECONDS,
-        )
-        .await
-        {
-            RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
-            RateLimitOutcome::Limited => return Ok(NoContent.into_response()),
-            RateLimitOutcome::Allowed => {}
-        }
+    // budget. Over a limit looks exactly like "no access": the same 204.
+    match consume_rate_limit(
+        req.limiter.as_ref(),
+        ws,
+        &format!("e:{email}"),
+        PORTAL_REQUEST_LIMIT_EMAIL,
+        PORTAL_REQUEST_WINDOW_SECONDS,
+    )
+    .await
+    {
+        RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
+        RateLimitOutcome::Limited => return Ok(NoContent.into_response()),
+        RateLimitOutcome::Allowed => {}
     }
 
     let contacts = contacts_with_access(&workspace.db, email)
@@ -682,6 +676,24 @@ async fn run_request_code(
         .map_err(|e| e.to_string())?;
     if contacts.is_empty() {
         return Ok(NoContent.into_response());
+    }
+
+    // The per-workspace budget (mail cost, spraying) is charged only for an
+    // address that has access, i.e. when a mail would really be sent. Charged
+    // earlier, anonymous calls with made-up addresses could use it up and keep
+    // every real client of the workspace from getting a code.
+    match consume_rate_limit(
+        req.limiter.as_ref(),
+        ws,
+        "request-ws",
+        PORTAL_REQUEST_LIMIT_WORKSPACE,
+        PORTAL_REQUEST_WINDOW_SECONDS,
+    )
+    .await
+    {
+        RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
+        RateLimitOutcome::Limited => return Ok(NoContent.into_response()),
+        RateLimitOutcome::Allowed => {}
     }
 
     let code = random_otp();
@@ -711,63 +723,57 @@ async fn run_request_code(
 
 /// The verify budgets reserved up front (failed attempts only: given back once
 /// the sign-in succeeds, so a successful sign-in uses up nothing).
-struct Reservation<'a> {
-    limiter: Option<&'a Arc<dyn RateLimitCounters>>,
-    workspace_id: &'a str,
+#[derive(Default)]
+struct Reservation {
     keys: Vec<String>,
 }
 
-impl Reservation<'_> {
-    async fn release(&self) {
+impl Reservation {
+    async fn release(&self, limiter: Option<&Arc<dyn RateLimitCounters>>, workspace_id: &str) {
         for key in &self.keys {
-            release_rate_limit(self.limiter, self.workspace_id, key).await;
+            release_rate_limit(limiter, workspace_id, key).await;
         }
     }
 }
 
-/// `reserveVerifyBudget`: per address, then per workspace across all
-/// addresses. Each is reserved atomically up front, so parallel guesses cannot
-/// all slip past a check-then-count. The refusal to send (holding no slot), or
-/// the reservation.
-async fn reserve_verify_budget<'a>(
-    req: &'a Req,
-    workspace_id: &'a str,
-    email: &str,
-) -> Result<Reservation<'a>, Response> {
-    let mut reservation = Reservation {
-        limiter: req.limiter.as_ref(),
+/// `reserveVerifyBudget`: reserves one budget into `reservation`, atomically,
+/// so parallel guesses cannot all slip past a check-then-count. The per-address
+/// budget is reserved first, before any lookup; the per-workspace one only once
+/// a challenge exists, so calls with nothing pending (anonymous, made-up
+/// addresses) cannot use it up and lock every real client out. The refusal to
+/// send (holding no slot: what was reserved is given back), or `None`.
+async fn reserve_verify_budget(
+    limiter: Option<&Arc<dyn RateLimitCounters>>,
+    workspace_id: &str,
+    reservation: &mut Reservation,
+    key: String,
+    max: u32,
+) -> Option<Response> {
+    let outcome = consume_rate_limit(
+        limiter,
         workspace_id,
-        keys: Vec::new(),
-    };
-    for (key, max) in [
-        (format!("verify-e:{email}"), PORTAL_VERIFY_LIMIT_EMAIL),
-        ("verify-ws".to_owned(), PORTAL_VERIFY_LIMIT_WORKSPACE),
-    ] {
-        let outcome = consume_rate_limit(
-            req.limiter.as_ref(),
-            workspace_id,
-            &key,
-            max,
-            PORTAL_REQUEST_WINDOW_SECONDS,
-        )
-        .await;
-        if outcome == RateLimitOutcome::Allowed {
-            reservation.keys.push(key);
-            continue;
-        }
-        reservation.release().await;
-        if outcome == RateLimitOutcome::Unavailable {
-            return Err(sign_in_unavailable());
-        }
-        return Err((
+        &key,
+        max,
+        PORTAL_REQUEST_WINDOW_SECONDS,
+    )
+    .await;
+    if outcome == RateLimitOutcome::Allowed {
+        reservation.keys.push(key);
+        return None;
+    }
+    reservation.release(limiter, workspace_id).await;
+    if outcome == RateLimitOutcome::Unavailable {
+        return Some(sign_in_unavailable());
+    }
+    Some(
+        (
             StatusCode::TOO_MANY_REQUESTS,
             axum::Json(json!({
                 "error": { "code": "RATE_LIMITED", "message": portal_messages::TOO_MANY_ATTEMPTS }
             })),
         )
-            .into_response());
-    }
-    Ok(reservation)
+            .into_response(),
+    )
 }
 
 async fn verify(State(app): State<App>, req: Req, body: Bytes) -> Response {
@@ -785,6 +791,28 @@ fn failed_code() -> Response {
     unauthorized(portal_messages::INVALID_CODE)
 }
 
+/// A wrong code: counts the attempt on the challenge (deleting it at the
+/// limit) and answers the failure.
+async fn count_wrong_code(
+    req: &Req,
+    key: &str,
+    challenge: PortalChallenge,
+) -> Result<Response, String> {
+    let attempts = challenge.attempts + 1;
+    if attempts >= PORTAL_MAX_VERIFY_ATTEMPTS {
+        kv_delete(&req.kv, key).await.map_err(|e| e.to_string())?;
+    } else {
+        let counted = PortalChallenge {
+            attempts,
+            ..challenge
+        };
+        kv_put_json(&req.kv, key, &counted, PORTAL_CODE_TTL_SECONDS)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(failed_code())
+}
+
 async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response, String> {
     let email = normalize_portal_email(&body.email);
     let Some(workspace) = open_workspace(app, req, &body.workspace).await? else {
@@ -792,11 +820,22 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
     };
     let ws = workspace.workspace_id.as_str();
 
-    let reservation = match reserve_verify_budget(req, ws, &email).await {
-        Ok(reservation) => reservation,
-        Err(refusal) => return Ok(refusal),
-    };
+    let limiter = req.limiter.as_ref();
+    let mut reservation = Reservation::default();
+    if let Some(refusal) = reserve_verify_budget(
+        limiter,
+        ws,
+        &mut reservation,
+        format!("verify-e:{email}"),
+        PORTAL_VERIFY_LIMIT_EMAIL,
+    )
+    .await
+    {
+        return Ok(refusal);
+    }
 
+    // No pending code: the same 401 as a wrong code, and the workspace budget
+    // is left alone (see reserve_verify_budget).
     let key = portal_code_key(ws, &email);
     let challenge: Option<PortalChallenge> = kv_get_json(&req.kv, &key)
         .await
@@ -804,6 +843,17 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
     let Some(challenge) = challenge else {
         return Ok(failed_code());
     };
+    if let Some(refusal) = reserve_verify_budget(
+        limiter,
+        ws,
+        &mut reservation,
+        "verify-ws".to_owned(),
+        PORTAL_VERIFY_LIMIT_WORKSPACE,
+    )
+    .await
+    {
+        return Ok(refusal);
+    }
     if challenge.attempts >= PORTAL_MAX_VERIFY_ATTEMPTS {
         kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
         return Ok(failed_code());
@@ -822,7 +872,7 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
     .await;
     match budget {
         RateLimitOutcome::Unavailable => {
-            reservation.release().await;
+            reservation.release(limiter, ws).await;
             return Ok(sign_in_unavailable());
         }
         RateLimitOutcome::Limited => {
@@ -833,24 +883,12 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
     }
 
     if sha256_hex(&portal_code_input(ws, &email, &body.code)) != challenge.code_hash {
-        let attempts = challenge.attempts + 1;
-        if attempts >= PORTAL_MAX_VERIFY_ATTEMPTS {
-            kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
-        } else {
-            let counted = PortalChallenge {
-                attempts,
-                ..challenge
-            };
-            kv_put_json(&req.kv, &key, &counted, PORTAL_CODE_TTL_SECONDS)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        return Ok(failed_code());
+        return count_wrong_code(req, &key, challenge).await;
     }
 
     // The code was right: it is spent, and this attempt is not a failure.
     kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
-    reservation.release().await;
+    reservation.release(limiter, ws).await;
 
     // Access is read again: it may have been switched off since the code was sent.
     let contacts = contacts_with_access(&workspace.db, &email)
@@ -1346,6 +1384,7 @@ async fn answer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use weldsuite_commerce_domain::rate_limit::RateLimitVerdict;
 
     fn bytes(value: &Value) -> Bytes {
         Bytes::from(value.to_string())
@@ -1493,5 +1532,77 @@ mod tests {
         )
         .expect("session");
         assert_eq!(session.clerk_org_id, None);
+    }
+
+    /// Counters that allow every hit and record which keys were hit.
+    #[derive(Default)]
+    struct Recording {
+        hits: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RateLimitCounters for Recording {
+        fn hit<'a>(
+            &'a self,
+            name: &'a str,
+            _max: u32,
+            _window_seconds: u64,
+        ) -> weldsuite_ports::BoxFuture<'a, Result<RateLimitVerdict, weldsuite_ports::PortError>>
+        {
+            self.hits.lock().expect("lock").push(name.to_owned());
+            Box::pin(async {
+                Ok(RateLimitVerdict {
+                    allowed: true,
+                    count: 1,
+                    remaining: 1,
+                })
+            })
+        }
+
+        fn release<'a>(
+            &'a self,
+            _name: &'a str,
+        ) -> weldsuite_ports::BoxFuture<'a, Result<(), weldsuite_ports::PortError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_verify_budget_is_reserved_one_key_at_a_time() {
+        // run_verify reserves `verify-e:` first and `verify-ws` only once a
+        // challenge exists, so a call with nothing pending never touches the
+        // workspace counter.
+        let counters = Arc::new(Recording::default());
+        let limiter: Arc<dyn RateLimitCounters> = counters.clone();
+        let mut reservation = Reservation::default();
+        let refusal = reserve_verify_budget(
+            Some(&limiter),
+            "ws_1",
+            &mut reservation,
+            "verify-e:a@b.test".to_owned(),
+            PORTAL_VERIFY_LIMIT_EMAIL,
+        )
+        .await;
+        assert!(refusal.is_none());
+        assert_eq!(reservation.keys, ["verify-e:a@b.test"]);
+        let hits = counters.hits.lock().expect("lock").clone();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].ends_with(":verify-e:a@b.test"));
+        assert!(!hits.iter().any(|h| h.ends_with("verify-ws")));
+    }
+
+    #[tokio::test]
+    async fn a_verify_without_a_limiter_is_refused_as_unavailable() {
+        let mut reservation = Reservation::default();
+        let refusal = reserve_verify_budget(
+            None,
+            "ws_1",
+            &mut reservation,
+            "verify-ws".to_owned(),
+            PORTAL_VERIFY_LIMIT_WORKSPACE,
+        )
+        .await
+        .expect("refused");
+        assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reservation.keys.len(), 0);
     }
 }

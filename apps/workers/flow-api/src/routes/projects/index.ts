@@ -961,7 +961,16 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       const transfer = await planTaskTransfer(db, id, moveTasksTo, now);
       moved = transfer.moved;
       // All-or-nothing: the tasks never end up half moved out of a live project.
-      await atomically(db, (handle) => [...transfer.build(handle), softDelete(handle)]);
+      // A dependency's projectId is its tasks' project (both ends share it, see
+      // POST /api/task-dependencies), so the links travel with the tasks.
+      await atomically(db, (handle) => [
+        ...transfer.build(handle),
+        handle
+          .update(schema.taskDependencies)
+          .set({ projectId: moveTasksTo })
+          .where(eq(schema.taskDependencies.projectId, id)),
+        softDelete(handle),
+      ]);
     } else {
       await softDelete(db);
     }
