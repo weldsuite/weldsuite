@@ -25,7 +25,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Component | Version | Notes |
 |---|---|---|
 | Talos Linux | v1.14.3 | Image from Talos' Image Factory (`scripts/upload-talos-image.sh`) |
-| OpenEBS LocalPV hostpath | chart 4.6.0 | Default StorageClass `openebs-hostpath`, under `/var/openebs/local` |
+| OpenEBS LocalPV hostpath | chart 4.6.0 | Default StorageClass `openebs-hostpath`, under `/var/mnt/local-storage` (a Talos user volume) |
 | cert-manager | v1.21.2 | Let's Encrypt (HTTP-01 through Traefik) |
 | Traefik | chart 41.7.1 (Traefik v3.7.14) | NodePorts 30080/30443 behind the Hetzner LB, PROXY protocol |
 | CloudNativePG | chart 0.29.1 (operator 1.30.1) | Clusters `master`, `tenants-1`, `zitadel-db`; Postgres 17.8 "standard" image (pgvector) |
@@ -37,6 +37,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
+| LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -80,7 +81,8 @@ cp terraform.tfvars.example terraform.tfvars   # git-ignored
 
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
 defaults, not facts: check availability in the console first, and expect the
-drill to report substitutions.
+drill to report substitutions. `livekit_worker_count` (2) is how many general
+workers also run LiveKit ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
 backend in `versions.tf` (a private bucket) and OpenTofu's state encryption,
@@ -103,7 +105,7 @@ tofu init
 tofu apply
 tofu output -raw kubeconfig  > kubeconfig  && export KUBECONFIG=$PWD/kubeconfig
 tofu output -raw talosconfig > talosconfig && export TALOSCONFIG=$PWD/talosconfig
-kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool
+kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool,node.weldsuite.org/livekit
 ```
 
 This creates the private network, a spread placement group per location,
@@ -111,8 +113,10 @@ the firewall (only 6443 and 50000, from `admin_cidrs`), three control-plane
 nodes, the general workers, the two Postgres nodes (tainted
 `node.weldsuite.org/postgres`), and two load balancers: one for the
 Kubernetes and Talos APIs, one for HTTP(S) to Traefik with the PROXY
-protocol. Talos boots from the machine config in the server's user data;
-OpenTofu bootstraps etcd and writes the kubeconfig.
+protocol. The first `livekit_worker_count` workers also get the
+`node.weldsuite.org/livekit` label and a second firewall with LiveKit's media
+ports (UDP 7882, TCP 7881, UDP 3478). Talos boots from the machine config in
+the server's user data; OpenTofu bootstraps etcd and writes the kubeconfig.
 
 Later changes to a machine config: `talosctl apply-config` (OpenTofu ignores
 `user_data` after creation, so it never replaces a running node). Talos and
@@ -138,7 +142,9 @@ a time.
   `SIGN_PORTAL_SECRET` is shared by the server and the sign portal (the
   server trusts the signer's IP the portal reports only next to it); the
   Zitadel masterkey is exactly 32 characters. Losing either makes stored data
-  unreadable: keep them in the password manager too.
+  unreadable: keep them in the password manager too. The LiveKit key pair
+  appears twice (`weldsuite-env` and `livekit-env`) and must match, as must
+  `livekit-env`'s `REDIS_PASSWORD` and the Valkey password.
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -146,9 +152,10 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.` → the ingress load balancer) at the DNS provider. cert-manager
-issues certificates once they resolve. (external-dns is not installed: a
-handful of static records doesn't need it.)
+`api.`, `auth.`, `sign.`, `livekit.`, `turn.` → the ingress load balancer) at
+the DNS provider. cert-manager issues certificates once they resolve.
+(external-dns is not installed: a handful of static records doesn't need it.)
+Media needs no record: LiveKit gives clients the nodes' addresses itself.
 
 ## 6. Flux
 
@@ -169,7 +176,9 @@ flux get kustomizations --watch
 The layers come up in order: `sources` → `controllers` (namespaces, OpenEBS,
 cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
 `configs` (Postgres clusters, poolers, backups, the issuer) → `services`
-(NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite).
+(NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite), with `video`
+(LiveKit) beside `apps`: a missing `livekit.` or `turn.` record holds up
+calls only.
 
 ## 7. Zitadel: first admin, the WeldSuite project, sign-in
 
@@ -318,6 +327,55 @@ optional `poolerPort`, `urlOptions`, `maxDatabases`). A new shard is another
 `Cluster` + `Pooler` + `ObjectStore` + `ScheduledBackup` copied from
 `tenants-1`, plus an entry there.
 
+## Video (LiveKit)
+
+WeldMeet sessions and WeldChat calls run on LiveKit in the cluster
+(`flux/infrastructure/video`, the `video` layer), where Global uses
+Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
+
+- **Where.** One pod on each of the `livekit_worker_count` general workers
+  (two, one per location), on the host network, sharing those nodes with
+  the weldsuite server. Rooms are routed between the two through Valkey
+  (database 1). Each pod requests half a CPU and has no CPU limit, because
+  throttling breaks up audio.
+- **What comes in where:**
+
+  | Traffic | Path |
+  |---|---|
+  | Signalling and LiveKit's API | `wss://livekit.<domain>` → load balancer → Traefik → `livekit:7880` |
+  | Media | UDP 7882 on the node's public address; TCP 7881 when a network blocks UDP |
+  | TURN over UDP (also the clients' STUN) | UDP 3478 on the node's public address |
+  | TURN over TLS (networks that only allow 443) | `turn.<domain>:443` → load balancer → Traefik, which ends TLS → `livekit-turn:5349` |
+  | Webhooks | LiveKit → `http://weldsuite.weldsuite.svc/api/webhooks/livekit` |
+
+- **The address LiveKit advertises** is the node's first IPv4, which on
+  Hetzner Cloud is its public address (`use_external_ip: false`, so LiveKit
+  never asks Google's or Twilio's STUN servers). After the first start,
+  check that `kubectl -n livekit logs deploy/livekit | grep -i nodeIP` shows
+  the node's public IPv4 (`tofu output nodes`), not a `10.10.x.x` address.
+- **A cluster built before this** gets the firewall from `tofu apply`, but
+  not the label: it lives in the machine config, which OpenTofu doesn't push
+  (step 3). Label the two workers once with
+  `kubectl label node weldsuite-eu-worker-1 weldsuite-eu-worker-2 node.weldsuite.org/livekit=true`.
+  New servers get the label from their machine config.
+- **Check it** with a call between two people on different networks, then
+  one from a network that only allows 443 out (TURN over TLS). Before relying
+  on the capacity estimate (about 100 people in calls at once per shared
+  node), load-test with `lk load-test` from the LiveKit CLI against
+  `wss://livekit.<domain>`.
+- **Upgrades take hours.** A stopping pod keeps its calls for up to five
+  hours (`terminationGracePeriodSeconds`), and a rollout replaces one node's
+  pod at a time (the new one needs the same host ports). Draining those two
+  nodes for a Talos upgrade waits for their calls too, so do it at night. The
+  PodDisruptionBudget keeps one pod up throughout.
+- **When it outgrows the shared nodes** (around a million participant-minutes
+  a month, roughly 1,000 users, or calls breaking up while the server is
+  busy), move LiveKit to nodes of its own: dedicated servers or larger
+  workers carrying the label and the `livekit` firewall. Flux needs no change.
+- **Not on LiveKit yet:** recording and transcripts. Recording would be
+  LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
+  belong on these shared nodes.
+
 ## Backups and restores
 
 Every Postgres cluster archives WAL continuously and takes a nightly base
@@ -331,6 +389,12 @@ monthly ([DRILL.md](DRILL.md)).
 Estimates from the design doc, at Hetzner list prices: dormant ≈ €70/month
 (registry, backups, the drill), launch ≈ €310/month, ten times the launch load
 ≈ €1,300/month.
+
+LiveKit adds no servers at launch: it runs on two of the general workers. If
+those two need more CPU, making them `cpx42` instead of `cpx32` costs about
+€70/month more. Traffic stays within what the servers include (20 TB a month
+each): a participant in a video call sends out about 9 MB a minute, so half a
+million participant-minutes a month is about 4.5 TB.
 
 ## Not yet: what's missing before production
 
@@ -378,8 +442,8 @@ Be clear about this before anyone signs a contract:
   (`SMTP_URL`). The chart has the Haraka MX for inbound mail and WeldReach
   replies (`mailInbound`, ADR MAIL-010), but no workflow publishes its image
   or the collab-rooms one yet, and the EU values don't turn it on. WeldMeet
-  speaks LiveKit (`config.video`, ADR MEET-007), but nothing here deploys a
-  LiveKit server or TURN, so the EU values have no video yet. Not here yet:
+  and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
+  MEET-007; "Video" above), without recording and transcripts. Not here yet:
   Mistral or an in-cluster model for embeddings (without
   `consume.embeddings` the semantic search index is off).
 - **Operations** (P5): the EU registry and signed images (5.4), observability

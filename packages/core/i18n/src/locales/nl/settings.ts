@@ -2289,6 +2289,10 @@ export const settings = {
           name: 'Whiteboards',
           description: 'Projectwhiteboards',
         },
+        boards: {
+          name: 'Borden',
+          description: 'WeldBoard-whiteboards en wat erop staat',
+        },
         tickets: {
           name: 'Tickets',
           description: 'Helpdesktickets en -berichten',

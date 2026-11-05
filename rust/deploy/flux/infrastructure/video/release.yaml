@@ -1,0 +1,45 @@
+# LiveKit, WeldMeet's and WeldChat's media server on the EU edition
+# (rust/README.md, "WeldMeet on LiveKit"). Values in values/livekit.yaml.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: livekit
+  namespace: livekit
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: livekit-server
+      version: 1.9.0
+      sourceRef:
+        kind: HelmRepository
+        name: livekit
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  # A stopping LiveKit pod keeps serving its calls until they end (up to
+  # terminationGracePeriodSeconds, five hours), and the next node's pod only
+  # starts after that. Helm doesn't wait for that rollout: a timeout would
+  # roll back a release that is working as intended.
+  upgrade:
+    disableWait: true
+  valuesFrom:
+    - kind: ConfigMap
+      name: livekit-values
+  # The chart puts its whole config in a ConfigMap, so the API key pair and
+  # the Valkey password come in as environment variables instead (LIVEKIT_KEYS,
+  # REDIS_PASSWORD, which override the config), from the livekit-env Secret
+  # (secrets/examples/secrets.example.yaml).
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: livekit
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/envFrom
+                value:
+                  - secretRef:
+                      name: livekit-env

@@ -170,6 +170,9 @@ describe('/api/projects · pglite integration', () => {
         { id: 'tsk_del_legacy', projectId: SOURCE, title: 'Legacy review', status: 'in_review', position: 4 },
         { id: 'tsk_del_blocked', projectId: SOURCE, title: 'Blocked', status: 'blocked', position: 5 },
       ]);
+      await db.insert(schema.taskDependencies).values({
+        id: 'tdp_del_link', projectId: SOURCE, predecessorId: 'tsk_del_done', successorId: 'tsk_del_review', type: 'fs', lagDays: 0, createdBy: 'user_x',
+      });
       // A legacy-spelled stage in the destination still matches the task's status.
       await db.insert(schema.projectPipelineStages).values(
         { id: 'stg_dest_review', projectId: DEST, name: 'Review', systemStatus: 'in_review', position: 3 },
@@ -210,6 +213,9 @@ describe('/api/projects · pglite integration', () => {
       expect(await task('tsk_del_blocked')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_todo', status: 'todo' });
       // The subtree moved as one, so the parent link stays.
       expect(await task('tsk_del_child')).toMatchObject({ projectId: DEST, parentTaskId: 'tsk_del_done' });
+      // Dependencies travel with their tasks, so the schedule and PATCH/DELETE keep working.
+      const [link] = await db.select().from(schema.taskDependencies).where(eq(schema.taskDependencies.id, 'tdp_del_link'));
+      expect(link?.projectId).toBe(DEST);
     });
 
     it('without a destination only soft-deletes the project', async () => {

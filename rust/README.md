@@ -779,8 +779,9 @@ same call UI:
   portal is not part of this chart yet: it reads the tenant databases and
   calls the realtime worker directly (see its `lib/`).
 
-What a cluster needs (the EU cluster has none of it yet; this chart does not
-deploy it):
+What a cluster needs. This chart does not deploy it; the EU cluster gets
+all of it from Flux (`deploy/flux/infrastructure/video`, runbook
+`deploy/hetzner/README.md`, "Video"), on two of the general workers:
 
 1. A LiveKit server (`livekit/livekit-server`, v1.13 or later for the pinned
    `livekit-client`; the official `livekit/livekit-server` Helm chart, or

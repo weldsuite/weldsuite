@@ -21,6 +21,7 @@ import { isPlatformRoute } from '../test/platform-routes';
 import {
   buildResultUrl,
   runSearch,
+  searchBoards,
   searchContacts,
   searchCustomers,
   searchSheets,
@@ -335,6 +336,91 @@ describe('searchSheets · who finds a spreadsheet', () => {
     // Without sheets:read the type is not searched at all.
     const denied = await run(ANN, { hasAny: (required) => !required.includes('sheets:read') });
     expect(denied.permittedTypes).not.toContain('sheet');
+    expect(denied.groups).toEqual([]);
+  });
+});
+
+// Boards are Drive files like spreadsheets: the same reach, their own type.
+describe('searchBoards · who finds a board', () => {
+  let db: Database;
+
+  const BEA = 'user_bea'; // owns every board below
+  const DIRK = 'user_dirk'; // a member nothing is shared with
+
+  async function board(id: string, name: string, opts: { access?: 'restricted' | 'workspace_view'; entityType?: string } = {}) {
+    const now = new Date();
+    await db.insert(schema.files).values({
+      id: `file_${id}`,
+      fileName: name,
+      mimeType: 'application/vnd.weldsuite.board+json',
+      fileSize: 1,
+      fileType: 'whiteboard',
+      storagePath: `workspaces/w/boards/${id}`,
+      uploadedById: BEA,
+      generalAccess: opts.access ?? 'restricted',
+      entityType: opts.entityType ?? null,
+      entityId: opts.entityType ? 'prj_1' : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.whiteboards).values({ id, fileId: `file_${id}`, createdAt: now, updatedAt: now });
+  }
+
+  async function ids(userId: string | null, q = 'retro') {
+    const group = await searchBoards(db, 'ws_test', q, 10, userId);
+    return group.items.map((item) => item.id);
+  }
+
+  beforeAll(async () => {
+    db = (await createPgliteDb()).db;
+    const now = new Date();
+    await db.insert(schema.workspaceMembers).values(
+      [BEA, DIRK].map((userId) => ({
+        id: `wm_${userId}`,
+        userId,
+        email: `${userId}@test.dev`,
+        role: 'MEMBER',
+        createdAt: now,
+        updatedAt: now,
+      })) as (typeof schema.workspaceMembers.$inferInsert)[],
+    );
+    await board('brd_private', 'Retro private');
+    await board('brd_open', 'Retro', { access: 'workspace_view' });
+    // A WeldFlow project's board follows the project's members, not the drive.
+    await board('brd_project', 'Retro project', { access: 'workspace_view', entityType: 'project' });
+    // A spreadsheet of the same name is not a board.
+    await db.insert(schema.files).values({
+      id: 'file_sht_retro',
+      fileName: 'Retro sheet',
+      mimeType: 'application/vnd.weldsuite.sheet+json',
+      fileSize: 1,
+      fileType: 'spreadsheet',
+      storagePath: 'workspaces/w/sheets/sht_retro',
+      uploadedById: BEA,
+      generalAccess: 'workspace_view',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.sheets).values({ id: 'sht_retro', fileId: 'file_sht_retro', createdAt: now, updatedAt: now });
+  }, 60_000);
+
+  it('finds what the searcher may open in WeldDrive, and no project boards', async () => {
+    expect((await ids(BEA)).sort()).toEqual(['brd_open', 'brd_private']);
+    expect(await ids(DIRK)).toEqual(['brd_open']);
+    expect(await ids(null)).toEqual([]);
+  });
+
+  it('titles a hit with the file name and links the board', async () => {
+    const group = await searchBoards(db, 'ws_test', 'retro', 10, BEA);
+    expect(group.type).toBe('board');
+    expect(group.items[0]).toEqual(expect.objectContaining({ id: 'brd_open', type: 'board', title: 'Retro', url: '/weldboard/brd_open', score: 1 }));
+  });
+
+  it('is searched only for a member who may read boards', async () => {
+    const run = (perms: RunSearchParams['perms']) => runSearch(db, 'ws_test', { q: 'retro', types: ['board'], limit: 10, perms, userId: DIRK });
+    expect((await run({ hasAny: () => true })).groups[0]!.items.map((item) => item.id)).toEqual(['brd_open']);
+    const denied = await run({ hasAny: (required) => !required.includes('boards:read') });
+    expect(denied.permittedTypes).not.toContain('board');
     expect(denied.groups).toEqual([]);
   });
 });

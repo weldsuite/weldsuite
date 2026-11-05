@@ -48,6 +48,7 @@ export const RESERVED_WORKSPACE_SLUGS: readonly string[] = [
   'social',
   'welcome',
   'weldads',
+  'weldboard',
   'weldbooks',
   'weldcalendar',
   'weldcall',

@@ -19,6 +19,7 @@ import {
   CheckSquare,
   Globe,
   Sheet,
+  SquareDashedMousePointer,
   type LucideIcon,
 } from 'lucide-react';
 import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
@@ -39,6 +40,7 @@ export const RESULT_TYPE_LABEL: Record<SearchEntityType, string> = {
   project: 'Projects',
   task: 'Tasks',
   sheet: 'Spreadsheets',
+  board: 'Boards',
   domain: 'Domains',
 };
 
@@ -56,5 +58,6 @@ export const RESULT_TYPE_ICON: Record<SearchEntityType, LucideIcon | ComponentTy
   project: Briefcase,
   task: CheckSquare,
   sheet: Sheet,
+  board: SquareDashedMousePointer,
   domain: Globe,
 };

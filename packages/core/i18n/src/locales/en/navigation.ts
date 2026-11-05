@@ -175,6 +175,10 @@ export const navigation = {
       welddocs: {
         documents: 'Documents',
       },
+      weldboard: {
+        boards: 'Boards',
+        templates: 'Templates',
+      },
       weldhr: {
         me: {
           overview: 'Overview',

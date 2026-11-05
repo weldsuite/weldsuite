@@ -293,6 +293,8 @@ app.route('/api/workspaces', workspacesRoutes);
 // a WebSocket upgrade) included.
 // WeldDocs (/api/docs) lives in docs-api, forwarded over the DOCS_API binding the
 // same way (its room socket is /api/docs/connect).
+// WeldBoard (/api/boards) lives in board-api, forwarded over the BOARD_API binding
+// the same way (its room socket is /api/boards/connect).
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The module workflows that drained here after the split (welddata-enrich,

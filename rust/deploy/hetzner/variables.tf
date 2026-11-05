@@ -95,13 +95,30 @@ variable "worker_locations" {
 }
 
 variable "worker_count" {
-  type    = number
-  default = 3
+  description = "General workers. 0 runs every workload on the control plane, ingress included: a small test cluster, not production."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.worker_count >= 0
+    error_message = "worker_count can't be negative."
+  }
 }
 
 variable "worker_type" {
   type    = string
   default = "cpx32"
+}
+
+variable "livekit_worker_count" {
+  description = "General workers that also run LiveKit, WeldMeet's media server, counted from worker-1, so the default two sit in both locations. They get the node.weldsuite.org/livekit label and the livekit firewall (WebRTC and TURN ports). 0: no video."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.livekit_worker_count >= 0 && var.livekit_worker_count <= var.worker_count
+    error_message = "livekit_worker_count: between 0 and worker_count."
+  }
 }
 
 variable "postgres_locations" {
@@ -129,6 +146,21 @@ variable "ingress_lb_type" {
 variable "api_lb_type" {
   type    = string
   default = "lb11"
+}
+
+# A load balancer's address is in DNS and every kubeconfig and talosconfig, and
+# changing its location replaces it. These keep one where it is when the nodes
+# move to another location.
+variable "api_lb_location" {
+  description = "Location of the API load balancer. Empty: the first control-plane location."
+  type        = string
+  default     = ""
+}
+
+variable "ingress_lb_location" {
+  description = "Location of the ingress load balancer. Empty: the first worker location."
+  type        = string
+  default     = ""
 }
 
 variable "ingress_node_ports" {

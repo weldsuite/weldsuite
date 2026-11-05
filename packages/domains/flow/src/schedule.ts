@@ -197,6 +197,13 @@ class WorkingCalendar {
     return current;
   }
 
+  /** The day itself when it is a working day, else the one before. */
+  previousWorking(day: number): number {
+    let current = day;
+    for (let guard = 0; guard < MAX_SEARCH_DAYS && !this.isWorking(current); guard++) current -= 1;
+    return current;
+  }
+
   /** `n` working days later (earlier when negative); zero returns the day as it is. */
   add(day: number, n: number): number {
     let current = day;
@@ -612,8 +619,10 @@ function checkMove(target: ScheduleTaskInput | undefined, move: MoveRequest): Mo
 function movedDays(cal: WorkingCalendar, startDay: number | null, dueDay: number | null, duration: number): { newStart: number; newDue: number } {
   if (startDay !== null && dueDay !== null) return { newStart: startDay, newDue: dueDay };
   if (startDay !== null) return { newStart: startDay, newDue: cal.add(cal.nextWorking(startDay), duration - 1) };
+  // Count back from the last working day on or before the due date: rolling a
+  // weekend due date forward would put the start after the due date.
   const newDue = dueDay as number;
-  return { newStart: cal.add(cal.nextWorking(newDue), -(duration - 1)), newDue };
+  return { newStart: cal.add(cal.previousWorking(newDue), -(duration - 1)), newDue };
 }
 
 /**

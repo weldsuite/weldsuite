@@ -60,3 +60,39 @@ resource "hcloud_firewall" "nodes" {
     source_ips  = ["0.0.0.0/0", "::/0"]
   }
 }
+
+# The LiveKit workers' media ports, on top of the firewall above. LiveKit
+# runs on their host network (rust/deploy/flux/infrastructure/video) and
+# hands clients the node's own public address, so these come straight in,
+# not through a load balancer. The ports match its values/livekit.yaml.
+# TURN over TLS needs nothing here: clients reach it on 443 through the
+# ingress load balancer and Traefik. LiveKit's HTTP port (7880) and its
+# plain TURN port behind Traefik (5349) stay closed on the public side.
+resource "hcloud_firewall" "livekit" {
+  name   = "${var.cluster_name}-livekit"
+  labels = local.labels
+
+  rule {
+    description = "WebRTC media (ICE over UDP, one muxed port)"
+    direction   = "in"
+    protocol    = "udp"
+    port        = "7882"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+
+  rule {
+    description = "WebRTC over TCP, when a network blocks UDP"
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "7881"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+
+  rule {
+    description = "TURN over UDP (also the clients' STUN)"
+    direction   = "in"
+    protocol    = "udp"
+    port        = "3478"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+}

@@ -1692,8 +1692,15 @@
     {
       "idx": 241,
       "version": "7",
-      "when": 1793891334921,
-      "tag": "0241_weldmerge",
+      "when": 1793882441252,
+      "tag": "0241_weldboard_boards",
+      "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1793902524994,
+      "tag": "0242_weldmerge",
       "breakpoints": true
     }
   ]

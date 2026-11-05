@@ -177,8 +177,7 @@ app.post('/auth/request-code', async (c) => {
     if (!workspace) return noContent(c);
 
     // Per address first, so one bombarded address cannot drain the workspace's
-    // budget, then per workspace across all addresses (mail cost, spraying).
-    // Over a limit looks exactly like "no access": the same 204.
+    // budget. Over a limit looks exactly like "no access": the same 204.
     const perEmail = await consumeRateLimit(
       c.env,
       workspace.workspaceId,
@@ -188,6 +187,14 @@ app.post('/auth/request-code', async (c) => {
     );
     if (perEmail === 'unavailable') return signInUnavailable(c);
     if (perEmail === 'limited') return noContent(c);
+
+    const contacts = await contactsWithAccess(workspace.db, email);
+    if (contacts.length === 0) return noContent(c);
+
+    // The per-workspace budget (mail cost, spraying) is charged only for an
+    // address that has access, i.e. when a mail would really be sent. Charged
+    // earlier, anonymous calls with made-up addresses could use it up and keep
+    // every real client of the workspace from getting a code.
     const perWorkspace = await consumeRateLimit(
       c.env,
       workspace.workspaceId,
@@ -197,9 +204,6 @@ app.post('/auth/request-code', async (c) => {
     );
     if (perWorkspace === 'unavailable') return signInUnavailable(c);
     if (perWorkspace === 'limited') return noContent(c);
-
-    const contacts = await contactsWithAccess(workspace.db, email);
-    if (contacts.length === 0) return noContent(c);
 
     const code = randomOtp();
     const challenge: PortalChallenge = {
@@ -224,36 +228,45 @@ app.post('/auth/request-code', async (c) => {
 });
 
 /**
- * The verify budgets, counting failed attempts only: per address, then per
- * workspace across all addresses. Each is reserved atomically up front, so
- * parallel guesses cannot all slip past a check-then-count; the caller gives
- * them back once the sign-in succeeds, so a successful sign-in uses up nothing.
- * Returns the refusal to send (holding no slot), or the reservation.
+ * The verify budgets, counting failed attempts only. Each is reserved
+ * atomically, so parallel guesses cannot all slip past a check-then-count; the
+ * caller gives them back once the sign-in succeeds, so a successful sign-in
+ * uses up nothing. A refusal holds no slot (it gives back what it reserved).
+ *
+ * The per-address budget is reserved first, before any lookup, so one address
+ * cannot probe without limit. The per-workspace budget is reserved only once a
+ * challenge exists: charged for calls with nothing pending, anonymous callers
+ * with made-up addresses could use it up and lock every real client of the
+ * workspace out.
  */
+type VerifyReservation = { keys: string[]; release: () => Promise<void> };
+
+function newVerifyReservation(c: PortalContext, workspaceId: string): VerifyReservation {
+  const keys: string[] = [];
+  return {
+    keys,
+    release: async () => {
+      await Promise.all(keys.map((key) => releaseRateLimit(c.env, workspaceId, key)));
+    },
+  };
+}
+
+/** Reserves one budget into `reservation`: the refusal to send, or null. */
 async function reserveVerifyBudget(
   c: PortalContext,
   workspaceId: string,
-  email: string,
-): Promise<Response | { release: () => Promise<void> }> {
-  const budgets = [
-    { key: `verify-e:${email}`, max: PORTAL_VERIFY_LIMIT_EMAIL },
-    { key: 'verify-ws', max: PORTAL_VERIFY_LIMIT_WORKSPACE },
-  ];
-  const reserved: string[] = [];
-  const release = async () => {
-    await Promise.all(reserved.map((key) => releaseRateLimit(c.env, workspaceId, key)));
-  };
-  for (const { key, max } of budgets) {
-    const outcome = await consumeRateLimit(c.env, workspaceId, key, max, PORTAL_REQUEST_WINDOW_SECONDS);
-    if (outcome === 'allowed') {
-      reserved.push(key);
-      continue;
-    }
-    await release();
-    if (outcome === 'unavailable') return signInUnavailable(c);
-    return c.json({ error: { code: 'RATE_LIMITED', message: PORTAL_MESSAGES.tooManyAttempts } }, 429);
+  reservation: VerifyReservation,
+  key: string,
+  max: number,
+): Promise<Response | null> {
+  const outcome = await consumeRateLimit(c.env, workspaceId, key, max, PORTAL_REQUEST_WINDOW_SECONDS);
+  if (outcome === 'allowed') {
+    reservation.keys.push(key);
+    return null;
   }
-  return { release };
+  await reservation.release();
+  if (outcome === 'unavailable') return signInUnavailable(c);
+  return c.json({ error: { code: 'RATE_LIMITED', message: PORTAL_MESSAGES.tooManyAttempts } }, 429);
 }
 
 app.post('/auth/verify', async (c) => {
@@ -266,12 +279,29 @@ app.post('/auth/verify', async (c) => {
     const workspace = await openWorkspaceBySlug(c, body.data.workspace);
     if (!workspace) return failed();
 
-    const reservation = await reserveVerifyBudget(c, workspace.workspaceId, email);
-    if (reservation instanceof Response) return reservation;
+    const reservation = newVerifyReservation(c, workspace.workspaceId);
+    const perEmail = await reserveVerifyBudget(
+      c,
+      workspace.workspaceId,
+      reservation,
+      `verify-e:${email}`,
+      PORTAL_VERIFY_LIMIT_EMAIL,
+    );
+    if (perEmail) return perEmail;
 
+    // No pending code: the same 401 as a wrong code, and the workspace budget
+    // is left alone (see reserveVerifyBudget).
     const key = portalCodeKey(workspace.workspaceId, email);
     const challenge = await kvGetJson<PortalChallenge>(c.env, key);
     if (!challenge) return failed();
+    const perWorkspace = await reserveVerifyBudget(
+      c,
+      workspace.workspaceId,
+      reservation,
+      'verify-ws',
+      PORTAL_VERIFY_LIMIT_WORKSPACE,
+    );
+    if (perWorkspace) return perWorkspace;
     if (challenge.attempts >= PORTAL_MAX_VERIFY_ATTEMPTS) {
       await kvDelete(c.env, key);
       return failed();

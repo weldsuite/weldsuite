@@ -50,6 +50,7 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   weldpanel: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
   weldmerge: ['merge_issues', 'merge_pull_requests', 'merge_teams', 'merge_connections'],
   welddocs: ['docs'],
+  weldboard: ['boards'],
 };
 
 /**

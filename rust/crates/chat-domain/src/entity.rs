@@ -4,7 +4,7 @@
 //! one, and what its detail panel shows.
 //!
 //! Registration order is the record chat group order: Companies, People,
-//! Tasks, Projects, Domains, Sheets, Documents; `contact` is a legacy name
+//! Tasks, Projects, Domains, Sheets, Documents, Boards; `contact` is a legacy name
 //! for a person's chat, left out of the lists.
 
 use std::collections::HashSet;
@@ -28,12 +28,13 @@ pub enum Provider {
     Domain,
     Sheet,
     Doc,
+    Board,
     /// Legacy name of a person's chat.
     Contact,
 }
 
 /// Every provider, in registration order.
-pub const PROVIDERS: [Provider; 8] = [
+pub const PROVIDERS: [Provider; 9] = [
     Provider::Company,
     Provider::Person,
     Provider::Task,
@@ -41,6 +42,7 @@ pub const PROVIDERS: [Provider; 8] = [
     Provider::Domain,
     Provider::Sheet,
     Provider::Doc,
+    Provider::Board,
     Provider::Contact,
 ];
 
@@ -141,7 +143,17 @@ async fn load_files(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<FileRow> = if kind == Provider::Sheet {
+    let rows: Vec<FileRow> = if kind == Provider::Board {
+        sqlx::query_as(
+            "select w.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id, f.general_access::text,
+                    f.entity_type, f.entity_id
+             from whiteboards w inner join files f on f.id = w.file_id
+             where w.id = any($1) and f.deleted_at is null",
+        )
+        .bind(ids)
+        .fetch_all(db)
+        .await?
+    } else if kind == Provider::Sheet {
         sqlx::query_as(
             "select s.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id, f.general_access::text,
                     f.entity_type, f.entity_id
@@ -176,6 +188,7 @@ impl Provider {
             Self::Domain => "domain",
             Self::Sheet => "sheet",
             Self::Doc => "doc",
+            Self::Board => "board",
             Self::Contact => "contact",
         }
     }
@@ -190,6 +203,7 @@ impl Provider {
             Self::Domain => "Domains",
             Self::Sheet => "Sheets",
             Self::Doc => "Documents",
+            Self::Board => "Boards",
             Self::Contact => "Contacts",
         }
     }
@@ -204,6 +218,7 @@ impl Provider {
             Self::Domain => "domains:read",
             Self::Sheet => "sheets:read",
             Self::Doc => "docs:read",
+            Self::Board => "boards:read",
         }
     }
 
@@ -213,7 +228,7 @@ impl Provider {
 
     /// Whether the type checks writing apart from reading (`canPost`).
     pub fn has_post_check(self) -> bool {
-        matches!(self, Self::Sheet | Self::Doc)
+        matches!(self, Self::Sheet | Self::Doc | Self::Board)
     }
 
     /// `resolve(ctx)`: the new chat's display name and first followers, or
@@ -389,7 +404,7 @@ impl Provider {
                     default_member_ids: ids,
                 }))
             }
-            Self::Sheet | Self::Doc => {
+            Self::Sheet | Self::Doc | Self::Board => {
                 let records = load_files(db, self, &[entity_id.to_owned()]).await?;
                 Ok(records.into_iter().next().map(|record| {
                     let owner = record.file.uploaded_by_id.filter(|o| !o.is_empty());
@@ -451,7 +466,7 @@ impl Provider {
             }
             Self::Task => visible_tasks(db, acting_user_id, can, entity_ids).await,
             Self::Project => visible_projects(db, acting_user_id, can, entity_ids).await,
-            Self::Sheet | Self::Doc => {
+            Self::Sheet | Self::Doc | Self::Board => {
                 visible_files(self, db, acting_user_id, can, entity_ids).await
             }
         }
@@ -468,6 +483,7 @@ impl Provider {
         let (comment, update) = match self {
             Self::Sheet => ("sheets:comment", "sheets:update"),
             Self::Doc => ("docs:comment", "docs:update"),
+            Self::Board => ("boards:comment", "boards:update"),
             _ => return Ok(true),
         };
         if can.can(comment).await? {
@@ -543,7 +559,7 @@ impl Provider {
                 .await?
             }
             Self::Project => return project_detail(db, entity_id).await,
-            Self::Sheet | Self::Doc => {
+            Self::Sheet | Self::Doc | Self::Board => {
                 let records = load_files(db, self, &[entity_id.to_owned()]).await?;
                 return Ok(records.into_iter().next().map(|record| {
                     serde_json::json!({

@@ -41,3 +41,13 @@ metadata:
   name: openebs
   labels:
     pod-security.kubernetes.io/enforce: privileged
+---
+# LiveKit runs on the host network with host ports (media goes straight to
+# the node), which the baseline and restricted levels forbid. Its container
+# is locked down instead (infrastructure/video/values/livekit.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: livekit
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

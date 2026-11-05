@@ -62,6 +62,8 @@ export interface Env extends KitEnv {
   AGENT_RUNTIME?: Fetcher;
   /** sheets-api SheetsInternal entrypoint: the WeldAgent spreadsheet tools. */
   SHEETS_INTERNAL?: Fetcher;
+  /** board-api BoardsInternal entrypoint: the WeldAgent board tools. */
+  BOARDS_INTERNAL?: Fetcher;
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Fallback path only. Example: http://localhost:8795 or

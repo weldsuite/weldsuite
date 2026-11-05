@@ -1,5 +1,5 @@
 /**
- * DB-backed integration tests for sheet and document chats (ADR CHAT-007):
+ * DB-backed integration tests for sheet, document and board chats (ADR CHAT-007):
  * who may read them (their WeldDrive file's access), who may write in them
  * (who may comment on the file), who follows a new one, and `GET …/comments`,
  * which returns the comment threads (messages posted with `metadata.anchor`)
@@ -45,6 +45,7 @@ beforeAll(async () => {
 
 const SHEETS = ['channels:read', 'messages:create', 'sheets:read', 'sheets:comment'];
 const DOCS = ['channels:read', 'messages:create', 'docs:read', 'docs:comment'];
+const BOARDS = ['channels:read', 'messages:create', 'boards:read', 'boards:comment'];
 /** May open sheets, but not comment on them. */
 const SHEETS_READ = ['channels:read', 'messages:create', 'sheets:read'];
 
@@ -61,9 +62,9 @@ function api(userId: string, perms: string[]) {
     });
 }
 
-async function seedFile(name: string, ownerId: string, generalAccess: DriveGeneralAccess, kind: 'sheet' | 'doc'): Promise<string> {
+async function seedFile(name: string, ownerId: string, generalAccess: DriveGeneralAccess, kind: 'sheet' | 'doc' | 'board'): Promise<string> {
   const fileId = generateId('fil');
-  const id = generateId(kind === 'sheet' ? 'sht' : 'doc');
+  const id = generateId(kind === 'sheet' ? 'sht' : kind === 'board' ? 'brd' : 'doc');
   const now = new Date();
   await db.insert(schema.files).values({
     id: fileId,
@@ -79,6 +80,7 @@ async function seedFile(name: string, ownerId: string, generalAccess: DriveGener
   } as typeof schema.files.$inferInsert);
   const row = { id, fileId, snapshotKey: `k/${id}`, revision: 0, updatedById: ownerId, createdAt: now, updatedAt: now };
   if (kind === 'sheet') await db.insert(schema.sheets).values({ ...row, snapshotRevision: 0 } as typeof schema.sheets.$inferInsert);
+  else if (kind === 'board') await db.insert(schema.whiteboards).values({ id, fileId, snapshotKey: `k/${id}`, revision: 0, snapshotRevision: 0, updatedById: ownerId, createdAt: now, updatedAt: now });
   else await db.insert(schema.docs).values(row as typeof schema.docs.$inferInsert);
   return id;
 }
@@ -96,6 +98,24 @@ interface CommentsBody {
 }
 
 describe('sheet and document chats', () => {
+  it("holds a board's comment threads, open to whoever may open the board", async () => {
+    const boardId = await seedFile('Retro', 'alice', 'workspace_view', 'board');
+    const bob = api('bob', BOARDS);
+    const started = await bob(`/board/${boardId}/messages`, 'POST', { content: 'Love this idea', metadata: { anchor: { id: 'cm_pin', label: 'Sticky' } } });
+    expect(started.status).toBe(201);
+    const { channel } = ((await started.json()) as { data: { channel: { id: string; name: string } } }).data;
+    expect(channel.name).toBe('Retro');
+    expect(await followerIds(channel.id)).toEqual(['alice', 'bob']);
+    const read = ((await (await api('alice', BOARDS)(`/board/${boardId}/comments`)).json()) as CommentsBody).data;
+    expect(read.messages.map((m) => m.metadata?.anchor?.id)).toEqual(['cm_pin']);
+
+    const hidden = await seedFile('Private retro', 'alice', 'restricted', 'board');
+    expect((await api('bob', BOARDS)(`/board/${hidden}/comments`)).status).toBe(403);
+    // Opening boards is not commenting on them.
+    expect((await api('cara', ['channels:read', 'messages:create', 'boards:read'])(`/board/${boardId}/messages`, 'POST', { content: 'x' })).status).toBe(403);
+  });
+
+
   it('holds a sheet\'s comment threads and their replies, and leaves other messages out', async () => {
     const sheetId = await seedFile('Budget', 'alice', 'workspace_view', 'sheet');
     const bob = api('bob', SHEETS);
