@@ -27,6 +27,7 @@ import {
   SquareMenu,
   Signature,
   ChartSpline,
+  GitPullRequest,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -174,6 +175,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldpanel/logo-light.svg',
       iconDark: '/assets/images/weldpanel/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldMerge. Icon-only logo: a git merge glyph in the brand violet.
+  weldmerge: {
+    lucideIcon: GitPullRequest,
+    shortName: 'Code',
+    icon: '/assets/images/weldmerge/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldmerge/logo-light.svg',
+      iconDark: '/assets/images/weldmerge/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

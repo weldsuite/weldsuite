@@ -734,6 +734,47 @@
     "deleted",
     "admitted"
   ],
+  "merge_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_cycle": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_issue": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_label": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_pull_request": [
+    "created",
+    "updated",
+    "merged",
+    "closed"
+  ],
+  "merge_repository": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "merge_team": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "notification": [
     "created",
     "updated",

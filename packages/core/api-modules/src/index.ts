@@ -44,7 +44,8 @@ export type ApiModuleId =
   | 'sheets'
   | 'sign'
   | 'docs'
-  | 'panel';
+  | 'panel'
+  | 'merge';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -92,7 +93,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'merge']);
 
 const mod = (
   id: ApiModuleId,
@@ -476,6 +477,10 @@ export const API_MODULES: readonly ApiModule[] = [
   // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
   // to the public collector apps/workers/panel-ingest on its own host.
   mod('panel', 8825, ['weldpanel'], ['/api/panel']),
+  // WeldMerge (pull requests and issues across git providers; ADR MERGE-001).
+  // Provider webhooks reach it through integration-webhook-worker over the
+  // MERGE_INTERNAL entrypoint, never on this path.
+  mod('merge', 8826, ['weldmerge'], ['/api/merge']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

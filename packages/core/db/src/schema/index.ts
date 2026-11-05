@@ -417,5 +417,8 @@ export * from './weldsign';
 // WeldPanel (product analytics and session recordings; config and saved objects only)
 export * from './weldpanel';
 
+// WeldMerge (pull requests and issues across git providers)
+export * from './weldmerge';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

@@ -20,8 +20,8 @@ use weldsuite_events::EntityEventPublisher;
 use weldsuite_integrations::crm::{CRM_SYNC_JOB, CrmDeps};
 use weldsuite_integrations::github::{GITHUB_PROJECT_SYNC_JOB, GithubDeps, JobRuns};
 use weldsuite_integrations::{
-    BindingResponse, ConnectCall, ConnectInternal, IntegrationsState, ServiceBinding,
-    TenantResolver, WorkflowRuns,
+    BindingResponse, ConnectCall, ConnectInternal, IntegrationsState, MergeInternal,
+    ServiceBinding, TenantResolver, WorkflowRuns,
 };
 use weldsuite_ports::BoxFuture;
 
@@ -125,6 +125,48 @@ pub(crate) fn integrations_state(state: &AppState) -> IntegrationsState {
             .flatten(),
         execute_workflow: (!conformance && super::mounts("connect"))
             .then(|| execute_workflow(Arc::clone(&state.infra.jobs))),
+        merge_internal: (!conformance && super::mounts("merge")).then(|| {
+            Arc::new(InProcessMergeInternal {
+                router: weldsuite_merge::internal_router(super::merge_state(state)),
+            }) as Arc<dyn MergeInternal>
+        }),
+    }
+}
+
+/// `MERGE_INTERNAL` in this process: WeldMerge's internal router, called as
+/// `MergeInternal.githubEvent` calls its own (`POST /github-event`, an error
+/// status thrown).
+pub(crate) struct InProcessMergeInternal {
+    router: Router,
+}
+
+impl MergeInternal for InProcessMergeInternal {
+    fn github_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>> {
+        Box::pin(async move {
+            use tower::ServiceExt;
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("/github-event")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(envelope.to_string()))
+                .map_err(|error| error.to_string())?;
+            let response = match self.router.clone().oneshot(request).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            };
+            let status = response.status();
+            if !status.is_success() {
+                return Err(format!(
+                    "merge-api github-event answered {}",
+                    status.as_u16()
+                ));
+            }
+            let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .map_err(|error| error.to_string())?;
+            let answer: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+            Ok(answer.get("data").cloned().unwrap_or(Value::Null))
+        })
     }
 }
 

@@ -877,6 +877,21 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
   ],
+
+  // merge-api: the merge module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "merge-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // Same GitHub App as connect-api and workflow-worker: merge-api mints an
+    // installation token per call to list and read repositories.
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

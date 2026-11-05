@@ -50,6 +50,7 @@ import {
 import { verifyTwilioSignature, parseTwilioSms } from './lib/workflow-events/twilio';
 import { verifyGithubSignature, parseGithubEvent } from './lib/workflow-events/github';
 import { githubAppWebhookRoutes } from './github/webhook';
+import type { MergeInternalBinding } from './github/merge-forward';
 import { bankFeedWebhookRoutes } from './bank-feeds/webhook';
 import type { BankFeedEnv } from '@weldsuite/bank-feeds';
 import type { OAuthTokens } from '@weldsuite/db/schema';
@@ -102,6 +103,10 @@ export interface Env extends BankFeedEnv {
    *  Trusted by topology (no secret). Provider keys for Plaid's webhook-key fetch are PLAID_CLIENT_ID /
    *  PLAID_SECRET / PLAID_ENV (BankFeedEnv). */
   BOOKS_INTERNAL?: Fetcher;
+  /** merge-api's MergeInternal entrypoint: the GitHub App's pull_request, pull_request_review,
+   *  check_suite and installation_repositories events, forwarded from POST /webhooks/github
+   *  (RPC `githubEvent`). Trusted by topology (no secret); fire-and-forget, a missing binding logs. */
+  MERGE_INTERNAL?: MergeInternalBinding;
   /** Stripe Financial Connections webhook signing secret (its own endpoint, not billing's). */
   STRIPE_FC_WEBHOOK_SECRET?: string;
   /** Signing secret of the Stripe platform's Connect webhook (`/webhooks/stripe-connect`, Stripe connector). */

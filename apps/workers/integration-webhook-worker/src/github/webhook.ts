@@ -6,6 +6,8 @@
  * installationId, then:
  *   - installation lifecycle  → updates connection status
  *   - projects_v2_item        → dispatches GithubProjectSyncWorkflow for the link
+ *   - pull_request, pull_request_review, check_suite, installation_repositories
+ *                             → forwarded to WeldMerge (MERGE_INTERNAL), fire-and-forget
  *
  * Hosted here (not core-api) as part of consolidating GitHub onto app-api +
  * integration-webhook-worker.
@@ -15,6 +17,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import type { Env } from '../index';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema, type TenantDatabase } from '../db';
+import { forwardToMerge, isForwardedToMerge } from './merge-forward';
 import {
   getConnectionByInstallationId,
   getDecryptedWebhookSecret,
@@ -92,6 +95,11 @@ app.post('/github', async (c) => {
   const valid = await verifyWebhookSignature(rawBody, signatureHeader, secret);
   if (!valid) {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
+  }
+
+  // WeldMerge mirrors pull requests; the forward never changes this answer.
+  if (eventType && isForwardedToMerge(eventType)) {
+    c.executionCtx.waitUntil(forwardToMerge(c.env, { workspaceId: clerkOrgId, event: eventType, deliveryId, payload }));
   }
 
   c.executionCtx.waitUntil(

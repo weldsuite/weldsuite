@@ -143,6 +143,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = books::api(router, state);
     let router = host::api(router, state);
     let router = panel(router, state);
+    let router = merge(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -592,6 +593,61 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         "/panel/projects",
         weldsuite_panel::router(panel, &state.permissions),
     )
+}
+
+/// WeldMerge (`weldsuite-merge`): merge-api's `/api/merge`.
+fn merge(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("merge") {
+        return router;
+    }
+    router.nest(
+        "/merge",
+        weldsuite_merge::router(merge_state(state), &state.permissions),
+    )
+}
+
+/// WeldMerge's handle on the app: GitHub over HTTP with the App's id and key
+/// from the process environment, and the workspaces' tenants for its GitHub
+/// event intake. Conformance builds take the test's env and HTTP per request.
+pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    weldsuite_merge::MergeState {
+        events: state.infra.events.clone(),
+        env: Arc::new(weldsuite_merge::env_from_process()),
+        http: (!conformance).then(books::books_http).flatten(),
+        tenants: (!conformance).then(|| {
+            Arc::new(move |reference: String| {
+                let workspaces = Arc::clone(&workspaces);
+                Box::pin(async move {
+                    workspaces
+                        .tenant(&reference)
+                        .await
+                        .map_err(|error| error.to_string())
+                }) as weldsuite_ports::BoxFuture<'static, _>
+            }) as weldsuite_merge::TenantResolver
+        }),
+    }
+}
+
+/// WeldMerge's GitHub event intake (`/internal/github-event`, merge-api's
+/// `MergeInternal` entrypoint): trusted by topology, so never on the
+/// server's listener. Conformance builds serve it for the worker's tests,
+/// with the test's tenant database.
+#[cfg(feature = "conformance")]
+fn merge_internal_conformance(state: &AppState) -> Router<AppState> {
+    if !mounts("merge") {
+        return Router::new();
+    }
+    Router::new()
+        .nest(
+            "/internal",
+            weldsuite_merge::internal_router(merge_state(state)),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ))
 }
 
 /// WeldPanel's public collector (panel-ingest on Global): under
@@ -1558,6 +1614,8 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(connect_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));
+    #[cfg(feature = "conformance")]
+    let router = router.merge(merge_internal_conformance(state));
     let router = if mounts("docs") || mounts("sheets") {
         router.merge(crate::collab::public(state))
     } else {

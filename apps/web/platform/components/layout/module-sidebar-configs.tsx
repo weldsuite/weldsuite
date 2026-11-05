@@ -95,6 +95,9 @@ import {
   LayoutTemplate,
   UserX,
   ChartSpline,
+  GitPullRequest,
+  CircleDot,
+  Repeat,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -257,6 +260,28 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' },
           { title: t.navigation.moduleSidebar.weldpanel.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' },
         ],
+      },
+    ],
+  },
+  // WeldMerge (pull requests and issues across git providers). Teams are picked
+  // on the Issues page; the sidebar is a static list per module.
+  weldmerge: {
+    appName: 'WeldMerge',
+    appIcon: GitPullRequest,
+    appLogo: getAppLogoConfig('weldmerge'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldmerge.inbox, href: '/weldmerge', icon: Inbox, permission: 'merge_pull_requests:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.pullRequests, href: '/weldmerge/pull-requests', icon: GitPullRequest, permission: 'merge_pull_requests:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.issues, href: '/weldmerge/issues', icon: CircleDot, permission: 'merge_issues:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.cycles, href: '/weldmerge/cycles', icon: Repeat, permission: 'merge_issues:read' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.groups.settings,
+        items: [{ title: t.navigation.moduleSidebar.weldmerge.settings, href: '/weldmerge/settings', icon: Settings, permission: 'merge_connections:read' }],
       },
     ],
   },

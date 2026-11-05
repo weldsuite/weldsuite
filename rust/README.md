@@ -480,6 +480,10 @@ rust/
                         modules/panel (WeldPanel: projects, the registry sync, and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id),
+                        modules/merge (WeldMerge: teams, issues, the pull request mirror and
+                        its automation, GitHub through the App's tokens in crates/connect-domain;
+                        its GitHub event intake answers the integration workers' webhook in
+                        process, `MERGE_INTERNAL`),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module

@@ -2344,7 +2344,8 @@
         "packages/core/workflow-integrations/src/",
         "packages/domains/connect/src/github/",
         "packages/core/db/src/lib/crypto.ts",
-        "rust/modules/connect/"
+        "rust/modules/connect/",
+        "rust/crates/connect-domain/src/github_app.rs"
       ]
     },
     {
@@ -2368,7 +2369,8 @@
         "packages/clients/core-api-client/src/schemas/github-connections.ts",
         "packages/clients/core-api-client/src/schemas/github-repo-links.ts",
         "packages/core/db/src/lib/crypto.ts",
-        "rust/modules/connect/"
+        "rust/modules/connect/",
+        "rust/crates/connect-domain/src/github_app.rs"
       ]
     },
     {
@@ -3269,6 +3271,27 @@
         "packages/sdk/panel-sdk/src/install.ts",
         "packages/sdk/panel-sdk/src/host.ts",
         "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "merge",
+      "module": "merge",
+      "workspace": "apps/workers/merge-api",
+      "tests": [
+        "src/routes/teams/teams.test.ts",
+        "src/routes/issues/issues.test.ts",
+        "src/routes/pull-requests/pull-requests.test.ts",
+        "src/routes/repositories/repositories.test.ts",
+        "src/routes/internal/github-event.test.ts"
+      ],
+      "paths": [
+        "apps/workers/merge-api/src/",
+        "packages/domains/merge/src/",
+        "packages/domains/connect/src/github/app-auth.ts",
+        "packages/clients/app-api-client/src/schemas/weldmerge.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-merge.ts",
+        "rust/modules/merge/",
+        "rust/crates/connect-domain/src/github_app.rs"
       ]
     },
     {

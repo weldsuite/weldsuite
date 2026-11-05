@@ -551,6 +551,60 @@ export interface PanelProjectEventData {
   status?: string;
 }
 
+export interface MergeTeamEventData {
+  id: string;
+  key?: string;
+  name?: string;
+}
+
+export interface MergeIssueEventData {
+  id: string;
+  teamId?: string;
+  /** `PLAT-209`. */
+  key?: string;
+  title?: string;
+  status?: string;
+  priority?: number;
+  assigneeUserId?: string | null;
+  /** Set when a pull request's sync moved the issue (`opened`, `ready_for_review`, `merged`). */
+  movedByPullRequestId?: string | null;
+}
+
+export interface MergeCommentEventData {
+  id: string;
+  issueId?: string;
+  authorUserId?: string;
+}
+
+export interface MergeConnectionEventData {
+  id: string;
+  provider?: string;
+  accountLogin?: string | null;
+  status?: string;
+}
+
+export interface MergeRepositoryEventData {
+  id: string;
+  connectionId?: string;
+  provider?: string;
+  fullName?: string;
+  teamId?: string | null;
+}
+
+export interface MergePullRequestEventData {
+  id: string;
+  repositoryId?: string;
+  provider?: string;
+  number?: number;
+  title?: string;
+  state?: string;
+  draft?: boolean;
+  url?: string;
+  authorLogin?: string | null;
+  /** Issues linked to the pull request after this sync. */
+  issueIds?: string[];
+}
+
 export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
@@ -716,6 +770,14 @@ export interface EntityEventData {
 
   // WeldPanel
   panel_project: PanelProjectEventData;
+
+  // WeldMerge
+  merge_team: MergeTeamEventData;
+  merge_issue: MergeIssueEventData;
+  merge_comment: MergeCommentEventData;
+  merge_connection: MergeConnectionEventData;
+  merge_repository: MergeRepositoryEventData;
+  merge_pull_request: MergePullRequestEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

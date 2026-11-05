@@ -153,6 +153,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Sales & Marketing',
     path: '/weldpanel',
   },
+  weldmerge: {
+    code: 'weldmerge',
+    name: 'WeldMerge',
+    description: 'Pull requests and issues across your git providers, in one inbox',
+    icon: 'GitPullRequest',
+    category: 'Productivity',
+    path: '/weldmerge',
+  },
   welddocs: {
     code: 'welddocs',
     name: 'WeldDocs',

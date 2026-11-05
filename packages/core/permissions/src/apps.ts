@@ -169,6 +169,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
   },
   {
+    code: 'weldmerge',
+    label: 'WeldMerge',
+    objects: ['merge_issues', 'merge_pull_requests', 'merge_teams', 'merge_connections'],
+  },
+  {
     code: 'weldreach',
     label: 'WeldReach',
     objects: ['reach_campaigns', 'reach_prospects', 'reach_inbox', 'reach_mailboxes', 'reach_settings'],

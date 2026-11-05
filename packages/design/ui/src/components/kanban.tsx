@@ -135,9 +135,7 @@ export const KanbanCard = <T extends KanbanItemProps = KanbanItemProps>({
   return (
     <>
       <div
-        // dnd-kit's attributes set these too; spelled out so the role is visible here.
-        role="button"
-        tabIndex={0}
+        // dnd-kit's attributes carry role="button" and tabIndex={0}, which make the card focusable.
         style={style}
         {...listeners}
         {...attributes}

@@ -6,7 +6,10 @@
 //!
 //! - `installation` → the connection's status;
 //! - `projects_v2_item` and `issues` (a mapped issue) → one inbound
-//!   `GITHUB_PROJECT_SYNC` run per link per minute.
+//!   `GITHUB_PROJECT_SYNC` run per link per minute;
+//! - `pull_request`, `pull_request_review`, `check_suite` and
+//!   `installation_repositories` → forwarded to WeldMerge (`MERGE_INTERNAL`,
+//!   [`crate::merge_internal`]), fire-and-forget.
 
 use std::time::Duration;
 
@@ -198,6 +201,27 @@ async fn webhook(
     };
     if !verify_signature(&body, header("x-hub-signature-256"), &secret) {
         return unauthorized();
+    }
+
+    // WeldMerge mirrors pull requests; the forward never changes this answer.
+    if crate::merge_internal::is_forwarded_to_merge(&event_type) {
+        let merge = state.merge_internal.clone();
+        let (workspace, event, delivery, payload) = (
+            clerk_org_id.clone(),
+            event_type.clone(),
+            delivery.clone(),
+            payload.clone(),
+        );
+        state.events.tracker().spawn(async move {
+            crate::merge_internal::forward_to_merge(
+                merge.as_deref(),
+                &workspace,
+                &event,
+                &delivery,
+                &payload,
+            )
+            .await;
+        });
     }
 
     let runs = ctx.github_sync(&state);

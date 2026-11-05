@@ -658,5 +658,18 @@
     ],
     "rust": true,
     "worker": "panel-api"
+  },
+  {
+    "apps": [
+      "weldmerge"
+    ],
+    "binding": "MERGE_API",
+    "devPort": 8826,
+    "id": "merge",
+    "prefixes": [
+      "/api/merge"
+    ],
+    "rust": true,
+    "worker": "merge-api"
   }
 ]
