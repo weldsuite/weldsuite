@@ -278,6 +278,20 @@ describe('WeldFlow project boards', () => {
     expect(new TextDecoder().decode(bucket.objects.get(key))).toBe('not a snapshot the loser may overwrite');
   });
 
+  it('converts an old whiteboard to rename or copy it, but not for someone who may only view it', async () => {
+    await db.insert(projectWhiteboards).values({ id: 'pwb_list', projectId: 'prj_a', name: 'Listed', elements: [], createdAt: new Date(), updatedAt: new Date() });
+    expect((await app({ userId: BOB }).request('/api/boards/pwb_list', json('PATCH', { name: 'Mine' }))).status).toBe(403);
+    expect(await db.select().from(whiteboards)).toHaveLength(0);
+
+    const renamed = await app().request('/api/boards/pwb_list', json('PATCH', { name: 'Renamed' }));
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as { data: BoardSummary }).data).toMatchObject({ id: 'pwb_list', name: 'Renamed', legacy: false });
+
+    await db.insert(projectWhiteboards).values({ id: 'pwb_copy', projectId: 'prj_a', name: 'Source', elements: [{ id: 'n1', type: 'sticky', x: 0, y: 0, width: 200, height: 200, text: 'Hi' }], createdAt: new Date(), updatedAt: new Date() });
+    const copy = await create({ fromBoardId: 'pwb_copy', projectId: 'prj_a', name: 'Source (copy)' });
+    expect((await snapshotOf(copy.id)).elements.map((e) => e.type)).toEqual(['sticky']);
+  });
+
   it('deletes an old whiteboard nobody opened, as WeldFlow did', async () => {
     await db.insert(projectWhiteboards).values({ id: 'pwb_gone', projectId: 'prj_a', name: 'Gone', elements: [], createdAt: new Date(), updatedAt: new Date() });
     expect((await app({ userId: BOB }).request('/api/boards/pwb_gone', { method: 'DELETE' })).status).toBe(403);

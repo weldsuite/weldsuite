@@ -133,6 +133,25 @@ describe('internal board routes', () => {
     expect((await call('/pwb_1/apply', { op: { type: 'explode' } })).status).toBe(400);
   });
 
+  it('lets a workspace API key reach every project board, and nothing private', async () => {
+    const asKey = (path: string, body: unknown = {}) => {
+      const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+      app.route('/internal/boards', internalRoutes);
+      return app.request(`/internal/boards/${WORKSPACE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-weld-workspace-key': 'wak_1' }, body: JSON.stringify(body) }, env());
+    };
+    // A project ALICE is on but the key's actor is not: the key still reaches it.
+    const created = await data<Brief & { row: LegacyRow }>(asKey('/create', { name: 'From the API', projectId: 'prj_a', elements: [] }), 201);
+    expect(created.projectId).toBe('prj_a');
+    const found = await data<{ boards: Brief[] }>(asKey('/find', { projects: true }));
+    expect(found.boards.map((b) => b.name)).toEqual(['From the API']);
+    expect(await data<{ row: LegacyRow }>(asKey(`/${created.id}/update`, { name: 'Renamed by the API' }))).toMatchObject({ row: { name: 'Renamed by the API' } });
+
+    // ALICE's own board in her drive, shared with nobody: not the key's.
+    const mine = await data<Brief>(call('/create', { name: 'Private' }), 201);
+    await db.update(schema.files).set({ generalAccess: 'restricted' }).where(eq(schema.files.fileName, 'Private'));
+    expect((await asKey(`/${mine.id}/read`)).status).toBe(404);
+  });
+
   it('deletes, and refuses writes in a read-only workspace', async () => {
     const created = await data<Brief>(call('/create', { name: 'Scratch' }), 201);
     readOnly = true;

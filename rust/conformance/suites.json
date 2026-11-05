@@ -1433,7 +1433,6 @@
         "apps/workers/flow-api/src/routes/project-sheets/",
         "apps/workers/flow-api/src/routes/documents/",
         "apps/workers/flow-api/src/routes/goals/",
-        "apps/workers/flow-api/src/routes/whiteboards/",
         "apps/workers/flow-api/src/services/",
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",

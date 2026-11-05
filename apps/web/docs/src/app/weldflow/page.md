@@ -15,6 +15,7 @@ WeldFlow is project and task management for your workspace — from personal to-
 - **My Tasks** — everything assigned to you across projects
 - **Projects** — shared spaces with tasks, Gantt, sheets, files, goals, and chat
 - **Views** — list, board, Gantt, pipeline, whiteboard, and timesheet per project
+- **Whiteboards** — a project's whiteboards are WeldBoard boards: sticky notes, shapes, diagrams and drawings, edited together live. Who can open them follows the project's members.
 - **Workload** — see who is overloaded across the team
 - **Time tracking** — log hours against tasks where enabled
 

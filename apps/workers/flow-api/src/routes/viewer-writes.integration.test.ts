@@ -26,7 +26,6 @@ import { taskCommentsRoutes } from './task-comments';
 import { sprintsRoutes } from './sprints';
 import { milestonesRoutes } from './milestones';
 import { goalsRoutes } from './goals';
-import { whiteboardsRoutes } from './whiteboards';
 import { projectFilesRoutes } from './project-files';
 import { projectMessagesRoutes } from './project-messages';
 import { projectPipelineStagesRoutes } from './project-pipeline-stages';
@@ -49,7 +48,6 @@ router.route('/task-comments', taskCommentsRoutes);
 router.route('/sprints', sprintsRoutes);
 router.route('/milestones', milestonesRoutes);
 router.route('/goals', goalsRoutes);
-router.route('/whiteboards', whiteboardsRoutes);
 router.route('/project-files', projectFilesRoutes);
 router.route('/project-messages', projectMessagesRoutes);
 router.route('/project-pipeline-stages', projectPipelineStagesRoutes);
@@ -169,7 +167,6 @@ const fixtures = {
   sprintId: '',
   milestoneId: '',
   goalId: '',
-  whiteboardId: '',
   folderId: '',
   messageId: '',
   stageId: '',
@@ -200,9 +197,6 @@ beforeAll(async () => {
     }),
   );
   fixtures.goalId = await idOf(await root('POST', '/goals', { name: 'Goal', projectId: PROJECT }));
-  fixtures.whiteboardId = await idOf(
-    await root('POST', '/whiteboards', { projectId: PROJECT, name: 'Board' }),
-  );
   fixtures.folderId = await idOf(
     await root('POST', '/project-files/folders', { projectId: PROJECT, name: 'Folder' }),
   );
@@ -315,15 +309,6 @@ describe('project viewer · writes are rejected', () => {
     expect((await send('POST', '/goals', { name: 'G', projectId: PROJECT })).status).toBe(403);
     expect((await send('PATCH', `/goals/${fixtures.goalId}`, { name: 'X' })).status).toBe(403);
     expect((await send('DELETE', `/goals/${fixtures.goalId}`)).status).toBe(403);
-  });
-
-  it('whiteboard create / patch / delete', async () => {
-    const send = as(VIEWER);
-    expect((await send('POST', '/whiteboards', { projectId: PROJECT, name: 'B' })).status).toBe(403);
-    expect(
-      (await send('PATCH', `/whiteboards/${fixtures.whiteboardId}`, { name: 'X' })).status,
-    ).toBe(403);
-    expect((await send('DELETE', `/whiteboards/${fixtures.whiteboardId}`)).status).toBe(403);
   });
 
   it('project file and folder create / patch / delete', async () => {
@@ -549,7 +534,6 @@ describe('project viewer · every project resource is readable', () => {
     await ok(`/milestones/${fixtures.milestoneId}`);
     await ok(`/goals?projectId=${PROJECT}`);
     await ok(`/goals/${fixtures.goalId}`);
-    await ok(`/whiteboards/${fixtures.whiteboardId}`);
     await ok(`/project-files?projectId=${PROJECT}`);
     await ok(`/project-files/${fixtures.folderId}`);
     await ok(`/project-messages?projectId=${PROJECT}`);
@@ -583,7 +567,6 @@ describe('project viewer · project pages', () => {
     await ok(`/projects/${PROJECT}`);
     await ok('/projects/workload/overview');
     await ok(`/projects/${PROJECT}/workload`);
-    await ok(`/whiteboards?projectId=${PROJECT}`);
     await ok(`/project-labels?projectId=${PROJECT}`);
     await ok(`/project-labels/${fixtures.labelId}`);
 

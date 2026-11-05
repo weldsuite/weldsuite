@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AuthInfo, Env } from './lib/protocol';
 import { AUTH_HEADERS } from './lib/protocol';
-import { resolveProjectRoomAccess } from './lib/project-room-access';
 import {
   verifyClerkJwt,
   verifyPersonalClerkJwt,
@@ -27,7 +26,6 @@ import { handleEntityRealtimeBatch } from './entity-realtime-consumer';
 export { WorkspaceHub } from './durable-objects/workspace-hub';
 export { ConversationRoom } from './durable-objects/conversation-room';
 export { ChatRoom } from './durable-objects/chat-room';
-export { WhiteboardRoom } from './durable-objects/whiteboard-room';
 export { DocumentRoom } from './durable-objects/document-room';
 export { SupportRoom } from './durable-objects/support-room';
 
@@ -42,40 +40,6 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('/publish/*', requireInternalSecret());
 /** Reads for other workers (presence) take the same proof as publishes. */
 app.use('/internal/*', requireInternalSecret());
-
-/**
- * Project gate for project-keyed rooms (whiteboards).
- *
- * Durable Objects here are addressed by a bare, globally-unique resource id, so
- * verifying the JWT is not enough:
- *  - cross-tenant: each workspace has its own physical tenant DB, so "does the
- *    project exist in the caller's tenant DB?" is the ownership check — a
- *    project from another workspace simply isn't present;
- *  - project membership: within the workspace the caller must also manage, or be
- *    an active member of, the project (same rule as flow-api's `canAccessProject`,
- *    see lib/project-room-access.ts), and a soft-deleted project is off-limits.
- * Fail-closed: a DB error rejects rather than falling through.
- *
- * Returns the caller's room permissions, or an error Response to return to the
- * caller when access is denied.
- */
-async function resolveProjectRoomGate(
-  c: Context<{ Bindings: Env }>,
-  auth: AuthInfo,
-  projectId: string,
-): Promise<{ canWrite: boolean } | Response> {
-  try {
-    const db = await getTenantDbForWorkspace(c.env, auth.workspaceId);
-    const access = await resolveProjectRoomAccess(db, { userId: auth.userId, orgRole: auth.role }, projectId);
-    if (!access.canRead) {
-      return c.text('Forbidden: not a member of this project', 403);
-    }
-    return { canWrite: access.canWrite };
-  } catch (dbErr) {
-    console.error('[realtime] whiteboard project access check failed:', (dbErr as Error).message);
-    return c.text('Internal error checking whiteboard project access', 500);
-  }
-}
 
 /**
  * Channel-membership gate for ChatRoom: a public channel, or an explicit
@@ -503,66 +467,6 @@ app.post('/publish/chat/:channelId', async (c) => {
 });
 
 // ============================================
-// WhiteboardRoom — per-whiteboard connection
-// ============================================
-
-/** Client WebSocket upgrade — authenticate and forward to WhiteboardRoom DO */
-app.get('/ws/whiteboard/:whiteboardId', async (c) => {
-  if (c.req.header('Upgrade') !== 'websocket') {
-    return c.text('Expected WebSocket upgrade', 426);
-  }
-
-  let auth;
-  try {
-    auth = await verifyClerkJwt(c);
-  } catch (err) {
-    return c.text(`Unauthorized: ${(err as Error).message}`, 401);
-  }
-
-  const whiteboardId = c.req.param('whiteboardId');
-
-  // Cross-tenant + project-membership gate: the whiteboard room key is
-  // `${projectId}` or `${projectId}:${whiteboardId}` (see
-  // use-whiteboard-collaboration.ts), so the ownership anchor is the project. It
-  // must exist in the caller's own tenant DB (else any authenticated user could
-  // join another workspace's whiteboard by id) AND the caller must be on the
-  // project: a workspace member who is not may neither watch nor edit its
-  // whiteboards. Viewers join read-only.
-  const whiteboardProjectId = whiteboardId.split(':')[0];
-  const gate = await resolveProjectRoomGate(c, auth, whiteboardProjectId);
-  if (gate instanceof Response) return gate;
-
-  const id = c.env.WHITEBOARD_ROOM.idFromName(whiteboardId);
-  const stub = c.env.WHITEBOARD_ROOM.get(id);
-
-  // Client sends sessionId as query param for multi-tab support
-  const sessionId = new URL(c.req.url).searchParams.get('sessionId') || crypto.randomUUID();
-
-  const headers = new Headers(c.req.raw.headers);
-  headers.set(AUTH_HEADERS.USER_ID, auth.userId);
-  headers.set(AUTH_HEADERS.USER_NAME, auth.userName);
-  headers.set(AUTH_HEADERS.CAN_PUBLISH, String(gate.canWrite));
-  headers.set('x-rt-session-id', sessionId);
-
-  return stub.fetch(new Request(c.req.url, { headers, method: 'GET' }));
-});
-
-/** Workers publish to a whiteboard */
-app.post('/publish/whiteboard/:whiteboardId', async (c) => {
-  const whiteboardId = c.req.param('whiteboardId');
-  const body = await c.req.json();
-
-  const id = c.env.WHITEBOARD_ROOM.idFromName(whiteboardId);
-  const stub = c.env.WHITEBOARD_ROOM.get(id);
-
-  return stub.fetch('https://internal/publish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-});
-
-// ============================================
 // DocumentRoom — per-document collaboration
 // ============================================
 
@@ -586,7 +490,7 @@ app.get('/ws/document/:documentId', async (c) => {
   // id. It is NOT gated here because the room key's format is unverified and the
   // feature currently has no platform consumer (no `useDocumentRoom` call site),
   // so a wrong table/id guess would fail-closed against a real fix later. Add the
-  // gate (mirror the whiteboard/conversation checks, on the confirmed backing
+  // gate (mirror the conversation and chat checks, on the confirmed backing
   // table) when the collaborative-document feature is wired up and its room-key
   // format is pinned down. See .claude/weldchat-realtime-security-audit.md.
   const id = c.env.DOCUMENT_ROOM.idFromName(documentId);

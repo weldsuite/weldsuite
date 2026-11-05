@@ -178,10 +178,32 @@ export async function saveNewBoard(
 
 /** The content a copy starts from: another board as its room holds it now. Templates may be copied by anyone. */
 async function copyOf(c: Ctx, clerkOrgId: string, sourceId: string): Promise<{ snapshot: BoardSnapshot; name: string } | Response> {
-  const found = await findLiveBoard(c, sourceId);
+  const found = await findConverted(c, sourceId);
   if (found instanceof Response) return found;
   const live = await roomFor(c, clerkOrgId, found.board).snapshot(roomMeta(found.board, clerkOrgId));
   return { snapshot: copySnapshot(JSON.parse(live.json) as BoardSnapshot), name: found.board.name };
+}
+
+/**
+ * A board with the caller's role on it, an old WeldFlow whiteboard converted
+ * first (renaming or copying one from the project's list should not need it
+ * opened). `mayConvert` says whether this caller may trigger that.
+ */
+async function findConverted(
+  c: Ctx,
+  id: string,
+  mayConvert: (role: DriveRole) => boolean = () => true,
+): Promise<{ board: LiveBoardRecord; role: DriveRole } | Response> {
+  const found = await findBoard(c, id);
+  if (found instanceof Response) return found;
+  if (!found.board.legacy) return findLiveBoard(c, id);
+  const userId = c.get('userId');
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!userId) return error.unauthorized(c);
+  if (!clerkOrgId) return error.orgRequired(c);
+  if (!mayConvert(found.role)) return error.forbidden(c, VIEW_ONLY);
+  const converted = await convertInPlace(c, found.board, { clerkOrgId, userId });
+  return converted ? { board: converted.board, role: found.role } : error.notFound(c, 'Board', id);
 }
 
 /** A snapshot from a client, checked and made canonical; null when it is not one. */
@@ -306,9 +328,10 @@ app.get('/:id', requirePermission('boards:read'), async (c) => {
 });
 
 app.patch('/:id', requirePermission('boards:update'), zValidator('json', updateBoardSchema), async (c) => {
-  const found = await findLiveBoard(c, c.req.param('id'));
+  const writable = (role: DriveRole) => canEdit(role) && !c.get('readOnly');
+  const found = await findConverted(c, c.req.param('id'), writable);
   if (found instanceof Response) return found;
-  if (!canEdit(found.role) || c.get('readOnly')) return error.forbidden(c, VIEW_ONLY);
+  if (!writable(found.role)) return error.forbidden(c, VIEW_ONLY);
   const changes = c.req.valid('json');
   if (found.board.projectId && (changes.folderId !== undefined || changes.template !== undefined)) {
     return error.badRequest(c, "A project's board stays with the project: it cannot be moved or made a template");

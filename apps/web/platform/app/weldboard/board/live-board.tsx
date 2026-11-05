@@ -34,8 +34,8 @@ export interface LiveBoardProps {
   /** Where the back arrow goes (a project's whiteboards, or the WeldBoard home). */
   backTo?: string;
   backLabel?: string;
-  /** Breadcrumbs above the board (a project's pages set their own). */
-  breadcrumbs?: { label: string; href?: string }[];
+  /** Breadcrumbs above the board, given its name (a project's pages set their own). */
+  breadcrumbs?: (name: string) => { label: string; href?: string }[];
   /** Panels and controls the later parts of WeldBoard add (comments, versions, facilitation). */
   extend?: (c: BoardController, ctx: { boardId: string; mode: BoardSessionMode; name: string; peers: BoardPeer[] }) => Partial<BoardEditorProps> & { menuExtra?: ReactNode };
 }
@@ -180,7 +180,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
 
-  useBreadcrumbs(breadcrumbs ?? [{ label: tw.breadcrumb.home, href: '/weldboard' }, { label: name || tw.home.untitled }], { enabled: !!controller });
+  useBreadcrumbs(breadcrumbs ? breadcrumbs(name || tw.home.untitled) : [{ label: tw.breadcrumb.home, href: '/weldboard' }, { label: name || tw.home.untitled }], { enabled: !!controller });
 
   const extension = useMemo(() => (controller && extend ? extend(controller, { boardId, mode, name, peers }) : {}), [controller, extend, boardId, mode, name, peers]);
 

@@ -39,7 +39,6 @@ const CONTRACT_ONLY: Record<string, string> = {
   goals: 'needs an existing project (project_goals.project_id NOT NULL)',
   milestones: 'needs an existing project (milestones.project_id NOT NULL)',
   sprints: 'needs an existing project (sprints.project_id NOT NULL)',
-  whiteboards: 'needs an existing project (project_whiteboards.project_id NOT NULL)',
   // social_accounts.platform is a postgres enum; the external schema accepts any
   // string (permissive for extensibility), so the factory sends an invalid value.
   'social-accounts': 'platform is a postgres enum — factory value "test" rejected by DB constraint',

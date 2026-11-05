@@ -10,12 +10,16 @@
  *   POST /:id/apply    → commit board-engine ops
  *   POST /:id/delete   → move to the trash
  *
- * Callers: flow-api's and external-api's deprecated `/whiteboards` routes
- * (the WeldFlow elements format) and the WeldAgent board tools. Every call
- * acts for the person in `x-weld-user`: it sees and changes only what their
- * WeldDrive access and project membership allow, with their `boards:*`
- * permissions. Writes go through the board's room, so everyone in the board
- * sees them arrive.
+ * Callers: external-api's and the MCP server's deprecated `/v1/whiteboards`
+ * routes (the WeldFlow elements format) and the WeldAgent board tools, through
+ * @weldsuite/board-domain/internal-client. Every call acts for someone:
+ *
+ *   - `x-weld-user`: a person. They see and change only what their WeldDrive
+ *     access and project membership allow, with their `boards:*` permissions.
+ *   - `x-weld-workspace-key`: a workspace API key, its scopes checked by the
+ *     caller. It reaches every project's boards (WORKSPACE_KEY_PERMISSIONS).
+ *
+ * Writes go through the board's room, so everyone in the board sees them arrive.
  */
 
 import { Hono } from 'hono';
@@ -70,9 +74,25 @@ function readOnlyRefusal(c: Ctx): Response | null {
   return c.json(workspaceReadOnlyBody(reason), 403);
 }
 
+/**
+ * What a workspace API key may do here (external-api has checked its
+ * `whiteboards:*` scopes): every board of every live project, as WeldFlow's
+ * whiteboard API allowed. It has no WeldDrive of its own, so boards outside a
+ * project stay out of its reach unless shared with the whole workspace.
+ */
+const WORKSPACE_KEY_PERMISSIONS = {
+  permissions: ['boards:read', 'boards:create', 'boards:update', 'boards:delete', 'projects:read', 'projects:scope:all'],
+  role: 'member',
+  roleId: null,
+  isOwner: false,
+};
+
 app.use('/:workspaceId/*', async (c, next) => {
-  const userId = c.req.header('x-weld-user');
-  if (!userId) return error.unauthorized(c);
+  const person = c.req.header('x-weld-user');
+  const workspaceKey = c.req.header('x-weld-workspace-key');
+  if (!person && !workspaceKey) return error.unauthorized(c);
+  // A key's actor is the key id, as external-api records it.
+  const userId = person || workspaceKey!;
   // Callers pass the workspace id or its Clerk org id; either resolves.
   const workspaceRef = c.req.param('workspaceId');
   c.set('userId', userId);
@@ -86,8 +106,11 @@ app.use('/:workspaceId/*', async (c, next) => {
   c.set('readOnly', readOnly);
   c.set('readOnlyReason', readOnlyReason);
   c.set('internalTrusted', true);
-  // Their permissions as they are now, for the same checks the public routes make.
-  c.set('userPermissions', await resolveEffectivePermissions(createDrizzlePermissionQueries(db, schema, { eq, and, isNull }), userId));
+  // A person's permissions as they are now, for the same checks the public routes make.
+  c.set(
+    'userPermissions',
+    person ? await resolveEffectivePermissions(createDrizzlePermissionQueries(db, schema, { eq, and, isNull }), person) : WORKSPACE_KEY_PERMISSIONS,
+  );
   await next();
 });
 
@@ -327,8 +350,8 @@ app.post('/:workspaceId/:id/delete', async (c) => {
   if (!canEdit(found.role)) return error.forbidden(c, 'You can view this board but not change it');
   const db = c.get('tenantDb');
   if (found.board.legacy) {
+    // The caller (the deprecated whiteboard API) reports it as a `project_whiteboard` deletion.
     if (!(await trashLegacy(db, found.board.id))) return error.notFound(c, 'Board', found.board.id);
-    publishEntityEvent({ c, entityType: 'project_whiteboard', entityId: found.board.id, action: 'deleted', data: { id: found.board.id } });
     return noContent(c);
   }
   const live = await getLiveBoard(db, found.board.id);

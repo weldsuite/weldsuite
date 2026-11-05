@@ -275,7 +275,6 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/task-tags',
     '/api/tasks',
     '/api/time-entries',
-    '/api/whiteboards',
     '/public/project-portal',
   ]),
   mod('books', 8805, ['weldbooks'], [

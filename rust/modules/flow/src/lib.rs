@@ -54,7 +54,6 @@ mod task_enrich;
 mod task_writes;
 mod tasks;
 mod time_entries;
-mod whiteboards;
 
 // Project control and delivery (designs weldflow-project-control.md and
 // weldflow-delivery-and-portfolio.md): one module per new prefix, stubs until
@@ -216,7 +215,6 @@ where
             personal::router(state.clone(), personal::Kind::Tags, gate),
         ),
         ("/time-entries", time_entries::router(state.clone(), gate)),
-        ("/whiteboards", whiteboards::router(state.clone(), gate)),
     ];
     routers.extend(delivery_routers(state, gate));
     routers

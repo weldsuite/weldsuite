@@ -215,50 +215,6 @@ export interface ApiMemberStats {
   recentTasks: { id: string; title: string; status: string; updatedAt?: string }[];
 }
 
-export interface WhiteboardElement {
-  id: string;
-  type: 'rectangle' | 'circle' | 'text' | 'sticky' | 'path' | 'arrow';
-  x: number;
-  y: number;
-  width?: number;
-  height?: number;
-  radius?: number;
-  radiusX?: number;
-  radiusY?: number;
-  text?: string;
-  color?: string;
-  strokeColor?: string;
-  strokeWidth?: number;
-  points?: { x: number; y: number }[];
-  fontSize?: number;
-  fontWeight?: 'normal' | 'bold';
-  fontStyle?: 'normal' | 'italic';
-  textDecoration?: 'none' | 'underline';
-  textAlign?: 'left' | 'center' | 'right';
-  link?: string;
-  locked?: boolean;
-  endX?: number;
-  endY?: number;
-  erasedPaths?: { points: { x: number; y: number }[]; size: number }[];
-  arrowType?: 'line' | 'arrow' | 'elbow';
-  startElementId?: string;
-  startConnectionPoint?: 'top' | 'right' | 'bottom' | 'left';
-  endElementId?: string;
-  endConnectionPoint?: 'top' | 'right' | 'bottom' | 'left';
-  curveControlX?: number;
-  curveControlY?: number;
-  borderRadius?: number;
-}
-
-export interface ApiWhiteboard {
-  id: string;
-  projectId?: string;
-  name: string;
-  elements: WhiteboardElement[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** `GET /project-files` — full `project_files` row. */
 export interface ApiProjectFile {
   id: string;
@@ -1245,58 +1201,6 @@ export const goalsApi = {
 
   save: (projectId: string, data: { mission?: ProjectGoals['mission']; goals: unknown[] }) =>
     appApiPut<{ saved: boolean }>(`/goals/by-project/${projectId}`, data),
-};
-
-// ============ WHITEBOARD ============
-
-export const whiteboardApi = {
-  /** @deprecated Use list + get by ID instead — kept for compat with the
-   *  old single-whiteboard-per-project shape. Returns the first whiteboard. */
-  get: async (projectId: string) => {
-    const res = await appApiGet<ApiWhiteboard[]>(
-      `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=1`,
-    );
-    if (!res.success || !res.data || res.data.length === 0) {
-      return { success: true, data: { elements: [] } } as ApiResponse<{ elements: WhiteboardElement[] }>;
-    }
-    return { success: true, data: { elements: res.data[0].elements ?? [] } } as ApiResponse<{
-      elements: WhiteboardElement[];
-    }>;
-  },
-
-  /** @deprecated Use saveById instead */
-  save: async (projectId: string, elements: WhiteboardElement[]) => {
-    const list = await appApiGet<ApiWhiteboard[]>(
-      `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=1`,
-    );
-    const first = list.success && list.data?.[0];
-    if (first) {
-      return appApiPatch<{ saved: boolean }>(`/whiteboards/${first.id}`, { elements });
-    }
-    return appApiPost<{ saved: boolean }>('/whiteboards', { projectId, name: 'Whiteboard', elements });
-  },
-
-  // Multi-whiteboard endpoints
-  list: (projectId: string) =>
-    appApiGet<ApiWhiteboard[]>(`/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`),
-
-  create: (projectId: string, data: { name: string; elements?: WhiteboardElement[] }) =>
-    appApiPost<ApiWhiteboard>('/whiteboards', { projectId, ...data }),
-
-  /** Every whiteboard the caller can access, across projects (`projectId` is on each row). */
-  listAll: () => appApiGet<ApiWhiteboard[]>('/whiteboards?limit=100'),
-
-  getById: (_projectId: string, whiteboardId: string) =>
-    appApiGet<ApiWhiteboard>(`/whiteboards/${whiteboardId}`),
-
-  saveById: (_projectId: string, whiteboardId: string, elements: WhiteboardElement[]) =>
-    appApiPatch<{ id: string }>(`/whiteboards/${whiteboardId}`, { elements }),
-
-  rename: (_projectId: string, whiteboardId: string, name: string) =>
-    appApiPatch<ApiWhiteboard>(`/whiteboards/${whiteboardId}`, { name }),
-
-  delete: (_projectId: string, whiteboardId: string) =>
-    appApiDelete<{ success: boolean }>(`/whiteboards/${whiteboardId}`),
 };
 
 // ============ TIME ENTRIES ============

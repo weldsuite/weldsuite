@@ -33,7 +33,6 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     WORKSPACE_HUB: namespace(received),
     CONVERSATION_ROOM: namespace(received),
     CHAT_ROOM: namespace(received),
-    WHITEBOARD_ROOM: namespace(received),
     DOCUMENT_ROOM: namespace(received),
     SUPPORT_ROOM: namespace(received),
     REALTIME_INTERNAL_SECRET: SECRET,
@@ -46,7 +45,6 @@ const PUBLISH_ROUTES: Array<[string, string, unknown]> = [
   ['workspace', '/publish/workspace', { workspaceId: 'org_victim', topic: 'helpdesk', event: 'x', data: {}, userId: 'u' }],
   ['conversation', '/publish/conversation/conv_victim', { type: 'message' }],
   ['chat', '/publish/chat/chan_victim', { type: 'message' }],
-  ['whiteboard', '/publish/whiteboard/proj_victim', { type: 'x' }],
   ['document', '/publish/document/doc_victim', { type: 'x' }],
   ['support', '/publish/support/org_victim', { type: 'x' }],
 ];

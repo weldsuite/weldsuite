@@ -1,105 +1,145 @@
-import { Hono } from 'hono';
+/**
+ * `/v1/whiteboards` (the MCP whiteboard tools) — WeldFlow's project whiteboards are WeldBoard
+ * boards now (docs/plans/weldboard.md, ADR BOARD-001); this keeps the old API
+ * working on top of them, in WeldFlow's elements format, through board-api's
+ * BoardsInternal entrypoint (BOARDS_INTERNAL). A write is turned into board
+ * ops and committed through the board's room, so people with the board open
+ * see it arrive.
+ *
+ *   - Only a project's boards are whiteboards here, as before.
+ *   - Elements the old format cannot show (frames, cards, mind maps, …) are
+ *     left out of a read and left alone by a write.
+ *   - Lists are offset pages (the cursor is the next offset); at most 50 a page,
+ *     since every row carries its elements.
+ *
+ * The same route as external-api's; keep the two in step.
+ */
+
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { schema } from '../../../db';
+import { boardsInternal, type BoardBrief, type LegacyWhiteboardRow } from '@weldsuite/board-domain/internal-client';
+import { createWhiteboardSchema, updateWhiteboardSchema } from '@weldsuite/core-api-client/schemas/whiteboards';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
-import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
-import { listWithCursor } from '../../../lib/list-helpers';
-import {
-  createWhiteboardSchema,
-  updateWhiteboardSchema,
-} from '@weldsuite/core-api-client/schemas/whiteboards';
+import { cursorPagination, error, list, noContent, success } from '../../../lib/response';
+
+const MAX_PAGE = 50;
+const DEFAULT_PAGE = 20;
+/** The name WeldFlow gave a whiteboard created without one. */
+const DEFAULT_NAME = 'Main Whiteboard';
 
 const listWhiteboardsQuery = z.object({
-  cursor: z.string().optional(),
+  cursor: z.string().regex(/^\d+$/).optional(),
   limit: z.coerce.number().min(1).max(200).optional(),
-  search: z.string().optional(),
+  search: z.string().max(255).optional(),
   projectId: z.string().optional(),
 });
 
-const table = schema.projectWhiteboards;
 const app = new Hono<HonoEnv>();
 
+/** The board-api client for this request's caller, or null when this backend has no WeldBoard. */
+function boards(c: Context<HonoEnv>) {
+  const fetcher = c.env.BOARDS_INTERNAL;
+  const session = c.get('apiSession');
+  if (!fetcher || !session) return null;
+  return boardsInternal({
+    fetcher,
+    workspace: session.workspaceId,
+    actor: session.userId ? { userId: session.userId } : { workspaceKey: session.keyId },
+  });
+}
+
+function unavailable(c: Context<HonoEnv>) {
+  return c.json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Whiteboards are not available on this server' } }, 503);
+}
+
+/** board-api's refusal as it was, or the `data` of its answer. */
+async function unwrap<T>(res: Response): Promise<{ ok: true; data: T } | { ok: false; response: Response }> {
+  if (!res.ok) return { ok: false, response: new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json' } }) };
+  if (res.status === 204) return { ok: true, data: undefined as T };
+  return { ok: true, data: ((await res.json()) as { data: T }).data };
+}
+
+function eventData(row: Pick<LegacyWhiteboardRow, 'id' | 'name' | 'projectId'>) {
+  return { id: row.id, name: row.name, projectId: row.projectId };
+}
+
 app.get('/', requireScope('whiteboards:read'), zValidator('query', listWhiteboardsQuery), async (c) => {
-  const db = c.get('tenantDb');
+  const client = boards(c);
+  if (!client) return unavailable(c);
   const q = c.req.valid('query');
-  const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.name, `%${q.search}%`));
-  if (q.projectId) where.push(eq(table.projectId, q.projectId));
-  const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
-  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  const limit = Math.min(q.limit ?? DEFAULT_PAGE, MAX_PAGE);
+  const offset = q.cursor ? Number(q.cursor) : 0;
+  const found = await unwrap<{ boards: BoardBrief[]; total: number; hasMore: boolean }>(
+    await client.find({ query: q.search, limit, offset, ...(q.projectId ? { projectId: q.projectId } : { projects: true }) }),
+  );
+  if (!found.ok) return found.response;
+  const rows = await Promise.all(
+    found.data.boards.map(async (b) => {
+      const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(b.id, 'legacy'));
+      return read.ok ? read.data.row : null;
+    }),
+  );
+  const { total, hasMore } = found.data;
+  const next = offset + found.data.boards.length;
+  return list(c, rows.filter((r): r is LegacyWhiteboardRow => r !== null), cursorPagination(total, hasMore, hasMore ? String(next) : null));
 });
 
 app.get('/:id', requireScope('whiteboards:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  const [row] = await db
-    .select()
-    .from(table)
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .limit(1);
-  if (!row) return error.notFound(c, 'Whiteboard', id);
-  return success(c, row);
+  const client = boards(c);
+  if (!client) return unavailable(c);
+  const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(c.req.param('id'), 'legacy'));
+  if (!read.ok) return read.response;
+  return success(c, read.data.row);
 });
 
 app.post('/', requireScope('whiteboards:write'), zValidator('json', createWhiteboardSchema), async (c) => {
-  const db = c.get('tenantDb');
-  const body = c.req.valid('json');
-  const now = new Date();
-  const id = generateId('pwb');
-  const values = { ...(body as Record<string, unknown>), id, createdAt: now, updatedAt: now };
-  const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
-  if (!row) return error.internal(c, 'Failed to create whiteboard');
-  publishEntityEvent({
-    c,
-    entityType: 'project_whiteboard',
-    entityId: id,
-    action: 'created',
-    data: { id, name: row.name, projectId: row.projectId },
-  });
+  const client = boards(c);
+  if (!client) return unavailable(c);
+  const body = c.req.valid('json') as { name?: string; projectId?: string | null; elements?: unknown };
+  if (!body.projectId) return error.badRequest(c, 'A whiteboard belongs to a project: send its projectId');
+  const elements = Array.isArray(body.elements) ? body.elements : [];
+  const created = await unwrap<{ row: LegacyWhiteboardRow }>(
+    await client.create({ name: body.name || DEFAULT_NAME, projectId: body.projectId, elements }),
+  );
+  if (!created.ok) return created.response;
+  const row = created.data.row;
+  publishEntityEvent({ c, entityType: 'project_whiteboard', entityId: row.id, action: 'created', data: eventData(row) });
   return success(c, row, 201);
 });
 
 app.patch('/:id', requireScope('whiteboards:write'), zValidator('json', updateWhiteboardSchema), async (c) => {
-  const db = c.get('tenantDb');
+  const client = boards(c);
+  if (!client) return unavailable(c);
   const id = c.req.param('id');
-  const body = c.req.valid('json');
-  const [row] = await db
-    .update(table)
-    .set({ ...(body as Record<string, unknown>), updatedAt: new Date() })
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
-  if (!row) return error.notFound(c, 'Whiteboard', id);
-  publishEntityEvent({
-    c,
-    entityType: 'project_whiteboard',
-    entityId: id,
-    action: 'updated',
-    data: { id, name: row.name, projectId: row.projectId },
-  });
+  const body = c.req.valid('json') as { name?: string; elements?: unknown };
+  const changes = {
+    ...(typeof body.name === 'string' && body.name ? { name: body.name } : {}),
+    ...(Array.isArray(body.elements) ? { elements: body.elements } : {}),
+  };
+  let row: LegacyWhiteboardRow;
+  if (Object.keys(changes).length === 0) {
+    const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(id, 'legacy'));
+    if (!read.ok) return read.response;
+    row = read.data.row;
+  } else {
+    const updated = await unwrap<{ row: LegacyWhiteboardRow }>(await client.update(id, changes));
+    if (!updated.ok) return updated.response;
+    row = updated.data.row;
+  }
+  publishEntityEvent({ c, entityType: 'project_whiteboard', entityId: id, action: 'updated', data: eventData(row) });
   return success(c, row);
 });
 
 app.delete('/:id', requireScope('whiteboards:write'), async (c) => {
-  const db = c.get('tenantDb');
+  const client = boards(c);
+  if (!client) return unavailable(c);
   const id = c.req.param('id');
-  const [row] = await db
-    .update(table)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
-  if (!row) return error.notFound(c, 'Whiteboard', id);
-  publishEntityEvent({
-    c,
-    entityType: 'project_whiteboard',
-    entityId: id,
-    action: 'deleted',
-    data: { id, name: row.name, projectId: row.projectId },
-  });
+  const removed = await unwrap<void>(await client.remove(id));
+  if (!removed.ok) return removed.response;
+  publishEntityEvent({ c, entityType: 'project_whiteboard', entityId: id, action: 'deleted', data: { id } });
   return noContent(c);
 });
 

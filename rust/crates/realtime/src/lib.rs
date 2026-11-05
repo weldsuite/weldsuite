@@ -14,7 +14,7 @@
 //! | `/ws/chat/:id` | `ChatRoom` | [`room`], `seq` from Valkey |
 //! | `/ws/support/:workspaceId` | `SupportRoom` | [`room`], members of the workspace only (see below) |
 //! | `/ws/conversation/:id` | `ConversationRoom` | [`room`], agents of the workspace, and widget visitors with the HS256 token the widget API minted for that conversation (`WIDGET_TOKEN_SECRET`) |
-//! | `/ws/whiteboard/:id`, `/ws/document/:id` | `WhiteboardRoom`, `DocumentRoom` | not served yet (Flow's collaborative rooms are not ported) |
+//! | `/ws/document/:id` | `DocumentRoom` | not served yet (the collaborative document room is not ported) |
 //! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead |
 //!
 //! Every pod subscribes to the Valkey channel of each hub and room it holds a

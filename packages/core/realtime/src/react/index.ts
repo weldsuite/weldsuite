@@ -6,7 +6,6 @@ export { useConversation } from './use-conversation';
 export { useChatRoom } from './use-chat-room';
 export { useRoomPresence } from './use-presence';
 export { useRoomTyping } from './use-typing';
-export { useWhiteboardRoom, type UseWhiteboardRoomConfig, type UseWhiteboardRoomReturn } from './use-whiteboard';
 export { useDocumentRoom, type UseDocumentRoomConfig, type UseDocumentRoomReturn } from './use-document-room';
 export { useSupportRoom } from './use-support-room';
 export { useRealtimeSync, type EntitySyncMap, type EntitySyncConfig, type RealtimeSyncConfig, type QueryClientLike } from './use-realtime-sync';

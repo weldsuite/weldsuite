@@ -221,7 +221,6 @@
       "/api/task-tags",
       "/api/tasks",
       "/api/time-entries",
-      "/api/whiteboards",
       "/public/project-portal"
     ],
     "rust": true,

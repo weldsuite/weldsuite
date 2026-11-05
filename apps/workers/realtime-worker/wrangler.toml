@@ -3,7 +3,6 @@
 # - WorkspaceHub: workspace-wide events (entity CRUD, notifications, mail)
 # - ConversationRoom: per-conversation helpdesk messaging
 # - ChatRoom: per-channel WeldChat messaging
-# - WhiteboardRoom: per-whiteboard collaboration (cursors, elements, presence)
 # - DocumentRoom: per-document collaboration (content sync, title, presence)
 # - SupportRoom: per-workspace enterprise support channel
 
@@ -41,7 +40,6 @@ bindings = [
   { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
   { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
   { name = "CHAT_ROOM", class_name = "ChatRoom" },
-  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
   { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
   { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
 ]
@@ -68,6 +66,13 @@ new_classes = ["SupportRoom"]
 tag = "v4"
 new_classes = ["DocumentRoom"]
 
+# WeldFlow's whiteboards became WeldBoard boards, co-edited in board-api's
+# BoardRoom (docs/plans/weldboard.md). WhiteboardRoom only relayed cursors
+# and saves; it kept nothing, so deleting it loses no data.
+[[migrations]]
+tag = "v5"
+deleted_classes = ["WhiteboardRoom"]
+
 # Phase 6: entity-events hub SUB_REALTIME → WorkspaceHub bridge
 #   wrangler queues create entity-realtime-dev
 #   wrangler queues create entity-realtime-dlq-dev
@@ -93,7 +98,6 @@ bindings = [
   { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
   { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
   { name = "CHAT_ROOM", class_name = "ChatRoom" },
-  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
   { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
   { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
 ]
@@ -131,7 +135,6 @@ bindings = [
   { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
   { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
   { name = "CHAT_ROOM", class_name = "ChatRoom" },
-  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
   { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
   { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
 ]

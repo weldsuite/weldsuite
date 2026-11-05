@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, BreadcrumbSegment } from '@/components/breadcrumb-header';
-import { whiteboardApi } from '../lib/api-client';
+import { useAppApi } from '@/lib/api/use-app-api';
+import { boardsQueryKey } from '@/app/weldboard/store/use-board-store';
 import { useProject } from '@/hooks/queries/use-projects-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -30,10 +31,11 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   const { data: projectData } = useProject(projectId || '', !!projectId);
   const projectName = projectData?.data?.name;
 
-  // Fetch whiteboard name
+  // The whiteboard's name (a WeldBoard board in board-api)
+  const appApi = useAppApi();
   const { data: whiteboardData } = useQuery({
-    queryKey: ['whiteboard', projectId, whiteboardId],
-    queryFn: () => whiteboardApi.getById(projectId!, whiteboardId!),
+    queryKey: [...boardsQueryKey, 'name', whiteboardId],
+    queryFn: () => appApi.boards.get(whiteboardId!),
     enabled: !!projectId && !!whiteboardId,
   });
   const whiteboardName = whiteboardData?.data?.name;

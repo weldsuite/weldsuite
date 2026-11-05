@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Trash2, EllipsisVertical, Copy, Pencil } from 'lucide-react';
@@ -22,7 +22,7 @@ import {
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { whiteboardApi } from '@/app/weldflow/lib/api-client';
+import { useBoardList, useBoardMutations, type BoardMeta } from '@/app/weldboard/store/use-board-store';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
@@ -33,6 +33,18 @@ interface WhiteboardItem {
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** May rename, copy and delete it (a project board follows the project). */
+  canEdit: boolean;
+}
+
+function itemOf(board: BoardMeta): WhiteboardItem {
+  return {
+    id: board.id,
+    name: board.name,
+    createdAt: new Date(board.createdAt).toISOString(),
+    updatedAt: new Date(board.updatedAt).toISOString(),
+    canEdit: board.canEdit,
+  };
 }
 
 function formatDate(date: string) {
@@ -51,9 +63,12 @@ export default function WhiteboardPage() {
     { label: st('sweep.weldflow.whiteboardListPage.whiteboards') },
   ]);
 
-  const [items, setItems] = useState<WhiteboardItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+  // The project's WeldBoard boards, old WeldFlow whiteboards not opened since included (board-api).
+  const boards = useBoardList({ projectId });
+  const { create, rename, remove } = useBoardMutations();
+  const items = useMemo(() => (boards.data ?? []).map(itemOf), [boards.data]);
+  const isLoading = boards.isLoading;
+  const loadFailed = boards.isError;
 
   // Create dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -67,21 +82,7 @@ export default function WhiteboardPage() {
   const [renameValue, setRenameValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
 
-  const loadWhiteboards = useCallback(async () => {
-    setIsLoading(true);
-    const result = await whiteboardApi.list(projectId);
-    if (result.success && result.data) {
-      setItems(result.data);
-      setLoadFailed(false);
-    } else {
-      setLoadFailed(true);
-    }
-    setIsLoading(false);
-  }, [projectId]);
-
-  useEffect(() => {
-    void loadWhiteboards();
-  }, [loadWhiteboards]);
+  const loadWhiteboards = () => boards.refetch();
 
   const filterConfigs: FilterConfig[] = useMemo(() => [], []);
 
@@ -124,15 +125,14 @@ export default function WhiteboardPage() {
   ], [st]);
 
   const handleDeleteWhiteboard = useCallback(async (wbId: string) => {
-    const result = await whiteboardApi.delete(projectId, wbId);
     setDeleteTarget(null);
-    if (result.success) {
-      setItems(prev => prev.filter(w => w.id !== wbId));
+    try {
+      await remove.mutateAsync(wbId);
       toast.success(st('sweep.weldflow.whiteboardListPage.deletedToast'));
-    } else {
+    } catch {
       toast.error(st('sweep.weldflow.whiteboardListPage.deleteFailedToast'));
     }
-  }, [projectId, st]);
+  }, [remove, st]);
 
   const openRenameDialog = useCallback((wb: WhiteboardItem) => {
     setRenameTarget(wb);
@@ -148,36 +148,30 @@ export default function WhiteboardPage() {
       return;
     }
     setIsRenaming(true);
-    const result = await whiteboardApi.rename(projectId, renameTarget.id, name);
-    setIsRenaming(false);
-    if (result.success) {
-      setItems(prev => prev.map(w => (w.id === renameTarget.id ? { ...w, name } : w)));
+    try {
+      await rename.mutateAsync({ id: renameTarget.id, name });
       setRenameTarget(null);
       toast.success(st('sweep.weldflow.whiteboardListPage.renamedToast'));
-    } else {
+    } catch {
       toast.error(st('sweep.weldflow.whiteboardListPage.renameFailedToast'));
+    } finally {
+      setIsRenaming(false);
     }
   };
 
   const handleDuplicateWhiteboard = useCallback(async (wb: WhiteboardItem) => {
-    // The list rows carry no elements, so fetch the source board and copy its content.
-    // Copying a board we could not read would produce a blank one, so stop instead.
-    const source = await whiteboardApi.getById(projectId, wb.id);
-    if (!source.success || !source.data) {
-      toast.error(st('sweep.weldflow.whiteboardListPage.duplicateFailedToast'));
-      return;
-    }
-    const result = await whiteboardApi.create(projectId, {
-      name: st('sweep.weldflow.whiteboardListPage.copyName', { name: wb.name || st('sweep.weldflow.whiteboardListPage.defaultName') }),
-      elements: source.data.elements ?? [],
-    });
-    if (result.success && result.data) {
-      setItems(prev => [result.data!, ...prev]);
+    // board-api copies the board as its room holds it now (an old whiteboard is converted first).
+    try {
+      await create.mutateAsync({
+        name: st('sweep.weldflow.whiteboardListPage.copyName', { name: wb.name || st('sweep.weldflow.whiteboardListPage.defaultName') }),
+        projectId,
+        fromBoardId: wb.id,
+      });
       toast.success(st('sweep.weldflow.whiteboardListPage.duplicatedToast'));
-    } else {
+    } catch {
       toast.error(st('sweep.weldflow.whiteboardListPage.duplicateFailedToast'));
     }
-  }, [projectId, st]);
+  }, [create, projectId, st]);
 
   const renderRow = useCallback((item: WhiteboardItem) => {
     return (
@@ -207,7 +201,7 @@ export default function WhiteboardPage() {
         </div>
 
         <div className="relative z-[1] w-[40px] flex justify-end">
-          {canWrite && (
+          {canWrite && item.canEdit && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -251,13 +245,14 @@ export default function WhiteboardPage() {
   const handleCreateWhiteboard = async () => {
     const name = newWhiteboardName.trim() || st('sweep.weldflow.whiteboardListPage.untitled');
     setIsCreating(true);
-    const result = await whiteboardApi.create(projectId, { name });
-    setIsCreating(false);
-    if (result.success && result.data) {
+    try {
+      const board = await create.mutateAsync({ name, projectId });
       setCreateDialogOpen(false);
-      router.push(`/weldflow/project/${projectId}/whiteboard/${result.data.id}`);
-    } else {
+      router.push(`/weldflow/project/${projectId}/whiteboard/${board.id}`);
+    } catch {
       toast.error(st('sweep.weldflow.whiteboardListPage.createFailedToast'));
+    } finally {
+      setIsCreating(false);
     }
   };
 

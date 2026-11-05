@@ -65,6 +65,8 @@ export interface Env {
   REALTIME?: Fetcher;
   /** helpdesk-workflow-worker: the AssignmentRouter that hands out WeldDesk conversations (ADR DESK-005). */
   HELPDESK_WORKFLOW?: Fetcher;
+  /** board-api's BoardsInternal entrypoint: the deprecated /v1/whiteboards on WeldBoard boards. */
+  BOARDS_INTERNAL?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
   /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */

@@ -1,134 +1,42 @@
-import { useState, useEffect } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { useParams, useRouter } from '@/lib/router';
-import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { WhiteboardView } from '@/components/weldflow/whiteboard/whiteboard-view';
-import { whiteboardApi, type WhiteboardElement } from '@/app/weldflow/lib/api-client';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { useCallback } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useParams } from '@/lib/router';
+import { LiveBoard } from '@/app/weldboard/board/live-board';
+import { useBoardExtensions } from '@/app/weldboard/board/extensions';
 
+/**
+ * A WeldFlow project's whiteboard: a WeldBoard board that belongs to the
+ * project (docs/plans/weldboard.md, ADR BOARD-001). Who may open and edit it
+ * follows the project's members; an old WeldFlow whiteboard becomes a board
+ * the first time it is opened, keeping its id and so this link.
+ */
 export default function WhiteboardDetailPage() {
   const st = useTranslations();
   const params = useParams();
-  const router = useRouter();
-  const { canWrite } = useProjectPermissions();
   const projectId = params.projectId as string;
   const whiteboardId = params.whiteboardId as string;
+  const extend = useBoardExtensions();
+  const listHref = `/weldflow/project/${projectId}/whiteboard`;
 
-  const [whiteboardName, setWhiteboardName] = useState(st('sweep.weldflow.whiteboardListPage.whiteboardDefaultName'));
-  const [elements, setElements] = useState<WhiteboardElement[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  // The name being edited in the header; committed on blur / Enter.
-  const [nameDraft, setNameDraft] = useState('');
-
-  useBreadcrumbs([
-    { label: st('sweep.weldflow.whiteboardListPage.projects'), href: '/weldflow' },
-    { label: st('sweep.weldflow.whiteboardListPage.whiteboards'), href: `/weldflow/project/${projectId}/whiteboard` },
-    { label: whiteboardName },
-  ]);
-
-  // A failed load must not fall through to an empty, editable canvas: the first stroke
-  // would autosave over every stored element.
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setLoadFailed(false);
-    void whiteboardApi.getById(projectId, whiteboardId).then((result) => {
-      if (cancelled) return;
-      if (result.success && result.data) {
-        setElements(result.data.elements ?? []);
-        if (result.data.name) setWhiteboardName(result.data.name);
-        setNameDraft(result.data.name ?? '');
-      } else {
-        setLoadFailed(true);
-      }
-      setIsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [projectId, whiteboardId, loadAttempt]);
-
-  const commitName = async () => {
-    const next = nameDraft.trim();
-    // Empty / whitespace-only names are not allowed: snap back to the saved one.
-    if (!next || next === whiteboardName) {
-      setNameDraft(whiteboardName);
-      return;
-    }
-    const result = await whiteboardApi.rename(projectId, whiteboardId, next);
-    if (result.success) {
-      setWhiteboardName(next);
-      setNameDraft(next);
-      toast.success(st('sweep.weldflow.whiteboardListPage.renamedToast'));
-    } else {
-      setNameDraft(whiteboardName);
-      toast.error(st('sweep.weldflow.whiteboardListPage.renameFailedToast'));
-    }
-  };
-
-  if (isLoading) {
-    return <PageLoader fullScreen={false} />;
-  }
-
-  if (loadFailed) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
-        <p className="text-sm text-muted-foreground">{st('sweep.weldflow.whiteboardListPage.loadFailed')}</p>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard`)}>
-            {st('sweep.weldflow.whiteboardListPage.backToList')}
-          </Button>
-          <Button size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>
-            {st('sweep.weldflow.whiteboardListPage.retry')}
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const breadcrumbs = useCallback(
+    (name: string) => [
+      { label: st('sweep.weldflow.whiteboardListPage.projects'), href: '/weldflow' },
+      { label: st('sweep.weldflow.whiteboardListPage.whiteboards'), href: listHref },
+      { label: name },
+    ],
+    [st, listHref],
+  );
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          aria-label={st('sweep.weldflow.whiteboardListPage.backToList')}
-          title={st('sweep.weldflow.whiteboardListPage.backToList')}
-          onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard`)}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Input
-          value={nameDraft}
-          readOnly={!canWrite}
-          aria-label={st('sweep.weldflow.whiteboardListPage.nameLabel')}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={() => void commitName()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-            if (e.key === 'Escape') {
-              setNameDraft(whiteboardName);
-              e.currentTarget.blur();
-            }
-          }}
-          className="h-8 max-w-sm border-transparent bg-transparent px-2 text-sm font-medium shadow-none hover:border-input focus-visible:border-input"
-        />
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <WhiteboardView
-          key={whiteboardId}
-          projectId={projectId}
-          whiteboardId={whiteboardId}
-          initialElements={elements}
-        />
-      </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      <LiveBoard
+        key={whiteboardId}
+        boardId={whiteboardId}
+        backTo={listHref}
+        backLabel={st('sweep.weldflow.whiteboardListPage.backToList')}
+        breadcrumbs={breadcrumbs}
+        extend={extend}
+      />
     </div>
   );
 }
