@@ -1,7 +1,9 @@
 //! `MERGE_INTERNAL`: the GitHub App webhook's forward to WeldMerge
-//! (`github/merge-forward.ts`). On Global the receiver calls merge-api's
-//! `MergeInternal.githubEvent` over a service binding; here the binary
-//! answers in process from WeldMerge's internal router.
+//! (`github/merge-forward.ts`), and the GitLab, Bitbucket and Azure DevOps
+//! deliveries `POST /webhooks/merge/:provider/:key` hands on
+//! ([`crate::merge_webhook`]). On Global the receivers call merge-api's
+//! `MergeInternal.githubEvent` / `.providerEvent` over a service binding;
+//! here the binary answers in process from WeldMerge's internal router.
 //!
 //! The forward runs after the App's HMAC is verified and the workspace is
 //! resolved, and is fire-and-forget: a missing binding or a failing intake
@@ -11,12 +13,17 @@
 use serde_json::{Value, json};
 use weldsuite_ports::BoxFuture;
 
-/// The events WeldMerge mirrors (`MERGE_GITHUB_FORWARDED_EVENTS`).
-pub const FORWARDED_EVENTS: [&str; 4] = [
+/// The events WeldMerge mirrors and syncs (`MERGE_GITHUB_FORWARDED_EVENTS`):
+/// pull requests, reviews, checks, issues, issue comments and the
+/// installation lifecycle.
+pub const FORWARDED_EVENTS: [&str; 7] = [
     "pull_request",
     "pull_request_review",
     "check_suite",
     "installation_repositories",
+    "issues",
+    "issue_comment",
+    "installation",
 ];
 
 /// `isForwardedToMerge(event)`.
@@ -24,10 +31,13 @@ pub fn is_forwarded_to_merge(event: &str) -> bool {
     FORWARDED_EVENTS.contains(&event)
 }
 
-/// merge-api's `MergeInternal` entrypoint: `githubEvent(envelope)`. An `Err`
-/// is what the call threw (the intake refused or failed).
+/// merge-api's `MergeInternal` entrypoint: `githubEvent(envelope)` and
+/// `providerEvent(envelope)`, each answering its route's `data` (the ack,
+/// `{ outcome, reason? }`). An `Err` is what the call threw (the intake
+/// refused or failed).
 pub trait MergeInternal: Send + Sync {
     fn github_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>>;
+    fn provider_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>>;
 }
 
 /// The envelope `forwardToMerge` sends (`MergeGithubEventEnvelope`).
@@ -87,14 +97,23 @@ mod tests {
                 }
             })
         }
+
+        fn provider_event(&self, envelope: Value) -> BoxFuture<'_, Result<Value, String>> {
+            self.github_event(envelope)
+        }
     }
 
     #[test]
     fn forwards_only_what_weldmerge_mirrors() {
         assert!(is_forwarded_to_merge("pull_request"));
         assert!(is_forwarded_to_merge("installation_repositories"));
-        assert!(!is_forwarded_to_merge("issues"));
+        assert!(is_forwarded_to_merge("issues"));
+        assert!(is_forwarded_to_merge("issue_comment"));
+        assert!(is_forwarded_to_merge("installation"));
         assert!(!is_forwarded_to_merge("projects_v2_item"));
+        assert!(!is_forwarded_to_merge("projects_v2"));
+        assert!(!is_forwarded_to_merge("push"));
+        assert!(!is_forwarded_to_merge("ping"));
     }
 
     #[tokio::test]

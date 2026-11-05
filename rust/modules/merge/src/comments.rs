@@ -18,7 +18,8 @@ use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 
 use crate::db::{Row, one_by_id, rows_of, text};
-use crate::issues::find_issue;
+use crate::hooks::{CommentChange, after_comment_changed};
+use crate::issues::{find_issue, team_key_of};
 use crate::mappers::comment_dto;
 use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate};
 
@@ -44,6 +45,29 @@ fn comment_body(headers: &HeaderMap, body: &Bytes) -> Result<String, Refusal> {
             .into_option()
             .unwrap_or_default()
     })
+}
+
+/// The hooks of a comment edit or delete (`publishCommentEvent`): with its
+/// issue and team key, when the issue is still there.
+async fn comment_hooks(
+    state: &MergeState,
+    caller: &Caller,
+    change: CommentChange,
+    comment: &Row,
+) -> Result<(), sqlx::Error> {
+    let Some(issue) = find_issue(&caller.db, text(comment, "issueId")).await? else {
+        return Ok(());
+    };
+    let team_key = team_key_of(&caller.db, text(&issue, "teamId")).await?;
+    after_comment_changed(
+        &caller.hook_context(state),
+        change,
+        comment,
+        &issue,
+        &team_key,
+    )
+    .await;
+    Ok(())
 }
 
 async fn find_comment(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
@@ -99,6 +123,17 @@ pub(crate) async fn create(
     .await?;
     let row = weldsuite_db::js_row(row);
     publish(&state, &caller.events, vec![comment_event(&row, "created")]);
+    if let Some(issue) = find_issue(&caller.db, &id).await? {
+        let team_key = team_key_of(&caller.db, text(&issue, "teamId")).await?;
+        after_comment_changed(
+            &caller.hook_context(&state),
+            CommentChange::Created,
+            &row,
+            &issue,
+            &team_key,
+        )
+        .await;
+    }
     Ok(Created(comment_dto(&row)).into_response())
 }
 
@@ -128,6 +163,7 @@ pub(crate) async fn update(
     .await?;
     let row = weldsuite_db::js_row(row);
     publish(&state, &caller.events, vec![comment_event(&row, "updated")]);
+    comment_hooks(&state, &caller, CommentChange::Updated, &row).await?;
     Ok(Data(comment_dto(&row)).into_response())
 }
 
@@ -156,5 +192,6 @@ pub(crate) async fn remove(
     .await?;
     let row = weldsuite_db::js_row(row);
     publish(&state, &caller.events, vec![comment_event(&row, "deleted")]);
+    comment_hooks(&state, &caller, CommentChange::Deleted, &row).await?;
     Ok(NoContent.into_response())
 }

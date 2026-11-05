@@ -59,7 +59,7 @@ pub(crate) async fn linked_issues(
          from merge_issue_pull_requests l \
          inner join merge_issues i on i.id = l.issue_id \
          inner join merge_teams t on t.id = i.team_id \
-         where l.pull_request_id = any($1) and i.deleted_at is null \
+         where l.pull_request_id = any($1) and l.dismissed_at is null and i.deleted_at is null \
          order by t.key, i.number",
     )
     .bind(pull_request_ids)
@@ -203,7 +203,7 @@ fn parse_cursor(cursor: Option<&str>) -> Option<(String, String)> {
 }
 
 /// `listMergePullRequestsQuerySchema`, as validated.
-struct ListQuery {
+pub(crate) struct ListQuery {
     view: String,
     repository_id: Option<String>,
     team_id: Option<String>,
@@ -212,38 +212,45 @@ struct ListQuery {
     cursor: Option<String>,
 }
 
-fn list_query(query: Option<&str>) -> Result<ListQuery, Refusal> {
-    validate_query(query, |issues, fields| {
-        let view = issues
-            .choice(fields, "view", Presence::Optional, &PULL_REQUEST_VIEWS)
+/// `listMergePullRequestsQuerySchema` read from `fields` (a query string's
+/// values, or a WeldAgent tool's input).
+pub(crate) fn read_list_query(
+    issues: &mut weldsuite_kit::validation::Issues,
+    fields: &Map<String, Value>,
+) -> ListQuery {
+    let view = issues
+        .choice(fields, "view", Presence::Optional, &PULL_REQUEST_VIEWS)
+        .into_option()
+        .unwrap_or_else(|| "open".to_owned());
+    let opt = |issues: &mut weldsuite_kit::validation::Issues, key: &str| {
+        issues
+            .text(fields, key, Presence::Optional, None, None)
             .into_option()
-            .unwrap_or_else(|| "open".to_owned());
-        let opt = |issues: &mut weldsuite_kit::validation::Issues, key: &str| {
-            issues
-                .text(fields, key, Presence::Optional, None, None)
-                .into_option()
-        };
-        let repository_id = opt(issues, "repositoryId");
-        let team_id = opt(issues, "teamId");
-        let q = issues
-            .text_with(
-                fields,
-                "q",
-                Presence::Optional,
-                Text::trimmed(None, Some(200)),
-            )
-            .into_option();
-        let limit = limit_of(issues, fields);
-        let cursor = opt(issues, "cursor");
-        ListQuery {
-            view,
-            repository_id,
-            team_id,
-            q,
-            limit,
-            cursor,
-        }
-    })
+    };
+    let repository_id = opt(issues, "repositoryId");
+    let team_id = opt(issues, "teamId");
+    let q = issues
+        .text_with(
+            fields,
+            "q",
+            Presence::Optional,
+            Text::trimmed(None, Some(200)),
+        )
+        .into_option();
+    let limit = limit_of(issues, fields);
+    let cursor = opt(issues, "cursor");
+    ListQuery {
+        view,
+        repository_id,
+        team_id,
+        q,
+        limit,
+        cursor,
+    }
+}
+
+fn list_query(query: Option<&str>) -> Result<ListQuery, Refusal> {
+    validate_query(query, read_list_query)
 }
 
 /// `/^#?(\d{1,9})$/` on the trimmed search.
@@ -257,22 +264,32 @@ fn searched_number(q: &str) -> Option<i64> {
 
 pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
     let query = list_query(query.as_deref())?;
-    let db = &caller.db;
+    let (items, has_more, cursor) = list_pull_requests(&caller.db, query, &caller.user_id).await?;
+    Ok(page(items, has_more, cursor))
+}
+
+/// `listPullRequests(db, query, userId)`: the page's items, whether there
+/// is more, and the next cursor.
+pub(crate) async fn list_pull_requests(
+    db: &PgPool,
+    query: ListQuery,
+    user_id: &str,
+) -> Result<(Vec<Value>, bool, Option<String>), sqlx::Error> {
     let mut filter = Filter::default();
     match query.view.as_str() {
         view @ ("needs_review" | "mine") => {
-            let login = member_github_login(db, &caller.user_id)
+            let login = member_github_login(db, user_id)
                 .await?
                 .filter(|l| !l.is_empty());
             filter.state = Some("open");
             if view == "needs_review" {
                 let Some(login) = login else {
-                    return Ok(page(Vec::new(), false, None));
+                    return Ok((Vec::new(), false, None));
                 };
                 filter.draft = Some(false);
                 filter.review_requested_from = Some(login);
             } else {
-                filter.authored_by = Some((caller.user_id.clone(), login));
+                filter.authored_by = Some((user_id.to_owned(), login));
             }
         }
         "merged" => filter.state = Some("merged"),
@@ -305,7 +322,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
         None
     };
     let items = to_list_items(db, &rows).await?;
-    Ok(page(items, has_more, cursor))
+    Ok((items, has_more, cursor))
 }
 
 /// `findPullRequest(db, id)`: a pull request of a live repository.
@@ -326,21 +343,32 @@ async fn find_pull_request(db: &PgPool, id: &str) -> Result<Option<WithRepo>, sq
 }
 
 pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
-    let db = &caller.db;
-    let Some(row) = find_pull_request(db, &id).await? else {
-        return Err(Refusal::not_found("Pull request", Some(&id)));
+    match pull_request_detail(&caller.db, &id).await? {
+        Some(detail) => Ok(Data(detail).into_response()),
+        None => Err(Refusal::not_found("Pull request", Some(&id))),
+    }
+}
+
+/// `getPullRequestDetail(db, id)`: a pull request of a live repository with
+/// the issues it is linked to.
+pub(crate) async fn pull_request_detail(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    let Some(row) = find_pull_request(db, id).await? else {
+        return Ok(None);
     };
-    let mut issues = linked_issues(db, std::slice::from_ref(&id)).await?;
+    let mut issues = linked_issues(db, &[id.to_owned()]).await?;
     let mut detail: Map<String, Value> = pull_request_summary(&row.pr, &row.full_name);
     detail.insert("body".to_owned(), col(&row.pr, "body"));
     detail.insert("headSha".to_owned(), col(&row.pr, "headSha"));
     detail.insert("teamId".to_owned(), json!(row.team_id));
     detail.insert(
         "issues".to_owned(),
-        Value::Array(issues.remove(&id).unwrap_or_default()),
+        Value::Array(issues.remove(id).unwrap_or_default()),
     );
     detail.insert("syncedAt".to_owned(), col(&row.pr, "syncedAt"));
-    Ok(Data(Value::Object(detail)).into_response())
+    Ok(Some(Value::Object(detail)))
 }
 
 // ── Manual links ────────────────────────────────────────────────────────────
@@ -377,15 +405,35 @@ pub(crate) async fn link(
     let Some(target) = find_pull_request(db, &pull_request_id).await? else {
         return Err(Refusal::not_found("Pull request", Some(&pull_request_id)));
     };
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from merge_issue_pull_requests where issue_id = $1 and pull_request_id = $2 limit 1",
+    let existing: Option<(String, bool)> = sqlx::query_as(
+        "select id, dismissed_at is not null from merge_issue_pull_requests \
+         where issue_id = $1 and pull_request_id = $2 limit 1",
     )
     .bind(&id)
     .bind(&pull_request_id)
     .fetch_optional(db)
     .await?;
     let mut events: Vec<PendingEvent> = Vec::new();
-    if let Some(link_id) = existing {
+    if let Some((link_id, true)) = &existing {
+        // A dismissed automatic link, linked again by hand: it is a manual link now, and new.
+        sqlx::query(
+            "update merge_issue_pull_requests set source = 'manual', closes = $2, dismissed_at = null, \
+               created_by_user_id = $3 where id = $1",
+        )
+        .bind(link_id)
+        .bind(closes)
+        .bind(&caller.user_id)
+        .execute(db)
+        .await?;
+        let phase = phase_of(&target.pr);
+        let mut links = [LinkedIssue {
+            closes,
+            is_new: true,
+            issue: issue.clone(),
+            team_key: team_key.clone(),
+        }];
+        events = run_automation(db, &target.pr, Some(phase), &mut links, None).await?;
+    } else if let Some((link_id, false)) = existing {
         sqlx::query("update merge_issue_pull_requests set closes = $2 where id = $1")
             .bind(&link_id)
             .bind(closes)
@@ -410,7 +458,7 @@ pub(crate) async fn link(
             issue: issue.clone(),
             team_key: team_key.clone(),
         }];
-        events = run_automation(db, &target.pr, Some(phase), &mut links).await?;
+        events = run_automation(db, &target.pr, Some(phase), &mut links, None).await?;
     }
     if events.is_empty() {
         events.push(PendingEvent::new(
@@ -425,8 +473,10 @@ pub(crate) async fn link(
     Ok(Data(detail).into_response())
 }
 
-/// `DELETE /issues/:id/pull-requests/:prId`: removes a link. An `auto` link
-/// comes back when the pull request next syncs and still mentions the key.
+/// `DELETE /issues/:id/pull-requests/:prId`: removes a link. A manual link
+/// is deleted; an `auto` link is kept with `dismissed_at` set instead, so it
+/// stays removed: sync skips dismissed pairs even while the pull request
+/// still mentions the key.
 pub(crate) async fn unlink(
     State(state): State<MergeState>,
     caller: Caller,
@@ -436,13 +486,26 @@ pub(crate) async fn unlink(
     let Some(issue) = find_issue(db, &id).await? else {
         return Err(Refusal::not_found("Issue", Some(&id)));
     };
-    let removed: Vec<String> = sqlx::query_scalar(
-        "delete from merge_issue_pull_requests where issue_id = $1 and pull_request_id = $2 returning id",
+    let mut removed: Vec<String> = sqlx::query_scalar(
+        "update merge_issue_pull_requests set dismissed_at = $3::timestamptz \
+         where issue_id = $1 and pull_request_id = $2 and dismissed_at is null and source = 'auto' \
+         returning id",
     )
     .bind(&id)
     .bind(&pr_id)
+    .bind(crate::now())
     .fetch_all(db)
     .await?;
+    if removed.is_empty() {
+        removed = sqlx::query_scalar(
+            "delete from merge_issue_pull_requests where issue_id = $1 and pull_request_id = $2 \
+             and dismissed_at is null and source = 'manual' returning id",
+        )
+        .bind(&id)
+        .bind(&pr_id)
+        .fetch_all(db)
+        .await?;
+    }
     if removed.is_empty() {
         return Err(Refusal::not_found("Pull request link", Some(&pr_id)));
     }

@@ -208,10 +208,11 @@ describe('comments (as the member)', () => {
     expect(line.threadId).toBe('41');
 
     const posts = calls.filter((c) => c.method === 'POST').map((c) => c.body);
+    // Request by request; in conformance mode each request runs on TypeScript, then on Rust.
     expect(posts).toEqual([
-      { body: 'hello' },
-      { body: 'agreed', in_reply_to: 11 },
-      { body: 'here', commit_id: 'headsha7', path: 'src/a.ts', line: 4, side: 'RIGHT' },
+      ...perRun([{ body: 'hello' }]),
+      ...perRun([{ body: 'agreed', in_reply_to: 11 }]),
+      ...perRun([{ body: 'here', commit_id: 'headsha7', path: 'src/a.ts', line: 4, side: 'RIGHT' }]),
     ]);
     expect(calls.every((c) => c.authorization === 'Bearer gho_alice')).toBe(true);
   });

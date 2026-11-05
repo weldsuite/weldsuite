@@ -2,7 +2,7 @@
 //! review" and "yours" match on them.
 //!
 //! ```text
-//!   GET /me → { github }
+//!   GET /me → { github, accounts } (accounts: every linked account, never a token)
 //!   PUT /me → set (or, empty, remove) the GitHub login; 409 when another member holds it
 //! ```
 //!
@@ -12,20 +12,42 @@
 use axum::body::Bytes;
 use axum::response::IntoResponse;
 use http::HeaderMap;
-use serde_json::json;
+use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Field, Presence, Text, js_trim};
 use weldsuite_kit::{Data, generate_id};
 
-use crate::db::is_unique_violation;
-use crate::pull_requests::member_github_login;
+use crate::db::{is_unique_violation, opt_text, rows_of, text};
+use crate::mappers::provider_account_dto;
 use crate::{Answer, Caller, Refusal, now, validate};
 
 const TAKEN: &str = "This GitHub username is already linked to another member";
 
+/// `listAccounts(db, userId)`: every account the member linked (typed logins
+/// and OAuth links), without credentials; `github` is the typed GitHub login.
+pub(crate) async fn list_accounts(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
+    let rows = rows_of(
+        sqlx::query_scalar(
+            "select to_jsonb(a) from merge_provider_accounts a where a.user_id = $1 \
+             order by a.provider asc, a.created_at asc",
+        )
+        .bind(user_id)
+        .fetch_all(db)
+        .await?,
+    );
+    let github = rows
+        .iter()
+        .find(|r| {
+            text(r, "provider") == "github" && opt_text(r, "host").is_none_or(|h| h.is_empty())
+        })
+        .and_then(|r| opt_text(r, "login"));
+    Ok(
+        json!({ "github": github, "accounts": rows.iter().map(provider_account_dto).collect::<Vec<_>>() }),
+    )
+}
+
 pub(crate) async fn read(caller: Caller) -> Answer {
-    let login = member_github_login(&caller.db, &caller.user_id).await?;
-    Ok(Data(json!({ "github": login })).into_response())
+    Ok(Data(list_accounts(&caller.db, &caller.user_id).await?).into_response())
 }
 
 /// `/^$|^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/`.
@@ -63,7 +85,7 @@ pub(crate) async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> A
         _ => None,
     };
     match set_github_login(db, &caller.user_id, raw.as_deref()).await? {
-        Some(login) => Ok(Data(json!({ "github": login })).into_response()),
+        Some(_) => Ok(Data(list_accounts(db, &caller.user_id).await?).into_response()),
         None => Err(Refusal::conflict(TAKEN)),
     }
 }

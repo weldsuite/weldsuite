@@ -130,6 +130,12 @@ export interface AppOptions {
   grants?: string[];
   userId?: string;
   env?: Partial<Env>;
+  /**
+   * The master database the routes write (the provider index), shared with
+   * the Rust backend in conformance mode. The test's `getMasterDb` mock hands
+   * out `conformanceMasterDb(master)`, so TypeScript's run writes a copy.
+   */
+  masterDb?: unknown;
 }
 
 export function makeApp(
@@ -146,6 +152,7 @@ export function makeApp(
       orgId: 'org_alpha',
       workspaceId: 'ws_alpha',
       clerkOrgId: 'org_alpha',
+      ...(options.masterDb ? { masterDb: options.masterDb as Database } : {}),
     },
     env: { ENTITY_EVENTS: queue, GITHUB_APP_ID: '12345', GITHUB_APP_PRIVATE_KEY, ...options.env },
     moduleApiErrors: true,

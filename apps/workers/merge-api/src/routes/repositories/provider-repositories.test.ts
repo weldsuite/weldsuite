@@ -18,6 +18,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
+import { conformanceMasterDb } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type {
   MergeAvailableRepository,
@@ -28,7 +29,7 @@ import connectionsRoutes from '../connections';
 import repositoriesRoutes from './index';
 import { decryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { sealCredentials } from '../../services/credentials';
-import { ADMIN, MEMBER, clearEvents, errorCode, eventTypes, jsonInit, makeApp, ok, openDb, resetTables } from '../../test/helpers';
+import { ADMIN, MEMBER, clearEvents, errorCode, eventTypes, jsonInit, makeApp, ok, openDb, perRun, resetTables } from '../../test/helpers';
 import { failure, stubHttp } from '../../test/fake-http';
 import { azurePr, AZURE_REPO } from '../../test/fake-azure-devops';
 import { bitbucketPr, BITBUCKET_REPO } from '../../test/fake-bitbucket';
@@ -41,7 +42,7 @@ const holder = vi.hoisted(() => ({ masterDb: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getMasterDb: () => holder.masterDb,
+  getMasterDb: () => conformanceMasterDb(holder.masterDb),
 }));
 
 let db: Database;
@@ -69,7 +70,7 @@ const router = compose([
   ['/connections', connectionsRoutes],
   ['/repositories', repositoriesRoutes],
 ]);
-const app = (grants = ADMIN) => makeApp(db, '/api/merge', router, { grants, env: providerEnv() });
+const app = (grants = ADMIN) => makeApp(db, '/api/merge', router, { grants, env: providerEnv(), masterDb: master });
 const get = (path: string) => app().request(`/api/merge${path}`);
 const post = (path: string, body: unknown, grants = ADMIN) => app(grants).request(`/api/merge${path}`, jsonInit(body));
 const del = (path: string) => app().request(`/api/merge${path}`, { method: 'DELETE' });
@@ -123,13 +124,15 @@ describe('GitLab', () => {
       { externalId: '55', fullName: 'acme/web', private: true, defaultBranch: 'main', url: 'https://gitlab.com/acme/web', externalProject: 'acme', added: true },
       { externalId: '56', fullName: 'acme/api', private: false, defaultBranch: null, url: null, externalProject: 'acme', added: false },
     ]);
-    expect(calls).toEqual([
-      {
-        method: 'GET',
-        url: 'gitlab.com/api/v4/projects?membership=true&min_access_level=40&order_by=last_activity_at&per_page=100&page=1',
-        auth: 'bearer gl-token',
-      },
-    ]);
+    expect(calls).toEqual(
+      perRun([
+        {
+          method: 'GET',
+          url: 'gitlab.com/api/v4/projects?membership=true&min_access_level=40&order_by=last_activity_at&per_page=100&page=1',
+          auth: 'bearer gl-token',
+        },
+      ]),
+    );
   });
 
   it('adds a project: registers the hook, stores key and sealed secret, indexes the key, mirrors the merge requests, moves no issue', async () => {
@@ -161,7 +164,8 @@ describe('GitLab', () => {
     expect(index).toHaveLength(1);
     expect(index[0]).toMatchObject({ provider: 'gitlab', kind: 'webhook', externalKey: row!.webhookKey, workspaceId: 'ws_alpha' });
 
-    const hookCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/hooks'))!;
+    // The last registration is the one whose key and secret were stored (conformance mode makes one per backend).
+    const hookCall = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/hooks')).at(-1)!;
     expect(hookCall).toEqual({
       method: 'POST',
       url: 'gitlab.com/api/v4/projects/55/hooks',
@@ -177,13 +181,15 @@ describe('GitLab', () => {
         enable_ssl_verification: true,
       },
     });
-    expect(calls.map((c) => `${c.method} ${c.url.split('?')[0]}`)).toEqual([
-      'GET gitlab.com/api/v4/projects/55',
-      'POST gitlab.com/api/v4/projects/55/hooks',
-      'GET gitlab.com/api/v4/projects/55/merge_requests',
-      'GET gitlab.com/api/v4/projects/55/merge_requests',
-      'GET gitlab.com/api/v4/projects/55/merge_requests',
-    ]);
+    expect(calls.map((c) => `${c.method} ${c.url.split('?')[0]}`)).toEqual(
+      perRun([
+        'GET gitlab.com/api/v4/projects/55',
+        'POST gitlab.com/api/v4/projects/55/hooks',
+        'GET gitlab.com/api/v4/projects/55/merge_requests',
+        'GET gitlab.com/api/v4/projects/55/merge_requests',
+        'GET gitlab.com/api/v4/projects/55/merge_requests',
+      ]),
+    );
     const states = calls.filter((c) => c.url.includes('/merge_requests')).map((c) => c.url);
     expect(states[0]).toBe('gitlab.com/api/v4/projects/55/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100&page=1');
     expect(states[1]).toMatch(/state=merged&updated_after=.+&order_by=updated_at&sort=desc&per_page=100&page=1$/);
@@ -254,7 +260,7 @@ describe('GitLab', () => {
 
     const calls = gitlabApi();
     expect((await del(`/repositories/${added.repository.id}`)).status).toBe(204);
-    expect(calls).toEqual([{ method: 'DELETE', url: 'gitlab.com/api/v4/projects/55/hooks/321', auth: 'bearer gl-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'DELETE', url: 'gitlab.com/api/v4/projects/55/hooks/321', auth: 'bearer gl-token' }]));
     expect(await indexRows()).toEqual([]);
     expect(eventTypes()).toEqual(['merge_repository:deleted']);
     const [row] = await db.select().from(schema.mergeRepositories);
@@ -274,7 +280,7 @@ describe('GitLab', () => {
     await ok(await post('/repositories', { connectionId: connection.id, externalId: '55' }), 201);
     const calls = gitlabApi();
     expect((await del(`/connections/${connection.id}`)).status).toBe(204);
-    expect(calls).toEqual([{ method: 'DELETE', url: 'gitlab.com/api/v4/projects/55/hooks/321', auth: 'bearer gl-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'DELETE', url: 'gitlab.com/api/v4/projects/55/hooks/321', auth: 'bearer gl-token' }]));
     expect(await indexRows()).toEqual([]);
   });
 
@@ -319,7 +325,7 @@ describe('Bitbucket Cloud', () => {
     expect(rows).toEqual([
       { externalId: '{repo-uuid-1}', fullName: 'acme/web', private: true, defaultBranch: 'main', url: 'https://bitbucket.org/acme/web', externalProject: 'acme', added: false },
     ]);
-    expect(calls).toEqual([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories?role=admin&pagelen=50', auth: 'bearer bb-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories?role=admin&pagelen=50', auth: 'bearer bb-token' }]));
 
     calls = api();
     const added = await ok<{ repository: MergeRepositoryDto; pullRequestsSynced: number }>(
@@ -333,7 +339,7 @@ describe('Bitbucket Cloud', () => {
     const [row] = await db.select().from(schema.mergeRepositories);
     expect(row).toMatchObject({ externalId: '{repo-uuid-1}', webhookId: '{hook-1}' });
     const secret = await secretOf(row!.webhookSecret);
-    const hook = calls.find((c) => c.method === 'POST')!;
+    const hook = calls.filter((c) => c.method === 'POST').at(-1)!;
     expect(hook.body).toEqual({
       description: 'WeldMerge',
       url: `https://hooks.test/webhooks/merge/bitbucket/${row!.webhookKey}`,
@@ -348,7 +354,7 @@ describe('Bitbucket Cloud', () => {
 
     calls = api();
     expect((await del(`/repositories/${added.repository.id}`)).status).toBe(204);
-    expect(calls).toEqual([{ method: 'DELETE', url: 'api.bitbucket.org/2.0/repositories/acme/web/hooks/%7Bhook-1%7D', auth: 'bearer bb-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'DELETE', url: 'api.bitbucket.org/2.0/repositories/acme/web/hooks/%7Bhook-1%7D', auth: 'bearer bb-token' }]));
     expect(await indexRows()).toEqual([]);
   });
 
@@ -404,7 +410,7 @@ describe('Azure DevOps', () => {
     expect(rows).toEqual([
       { externalId: 'repo-guid-1', fullName: 'Platform/web', private: true, defaultBranch: 'main', url: 'https://dev.azure.com/acme/Platform/_git/web', externalProject: 'Platform', added: false },
     ]);
-    expect(calls).toEqual([{ method: 'GET', url: 'dev.azure.com/acme/_apis/git/repositories?api-version=7.1', auth: 'bearer az-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'GET', url: 'dev.azure.com/acme/_apis/git/repositories?api-version=7.1', auth: 'bearer az-token' }]));
   });
 
   it('adds with three service-hook subscriptions, mirrors the pull requests, and removes all three', async () => {
@@ -419,12 +425,11 @@ describe('Azure DevOps', () => {
     const [row] = await db.select().from(schema.mergeRepositories);
     expect(row).toMatchObject({ externalProject: 'Platform', fullName: 'Platform/web', webhookId: 'sub-created,sub-updated,sub-merged' });
     const secret = await secretOf(row!.webhookSecret);
-    const subscriptions = calls.filter((c) => c.method === 'POST');
-    expect(subscriptions.map((c) => (c.body as { eventType: string }).eventType)).toEqual([
-      'git.pullrequest.created',
-      'git.pullrequest.updated',
-      'git.pullrequest.merged',
-    ]);
+    // The last three registrations are the ones whose key and secret were stored (one set per backend in conformance mode).
+    const subscriptions = calls.filter((c) => c.method === 'POST').slice(-3);
+    expect(calls.filter((c) => c.method === 'POST').map((c) => (c.body as { eventType: string }).eventType)).toEqual(
+      perRun(['git.pullrequest.created', 'git.pullrequest.updated', 'git.pullrequest.merged']),
+    );
     expect(subscriptions[0]!.body).toEqual({
       publisherId: 'tfs',
       eventType: 'git.pullrequest.created',
@@ -444,31 +449,30 @@ describe('Azure DevOps', () => {
 
     calls = api();
     expect((await del(`/repositories/${added.repository.id}`)).status).toBe(204);
-    expect(calls.map((c) => `${c.method} ${c.url}`).sort()).toEqual([
-      'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-created?api-version=7.1',
-      'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-merged?api-version=7.1',
-      'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-updated?api-version=7.1',
-    ]);
+    expect(calls.map((c) => `${c.method} ${c.url}`).sort()).toEqual(
+      perRun([
+        'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-created?api-version=7.1',
+        'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-merged?api-version=7.1',
+        'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-updated?api-version=7.1',
+      ]).sort(),
+    );
     expect(await indexRows()).toEqual([]);
   });
 
   it('takes the subscriptions already created down again when one is refused', async () => {
     const conn = await connection();
-    let created = 0;
+    // The third subscription (merged) is refused; answered by body, not call order, so both backends see the same.
     const calls = api({
-      'POST dev.azure.com/acme/_apis/hooks/subscriptions': () => {
-        created += 1;
-        return created === 3 ? failure(400, { message: 'subscription limit' }) : { id: `sub-${created}` };
+      'POST dev.azure.com/acme/_apis/hooks/subscriptions': ({ body }: { body: unknown }) => {
+        const event = (body as { eventType: string }).eventType.split('.').pop();
+        return event === 'merged' ? failure(400, { message: 'subscription limit' }) : { id: `sub-${event}` };
       },
-      'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-1': null,
-      'DELETE dev.azure.com/acme/_apis/hooks/subscriptions/sub-2': null,
     });
     const res = await post('/repositories', { connectionId: conn.id, externalId: 'repo-guid-1', externalProject: 'Platform' });
     expect(res.status).toBe(502);
-    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url.split('?')[0])).toEqual([
-      'dev.azure.com/acme/_apis/hooks/subscriptions/sub-1',
-      'dev.azure.com/acme/_apis/hooks/subscriptions/sub-2',
-    ]);
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url.split('?')[0])).toEqual(
+      perRun(['dev.azure.com/acme/_apis/hooks/subscriptions/sub-created', 'dev.azure.com/acme/_apis/hooks/subscriptions/sub-updated']),
+    );
     expect(await db.select().from(schema.mergeRepositories)).toEqual([]);
   });
 

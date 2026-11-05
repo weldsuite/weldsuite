@@ -27,7 +27,7 @@ import connectionsRoutes from '../connections';
 import connectionsOauthRoutes from '../connections/oauth';
 import oauthRoutes from './index';
 import { openCredentials } from '../../services/credentials';
-import { ADMIN, ALICE, BOB, MEMBER, VIEWER, clearEvents, errorCode, eventTypes, events, jsonInit, makeApp, newId, ok, openDb, resetTables } from '../../test/helpers';
+import { ADMIN, ALICE, BOB, MEMBER, VIEWER, clearEvents, errorCode, eventTypes, events, jsonInit, makeApp, newId, ok, openDb, perRun, resetTables } from '../../test/helpers';
 import { failure, fakeKv, stubHttp } from '../../test/fake-http';
 import { compose, ENCRYPTION_KEY, providerEnv } from '../../test/provider-env';
 import { seedConnection, seedPullRequest, seedRepository } from '../../test/seed';
@@ -165,21 +165,23 @@ describe('callback: workspace connections', () => {
       accountId: null,
     });
 
-    expect(calls).toEqual([
-      {
-        method: 'POST',
-        url: 'gitlab.com/oauth/token',
-        body: {
-          client_id: 'gl-client',
-          client_secret: 'gl-secret',
-          code: 'code-1',
-          grant_type: 'authorization_code',
-          redirect_uri: 'https://app.test/weldmerge/oauth/callback',
+    expect(calls).toEqual(
+      perRun([
+        {
+          method: 'POST',
+          url: 'gitlab.com/oauth/token',
+          body: {
+            client_id: 'gl-client',
+            client_secret: 'gl-secret',
+            code: 'code-1',
+            grant_type: 'authorization_code',
+            redirect_uri: 'https://app.test/weldmerge/oauth/callback',
+          },
+          auth: undefined,
         },
-        auth: undefined,
-      },
-      { method: 'GET', url: 'gitlab.com/api/v4/user', auth: 'bearer gl-access' },
-    ]);
+        { method: 'GET', url: 'gitlab.com/api/v4/user', auth: 'bearer gl-access' },
+      ]),
+    );
 
     const [row] = await db.select().from(schema.mergeConnections);
     expect(row).toMatchObject({
@@ -243,11 +245,13 @@ describe('callback: workspace connections', () => {
     const state = await start(kv, '/connections/azure_devops/authorize-url');
     const result = await ok<MergeOauthCallbackResult>(await post(app(kv), '/oauth/callback', { code: 'code-a', state }));
     expect(result.organizations).toBeUndefined();
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'POST login.microsoftonline.com/organizations/oauth2/v2.0/token',
-      'GET app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1',
-      'GET app.vssps.visualstudio.com/_apis/accounts?memberId=profile-1&api-version=7.1',
-    ]);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(
+      perRun([
+        'POST login.microsoftonline.com/organizations/oauth2/v2.0/token',
+        'GET app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1',
+        'GET app.vssps.visualstudio.com/_apis/accounts?memberId=profile-1&api-version=7.1',
+      ]),
+    );
     const [row] = await db.select().from(schema.mergeConnections);
     expect(row).toMatchObject({
       provider: 'azure_devops',
@@ -421,7 +425,7 @@ describe('self-managed GitLab with a token', () => {
       oauthUserLogin: 'deploy-bot',
     });
     expect(JSON.stringify(dto)).not.toContain('glpat-secret');
-    expect(calls).toEqual([{ method: 'GET', url: 'git.example.com/api/v4/user', auth: 'bearer glpat-secret' }]);
+    expect(calls).toEqual(perRun([{ method: 'GET', url: 'git.example.com/api/v4/user', auth: 'bearer glpat-secret' }]));
     const [row] = await db.select().from(schema.mergeConnections);
     expect(row!.credentials).not.toContain('glpat-secret');
     expect(await openCredentials({ DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY }, row!.credentials)).toEqual({ accessToken: 'glpat-secret', tokenType: 'Bearer' });

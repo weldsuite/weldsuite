@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 const send = async (action: string, installation: Record<string, unknown> | null = { id: 4242 }) => {
-  const res = await makeApp(db, '/internal', internalRoutes, { grants: ADMIN }).request(
+  const res = await makeApp(db, '/internal', internalRoutes, { grants: ADMIN, masterDb: master }).request(
     '/internal/github-event',
     jsonInit({ workspaceId: 'org_alpha', event: 'installation', deliveryId: 'd-1', payload: { action, ...(installation ? { installation } : {}) } }),
   );

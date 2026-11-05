@@ -24,7 +24,7 @@ import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import internalRoutes from './index';
 import { sealCredentials } from '../../services/credentials';
-import { ADMIN, clearEvents, data, events, jsonInit, makeApp, openDb, resetTables } from '../../test/helpers';
+import { ADMIN, clearEvents, data, events, jsonInit, makeApp, openDb, perRun, resetTables } from '../../test/helpers';
 import { failure, stubHttp } from '../../test/fake-http';
 import { azurePr, azurePrHook, AZURE_REPO } from '../../test/fake-azure-devops';
 import { bitbucketPr, bitbucketPrHook } from '../../test/fake-bitbucket';
@@ -162,7 +162,7 @@ describe('GitLab', () => {
       gitlabMrHook({ iid: 1, action: 'merge', state: 'merged', source: 'plat-1-fix-tabs', actor: 'Merge-Bot', updatedAt: '2026-11-02T10:00:00.000Z' }),
     );
     expect(result).toEqual({ outcome: 'applied' });
-    expect(calls).toEqual([{ method: 'GET', url: 'gitlab.com/api/v4/projects/55/merge_requests/1', auth: 'bearer gitlab-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'GET', url: 'gitlab.com/api/v4/projects/55/merge_requests/1', auth: 'bearer gitlab-token' }]));
     const [pr] = await prs();
     expect(pr).toMatchObject({ state: 'merged', authorLogin: 'octo-dev' });
     expect((await issueOf(one.id)).status).toBe('done');
@@ -339,7 +339,7 @@ describe('Bitbucket Cloud', () => {
     });
     expect(await deliver(key, secret, 'pullrequest:approved', created)).toEqual({ outcome: 'applied' });
     expect((await prs())[0]!.reviewDecision).toBe('approved');
-    expect(calls).toEqual([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories/acme/web/pullrequests/31', auth: 'bearer bitbucket-token' }]);
+    expect(calls).toEqual(perRun([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories/acme/web/pullrequests/31', auth: 'bearer bitbucket-token' }]));
   });
 
   it('re-reads the build statuses after a commit status event', async () => {
@@ -351,7 +351,9 @@ describe('Bitbucket Cloud', () => {
     const payload = { repository: { uuid: '{repo-uuid-1}' }, commit_status: { state: 'FAILED', commit: { hash: 'sha31' } } };
     expect(await deliver(key, secret, 'repo:commit_status_updated', payload)).toEqual({ outcome: 'applied' });
     expect((await prs())[0]!.checksStatus).toBe('failure');
-    expect(calls).toEqual([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories/acme/web/commit/sha31/statuses?pagelen=50', auth: 'bearer bitbucket-token' }]);
+    expect(calls).toEqual(
+      perRun([{ method: 'GET', url: 'api.bitbucket.org/2.0/repositories/acme/web/commit/sha31/statuses?pagelen=50', auth: 'bearer bitbucket-token' }]),
+    );
   });
 
   it('ignores a delivery about another repository and an event it does not read', async () => {
@@ -401,11 +403,13 @@ describe('Azure DevOps', () => {
       checksStatus: 'pending',
     });
     expect(pr!.requestedReviewers).toMatchObject([{ kind: 'user', login: 'mpeters@acme.com' }]);
-    expect(calls.map((c) => `${c.method} ${c.url.split('?')[0]}`).sort()).toEqual([
-      'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullRequests/77/statuses',
-      'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77',
-      'GET dev.azure.com/acme/Platform/_apis/policy/evaluations',
-    ]);
+    expect(calls.map((c) => `${c.method} ${c.url.split('?')[0]}`).sort()).toEqual(
+      perRun([
+        'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullRequests/77/statuses',
+        'GET dev.azure.com/acme/Platform/_apis/git/repositories/repo-guid-1/pullrequests/77',
+        'GET dev.azure.com/acme/Platform/_apis/policy/evaluations',
+      ]).sort(),
+    );
     expect(calls.every((c) => c.auth === 'bearer azure_devops-token')).toBe(true);
   });
 

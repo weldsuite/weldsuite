@@ -13,7 +13,10 @@ use crate::automation::{
     PullRequestPhase, issue_status_for_pull_request, pull_request_phase, should_evaluate_link,
 };
 use crate::db::{Row, col, flag, opt_text, text};
-use crate::github::{is_not_older, map_github_pull_request, merge_mirror_update, millis_of};
+use crate::github::{
+    MirrorFields, is_not_older, map_github_pull_request, merge_mirror_update, millis_of,
+};
+use crate::hooks::{HookContext, after_issue_updated, after_pull_request_synced};
 use crate::issues::move_issue_status;
 use crate::keys::find_issue_key_mentions;
 use crate::mappers::{issue_event_data, pull_request_event_data};
@@ -87,6 +90,8 @@ async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usi
             };
             let issue_id = text(hit, "id").to_owned();
             match by_issue.get(&issue_id) {
+                // A removed automatic link stays removed: the pair is not linked again.
+                Some(link) if !link.get("dismissedAt").is_none_or(Value::is_null) => {}
                 None => {
                     let inserted: Option<Value> = sqlx::query_scalar(
                         "insert into merge_issue_pull_requests (id, issue_id, pull_request_id, source, closes) \
@@ -136,7 +141,7 @@ async fn load_links(
         "select to_jsonb(l), to_jsonb(i), t.key from merge_issue_pull_requests l \
          inner join merge_issues i on i.id = l.issue_id \
          inner join merge_teams t on t.id = i.team_id \
-         where l.pull_request_id = $1 and i.deleted_at is null",
+         where l.pull_request_id = $1 and l.dismissed_at is null and i.deleted_at is null",
     )
     .bind(pull_request_id)
     .fetch_all(db)
@@ -155,13 +160,16 @@ async fn load_links(
         .collect())
 }
 
-/// `runAutomation(db, pr, previous, links)`: applies the rules to linked
-/// issues; the issue events (by the caller's actor).
+/// `runAutomation(db, pr, previous, links, hooks?)`: applies the rules to
+/// linked issues; the issue events (by the caller's actor). Webhook-driven
+/// syncs pass `hooks`: the issue sync pushes the status the pull request
+/// moved the issue to.
 pub(crate) async fn run_automation(
     db: &PgPool,
     pr: &Row,
     previous: Option<PullRequestPhase>,
     links: &mut [LinkedIssue],
+    hooks: Option<&HookContext>,
 ) -> Result<Vec<PendingEvent>, sqlx::Error> {
     let next = phase_of(pr);
     let mut events = Vec::new();
@@ -189,6 +197,9 @@ pub(crate) async fn run_automation(
             )
             .with_changes(Some(changes)),
         );
+        if let Some(hooks) = hooks {
+            after_issue_updated(hooks, &link.issue, &moved, &link.team_key).await;
+        }
         link.issue = moved;
     }
     Ok(events)
@@ -244,6 +255,7 @@ pub(crate) struct UpsertOutcome {
 /// Member columns of a pull request, from the logins members entered.
 async fn match_members(
     db: &PgPool,
+    provider: &str,
     logins: &[String],
 ) -> Result<HashMap<String, String>, sqlx::Error> {
     let mut unique: Vec<String> = Vec::new();
@@ -256,9 +268,10 @@ async fn match_members(
         return Ok(HashMap::new());
     }
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "select login, user_id from merge_provider_accounts where provider = 'github' and login = any($1)",
+        "select login, user_id from merge_provider_accounts where provider = $2 and login = any($1)",
     )
     .bind(&unique)
+    .bind(provider)
     .fetch_all(db)
     .await?;
     Ok(rows.into_iter().collect())
@@ -272,15 +285,39 @@ fn opt_int(value: &Value) -> Option<i64> {
     value.as_i64()
 }
 
-/// `upsertPullRequest(db, repository, github, { automate, skipUnchanged })`.
+/// `upsertPullRequest(db, repository, github, options)`: a GitHub pull request
+/// payload, mapped, then mirrored.
 pub(crate) async fn upsert_pull_request(
     db: &PgPool,
     repository: &Row,
     github: &Value,
     automate: bool,
     skip_unchanged: bool,
+    hooks: Option<&HookContext>,
 ) -> Result<UpsertOutcome, MergeError> {
-    let fields = map_github_pull_request(github);
+    upsert_mirror(
+        db,
+        repository,
+        map_github_pull_request(github),
+        automate,
+        skip_unchanged,
+        hooks,
+    )
+    .await
+}
+
+/// `upsertMirror(db, repository, fields, { automate, skipUnchanged, hooks })`:
+/// mirrors a pull request already mapped to [`MirrorFields`] (every
+/// provider's mapper ends here). Webhook-driven syncs pass `hooks`: the area
+/// hooks run after the write; a backfill leaves it out.
+pub(crate) async fn upsert_mirror(
+    db: &PgPool,
+    repository: &Row,
+    fields: MirrorFields,
+    automate: bool,
+    skip_unchanged: bool,
+    hooks: Option<&HookContext>,
+) -> Result<UpsertOutcome, MergeError> {
     let number = fields
         .number
         .as_i64()
@@ -329,7 +366,7 @@ pub(crate) async fn upsert_pull_request(
                 logins.push(login.to_owned());
             }
         }
-        let members = match_members(db, &logins).await?;
+        let members = match_members(db, text(repository, "provider"), &logins).await?;
         let reviewers: Vec<Value> = fields
             .requested_reviewers
             .iter()
@@ -417,7 +454,7 @@ pub(crate) async fn upsert_pull_request(
                    provider_created_at, provider_updated_at, merged_at, closed_at, \
                    synced_at, created_at, updated_at \
                  ) values ( \
-                   $1, $2, 'github', $3, $4::int, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+                   $1, $2, $26, $3, $4::int, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
                    $16::int, $17::int, $18::int, $19, $20, $21::timestamptz, $22::timestamptz, \
                    $23::timestamptz, $24::timestamptz, $25::timestamptz, $25::timestamptz, $25::timestamptz \
                  ) returning to_jsonb(merge_pull_requests.*)",
@@ -447,6 +484,7 @@ pub(crate) async fn upsert_pull_request(
             .bind(&fields.merged_at)
             .bind(&fields.closed_at)
             .bind(&now)
+            .bind(text(repository, "provider"))
             .fetch_one(db)
             .await?;
             js_row(inserted)
@@ -456,7 +494,7 @@ pub(crate) async fn upsert_pull_request(
     let (mut links, created) = sync_auto_links(db, &row).await?;
     let mut events = Vec::new();
     if automate {
-        events.extend(run_automation(db, &row, previous, &mut links).await?);
+        events.extend(run_automation(db, &row, previous, &mut links, hooks).await?);
     }
     if !unchanged {
         let issue_ids: Vec<String> = links
@@ -476,6 +514,9 @@ pub(crate) async fn upsert_pull_request(
         let mut first = pull_request_events(&row, previous, &issue_ids, changes, automate);
         first.extend(events);
         events = first;
+        if let Some(hooks) = hooks {
+            after_pull_request_synced(hooks, existing.as_ref(), &row, &events).await;
+        }
     }
     Ok(UpsertOutcome {
         status: if unchanged {

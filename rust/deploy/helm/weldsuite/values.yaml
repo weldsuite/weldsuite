@@ -667,6 +667,13 @@ cron:
       enabled: true
       schedule: "30 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldMerge: the daily WeldChat digests, for the workspaces the
+    # merge_digest due index lists (each subscription posts at its own UTC
+    # hour). Does nothing while merge is not served.
+    merge-digest-sweep:
+      enabled: true
+      schedule: "0 * * * *"
+      activeDeadlineSeconds: 3000
     # WeldBooks: overdue invoices, due recurring invoices and the day's ECB
     # rates, in every workspace that used books (the books due index).
     books-sweep:

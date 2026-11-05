@@ -248,11 +248,21 @@ ingress host, at the server), with conformance suites named `integrations: …`:
   `RUST_PORTED_MODULES`; until then the forward fails as without `BOOKS_INTERNAL` and
   the delivery is still acknowledged), and `weldsuite cron bank-feed-due` (the master
   `bank_feed_connection_index`)
-- **GitHub**: the App's `POST /webhooks/github` (installation status, one inbound sync
-  per link per minute) and the Workflows as jobs, `integrations.github-project-sync`
+- **GitHub**: the App's `POST /webhooks/github` (the installation's workspace from the
+  cache, else the master `merge_provider_index`, else a scan of the tenants that writes the
+  index row; the installation's status on its WeldMerge connection, `merge_connections`,
+  which also leaves the index when it is uninstalled; one inbound sync per link per minute;
+  pull requests, reviews, checks, issues, issue comments and the installation lifecycle
+  forwarded to WeldMerge in process) and the Workflows as jobs, `integrations.github-project-sync`
   (`GITHUB_PROJECT_SYNC`, which WeldConnect's "Sync now" now starts on Kubernetes) and
   `integrations.github-project-outbound` (`GITHUB_PROJECT_OUTBOUND`, which WeldFlow's task
   routes start for a task created, edited, moved or deleted on a linked project)
+- **WeldMerge's provider webhooks**: `POST /webhooks/merge/:provider/:key` (GitLab,
+  Bitbucket Cloud, Azure DevOps): the repository's webhook key resolved to its workspace
+  through the master `merge_provider_index` (cached), and the raw delivery with its
+  allow-listed headers handed to WeldMerge's provider-event intake in process, which checks
+  the signature with the repository's own secret (401 refused, 404 unknown, 413 over a
+  megabyte, 502 when the intake fails, 503 when the lookup fails or merge is not served)
 - **CRM sync**: the `CRM_SYNC` Workflow as the `integrations.crm-sync` job (Attio,
   HubSpot and Google Calendar into companies, people, opportunities and calendar
   events, through the field mappings; WeldConnect's CRM routes and its internal sync
@@ -460,6 +470,9 @@ rust/
                         share; a workspace API key (no user) reaches open teamspaces only
   crates/apps-domain/   WeldApps rules core-apps and external-api share: the user-apps request schemas and manifest,
                         scopes, reserved codes, and adopting first-party installs onto an official hosted app
+  crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
+                        installation recorded as a merge_connections row and in the master merge_provider_index,
+                        its status and its removal
   modules/external-api/ the public API at /v1 (external-api): key and app-token auth, licence gate, rate limit,
                         WeldApps' token grant, app storage and the CLI's developer API, and the object groups;
                         tools/generate.mts writes their Zod schemas and tables as data
@@ -496,9 +509,23 @@ rust/
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id),
                         modules/merge (WeldMerge: teams, issues, the pull request mirror and
-                        its automation, GitHub through the App's tokens in crates/connect-domain;
-                        its GitHub event intake answers the integration workers' webhook in
-                        process, `MERGE_INTERNAL`),
+                        its automation, GitHub through the App's tokens in crates/connect-domain
+                        (with the install state and installation metadata), GitLab, Bitbucket
+                        and Azure DevOps behind `providers/` (OAuth, tokens sealed with the
+                        keyring, repository webhooks indexed in the master
+                        `merge_provider_index`), two-way issue sync with GitHub and GitLab
+                        (`issue_sync/`), the GitHub App's install flow and setup redirect
+                        (`/public/merge/github/setup`, `installations` records an installation
+                        for WeldConnect's callback too); review and merge as the member on all
+                        four providers (`review/`), releases with notes written through the AI
+                        Gateway's OpenAI-compatible endpoint (charged to the wallet with a
+                        master database) and published to WeldKnow and by email, record links,
+                        WeldChat subscriptions and cards (`chat/`, posted through
+                        crates/chat-domain's `system_message`; the daily digest is
+                        `weldsuite cron merge-digest-sweep` on the `merge_digest` due index),
+                        and WeldConnect's `merge.*` actions and WeldAgent's tools on its internal router
+                        (`across.rs`, `workflow_action`); its GitHub and provider event intake
+                        answers the integration workers' webhooks in process, `MERGE_INTERNAL`),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -667,7 +694,9 @@ which stays with Global), `workflow-schedules` every minute (WeldConnect's
 scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
 `bank-feed-due` every 15 minutes (WeldBooks' bank feeds due a sync; nothing while
 books is not served), `connector-catchup` every 15 minutes and `moneybird-push`
-every 5 (WeldConnect's connectors; nothing while connect is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+every 5 (WeldConnect's connectors; nothing while connect is not served), and
+`merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
+due index; nothing while merge is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -704,6 +733,8 @@ every 5 (WeldConnect's connectors; nothing while connect is not served). The ser
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | The Stripe connector's ingress: the signing secret of the platform's Connect webhook endpoint (`POST /webhooks/stripe-connect`; unset: 503). `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_CLIENT_ID` are the platform key OAuth Stripe connections are read with and the Connect OAuth app; `MONEYBIRD_CLIENT_ID`/`MONEYBIRD_CLIENT_SECRET` the Moneybird OAuth app; `CONNECTOR_WEBHOOK_BASE_URL` the public origin stores deliver their webhooks to (default by `ENVIRONMENT`) |
 | `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
+| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`/`_SECRET`, `GITLAB_OAUTH_CLIENT_ID`/`_SECRET`, `BITBUCKET_OAUTH_CLIENT_ID`/`_SECRET`, `AZURE_DEVOPS_CLIENT_ID`/`_SECRET`, `APP_URL`, `WEBHOOK_BASE_URL` | WeldMerge: the GitHub App's install page (unset: `install-url` answers 503) and its user authorization for members, the OAuth apps of GitLab.com, Bitbucket Cloud and Azure DevOps (unset: their authorize URLs answer 503), the platform origin OAuth and the App's setup redirect land on (`/weldmerge/oauth/callback`; required for OAuth), and the public origin provider webhooks deliver to (`${WEBHOOK_BASE_URL}/webhooks/merge/<provider>/<key>`). Tokens are sealed with `DATABASE_ENCRYPTION_KEY`; the install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the OAuth state lives in Valkey, or in this process without it |
+| `CF_ACCOUNT_ID` (or `CLOUDFLARE_ACCOUNT_ID`), `AI_GATEWAY_API_TOKEN` (else `CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`), `CF_AI_GATEWAY`, `CF_AIG_TOKEN`, `AI_FALLBACK_MODEL` | WeldMerge: a release's notes written by the model on the Cloudflare AI Gateway's OpenAI-compatible endpoint (`@weldsuite/ai`'s settings: the account, its token, the gateway id (default `default`), a separate gateway token, and the model a refused third-party call falls back to, `none` to disable). Unset account: `generate-notes` answers 503. With the master database the call is charged to the workspace's prepaid credits |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |

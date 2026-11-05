@@ -24,23 +24,45 @@
 pub mod automation;
 pub mod github;
 mod github_client;
+/// Recording a GitHub App installation: shared with WeldConnect through
+/// `crates/merge-domain` (`@weldsuite/merge-domain/installations`).
+pub use weldsuite_merge_domain::installations;
 pub mod keys;
 
+/// `MergeInternal.workflowAction` in process (WeldConnect's `merge.*` actions).
+pub use across::workflow_action;
+/// The WeldChat daily digest's hourly sweep (`weldsuite cron merge-digest-sweep`).
+pub use chat::digest::run_digest_sweep;
+
 mod accounts;
+mod across;
+mod chat;
 mod comments;
 mod connections;
+mod credentials;
 mod cycles;
 mod db;
+mod draft_pull_request;
 mod github_events;
+mod github_install;
+mod hooks;
 mod inbox;
+mod issue_sync;
 mod issues;
 mod labels;
 mod mappers;
+mod oauth;
 mod pr_sync;
+mod provider_events;
+mod providers;
 mod pull_requests;
+mod record_links;
+mod releases;
 mod repositories;
+mod review;
 mod schemas;
 mod teams;
+mod webhooks;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,14 +83,14 @@ use weldsuite_catalogs::permission_keys::{
     MERGE_TEAMS_READ,
 };
 use weldsuite_connect_domain::github_app::AppCredentials;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{Keyring, MasterDb, PgPool, Tenant};
 use weldsuite_events::{
     EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType, iso_timestamp,
 };
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
-use weldsuite_ports::{BoxFuture, OutboundHttp};
+use weldsuite_ports::{BoxFuture, DynCache, OutboundHttp, RequestCache};
 
 use crate::github_client::GithubClient;
 
@@ -89,6 +111,19 @@ pub struct MergeState {
     /// The workspaces' tenants, for the GitHub event intake (which has no
     /// session). None: every event answers 404 for its workspace.
     pub tenants: Option<TenantResolver>,
+    /// The master database: the provider index (`merge_provider_index`).
+    /// A request's `MasterDb` (conformance) wins.
+    pub master: Option<PgPool>,
+    /// The cache the OAuth state lives in (`WORKSPACE_CACHE` on Global). A
+    /// request's `RequestCache` (conformance) wins.
+    pub cache: Option<Arc<dyn DynCache>>,
+    /// Realtime (`env.REALTIME`): the WeldChat posts' broadcasts and unread
+    /// pings. None publishes nothing.
+    pub realtime: Option<Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// Customer mail (`SEND_EMAIL`) and the outbound guard's ledgers, for a
+    /// release's notes sent by email. A request's `RequestOutbound`
+    /// (conformance) wins.
+    pub mail: weldsuite_mail_domain::outbound::OutboundBindings,
 }
 
 impl std::fmt::Debug for MergeState {
@@ -96,12 +131,43 @@ impl std::fmt::Debug for MergeState {
         f.debug_struct("MergeState")
             .field("http", &self.http.is_some())
             .field("tenants", &self.tenants.is_some())
+            .field("master", &self.master.is_some())
+            .field("cache", &self.cache.is_some())
             .finish_non_exhaustive()
     }
 }
 
 /// The settings merge-api reads, by binding name.
-pub const ENV_NAMES: &[&str] = &["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY"];
+pub const ENV_NAMES: &[&str] = &[
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
+    "GITLAB_OAUTH_CLIENT_ID",
+    "GITLAB_OAUTH_CLIENT_SECRET",
+    "BITBUCKET_OAUTH_CLIENT_ID",
+    "BITBUCKET_OAUTH_CLIENT_SECRET",
+    "AZURE_DEVOPS_CLIENT_ID",
+    "AZURE_DEVOPS_CLIENT_SECRET",
+    "APP_URL",
+    "WEBHOOK_BASE_URL",
+    "CLERK_SECRET_KEY",
+    "INTERNAL_API_SECRET",
+    "DATABASE_ENCRYPTION_KEY",
+    "DATABASE_ENCRYPTION_KEY_V2",
+    // A release's notes, written by the model (`@weldsuite/ai`'s settings).
+    "CF_ACCOUNT_ID",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CF_AI_GATEWAY",
+    "CF_AIG_TOKEN",
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    "CF_API_TOKEN",
+    "AI_FALLBACK_MODEL",
+    // The internal calls' member check (`checkAppPermission` enforcement).
+    "PERMISSIONS_APP_ENFORCE",
+];
 
 /// [`ENV_NAMES`] from the process environment.
 pub fn env_from_process() -> HashMap<String, String> {
@@ -127,6 +193,13 @@ where
     let prs_read = || gate.require([MERGE_PULL_REQUESTS_READ]);
     let connections_read = || gate.require([MERGE_CONNECTIONS_READ]);
     let connections_manage = || gate.require([MERGE_CONNECTIONS_MANAGE]);
+    let releases_read = || gate.require([weldsuite_catalogs::permission_keys::MERGE_RELEASES_READ]);
+    let releases_manage =
+        || gate.require([weldsuite_catalogs::permission_keys::MERGE_RELEASES_MANAGE]);
+    let prs_review =
+        || gate.require([weldsuite_catalogs::permission_keys::MERGE_PULL_REQUESTS_REVIEW]);
+    let prs_merge =
+        || gate.require([weldsuite_catalogs::permission_keys::MERGE_PULL_REQUESTS_MERGE]);
     Router::new()
         // Teams
         .route("/teams", get(teams::list).route_layer(teams_read()))
@@ -187,6 +260,94 @@ where
             "/issues/{id}/pull-requests/{pr_id}",
             delete(pull_requests::unlink).route_layer(issues_update()),
         )
+        // Record links (R1b)
+        .route(
+            "/issues/{id}/links",
+            get(record_links::list).route_layer(issues_read()),
+        )
+        .route(
+            "/issues/{id}/links",
+            post(record_links::create).route_layer(issues_update()),
+        )
+        .route(
+            "/issues/{id}/links/{link_id}",
+            delete(record_links::remove).route_layer(issues_update()),
+        )
+        .route(
+            "/record-links",
+            get(record_links::lookup).route_layer(issues_read()),
+        )
+        // Review and merge (R1b)
+        .route(
+            "/pull-requests/{id}/files",
+            get(review::files).route_layer(prs_read()),
+        )
+        .route(
+            "/pull-requests/{id}/threads",
+            get(review::threads).route_layer(prs_read()),
+        )
+        .route(
+            "/pull-requests/{id}/reviews",
+            post(review::reviews).route_layer(prs_review()),
+        )
+        .route(
+            "/pull-requests/{id}/comments",
+            post(review::comments).route_layer(prs_review()),
+        )
+        .route(
+            "/pull-requests/{id}/merge",
+            post(review::merge).route_layer(prs_merge()),
+        )
+        // Releases (R1b)
+        .route(
+            "/releases",
+            get(releases::list).route_layer(releases_read()),
+        )
+        .route(
+            "/releases",
+            post(releases::create).route_layer(releases_manage()),
+        )
+        .route(
+            "/releases/{id}",
+            get(releases::detail).route_layer(releases_read()),
+        )
+        .route(
+            "/releases/{id}",
+            patch(releases::update)
+                .delete(releases::remove)
+                .route_layer(releases_manage()),
+        )
+        .route(
+            "/releases/{id}/refresh",
+            post(releases::refresh).route_layer(releases_manage()),
+        )
+        .route(
+            "/releases/{id}/generate-notes",
+            post(releases::generate_notes).route_layer(releases_manage()),
+        )
+        .route(
+            "/releases/{id}/ship",
+            post(releases::ship).route_layer(releases_manage()),
+        )
+        .route(
+            "/releases/{id}/publish",
+            post(releases::publish_release).route_layer(releases_manage()),
+        )
+        // WeldChat subscriptions (R1b)
+        .route(
+            "/chat-subscriptions",
+            get(chat::subscriptions::list).route_layer(teams_read()),
+        )
+        .route(
+            "/chat-subscriptions",
+            post(chat::subscriptions::create).route_layer(teams_manage()),
+        )
+        .route(
+            "/chat-subscriptions/{id}",
+            patch(chat::subscriptions::update)
+                .delete(chat::subscriptions::remove)
+                .route_layer(teams_manage()),
+        )
         // Comments
         .route(
             "/comments/{id}",
@@ -205,12 +366,36 @@ where
         )
         // Inbox
         .route("/inbox", get(inbox::list).route_layer(prs_read()))
-        // The member's own provider logins
+        .route(
+            "/inbox/items/{item_key}",
+            patch(inbox::update_item).route_layer(prs_read()),
+        )
+        .route(
+            "/inbox/read-all",
+            post(inbox::read_all).route_layer(prs_read()),
+        )
+        // The member's own provider logins and linked accounts
         .route(
             "/accounts/me",
             get(accounts::read)
                 .put(accounts::update)
                 .route_layer(prs_read()),
+        )
+        .route(
+            "/accounts/gitlab-token",
+            post(oauth::link_gitlab_token).route_layer(prs_read()),
+        )
+        .route(
+            "/accounts/{id}",
+            delete(oauth::unlink_account).route_layer(prs_read()),
+        )
+        .route(
+            "/accounts/{id}/authorize-url",
+            get(oauth::account_authorize_url).route_layer(prs_read()),
+        )
+        .route(
+            "/oauth/callback",
+            post(oauth::callback).route_layer(prs_read()),
         )
         // Connections
         .route(
@@ -222,8 +407,24 @@ where
             post(connections::connect_github).route_layer(connections_manage()),
         )
         .route(
+            "/connections/github/install-url",
+            get(github_install::install_url).route_layer(connections_manage()),
+        )
+        .route(
+            "/connections/gitlab",
+            post(oauth::connect_gitlab_token).route_layer(connections_manage()),
+        )
+        .route(
+            "/connections/azure_devops/organization",
+            post(oauth::azure_organization).route_layer(connections_manage()),
+        )
+        .route(
             "/connections/{id}",
             delete(connections::remove).route_layer(connections_manage()),
+        )
+        .route(
+            "/connections/{id}/authorize-url",
+            get(oauth::connection_authorize_url).route_layer(connections_manage()),
         )
         .route(
             "/connections/{id}/available-repositories",
@@ -248,43 +449,107 @@ where
             "/repositories/{id}/sync",
             post(repositories::sync).route_layer(connections_manage()),
         )
+        .route(
+            "/repositories/{id}/import-issues",
+            post(issue_sync::routes::import_issues).route_layer(connections_manage()),
+        )
+        // Issue to provider issue links
+        .route(
+            "/issues/{id}/external",
+            post(issue_sync::routes::create_external)
+                .delete(issue_sync::routes::remove_external)
+                .route_layer(issues_update()),
+        )
+        .with_state(state)
+}
+
+/// merge-api's public routes (before any session): the GitHub App's setup
+/// redirect, `GET /public/merge/github/setup`, trusted by its signed state.
+/// At its full path, to merge into the server's public routes.
+pub fn public_router<S>(state: MergeState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/public/merge/github/setup", get(github_install::setup))
         .with_state(state)
 }
 
 /// merge-api's internal routes (the `MergeInternal` entrypoint, trusted by
-/// topology), relative to `/internal`: `POST /github-event`. Served only in
-/// process (the integration workers' GitHub receiver) and in conformance
-/// builds; never on the server's own listener.
+/// topology), relative to `/internal`: `POST /github-event` (a verified
+/// GitHub App delivery) and `POST /provider-event` (a GitLab, Bitbucket or
+/// Azure DevOps delivery, `{workspaceId, provider, key, headers, body}`:
+/// what `MergeInternal.providerEvent` posts; it answers `{ data: { outcome,
+/// reason? } }`). Served only in process (the integration workers'
+/// receivers) and in conformance builds; never on the server's own listener.
 pub fn internal_router<S>(state: MergeState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
         .route("/github-event", post(github_events::intake))
+        .route("/provider-event", post(provider_events::intake))
+        .route("/workflow-action", post(across::workflow_action_route))
+        .route("/agent-tool", post(across::agent_tool_route))
         .with_state(state)
 }
 
-/// What the request overrides in conformance builds: the test's env and
-/// third-party HTTP.
+/// What the request overrides in conformance builds: the test's env,
+/// third-party HTTP, master database and KV.
 #[derive(Clone, Default)]
 pub(crate) struct Overrides {
     pub(crate) env: Option<RequestEnv>,
     pub(crate) http: Option<OutboundHttp>,
+    pub(crate) master: Option<PgPool>,
+    pub(crate) cache: Option<RequestCache>,
 }
 
 impl Overrides {
-    fn from_extensions(extensions: &http::Extensions) -> Self {
+    pub(crate) fn from_extensions(extensions: &http::Extensions) -> Self {
         Self {
             env: extensions.get::<RequestEnv>().cloned(),
             http: extensions.get::<OutboundHttp>().cloned(),
+            master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
+            cache: extensions.get::<RequestCache>().cloned(),
         }
     }
 
     /// `c.env.<name>`: the request's env first (conformance), then the state's.
-    fn env(&self, state: &MergeState, name: &str) -> Option<String> {
+    pub(crate) fn env(&self, state: &MergeState, name: &str) -> Option<String> {
         match &self.env {
             Some(env) => env.get(name).map(str::to_owned),
             None => state.env.get(name).cloned(),
+        }
+    }
+
+    /// `c.env.<name>` when it is set and not empty.
+    pub(crate) fn env_set(&self, state: &MergeState, name: &str) -> Option<String> {
+        self.env(state, name).filter(|value| !value.is_empty())
+    }
+
+    /// Third-party HTTP: the request's (conformance), then the state's.
+    pub(crate) fn outbound(&self, state: &MergeState) -> Option<OutboundHttp> {
+        self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// `getMasterDb(c.env)`: the request's (conformance), then the state's.
+    pub(crate) fn master(&self, state: &MergeState) -> Option<PgPool> {
+        self.master.clone().or_else(|| state.master.clone())
+    }
+
+    /// `c.env.WORKSPACE_CACHE`: the request's (conformance), then the state's.
+    pub(crate) fn cache(&self, state: &MergeState) -> Option<Arc<dyn DynCache>> {
+        self.cache
+            .as_ref()
+            .map(|cache| Arc::clone(&cache.0))
+            .or_else(|| state.cache.clone())
+    }
+
+    /// `keyringFromEnv(c.env)`: `DATABASE_ENCRYPTION_KEY` and `_V2`.
+    pub(crate) fn keyring(&self, state: &MergeState) -> Keyring {
+        Keyring {
+            v1: self.env_set(state, "DATABASE_ENCRYPTION_KEY"),
+            v2: self.env_set(state, "DATABASE_ENCRYPTION_KEY_V2"),
         }
     }
 
@@ -314,6 +579,10 @@ impl Overrides {
 pub(crate) struct Caller {
     pub(crate) db: PgPool,
     pub(crate) user_id: String,
+    /// `c.get('workspaceId')`: `workspaces.id` (ws_…).
+    pub(crate) workspace_id: String,
+    /// `c.get('clerkOrgId')`.
+    pub(crate) clerk_org_id: Option<String>,
     pub(crate) permissions: Permissions,
     pub(crate) events: EventContext,
     pub(crate) overrides: Overrides,
@@ -323,6 +592,19 @@ impl Caller {
     /// `hasContextPermission(c, key)`.
     pub(crate) fn can(&self, key: &str) -> bool {
         self.permissions.has_any(&[key])
+    }
+
+    /// `hookContext(c)`: what the area hooks (issue sync, chat posts) need.
+    pub(crate) fn hook_context(&self, state: &MergeState) -> hooks::HookContext {
+        hooks::HookContext {
+            db: self.db.clone(),
+            state: state.clone(),
+            overrides: self.overrides.clone(),
+            user_id: self.user_id.clone(),
+            workspace_id: self.workspace_id.clone(),
+            clerk_org_id: self.clerk_org_id.clone(),
+            events: self.events.clone(),
+        }
     }
 }
 
@@ -343,6 +625,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 Ok(Self {
                     db: tenant.db.clone(),
                     user_id: auth.user_id.clone(),
+                    workspace_id: tenant.workspace_id.clone(),
+                    clerk_org_id: tenant.clerk_org_id.clone(),
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
                     overrides: Overrides::from_extensions(&parts.extensions),
@@ -408,8 +692,10 @@ pub(crate) fn publish(state: &MergeState, context: &EventContext, events: Vec<Pe
     }
 }
 
-/// A failure off the route's own refusals: what `githubFailure` answers
-/// (503 without the App's credentials, 502 when GitHub refuses or fails),
+/// A failure off the route's own refusals: what `providerFailure` answers
+/// (`githubFailure`'s 503 without the App's credentials and 502 when GitHub
+/// refuses or fails; a provider's 502 `provider_error`, 503 without its
+/// OAuth app, 409 `connection_needs_attention`, 422 for what it cannot do),
 /// and anything else as the module workers answer a thrown error.
 #[derive(Debug)]
 pub(crate) enum MergeError {
@@ -418,6 +704,22 @@ pub(crate) enum MergeError {
     GithubNotConfigured,
     /// `GithubApiError`: GitHub answered with this status.
     GithubApi(u16),
+    /// `ProviderApiError`: the provider answered with this status and its
+    /// own message (a 502 `provider_error`).
+    ProviderApi {
+        provider: String,
+        status: u16,
+        message: String,
+    },
+    /// `ProviderNotConfiguredError`: no OAuth app for the provider (503).
+    ProviderNotConfigured(String),
+    /// `ProviderCredentialsError`: no usable token (409).
+    ProviderCredentials(String),
+    /// `ProviderUnsupportedError`: `<provider> does not support <capability>` (422).
+    ProviderUnsupported {
+        provider: String,
+        capability: String,
+    },
     /// Anything else the worker would throw.
     Unexpected(String),
 }
@@ -429,6 +731,43 @@ impl From<sqlx::Error> for MergeError {
 }
 
 impl MergeError {
+    /// `new ProviderApiError(provider, status, message)`.
+    pub(crate) fn provider_api(provider: &str, status: u16, message: impl Into<String>) -> Self {
+        Self::ProviderApi {
+            provider: provider.to_owned(),
+            status,
+            message: message.into(),
+        }
+    }
+
+    /// `new ProviderUnsupportedError(provider, capability)`.
+    pub(crate) fn unsupported(provider: &str, capability: &str) -> Self {
+        Self::ProviderUnsupported {
+            provider: provider.to_owned(),
+            capability: capability.to_owned(),
+        }
+    }
+
+    /// `isStatus(err, ...statuses)`: a provider answer with one of these statuses.
+    pub(crate) fn is_status(&self, statuses: &[u16]) -> bool {
+        matches!(self, Self::ProviderApi { status, .. } if statuses.contains(status))
+    }
+
+    /// `syncFailure(c, err)`: the explicit issue-sync routes answer only a
+    /// provider refusal, a missing capability and GitHub without the App;
+    /// anything else (no OAuth app, no token) is thrown (500).
+    #[must_use]
+    pub(crate) fn for_sync(self) -> Self {
+        match self {
+            Self::ProviderNotConfigured(provider) => {
+                Self::Unexpected(format!("{provider} OAuth is not configured for WeldMerge"))
+            }
+            Self::ProviderCredentials(message) => Self::Unexpected(message),
+            Self::GithubApi(status) => Self::Unexpected(format!("GitHub answered {status}")),
+            other => other,
+        }
+    }
+
     pub(crate) fn respond(self) -> Response {
         match self {
             Self::GithubNotConfigured => {
@@ -443,6 +782,31 @@ impl MergeError {
                 )
                 .into_response()
             }
+            Self::ProviderApi {
+                provider,
+                status,
+                message,
+            } => {
+                tracing::warn!(%provider, status, "merge: a provider answered with an error");
+                ApiError::new(StatusCode::BAD_GATEWAY, "provider_error", message).into_response()
+            }
+            Self::ProviderNotConfigured(provider) => {
+                ApiError::unavailable(format!("{provider} OAuth is not configured for WeldMerge"))
+                    .into_response()
+            }
+            Self::ProviderCredentials(message) => {
+                ApiError::new(StatusCode::CONFLICT, "connection_needs_attention", message)
+                    .into_response()
+            }
+            Self::ProviderUnsupported {
+                provider,
+                capability,
+            } => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "UNPROCESSABLE_ENTITY",
+                format!("{provider} does not support {capability}"),
+            )
+            .into_response(),
             Self::Db(error) => {
                 tracing::error!(%error, "merge: a statement failed");
                 unexpected()

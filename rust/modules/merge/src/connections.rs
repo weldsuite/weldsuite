@@ -2,30 +2,33 @@
 //!
 //! ```text
 //!   GET    /                           → connections (merge_connections:read)
-//!   POST   /github                     → adopt the workspace's GitHub App installation, or { status: 'needs_install' }
+//!   POST   /github                     → the workspace's live GitHub connection, or { status: 'needs_install', url? }
 //!   DELETE /:id                        → stop tracking the connection and its repositories (never uninstalls the App)
-//!   GET    /:id/available-repositories → what the installation can see, from GitHub
+//!   GET    /:id/available-repositories → what the connection can see, from its provider
 //! ```
 //!
-//! For GitHub a connection adopts the workspace's existing GitHub App
-//! installation (`github_connections`, written by connect-api's install
-//! flow): no second consent, nothing secret stored. Changing connections
-//! needs `merge_connections:manage`. Entity events carry the provider and
-//! account login only, never credentials.
+//! A GitHub connection is the workspace's GitHub App installation, recorded
+//! by the install flow ([`crate::installations`]); nothing secret is stored
+//! for the App itself: installation tokens are minted per call. GitLab,
+//! Bitbucket and Azure DevOps connect with OAuth or a token
+//! ([`crate::oauth`]). Changing connections needs `merge_connections:manage`.
+//! Entity events carry the provider and account login only, never
+//! credentials.
 
 use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use http::StatusCode;
 use serde_json::{Map, Value, json};
 use weldsuite_db::{PgPool, js_row};
-use weldsuite_kit::{Data, NoContent, generate_id};
+use weldsuite_kit::{Data, NoContent};
 
-use crate::db::{Row, is_unique_violation, rows_of, text};
-use crate::github::js_string;
-use crate::github_client::list_installation_repositories;
+use crate::credentials::adapter_context;
+use crate::db::{Row, rows_of, text};
+use crate::github_install::install_page;
 use crate::mappers::{connection_dto, connection_event_data, repository_event_data};
+use crate::providers::list_available_repositories;
+use crate::webhooks::release_connection_webhooks;
 use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish};
 
 /// Live repositories per connection.
@@ -47,7 +50,7 @@ async fn repository_counts(
 }
 
 /// `repositoryCount(db, connectionId)`.
-async fn repository_count(db: &PgPool, connection_id: &str) -> Result<i64, sqlx::Error> {
+pub(crate) async fn repository_count(db: &PgPool, connection_id: &str) -> Result<i64, sqlx::Error> {
     let count: i32 = sqlx::query_scalar(
         "select count(*)::int from merge_repositories where connection_id = $1 and deleted_at is null",
     )
@@ -84,105 +87,34 @@ pub(crate) async fn list(caller: Caller) -> Answer {
         .collect()))
 }
 
-async fn find_github_connection(
-    db: &PgPool,
-    external_account_id: &str,
-) -> Result<Option<Row>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from merge_connections c where c.provider = 'github' \
-         and c.external_account_id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(external_account_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
-}
-
-/// `POST /github`: adopts the workspace's active GitHub App installation;
-/// idempotent.
+/// `POST /github`: the workspace's live GitHub connection, newest active
+/// first; with none (or only revoked or suspended ones) the member has to
+/// install the App first (`needs_install`, with the install page when the
+/// App's slug is known).
 pub(crate) async fn connect_github(State(state): State<MergeState>, caller: Caller) -> Answer {
     let db = &caller.db;
-    let installation: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(g) from github_connections g where g.status = 'active' and g.deleted_at is null \
-         order by g.created_at desc, g.id desc limit 1",
+    let connection: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(c) from merge_connections c where c.provider = 'github' and c.status = 'active' \
+         and c.deleted_at is null order by c.created_at desc, c.id desc limit 1",
     )
     .fetch_optional(db)
     .await?;
-    let Some(installation) = installation.map(js_row) else {
-        return Ok(Data(json!({ "status": "needs_install" })).into_response());
+    let Some(connection) = connection.map(js_row) else {
+        let body = match caller.overrides.env_set(&state, "GITHUB_APP_SLUG") {
+            Some(slug) => json!({ "status": "needs_install", "url": install_page(&slug, None) }),
+            None => json!({ "status": "needs_install" }),
+        };
+        return Ok(Data(body).into_response());
     };
-    let external_account_id = js_string(installation.get("installationId"));
-    let (connection, created) = match find_github_connection(db, &external_account_id).await? {
-        Some(existing) if text(&existing, "status") == "active" => (existing, false),
-        Some(existing) => {
-            let revived: Value = sqlx::query_scalar(
-                "update merge_connections set status = 'active', updated_at = $2::timestamptz \
-                 where id = $1 returning to_jsonb(merge_connections.*)",
-            )
-            .bind(text(&existing, "id"))
-            .bind(now())
-            .fetch_one(db)
-            .await?;
-            (js_row(revived), false)
-        }
-        None => {
-            let now = now();
-            let account_type = if text(&installation, "ownerType") == "org" {
-                "organization"
-            } else {
-                "user"
-            };
-            let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-                "insert into merge_connections (id, provider, external_account_id, account_login, account_type, \
-                   status, created_by_user_id, created_at, updated_at) \
-                 values ($1, 'github', $2, $3, $4, 'active', $5, $6::timestamptz, $6::timestamptz) \
-                 returning to_jsonb(merge_connections.*)",
-            )
-            .bind(generate_id("mcn"))
-            .bind(&external_account_id)
-            .bind(installation.get("ownerLogin").and_then(Value::as_str))
-            .bind(account_type)
-            .bind(&caller.user_id)
-            .bind(&now)
-            .fetch_one(db)
-            .await;
-            match inserted {
-                Ok(row) => (js_row(row), true),
-                // Two members connected at once: the other insert won.
-                Err(error) if is_unique_violation(&error) => {
-                    match find_github_connection(db, &external_account_id).await? {
-                        Some(winner) => (winner, false),
-                        None => return Err(error.into()),
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-    };
-    if created {
-        publish(
-            &state,
-            &caller.events,
-            vec![PendingEvent::new(
-                "merge_connection",
-                "created",
-                text(&connection, "id"),
-                connection_event_data(&connection),
-            )],
-        );
-    }
     let count = repository_count(db, text(&connection, "id")).await?;
-    let body =
-        Data(json!({ "status": "connected", "connection": connection_dto(&connection, count) }));
-    Ok(if created {
-        (StatusCode::CREATED, body).into_response()
-    } else {
-        body.into_response()
-    })
+    Ok(
+        Data(json!({ "status": "connected", "connection": connection_dto(&connection, count) }))
+            .into_response(),
+    )
 }
 
-/// `DELETE /:id`: soft-deletes the connection and its repositories. Never
-/// uninstalls the GitHub App.
+/// `DELETE /:id`: soft-deletes the connection and its repositories, taking
+/// their provider hooks and index rows down. Never uninstalls the GitHub App.
 pub(crate) async fn remove(
     State(state): State<MergeState>,
     caller: Caller,
@@ -212,6 +144,7 @@ pub(crate) async fn remove(
     .fetch_one(db)
     .await?;
     let connection = js_row(connection);
+    release_connection_webhooks(db, &state, &caller.overrides, &connection, &repositories).await;
     let mut events: Vec<PendingEvent> = repositories
         .iter()
         .map(|repo| {
@@ -233,24 +166,19 @@ pub(crate) async fn remove(
     Ok(NoContent.into_response())
 }
 
-/// `GET /:id/available-repositories`: what the installation can see, from
-/// GitHub, marking the repositories already tracked.
+/// `GET /:id/available-repositories`: what the connection can see, from its
+/// provider, marking the repositories already tracked.
 pub(crate) async fn available_repositories(
     State(state): State<MergeState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Answer {
     let db = &caller.db;
-    let connection = find_connection(db, &id)
-        .await?
-        .filter(|c| text(c, "provider") == "github");
-    let Some(connection) = connection else {
+    let Some(connection) = find_connection(db, &id).await? else {
         return Err(Refusal::not_found("Connection", Some(&id)));
     };
-    let client = caller
-        .overrides
-        .github(&state, text(&connection, "externalAccountId"));
-    let available = list_installation_repositories(&client).await?;
+    let ctx = adapter_context(db, &state, &caller.overrides, &connection, None).await?;
+    let available = list_available_repositories(&ctx).await?;
     let added: HashSet<String> = sqlx::query_scalar::<_, String>(
         "select external_id from merge_repositories where connection_id = $1 and deleted_at is null",
     )
@@ -262,25 +190,19 @@ pub(crate) async fn available_repositories(
     let rows: Vec<Value> = available
         .iter()
         .map(|repo| {
-            let external_id = js_string(repo.get("id"));
             let mut row = Map::new();
-            row.insert("externalId".to_owned(), json!(external_id));
+            row.insert("externalId".to_owned(), json!(repo.external_id));
             // `undefined` fields drop out of the JSON, as `JSON.stringify` drops them.
-            if let Some(name) = repo.get("full_name") {
-                row.insert("fullName".to_owned(), name.clone());
+            if !repo.full_name.is_null() {
+                row.insert("fullName".to_owned(), repo.full_name.clone());
             }
-            if let Some(private) = repo.get("private") {
-                row.insert("private".to_owned(), private.clone());
+            if !repo.private.is_null() {
+                row.insert("private".to_owned(), repo.private.clone());
             }
-            row.insert(
-                "defaultBranch".to_owned(),
-                repo.get("default_branch").cloned().unwrap_or(Value::Null),
-            );
-            row.insert(
-                "url".to_owned(),
-                repo.get("html_url").cloned().unwrap_or(Value::Null),
-            );
-            row.insert("added".to_owned(), json!(added.contains(&external_id)));
+            row.insert("defaultBranch".to_owned(), json!(repo.default_branch));
+            row.insert("url".to_owned(), json!(repo.url));
+            row.insert("externalProject".to_owned(), json!(repo.external_project));
+            row.insert("added".to_owned(), json!(added.contains(&repo.external_id)));
             Value::Object(row)
         })
         .collect();

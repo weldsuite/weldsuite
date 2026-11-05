@@ -9,7 +9,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { MergePullRequestFile, MergeReviewResult, MergeReviewThread } from '@weldsuite/app-api-client/schemas/weldmerge-review';
 import type { MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import pullRequestsReviewRoutes from './review';
-import { ADMIN, ALICE, VIEWER, errorCode, jsonInit, makeApp, ok, openDb, resetTables } from '../../test/helpers';
+import { ADMIN, ALICE, VIEWER, errorCode, jsonInit, makeApp, ok, openDb, perRun, resetTables } from '../../test/helpers';
 import { seedConnection, seedPullRequest, seedRepository } from '../../test/seed';
 import { KEY_ENV, callLines, connectionCredentials, failure, linkAccount, stubProviders } from '../../test/fake-review';
 
@@ -81,7 +81,11 @@ describe('GitLab', () => {
       ['d1', 'a.ts', 2, 'RIGHT', true, 2],
       ['d3', null, null, null, false, 1],
     ]);
-    expect(callLines(calls)).toEqual([`GET ${MR}/diffs?per_page=100&page=1`, `GET ${MR}/discussions?per_page=100&page=1`]);
+    // Request by request; in conformance mode the stub answers each request's TypeScript run, then its Rust run.
+    expect(callLines(calls)).toEqual([
+      ...perRun([`GET ${MR}/diffs?per_page=100&page=1`]),
+      ...perRun([`GET ${MR}/discussions?per_page=100&page=1`]),
+    ]);
     expect(calls.every((c) => c.authorization === 'Bearer connection-token')).toBe(true);
   });
 
@@ -100,9 +104,11 @@ describe('GitLab', () => {
     // The writes, as the member (the reads that refresh the mirror afterwards use the connection token).
     const writes = calls.filter((c) => c.method !== 'GET');
     expect(writes.map((c) => [c.method, c.url.replace(HOST, ''), c.authorization, c.body])).toEqual([
-      ['POST', '/api/v4/projects/55/merge_requests/7/approve', 'Bearer glpat-alice', null],
-      ['POST', '/api/v4/projects/55/merge_requests/7/discussions', 'Bearer glpat-alice', { body: 'ok' }],
-      ['PUT', '/api/v4/projects/55/merge_requests/7/merge', 'Bearer glpat-alice', { squash: true, squash_commit_message: 'T\n\nM' }],
+      ...perRun([
+        ['POST', '/api/v4/projects/55/merge_requests/7/approve', 'Bearer glpat-alice', null],
+        ['POST', '/api/v4/projects/55/merge_requests/7/discussions', 'Bearer glpat-alice', { body: 'ok' }],
+      ]),
+      ...perRun([['PUT', '/api/v4/projects/55/merge_requests/7/merge', 'Bearer glpat-alice', { squash: true, squash_commit_message: 'T\n\nM' }]]),
     ]);
   });
 
@@ -117,11 +123,13 @@ describe('GitLab', () => {
     const res = await post(`/${pr.id}/merge`, { method: 'rebase' });
     expect(res.status).toBe(409);
     expect(await errorCode(res)).toBe('not_mergeable');
-    expect(callLines(calls).map((l) => l.replace(HOST, ''))).toEqual([
-      'PUT /api/v4/projects/55/merge_requests/7/rebase',
-      'GET /api/v4/projects/55/merge_requests/7?include_rebase_in_progress=true',
-      'PUT /api/v4/projects/55/merge_requests/7/merge',
-    ]);
+    expect(callLines(calls).map((l) => l.replace(HOST, ''))).toEqual(
+      perRun([
+        'PUT /api/v4/projects/55/merge_requests/7/rebase',
+        'GET /api/v4/projects/55/merge_requests/7?include_rebase_in_progress=true',
+        'PUT /api/v4/projects/55/merge_requests/7/merge',
+      ]),
+    );
   });
 
   it('puts a line comment at the diff position of the current head, and replies in a discussion', async () => {
@@ -190,10 +198,12 @@ describe('Bitbucket', () => {
     });
     await ok<MergeReviewResult>(await post(`/${pr.id}/reviews`, { event: 'request_changes', body: 'please fix' }));
     // The writes; the reads that refresh the mirror and the review decision follow them.
-    expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url.replace(PR, ''), c.body])).toEqual([
-      ['POST', '/comments', { content: { raw: 'please fix' } }],
-      ['POST', '/request-changes', null],
-    ]);
+    expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url.replace(PR, ''), c.body])).toEqual(
+      perRun([
+        ['POST', '/comments', { content: { raw: 'please fix' } }],
+        ['POST', '/request-changes', null],
+      ]),
+    );
 
     const res = await post(`/${pr.id}/merge`, { method: 'rebase' });
     expect(res.status).toBe(409);

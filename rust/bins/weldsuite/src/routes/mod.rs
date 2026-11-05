@@ -379,6 +379,7 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 master: Some(state.workspaces.master().clone()),
                 outbound: deployment_outbound(state),
                 assignment: Some(desk_assignment_router()),
+                merge: integrations::merge_workflow_actions(state),
             },
         });
     // `GITHUB_PROJECT_SYNC` on this deployment's jobs (the integration workers').
@@ -646,7 +647,32 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
                 }) as weldsuite_ports::BoxFuture<'static, _>
             }) as weldsuite_merge::TenantResolver
         }),
+        // The provider index; conformance builds take the test's master database.
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        // The OAuth state: Valkey, or this process without it (one replica's
+        // worth). Conformance builds take the test's KV.
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        // WeldChat posts (R1b): conformance records the publishes.
+        realtime: state.infra.realtime.clone(),
+        // A release's notes by email: WeldMail's relay and ledgers.
+        mail: deployment_outbound(state),
     }
+}
+
+/// WeldMerge's public routes (`/public/merge/github/setup`, the GitHub App's
+/// setup redirect, trusted by its signed state). Conformance builds open the
+/// test's tenant database for the workspace the state names.
+fn merge_public(state: &AppState) -> Router<AppState> {
+    if !mounts("merge") {
+        return Router::new();
+    }
+    let router = weldsuite_merge::public_router(merge_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
 }
 
 /// WeldMerge's GitHub event intake (`/internal/github-event`, merge-api's
@@ -1631,6 +1657,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(commerce_public(state))
         .merge(flow_public(state))
         .merge(connect_public(state))
+        .merge(merge_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));
     #[cfg(feature = "conformance")]

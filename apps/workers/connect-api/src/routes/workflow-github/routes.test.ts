@@ -91,7 +91,8 @@ beforeAll(async () => {
 
 function app(env: Record<string, unknown> = ENV, granted = permissions('integrations:github:manage')) {
   return createTestApp<Env, Variables>(BASE, workflowGithubRoutes, {
-    context: { permissions: granted, tenantDb: db },
+    // The master database is shared with the Rust server in conformance mode (the installation index).
+    context: { permissions: granted, tenantDb: db, masterDb: master },
     env: env as never,
   }).request;
 }

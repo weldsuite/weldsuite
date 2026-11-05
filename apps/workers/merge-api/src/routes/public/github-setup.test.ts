@@ -87,7 +87,7 @@ const state = (over: Record<string, unknown> = {}, secret = SECRET) =>
   signInstallStateJwt({ workspaceId: 'ws_alpha', userId: 'user_installer', nonce: 'cd'.repeat(16), ...over } as never, secret);
 
 const setup = (query: string, env: Record<string, unknown> = ENV) =>
-  makeApp(db, '/public/merge/github', setupRoutes, { env }).request(`/public/merge/github/setup${query}`);
+  makeApp(db, '/public/merge/github', setupRoutes, { env, masterDb: master }).request(`/public/merge/github/setup${query}`);
 
 const INSTALLATION_4242 = {
   id: 4242,

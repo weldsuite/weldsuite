@@ -45,6 +45,7 @@ pub mod connections;
 pub mod crypto;
 pub mod github_app;
 pub mod ingest;
+pub mod install_state;
 pub mod js;
 pub mod lists;
 pub mod mappers;

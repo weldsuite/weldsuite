@@ -1,16 +1,23 @@
 //! `POST /webhooks/github` (`github/webhook.ts`): the GitHub App's
 //! deliveries. Public: the App-level secret's HMAC (`X-Hub-Signature-256`)
-//! is the credential, the connection's own secret the fallback. The
-//! workspace comes from the installation (cached a day, else a scan of the
-//! workspaces' `github_connections`). Then, in the background:
+//! is the credential, the connection's own secret the fallback. A GitHub
+//! App installation is a WeldMerge connection (`merge_connections`, provider
+//! `github`, `external_account_id` = the installation id as text). The
+//! workspace comes from the installation: cached a day, else the master
+//! installation index (`merge_provider_index`), else a scan of the
+//! workspaces' tenant databases that writes the index row (a lazy backfill,
+//! DATA-008). Then, in the background:
 //!
-//! - `installation` → the connection's status;
+//! - `installation` → the connection's status; a deleted installation also
+//!   leaves the index and the cache;
 //! - `projects_v2_item` and `issues` (a mapped issue) → one inbound
 //!   `GITHUB_PROJECT_SYNC` run per link per minute;
-//! - `pull_request`, `pull_request_review`, `check_suite` and
-//!   `installation_repositories` → forwarded to WeldMerge (`MERGE_INTERNAL`,
+//! - `pull_request`, `pull_request_review`, `check_suite`,
+//!   `installation_repositories`, `issues`, `issue_comment` and
+//!   `installation` → forwarded to WeldMerge (`MERGE_INTERNAL`,
 //!   [`crate::merge_internal`]), fire-and-forget.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
@@ -24,6 +31,7 @@ use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use weldsuite_db::{Keyring, PgPool};
+use weldsuite_ports::DynCache;
 
 use super::WorkflowRuns;
 use crate::{IntegrationsState, PublicCtx};
@@ -83,16 +91,18 @@ pub fn verify_signature(body: &[u8], header: Option<&str>, secret: &str) -> bool
         == 0
 }
 
-/// A connection of the installation: `(workspace_id, webhook_secret)`.
+/// The live GitHub connection of an installation, newest active first
+/// (`getConnectionByInstallationId`): its sealed webhook secret.
 async fn connection_by_installation(
     db: &PgPool,
     installation_id: i64,
-) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select workspace_id, webhook_secret from github_connections \
-         where installation_id = $1 and deleted_at is null limit 1",
+) -> Result<Option<Option<String>>, sqlx::Error> {
+    sqlx::query_scalar(
+        "select webhook_secret from merge_connections \
+         where provider = 'github' and external_account_id = $1 and deleted_at is null \
+         order by (status = 'active') desc, created_at desc limit 1",
     )
-    .bind(installation_id)
+    .bind(installation_id.to_string())
     .fetch_optional(db)
     .await
 }
@@ -171,7 +181,7 @@ async fn webhook(
             );
         }
     };
-    let Some((workspace_id, stored_secret)) = connection else {
+    let Some(stored_secret) = connection else {
         tracing::warn!("[GitHub Webhook] No connection for installation {installation}");
         return accepted();
     };
@@ -203,7 +213,8 @@ async fn webhook(
         return unauthorized();
     }
 
-    // WeldMerge mirrors pull requests; the forward never changes this answer.
+    // WeldMerge mirrors pull requests and syncs issues; the forward never
+    // changes this answer.
     if crate::merge_internal::is_forwarded_to_merge(&event_type) {
         let merge = state.merge_internal.clone();
         let (workspace, event, delivery, payload) = (
@@ -225,11 +236,17 @@ async fn webhook(
     }
 
     let runs = ctx.github_sync(&state);
+    let installed = Installed {
+        master: ctx.master(&state),
+        cache,
+        cache_key,
+    };
     state.events.tracker().spawn(async move {
         handle_event(
             &db,
             runs.as_deref(),
-            &workspace_id,
+            &installed,
+            &clerk_org_id,
             &event_type,
             &delivery,
             &payload,
@@ -240,67 +257,203 @@ async fn webhook(
     accepted()
 }
 
-/// `resolveWorkspaceForInstallation`: the first of (up to 500) workspaces
-/// whose database has a live connection for the installation.
+/// Where an uninstalled installation is forgotten: the master index and the
+/// cached `gh-install:<id>` entry.
+struct Installed {
+    master: Option<PgPool>,
+    cache: Option<Arc<dyn DynCache>>,
+    cache_key: String,
+}
+
+/// `workspaceOfInstallation`: the workspace of an installation, as its Clerk
+/// org id (what the rest of this receiver and the project-sync rows are keyed
+/// by; `workspaces.id` for a workspace without one). `None` when nothing
+/// knows it, or when resolving failed (logged).
 async fn resolve_workspace(
     ctx: &PublicCtx,
     state: &IntegrationsState,
     installation: i64,
 ) -> Option<String> {
-    let master = ctx.master(state)?;
-    let orgs: Vec<Option<String>> = match sqlx::query_scalar(
-        "select clerk_org_id from workspaces limit 500",
-    )
-    .fetch_all(&master)
-    .await
-    {
-        Ok(orgs) => orgs,
+    let Some(master) = ctx.master(state) else {
+        tracing::error!(
+            "[GitHub Webhook] Failed to resolve workspace for installation: no master database"
+        );
+        return None;
+    };
+    match workspace_of_installation(ctx, state, &master, installation).await {
+        Ok(found) => found,
         Err(error) => {
             tracing::error!(%error, "[GitHub Webhook] Failed to resolve workspace for installation");
-            return None;
-        }
-    };
-    for org in orgs.into_iter().flatten().filter(|o| !o.is_empty()) {
-        let Ok(db) = ctx.tenant_db(state, &org).await else {
-            continue;
-        };
-        if let Ok(Some(_)) = connection_by_installation(&db, installation).await {
-            return Some(org);
+            None
         }
     }
-    None
+}
+
+/// The master index row (`merge_provider_index`, kind `installation`), else
+/// a scan of the tenant databases.
+async fn workspace_of_installation(
+    ctx: &PublicCtx,
+    state: &IntegrationsState,
+    master: &PgPool,
+    installation: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let indexed: Option<String> = sqlx::query_scalar(
+        "select workspace_id from merge_provider_index \
+         where provider = 'github' and kind = 'installation' and external_key = $1 limit 1",
+    )
+    .bind(installation.to_string())
+    .fetch_optional(master)
+    .await?;
+    if let Some(workspace_id) = indexed {
+        let workspace: Option<(String, Option<String>)> =
+            sqlx::query_as("select id, clerk_org_id from workspaces where id = $1 limit 1")
+                .bind(&workspace_id)
+                .fetch_optional(master)
+                .await?;
+        if let Some((id, clerk_org_id)) = workspace {
+            return Ok(Some(clerk_org_id.unwrap_or(id)));
+        }
+    }
+    scan_for_installation(ctx, state, master, installation).await
+}
+
+/// `scanForInstallation`: the first of (up to 500) workspaces whose database
+/// has a live connection for the installation; it writes the index row, so
+/// the next delivery finds it there. A workspace whose database fails to
+/// open (or whose row fails to write) is skipped.
+async fn scan_for_installation(
+    ctx: &PublicCtx,
+    state: &IntegrationsState,
+    master: &PgPool,
+    installation: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let workspaces: Vec<(String, Option<String>)> =
+        sqlx::query_as("select id, clerk_org_id from workspaces limit 500")
+            .fetch_all(master)
+            .await?;
+    for (id, clerk_org_id) in workspaces {
+        let reference = clerk_org_id.unwrap_or_else(|| id.clone());
+        let Ok(db) = ctx.tenant_db(state, &reference).await else {
+            continue;
+        };
+        let found: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
+            "select id from merge_connections \
+             where provider = 'github' and external_account_id = $1 and deleted_at is null limit 1",
+        )
+        .bind(installation.to_string())
+        .fetch_optional(&db)
+        .await;
+        if let Ok(Some(_)) = found
+            && upsert_installation_index(master, installation, &id)
+                .await
+                .is_ok()
+        {
+            return Ok(Some(reference));
+        }
+    }
+    Ok(None)
+}
+
+/// `upsertGithubInstallationIndex`: writes (or refreshes) the master
+/// `installation id → workspace` row.
+async fn upsert_installation_index(
+    master: &PgPool,
+    installation: i64,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
+    let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
+    sqlx::query(
+        "insert into merge_provider_index \
+           (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
+         values ($1, 'github', 'installation', $2, $3, $4::timestamptz, $4::timestamptz) \
+         on conflict (provider, kind, external_key) \
+         do update set workspace_id = excluded.workspace_id, updated_at = excluded.updated_at",
+    )
+    .bind(weldsuite_kit::generate_id("mpi"))
+    .bind(installation.to_string())
+    .bind(workspace_id)
+    .bind(&now)
+    .execute(master)
+    .await?;
+    Ok(())
+}
+
+/// `setGithubInstallationStatus`: every live connection of the installation
+/// moves to `status`; `revoked_at` is set when it is revoked, cleared
+/// otherwise.
+async fn set_installation_status(
+    db: &PgPool,
+    installation: i64,
+    status: &str,
+) -> Result<(), sqlx::Error> {
+    let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
+    sqlx::query(
+        "update merge_connections set status = $2, \
+         revoked_at = case when $2 = 'revoked' then $3::timestamptz else null end, \
+         updated_at = $3::timestamptz \
+         where provider = 'github' and external_account_id = $1 and deleted_at is null",
+    )
+    .bind(installation.to_string())
+    .bind(status)
+    .bind(&now)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// `forgetInstallation` and the cache entry: an uninstalled installation
+/// resolves nowhere any more.
+async fn forget_installation(installed: &Installed, installation: i64) -> Result<(), String> {
+    let master = installed
+        .master
+        .as_ref()
+        .ok_or_else(|| "no master database".to_owned())?;
+    sqlx::query(
+        "delete from merge_provider_index \
+         where provider = 'github' and kind = 'installation' and external_key = $1",
+    )
+    .bind(installation.to_string())
+    .execute(master)
+    .await
+    .map_err(|error| error.to_string())?;
+    if let Some(cache) = &installed.cache {
+        cache
+            .delete_boxed(&installed.cache_key)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 async fn handle_event(
     db: &PgPool,
     runs: Option<&dyn WorkflowRuns>,
+    installed: &Installed,
     workspace_id: &str,
     event_type: &str,
     delivery: &str,
     payload: &Value,
     installation: i64,
 ) {
-    let result: Result<(), sqlx::Error> = async {
+    let result: Result<(), String> = async {
         match event_type {
             "installation" => {
-                let status = match payload.get("action").map(js_string).as_deref() {
-                    Some("deleted") => Some("revoked"),
-                    Some("suspend") => Some("suspended"),
-                    Some("unsuspend" | "created") => Some("active"),
-                    _ => None,
-                };
-                if let Some(status) = status {
-                    let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
-                    sqlx::query(
-                        "update github_connections set status = $2, \
-                         revoked_at = case when $2 = 'revoked' then $3::timestamp else revoked_at end, \
-                         updated_at = $3::timestamp where installation_id = $1",
-                    )
-                    .bind(installation)
-                    .bind(status)
-                    .bind(&now)
-                    .execute(db)
-                    .await?;
+                match payload.get("action").map(js_string).as_deref() {
+                    Some("deleted") => {
+                        set_installation_status(db, installation, "revoked")
+                            .await
+                            .map_err(|error| error.to_string())?;
+                        forget_installation(installed, installation).await?;
+                    }
+                    Some("suspend") => set_installation_status(db, installation, "suspended")
+                        .await
+                        .map_err(|error| error.to_string())?,
+                    Some("unsuspend" | "created") => {
+                        set_installation_status(db, installation, "active")
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    }
+                    _ => {}
                 }
             }
             "projects_v2_item" => {
@@ -322,7 +475,8 @@ async fn handle_event(
                 .bind(workspace_id)
                 .bind(node)
                 .fetch_optional(db)
-                .await?;
+                .await
+                .map_err(|error| error.to_string())?;
                 match link {
                     None => tracing::info!(
                         "[GitHub Webhook] Project {node} not linked in {workspace_id}, skipping"
@@ -337,7 +491,9 @@ async fn handle_event(
                 "[GitHub Webhook] projects_v2 {} (delivery: {delivery})",
                 payload.get("action").map(js_string).unwrap_or_default()
             ),
-            "issues" => handle_issue(db, runs, workspace_id, delivery, payload).await?,
+            "issues" => handle_issue(db, runs, workspace_id, delivery, payload)
+                .await
+                .map_err(|error| error.to_string())?,
             other => tracing::info!(
                 "[GitHub Webhook] Unhandled event type: {other} (delivery: {delivery})"
             ),

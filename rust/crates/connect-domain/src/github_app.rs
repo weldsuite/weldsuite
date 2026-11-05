@@ -174,6 +174,71 @@ pub async fn installation_token_as(
     Ok(token)
 }
 
+/// `GithubInstallationMeta`: an installation's account and App slug.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallationMeta {
+    pub id: Value,
+    pub app_slug: String,
+    /// `User` or `Organization`.
+    pub account_type: &'static str,
+    pub account_login: String,
+    pub repository_selection: String,
+}
+
+/// `fetchGithubInstallationMeta(appId, privateKey, installationId)`: the
+/// installation's account and App slug, read with the App JWT. Shared by
+/// every install flow that records an installation (WeldConnect's callback
+/// and WeldMerge's setup route).
+///
+/// # Errors
+///
+/// The key does not import, the id is not a positive safe integer, GitHub
+/// cannot be reached or refuses; the text is the worker's error.
+pub async fn fetch_installation_meta(
+    http: &OutboundHttp,
+    creds: &AppCredentials,
+    installation_id: i64,
+) -> Result<InstallationMeta, String> {
+    let jwt = app_jwt(creds)?;
+    if installation_id <= 0 || installation_id > 9_007_199_254_740_991 {
+        return Err(format!("Invalid GitHub installation id: {installation_id}"));
+    }
+    let response = http
+        .send(
+            HttpRequest::empty(
+                "GET",
+                format!("https://api.github.com/app/installations/{installation_id}"),
+            )
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "WeldSuite-WeldConnect"),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.ok() {
+        return Err(format!(
+            "Failed to fetch installation metadata ({}): {}",
+            response.status,
+            response.text()
+        ));
+    }
+    let data: Value = serde_json::from_slice(&response.body).map_err(|error| error.to_string())?;
+    let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+    let account = &data["account"];
+    Ok(InstallationMeta {
+        id: data["id"].clone(),
+        app_slug: text(&data["app_slug"]),
+        account_type: if account["type"] == "Organization" {
+            "Organization"
+        } else {
+            "User"
+        },
+        account_login: text(&account["login"]),
+        repository_selection: text(&data["repository_selection"]),
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

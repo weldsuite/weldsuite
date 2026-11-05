@@ -42,6 +42,7 @@ import {
   ok,
   openDb,
   perRun,
+  RUNS,
   resetTables,
   stubGithub,
 } from '../../test/helpers';
@@ -405,7 +406,8 @@ describe('publish', () => {
       ),
     );
     expect(result).toMatchObject({ emailSent: true, knowledgePageId: null });
-    expect(sent).toHaveLength(1);
+    // This stub keeps every envelope: in conformance mode, TypeScript's and then Rust's.
+    expect(sent).toHaveLength(RUNS);
     expect(sent[0]).toMatchObject({ from: 'releases@acme.dev', to: 'customer@example.com' });
     expect(sent[0]!.raw).toContain(Buffer.from('What is new').toString('base64'));
     expect(sent[0]!.raw).toContain('Faster search');

@@ -27,7 +27,10 @@ use crate::automation::{StatusTimestamps, status_timestamps};
 use crate::db::{Row, col, like_pattern, one_by_id, opt_text, rows_of, text};
 use crate::keys::parse_issue_key;
 use crate::labels::count_usable;
-use crate::mappers::{issue_dto, issue_event_data, pull_request_summary};
+use crate::mappers::{
+    issue_dto, issue_event_data, pull_request_summary, record_link_dto, record_link_event_data,
+};
+use crate::record_links::{RecordLinkInput, insert_record_links, list_record_links, read_link};
 use crate::schemas::{ISSUE_STATUSES, date_only, nothing_to_update, priority};
 use crate::teams::find_team;
 use crate::{
@@ -59,7 +62,7 @@ pub(crate) async fn hydrate_issues(db: &PgPool, rows: &[Row]) -> Result<Vec<Valu
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
     let counts: HashMap<String, i64> = sqlx::query_as::<_, (String, i32)>(
         "select issue_id, count(*)::int from merge_issue_pull_requests \
-         where issue_id = any($1) group by issue_id",
+         where issue_id = any($1) and dismissed_at is null group by issue_id",
     )
     .bind(&ids)
     .fetch_all(db)
@@ -96,7 +99,10 @@ pub(crate) async fn find_issue(db: &PgPool, id: &str) -> Result<Option<Row>, sql
 }
 
 /// `findIssueByIdOrKey(db, idOrKey)`: by id, or by key (`PLAT-209`).
-async fn find_issue_by_id_or_key(db: &PgPool, id_or_key: &str) -> Result<Option<Row>, sqlx::Error> {
+pub(crate) async fn find_issue_by_id_or_key(
+    db: &PgPool,
+    id_or_key: &str,
+) -> Result<Option<Row>, sqlx::Error> {
     let Some(key) = parse_issue_key(id_or_key) else {
         return find_issue(db, id_or_key).await;
     };
@@ -135,12 +141,37 @@ pub(crate) async fn issue_detail(
         "select to_jsonb(p), r.full_name, l.source, l.closes from merge_issue_pull_requests l \
          inner join merge_pull_requests p on p.id = l.pull_request_id \
          inner join merge_repositories r on r.id = p.repository_id \
-         where l.issue_id = $1 and r.deleted_at is null \
+         where l.issue_id = $1 and l.dismissed_at is null and r.deleted_at is null \
          order by p.provider_updated_at desc, p.id desc",
     )
     .bind(&id)
     .fetch_all(db)
     .await?;
+    // The provider issue it syncs with, and the records it is linked to.
+    let external: Option<(Value, String)> = sqlx::query_as(
+        "select to_jsonb(x), r.full_name from merge_external_issues x \
+         inner join merge_repositories r on r.id = x.repository_id \
+         where x.issue_id = $1 limit 1",
+    )
+    .bind(&id)
+    .fetch_optional(db)
+    .await?;
+    let external = external.map_or(Value::Null, |(link, full_name)| {
+        let link = weldsuite_db::js_row(link);
+        json!({
+            "provider": col(&link, "provider"),
+            "number": col(&link, "number"),
+            "url": col(&link, "url"),
+            "state": col(&link, "state"),
+            "repositoryId": col(&link, "repositoryId"),
+            "repositoryFullName": full_name,
+        })
+    });
+    let record_links: Vec<Value> = list_record_links(db, &id)
+        .await?
+        .iter()
+        .map(record_link_dto)
+        .collect();
     let pull_requests: Vec<Value> = linked
         .into_iter()
         .map(|(pr, full_name, source, closes)| {
@@ -156,6 +187,8 @@ pub(crate) async fn issue_detail(
         Value::Object(fields) => fields,
         _ => Map::new(),
     };
+    detail.insert("external".to_owned(), external);
+    detail.insert("recordLinks".to_owned(), Value::Array(record_links));
     detail.insert("pullRequests".to_owned(), Value::Array(pull_requests));
     detail.insert("subIssues".to_owned(), Value::Array(sub_issues));
     Ok(Some(Value::Object(detail)))
@@ -164,7 +197,7 @@ pub(crate) async fn issue_detail(
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 /// `listMergeIssuesQuerySchema`, as validated.
-struct ListQuery {
+pub(crate) struct ListQuery {
     team_id: Option<String>,
     status: Vec<String>,
     assignee: Option<String>,
@@ -219,42 +252,53 @@ fn statuses(issues: &mut Issues, raw: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// `listMergeIssuesQuerySchema` read from `fields` (a query string's values,
+/// or a WeldAgent tool's input).
+pub(crate) fn read_list_query(issues: &mut Issues, fields: &Map<String, Value>) -> ListQuery {
+    let opt = |issues: &mut Issues, key: &str| {
+        issues
+            .text(fields, key, Presence::Optional, None, None)
+            .into_option()
+    };
+    let team_id = opt(issues, "teamId");
+    let status_raw = opt(issues, "status");
+    let assignee = opt(issues, "assignee");
+    let cycle_id = opt(issues, "cycleId");
+    let label_id = opt(issues, "labelId");
+    let parent_issue_id = opt(issues, "parentIssueId");
+    let q = issues
+        .text_with(
+            fields,
+            "q",
+            Presence::Optional,
+            Text::trimmed(None, Some(200)),
+        )
+        .into_option();
+    let limit = limit_of(issues, fields);
+    let cursor = opt(issues, "cursor");
+    let status = statuses(issues, status_raw.as_deref());
+    ListQuery {
+        team_id,
+        status,
+        assignee,
+        cycle_id,
+        label_id,
+        parent_issue_id,
+        q,
+        limit,
+        cursor,
+    }
+}
+
 fn list_query(query: Option<&str>) -> Result<ListQuery, Refusal> {
-    validate_query(query, |issues, fields| {
-        let opt = |issues: &mut Issues, key: &str| {
-            issues
-                .text(fields, key, Presence::Optional, None, None)
-                .into_option()
-        };
-        let team_id = opt(issues, "teamId");
-        let status_raw = opt(issues, "status");
-        let assignee = opt(issues, "assignee");
-        let cycle_id = opt(issues, "cycleId");
-        let label_id = opt(issues, "labelId");
-        let parent_issue_id = opt(issues, "parentIssueId");
-        let q = issues
-            .text_with(
-                fields,
-                "q",
-                Presence::Optional,
-                Text::trimmed(None, Some(200)),
-            )
-            .into_option();
-        let limit = limit_of(issues, fields);
-        let cursor = opt(issues, "cursor");
-        let status = statuses(issues, status_raw.as_deref());
-        ListQuery {
-            team_id,
-            status,
-            assignee,
-            cycle_id,
-            label_id,
-            parent_issue_id,
-            q,
-            limit,
-            cursor,
-        }
-    })
+    validate_query(query, read_list_query)
+}
+
+/// A page of issue rows (`listIssues`'s result).
+pub(crate) struct IssuePage {
+    pub(crate) rows: Vec<Row>,
+    pub(crate) has_more: bool,
+    pub(crate) cursor: Option<String>,
 }
 
 /// Newest first (by id, which leads with the creation time); the cursor is
@@ -262,10 +306,21 @@ fn list_query(query: Option<&str>) -> Result<ListQuery, Refusal> {
 pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
     let query = list_query(query.as_deref())?;
     let db = &caller.db;
+    let found = list_issues(db, &query, &caller.user_id).await?;
+    let dtos = hydrate_issues(db, &found.rows).await?;
+    Ok(page(dtos, found.has_more, found.cursor))
+}
+
+/// `listIssues(db, query, userId)`.
+pub(crate) async fn list_issues(
+    db: &PgPool,
+    query: &ListQuery,
+    user_id: &str,
+) -> Result<IssuePage, sqlx::Error> {
     let truthy = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
     let (unassigned, assignee) = match query.assignee.as_deref() {
         Some("none") => (true, None),
-        Some("me") => (false, Some(caller.user_id.clone())),
+        Some("me") => (false, Some(user_id.to_owned())),
         Some(other) if !other.is_empty() => (false, Some(other.to_owned())),
         _ => (false, None),
     };
@@ -316,12 +371,15 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
     );
     let limit = usize::try_from(query.limit).unwrap_or(0);
     let has_more = rows.len() > limit;
-    let page_rows = if has_more { &rows[..limit] } else { &rows[..] };
+    let page_rows: Vec<Row> = rows.into_iter().take(limit).collect();
     let cursor = has_more
         .then(|| page_rows.last().map(|r| text(r, "id").to_owned()))
         .flatten();
-    let dtos = hydrate_issues(db, page_rows).await?;
-    Ok(page(dtos, has_more, cursor))
+    Ok(IssuePage {
+        rows: page_rows,
+        has_more,
+        cursor,
+    })
 }
 
 // ── GET /:idOrKey ───────────────────────────────────────────────────────────
@@ -337,21 +395,26 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
 
 /// Why a reference was refused (`IssueRefFailure`).
 #[derive(Debug, Clone, Copy)]
-enum RefFailure {
+pub(crate) enum RefFailure {
     Cycle,
     Parent,
     Labels,
 }
 
 impl RefFailure {
-    fn refusal(self) -> Refusal {
-        Refusal::bad_request(match self {
+    /// The route's 400 message, and an internal caller's `refMessage`.
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
             Self::Cycle => "The cycle does not exist or belongs to another team",
             Self::Parent => {
                 "The parent issue must be another issue of the same team, and not one of its own sub-issues"
             }
             Self::Labels => "A label does not exist or belongs to another team",
-        })
+        }
+    }
+
+    fn refusal(self) -> Refusal {
+        Refusal::bad_request(self.message())
     }
 }
 
@@ -429,7 +492,7 @@ fn unique(items: &[String]) -> Vec<String> {
 // ── POST / ──────────────────────────────────────────────────────────────────
 
 /// The fields `createMergeIssueSchema` and `updateMergeIssueSchema` share.
-struct IssueInput {
+pub(crate) struct IssueInput {
     team_id: Field<String>,
     title: Field<String>,
     description: Field<String>,
@@ -442,12 +505,28 @@ struct IssueInput {
     estimate: Field<i64>,
     due_date: Field<String>,
     flow_project_id: Field<String>,
+    /// `updateMergeIssueSchema` only.
+    agent_id: Field<String>,
     sort_order: Field<f64>,
+    /// `createMergeIssueSchema` only: records to link the new issue to.
+    links: Vec<RecordLinkInput>,
 }
 
 /// `createMergeIssueSchema` (`partial` false) or `updateMergeIssueSchema`.
 fn issue_input(headers: &HeaderMap, body: &Bytes, partial: bool) -> Result<IssueInput, Refusal> {
     validate(headers, body, |issues, fields| {
+        read_issue_input(issues, fields, partial)
+    })
+}
+
+/// `createMergeIssueSchema` (`partial` false) or `updateMergeIssueSchema`
+/// read from `fields` (a body, or an internal caller's input).
+pub(crate) fn read_issue_input(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> IssueInput {
+    {
         let start = issues.count();
         let (required, nullish) = if partial {
             (Presence::Optional, Presence::Nullish)
@@ -486,10 +565,31 @@ fn issue_input(headers: &HeaderMap, body: &Bytes, partial: bool) -> Result<Issue
         );
         let due_date = date_only(issues, fields, "dueDate", nullish);
         let flow_project_id = issues.text(fields, "flowProjectId", nullish, None, None);
+        // `.partial()` makes the nullable `agentId` optional too.
+        let agent_id = if partial {
+            issues.text(fields, "agentId", Presence::Nullish, None, Some(30))
+        } else {
+            Field::Absent
+        };
         let sort_order = if partial {
             issues.number(fields, "sortOrder", Presence::Optional, Number::default())
         } else {
             Field::Absent
+        };
+        let links = if partial {
+            Vec::new()
+        } else {
+            issues
+                .list(
+                    fields,
+                    "links",
+                    Presence::Optional,
+                    None,
+                    Some(20),
+                    read_link,
+                )
+                .into_option()
+                .unwrap_or_default()
         };
         // The literal union settles after the synchronous checks.
         if let Some(issue) = priority_issue {
@@ -512,6 +612,7 @@ fn issue_input(headers: &HeaderMap, body: &Bytes, partial: bool) -> Result<Issue
                     "estimate",
                     "dueDate",
                     "flowProjectId",
+                    "agentId",
                     "sortOrder",
                 ],
             );
@@ -529,9 +630,11 @@ fn issue_input(headers: &HeaderMap, body: &Bytes, partial: bool) -> Result<Issue
             estimate,
             due_date,
             flow_project_id,
+            agent_id,
             sort_order,
+            links,
         }
-    })
+    }
 }
 
 /// The status timestamps of a row.
@@ -543,7 +646,7 @@ pub(crate) fn timestamps_of(row: &Row) -> StatusTimestamps {
     }
 }
 
-fn issue_event(row: &Row, team_key: &str, action: &'static str) -> PendingEvent {
+pub(crate) fn issue_event(row: &Row, team_key: &str, action: &'static str) -> PendingEvent {
     PendingEvent::new(
         "merge_issue",
         action,
@@ -552,9 +655,37 @@ fn issue_event(row: &Row, team_key: &str, action: &'static str) -> PendingEvent 
     )
 }
 
-/// One statement takes the team's next number and inserts the issue, so the
-/// allocation and the row commit together: a failed insert hands no number
-/// out, and concurrent creates never share one.
+/// Why an issue was not created (`IssueCreateResult`'s failure).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CreateFailure {
+    TeamNotFound,
+    Ref(RefFailure),
+}
+
+/// A created issue, its team and the records it was linked to.
+pub(crate) struct CreatedIssue {
+    pub(crate) issue: Row,
+    pub(crate) team: Row,
+    pub(crate) links: Vec<Row>,
+}
+
+impl CreatedIssue {
+    /// `merge_issue` created, then `merge_record_link` created per link.
+    pub(crate) fn events(&self) -> Vec<PendingEvent> {
+        let mut events = vec![issue_event(&self.issue, text(&self.team, "key"), "created")];
+        events.extend(self.links.iter().map(|link| {
+            PendingEvent::new(
+                "merge_record_link",
+                "created",
+                text(link, "id"),
+                record_link_event_data(link),
+            )
+        }));
+        events
+    }
+}
+
+/// `POST /`: the route around [`create_issue`].
 pub(crate) async fn create(
     State(state): State<MergeState>,
     caller: Caller,
@@ -563,9 +694,33 @@ pub(crate) async fn create(
 ) -> Answer {
     let input = issue_input(&headers, &body, false)?;
     let db = &caller.db;
+    let created = match create_issue(db, input, &caller.user_id).await? {
+        Ok(created) => created,
+        Err(CreateFailure::TeamNotFound) => return Err(Refusal::not_found("Team", None)),
+        Err(CreateFailure::Ref(failure)) => return Err(failure.refusal()),
+    };
+    publish(&state, &caller.events, created.events());
+    crate::hooks::after_issue_created(
+        &caller.hook_context(&state),
+        &created.issue,
+        text(&created.team, "key"),
+    )
+    .await;
+    Ok(Created(one_dto(db, &created.issue).await?).into_response())
+}
+
+/// `createIssue(db, input, userId)`. One statement takes the team's next
+/// number and inserts the issue, so the allocation and the row commit
+/// together: a failed insert hands no number out, and concurrent creates
+/// never share one.
+pub(crate) async fn create_issue(
+    db: &PgPool,
+    input: IssueInput,
+    user_id: &str,
+) -> Result<Result<CreatedIssue, CreateFailure>, sqlx::Error> {
     let team_id = input.team_id.into_option().unwrap_or_default();
     let Some(team) = find_team(db, &team_id).await? else {
-        return Err(Refusal::not_found("Team", None));
+        return Ok(Err(CreateFailure::TeamNotFound));
     };
     let label_ids = unique(&input.label_ids.into_option().unwrap_or_default());
     let cycle_id = input.cycle_id.into_option();
@@ -580,7 +735,7 @@ pub(crate) async fn create(
     )
     .await?
     {
-        return Err(failure.refusal());
+        return Ok(Err(CreateFailure::Ref(failure)));
     }
     let now = now();
     let status = input
@@ -613,7 +768,7 @@ pub(crate) async fn create(
     .bind(&status)
     .bind(input.priority.into_option().unwrap_or(0))
     .bind(input.assignee_user_id.into_option())
-    .bind(&caller.user_id)
+    .bind(user_id)
     .bind(cycle_id)
     .bind(parent_issue_id)
     .bind(json!(label_ids))
@@ -627,23 +782,19 @@ pub(crate) async fn create(
     .fetch_all(db)
     .await?;
     if inserted.is_empty() {
-        return Err(Refusal::not_found("Team", None));
+        return Ok(Err(CreateFailure::TeamNotFound));
     }
     let Some(issue) = find_issue(db, &id).await? else {
-        return Err(Refusal::not_found("Team", None));
+        return Ok(Err(CreateFailure::TeamNotFound));
     };
-    publish(
-        &state,
-        &caller.events,
-        vec![issue_event(&issue, text(&team, "key"), "created")],
-    );
-    Ok(Created(one_dto(db, &issue).await?).into_response())
+    let links = insert_record_links(db, &id, &input.links, Some(user_id)).await?;
+    Ok(Ok(CreatedIssue { issue, team, links }))
 }
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
 
 /// `ISSUE_CHANGE_FIELDS`: what an update's `changes` compares.
-const ISSUE_CHANGE_FIELDS: [&str; 11] = [
+pub(crate) const ISSUE_CHANGE_FIELDS: [&str; 12] = [
     "title",
     "description",
     "status",
@@ -655,6 +806,7 @@ const ISSUE_CHANGE_FIELDS: [&str; 11] = [
     "estimate",
     "dueDate",
     "flowProjectId",
+    "agentId",
 ];
 
 /// `diffFields(before, after, fields)`: the fields whose JSON differs, as
@@ -695,6 +847,44 @@ pub(crate) async fn team_key_of(db: &PgPool, team_id: &str) -> Result<String, sq
     Ok(key.unwrap_or_default())
 }
 
+/// Why an issue was not updated (`IssueUpdateResult`'s failure).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum UpdateFailure {
+    NotFound,
+    Ref(RefFailure),
+}
+
+/// An updated issue: the rows around the change and the team's key.
+pub(crate) struct UpdatedIssue {
+    pub(crate) before: Row,
+    pub(crate) issue: Row,
+    pub(crate) team_key: String,
+}
+
+impl UpdatedIssue {
+    /// `merge_issue` updated, and `agent_assigned` too when an agent was
+    /// newly assigned (agent-api runs that agent with the issue as its task).
+    pub(crate) fn events(&self) -> Vec<PendingEvent> {
+        let changes = diff_fields(&self.before, &self.issue, &ISSUE_CHANGE_FIELDS);
+        let mut events =
+            vec![issue_event(&self.issue, &self.team_key, "updated").with_changes(changes.clone())];
+        let agent = self
+            .issue
+            .get("agentId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty());
+        if let Some(agent) = agent
+            && Some(agent) != self.before.get("agentId").and_then(Value::as_str)
+        {
+            events.push(
+                issue_event(&self.issue, &self.team_key, "agent_assigned").with_changes(changes),
+            );
+        }
+        events
+    }
+}
+
+/// `PATCH /:id`: the route around [`update_issue`].
 pub(crate) async fn update(
     State(state): State<MergeState>,
     caller: Caller,
@@ -704,8 +894,30 @@ pub(crate) async fn update(
 ) -> Answer {
     let input = issue_input(&headers, &body, true)?;
     let db = &caller.db;
-    let Some(before) = find_issue(db, &id).await? else {
-        return Err(Refusal::not_found("Issue", Some(&id)));
+    let updated = match update_issue(db, &id, &input).await? {
+        Ok(updated) => updated,
+        Err(UpdateFailure::NotFound) => return Err(Refusal::not_found("Issue", Some(&id))),
+        Err(UpdateFailure::Ref(failure)) => return Err(failure.refusal()),
+    };
+    publish(&state, &caller.events, updated.events());
+    crate::hooks::after_issue_updated(
+        &caller.hook_context(&state),
+        &updated.before,
+        &updated.issue,
+        &updated.team_key,
+    )
+    .await;
+    Ok(Data(one_dto(db, &updated.issue).await?).into_response())
+}
+
+/// `updateIssue(db, id, input)`.
+pub(crate) async fn update_issue(
+    db: &PgPool,
+    id: &str,
+    input: &IssueInput,
+) -> Result<Result<UpdatedIssue, UpdateFailure>, sqlx::Error> {
+    let Some(before) = find_issue(db, id).await? else {
+        return Ok(Err(UpdateFailure::NotFound));
     };
     let label_ids = input.label_ids.as_set().map(|ids| unique(ids));
     if let Some(failure) = validate_refs(
@@ -714,11 +926,11 @@ pub(crate) async fn update(
         input.cycle_id.as_set().map(String::as_str),
         input.parent_issue_id.as_set().map(String::as_str),
         label_ids.as_deref(),
-        Some(&id),
+        Some(id),
     )
     .await?
     {
-        return Err(failure.refusal());
+        return Ok(Err(UpdateFailure::Ref(failure)));
     }
     let now = now();
     let (set_description, description) = patch(&input.description);
@@ -728,6 +940,7 @@ pub(crate) async fn update(
     let (set_estimate, estimate) = patch(&input.estimate);
     let (set_due, due) = patch(&input.due_date);
     let (set_flow, flow) = patch(&input.flow_project_id);
+    let (set_agent, agent) = patch(&input.agent_id);
     // The status, with its timestamps, only when it changes.
     let status = input
         .status
@@ -753,10 +966,11 @@ pub(crate) async fn update(
            status = case when $21::text is null then status else $21 end, \
            started_at = case when $21::text is null then started_at else $22::timestamptz end, \
            completed_at = case when $21::text is null then completed_at else $23::timestamptz end, \
-           canceled_at = case when $21::text is null then canceled_at else $24::timestamptz end \
+           canceled_at = case when $21::text is null then canceled_at else $24::timestamptz end, \
+           agent_id = case when $25 then $26 else agent_id end \
          where id = $1 returning to_jsonb(merge_issues.*)",
     )
-    .bind(&id)
+    .bind(id)
     .bind(&now)
     .bind(input.title.as_set().cloned())
     .bind(set_description)
@@ -780,17 +994,17 @@ pub(crate) async fn update(
     .bind(stamps.as_ref().and_then(|s| s.started_at.clone()))
     .bind(stamps.as_ref().and_then(|s| s.completed_at.clone()))
     .bind(stamps.as_ref().and_then(|s| s.canceled_at.clone()))
+    .bind(set_agent)
+    .bind(agent)
     .fetch_one(db)
     .await?;
     let issue = weldsuite_db::js_row(row);
     let team_key = team_key_of(db, text(&before, "teamId")).await?;
-    let changes = diff_fields(&before, &issue, &ISSUE_CHANGE_FIELDS);
-    publish(
-        &state,
-        &caller.events,
-        vec![issue_event(&issue, &team_key, "updated").with_changes(changes)],
-    );
-    Ok(Data(one_dto(db, &issue).await?).into_response())
+    Ok(Ok(UpdatedIssue {
+        before,
+        issue,
+        team_key,
+    }))
 }
 
 /// `moveIssueStatus(db, issue, status)`: an ordinary status update

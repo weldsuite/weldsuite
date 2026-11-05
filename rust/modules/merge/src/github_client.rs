@@ -41,8 +41,14 @@ impl GithubClient {
         }
     }
 
-    /// `client.get(path)`: the parsed JSON body, or `None` on a 404.
-    pub(crate) async fn get(&self, path: &str) -> Result<Option<Value>, MergeError> {
+    /// Sends one call with the installation's token (minted on first use):
+    /// a JSON body when given. The answer as it came.
+    pub(crate) async fn send(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<weldsuite_ports::HttpResponse, MergeError> {
         let Some(credentials) = &self.credentials else {
             return Err(MergeError::GithubNotConfigured);
         };
@@ -66,16 +72,24 @@ impl GithubClient {
             self.token.set(minted.clone());
             minted
         };
-        let response = http
-            .send(
-                HttpRequest::empty("GET", format!("{GITHUB_API}{path}"))
-                    .header("Authorization", format!("Bearer {token}"))
-                    .header("Accept", "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .header("User-Agent", "WeldSuite-WeldMerge"),
-            )
-            .await
-            .map_err(|error| MergeError::Unexpected(error.to_string()))?;
+        let request = match body {
+            Some(body) => HttpRequest::json(method, format!("{GITHUB_API}{path}"), body),
+            None => HttpRequest::empty(method, format!("{GITHUB_API}{path}")),
+        };
+        http.send(
+            request
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("User-Agent", "WeldSuite-WeldMerge"),
+        )
+        .await
+        .map_err(|error| MergeError::Unexpected(error.to_string()))
+    }
+
+    /// `client.get(path)`: the parsed JSON body, or `None` on a 404.
+    pub(crate) async fn get(&self, path: &str) -> Result<Option<Value>, MergeError> {
+        let response = self.send("GET", path, None).await?;
         if response.status == 404 {
             return Ok(None);
         }

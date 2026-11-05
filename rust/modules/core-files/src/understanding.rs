@@ -86,8 +86,8 @@ fn should_understand(q: &str) -> bool {
 /// Entity-type nouns in English and Dutch (`TYPE_KEYWORD_MAP`).
 fn keyword_type(word: &str) -> Option<SearchType> {
     use SearchType::{
-        Article, Bill, Board, Contact, Customer, Domain, Invoice, KnowledgePage, Lead, Opportunity,
-        Order, Product, Project, Sheet, Task, Ticket,
+        Article, Bill, Board, Contact, Customer, Domain, Invoice, KnowledgePage, Lead, MergeIssue,
+        MergePullRequest, Opportunity, Order, Product, Project, Sheet, Task, Ticket,
     };
     Some(match word {
         "contact" | "contacts" | "contactpersoon" | "contactpersonen" | "person" | "people"
@@ -107,6 +107,8 @@ fn keyword_type(word: &str) -> Option<SearchType> {
         "task" | "tasks" | "taak" | "taken" => Task,
         "sheet" | "sheets" | "spreadsheet" | "spreadsheets" | "rekenblad" | "rekenbladen" => Sheet,
         "board" | "boards" | "whiteboard" | "whiteboards" => Board,
+        "issue" | "issues" => MergeIssue,
+        "pr" | "prs" | "pullrequest" | "pullrequests" => MergePullRequest,
         "domain" | "domains" | "domein" | "domeinen" => Domain,
         _ => return None,
     })

@@ -3,9 +3,10 @@
 //!
 //! ```text
 //!   GET    /          → tracked repositories (merge_connections:read)
-//!   POST   /          → add one: look it up through the installation, then load its open and recently merged pull requests
-//!   PATCH  /:id       → team, prSync; issueSync only accepts `off` in phase 1 (422)
-//!   DELETE /:id       → stop tracking (soft delete)
+//!   POST   /          → add one: look it up through the connection's provider (GitLab, Bitbucket and Azure DevOps
+//!                       also register their webhook and index its key), then load its open and recently merged pull requests
+//!   PATCH  /:id       → team, prSync; issueSync accepts off|import|two_way on GitHub and GitLab, only off elsewhere (422)
+//!   DELETE /:id       → stop tracking (soft delete); a provider hook and its index row are deleted first
 //!   POST   /:id/sync  → read the pull requests again (Refresh)
 //! ```
 //!
@@ -24,17 +25,17 @@ use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 
 use crate::connections::find_connection;
+use crate::credentials::adapter_context;
 use crate::db::{Row, is_unique_violation, one_by_id, rows_of, text};
-use crate::github::js_string;
-use crate::github_client::{GithubClient, get_repository_by_id, list_pull_requests_for_backfill};
 use crate::issues::diff_fields;
 use crate::mappers::{repository_dto, repository_event_data};
-use crate::pr_sync::{UpsertStatus, upsert_pull_request};
+use crate::pr_sync::{UpsertStatus, upsert_mirror};
+use crate::providers::{self, AdapterContext, RepositoryRef, issue_sync_modes, registers_webhooks};
 use crate::schemas::{ISSUE_SYNC_MODES, nothing_to_update};
 use crate::teams::find_team;
+use crate::webhooks::{register_repository_webhook, unregister_repository_webhook};
 use crate::{
-    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, now, now_ms, publish,
-    validate,
+    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, now, publish, validate,
 };
 
 /// Open pull requests per repository.
@@ -61,7 +62,7 @@ async fn dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
     Ok(repository_dto(row, counts.get(&id).copied().unwrap_or(0)))
 }
 
-async fn find_repository(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
+pub(crate) async fn find_repository(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
     one_by_id(
         db,
         "select to_jsonb(r) from merge_repositories r where r.id = $1 and r.deleted_at is null limit 1",
@@ -105,23 +106,24 @@ struct SyncSummary {
     events: Vec<PendingEvent>,
 }
 
-/// `syncRepository(db, repository, client)`: reads open pull requests and
-/// those closed or merged in the last 30 days and mirrors them, with their
-/// `auto` links. It never runs the automation rules.
+/// `syncRepository(db, repository, ctx)`: reads open pull requests and
+/// those closed or merged in the last 30 days through the provider and
+/// mirrors them, with their `auto` links. It never runs the automation
+/// rules.
 async fn sync_repository(
     db: &PgPool,
     repository: &Row,
-    client: &GithubClient,
+    ctx: &AdapterContext,
 ) -> Result<SyncSummary, MergeError> {
     let pulls =
-        list_pull_requests_for_backfill(client, text(repository, "fullName"), now_ms()).await?;
+        providers::list_pull_requests_for_backfill(ctx, &RepositoryRef::of(repository)).await?;
     let mut summary = SyncSummary {
         pull_requests_synced: 0,
         links_created: 0,
         events: Vec::new(),
     };
-    for pull in &pulls {
-        let outcome = upsert_pull_request(db, repository, pull, false, true).await?;
+    for pull in pulls {
+        let outcome = upsert_mirror(db, repository, pull, false, true, None).await?;
         if outcome.status != UpsertStatus::Stale {
             summary.pull_requests_synced += 1;
         }
@@ -149,7 +151,7 @@ pub(crate) async fn add(
     headers: HeaderMap,
     body: Bytes,
 ) -> Answer {
-    let (connection_id, external_id, team_id, pr_sync) =
+    let (connection_id, external_id, external_project, team_id, pr_sync) =
         validate(&headers, &body, |issues, fields| {
             (
                 issues
@@ -160,6 +162,15 @@ pub(crate) async fn add(
                     .text(fields, "externalId", Presence::Required, Some(1), None)
                     .into_option()
                     .unwrap_or_default(),
+                issues
+                    .text(
+                        fields,
+                        "externalProject",
+                        Presence::Nullish,
+                        None,
+                        Some(500),
+                    )
+                    .into_option(),
                 issues
                     .text(fields, "teamId", Presence::Nullish, None, None)
                     .into_option(),
@@ -172,10 +183,11 @@ pub(crate) async fn add(
     let db = &caller.db;
     let connection = find_connection(db, &connection_id)
         .await?
-        .filter(|c| text(c, "provider") == "github" && text(c, "status") == "active");
+        .filter(|c| text(c, "status") == "active");
     let Some(connection) = connection else {
         return Err(Refusal::not_found("Connection", Some(&connection_id)));
     };
+    let ctx = adapter_context(db, &state, &caller.overrides, &connection, None).await?;
     if let Some(team) = team_id.as_deref().filter(|t| !t.is_empty())
         && find_team(db, team).await?.is_none()
     {
@@ -192,42 +204,55 @@ pub(crate) async fn add(
     if dupe.is_some() {
         return Err(Refusal::conflict("This repository is already tracked"));
     }
-    let client = caller
-        .overrides
-        .github(&state, text(&connection, "externalAccountId"));
-    let Some(github) = get_repository_by_id(&client, &external_id).await? else {
+    let Some(remote) =
+        providers::get_repository(&ctx, &external_id, external_project.as_deref()).await?
+    else {
         return Err(Refusal::not_found("Repository", Some(&external_id)));
     };
     let now = now();
     let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
         "insert into merge_repositories (id, connection_id, provider, external_id, full_name, default_branch, \
-           private, url, team_id, issue_sync, pr_sync, created_by_user_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, coalesce($7, true), $8, $9, 'off', $10, $11, \
-           $12::timestamptz, $12::timestamptz) \
+           private, url, external_project, team_id, issue_sync, pr_sync, created_by_user_id, created_at, updated_at) \
+         values ($1, $2, $3, $4, $5, $6, coalesce($7, true), $8, $9, $10, 'off', $11, $12, \
+           $13::timestamptz, $13::timestamptz) \
          returning to_jsonb(merge_repositories.*)",
     )
     .bind(generate_id("mrp"))
     .bind(text(&connection, "id"))
     .bind(text(&connection, "provider"))
-    .bind(js_string(github.get("id")))
-    .bind(github.get("full_name").and_then(Value::as_str))
-    .bind(github.get("default_branch").and_then(Value::as_str))
-    .bind(github.get("private").and_then(Value::as_bool))
-    .bind(github.get("html_url").and_then(Value::as_str))
+    .bind(&remote.external_id)
+    .bind(remote.full_name.as_str())
+    .bind(&remote.default_branch)
+    .bind(remote.private.as_bool())
+    .bind(&remote.url)
+    .bind(remote.external_project.clone().or(external_project))
     .bind(&team_id)
     .bind(pr_sync)
     .bind(&caller.user_id)
     .bind(&now)
     .fetch_one(db)
     .await;
-    let repository = match inserted {
+    let mut repository = match inserted {
         Ok(row) => js_row(row),
         Err(error) if is_unique_violation(&error) => {
             return Err(Refusal::conflict("This repository is already tracked"));
         }
         Err(error) => return Err(error.into()),
     };
-    let sync = sync_repository(db, &repository, &client).await?;
+    if registers_webhooks(text(&connection, "provider")) {
+        match register_repository_webhook(db, &ctx, &caller.workspace_id, &repository).await {
+            Ok(row) => repository = row,
+            Err(error) => {
+                // Nothing is tracked until its webhook is in place: take the new row back out.
+                sqlx::query("delete from merge_repositories where id = $1")
+                    .bind(text(&repository, "id"))
+                    .execute(db)
+                    .await?;
+                return Err(error.into());
+            }
+        }
+    }
+    let sync = sync_repository(db, &repository, &ctx).await?;
     let repository = touch_synced(db, text(&repository, "id")).await?;
     let mut events = vec![repository_event(&repository, "created")];
     events.extend(sync.events);
@@ -261,9 +286,13 @@ pub(crate) async fn update(
     let Some(before) = find_repository(db, &id).await? else {
         return Err(Refusal::not_found("Repository", Some(&id)));
     };
-    if issue_sync.as_set().is_some_and(|mode| mode != "off") {
+    // `import` and `two_way` work for GitHub and GitLab; the other providers have no issue sync.
+    if issue_sync
+        .as_set()
+        .is_some_and(|mode| !issue_sync_modes(text(&before, "provider")).contains(&mode.as_str()))
+    {
         return Err(Refusal::unprocessable(
-            "Issue sync is not available yet: only \"off\" is accepted",
+            "This provider has no issue sync: only \"off\" is accepted",
         ));
     }
     if let Some(team) = team_id.as_set().filter(|t| !t.is_empty())
@@ -307,18 +336,35 @@ pub(crate) async fn remove(
     Path(id): Path<String>,
 ) -> Answer {
     let db = &caller.db;
-    if find_repository(db, &id).await?.is_none() {
+    let Some(existing) = find_repository(db, &id).await? else {
         return Err(Refusal::not_found("Repository", Some(&id)));
+    };
+    // GitLab, Bitbucket and Azure DevOps: take the provider hook and the index row down first.
+    if existing
+        .get("webhookKey")
+        .and_then(Value::as_str)
+        .is_some_and(|key| !key.is_empty())
+    {
+        let connection = find_connection(db, text(&existing, "connectionId")).await?;
+        let ctx = match &connection {
+            Some(connection) => adapter_context(db, &state, &caller.overrides, connection, None)
+                .await
+                .ok(),
+            None => None,
+        };
+        unregister_repository_webhook(&state, &caller.overrides, ctx.as_ref(), &existing).await;
     }
-    let row: Value = sqlx::query_scalar(
+    let row: Option<Value> = sqlx::query_scalar(
         "update merge_repositories set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_repositories.*)",
+         where id = $1 and deleted_at is null returning to_jsonb(merge_repositories.*)",
     )
     .bind(&id)
     .bind(now())
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?;
-    let repository = js_row(row);
+    let Some(repository) = row.map(js_row) else {
+        return Err(Refusal::not_found("Repository", Some(&id)));
+    };
     publish(
         &state,
         &caller.events,
@@ -344,10 +390,8 @@ pub(crate) async fn sync(
     let Some(connection) = connection else {
         return Err(Refusal::not_found("Connection", Some(&connection_id)));
     };
-    let client = caller
-        .overrides
-        .github(&state, text(&connection, "externalAccountId"));
-    let summary = sync_repository(db, &repository, &client).await?;
+    let ctx = adapter_context(db, &state, &caller.overrides, &connection, None).await?;
+    let summary = sync_repository(db, &repository, &ctx).await?;
     let synced = touch_synced(db, &id).await?;
     publish(&state, &caller.events, summary.events);
     Ok(Data(json!({

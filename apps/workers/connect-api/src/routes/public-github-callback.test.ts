@@ -91,7 +91,8 @@ beforeAll(async () => {
 
 function callback(query: string, env: Record<string, unknown> = ENV) {
   const { request } = createTestApp(BASE, githubCallbackRoutes, {
-    context: { tenantDb: db, orgId: null },
+    // The master database is shared with the Rust server in conformance mode (the installation index).
+    context: { tenantDb: db, orgId: null, masterDb: master },
     env: env as never,
   });
   return request(`${BASE}/callback${query}`);

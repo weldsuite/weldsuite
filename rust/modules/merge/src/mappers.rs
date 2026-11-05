@@ -71,6 +71,7 @@ pub(crate) fn issue_dto(row: &Row, team_key: &str, pull_request_count: i64) -> V
         "estimate": col(row, "estimate"),
         "dueDate": col(row, "dueDate"),
         "flowProjectId": col(row, "flowProjectId"),
+        "agentId": col(row, "agentId"),
         "sortOrder": col(row, "sortOrder"),
         "pullRequestCount": pull_request_count,
         "startedAt": col(row, "startedAt"),
@@ -88,8 +89,25 @@ pub(crate) fn comment_dto(row: &Row) -> Value {
         "issueId": col(row, "issueId"),
         "authorUserId": col(row, "authorUserId"),
         "body": col(row, "body"),
+        "source": col(row, "source"),
+        "externalAuthorLogin": col(row, "externalAuthorLogin"),
+        "externalAuthorAvatarUrl": col(row, "externalAuthorAvatarUrl"),
         "createdAt": col(row, "createdAt"),
         "updatedAt": col(row, "updatedAt"),
+    })
+}
+
+/// `providerAccountDto(row)`: a linked account for the member; the token and
+/// its expiry never leave the backend.
+pub(crate) fn provider_account_dto(row: &Row) -> Value {
+    json!({
+        "id": col(row, "id"),
+        "provider": col(row, "provider"),
+        "host": col(row, "host"),
+        "login": col(row, "login"),
+        "verified": !col(row, "verifiedAt").is_null(),
+        "avatarUrl": col(row, "avatarUrl"),
+        "displayName": col(row, "displayName"),
     })
 }
 
@@ -104,6 +122,7 @@ pub(crate) fn connection_dto(row: &Row, repository_count: i64) -> Value {
         "host": col(row, "host"),
         "status": col(row, "status"),
         "credentialsExpireAt": col(row, "credentialsExpireAt"),
+        "oauthUserLogin": col(row, "oauthUserLogin"),
         "repositoryCount": repository_count,
         "createdAt": col(row, "createdAt"),
     })
@@ -123,6 +142,7 @@ pub(crate) fn repository_dto(row: &Row, open_pull_request_count: i64) -> Value {
         "teamId": col(row, "teamId"),
         "issueSync": col(row, "issueSync"),
         "prSync": col(row, "prSync"),
+        "externalProject": col(row, "externalProject"),
         "openPullRequestCount": open_pull_request_count,
         "lastSyncedAt": col(row, "lastSyncedAt"),
         "createdAt": col(row, "createdAt"),
@@ -188,12 +208,42 @@ pub(crate) fn issue_event_data(
         "priority": col(row, "priority"),
         "assigneeUserId": col(row, "assigneeUserId"),
     });
-    if let Some(pr) = moved_by_pull_request_id.filter(|id| !id.is_empty())
-        && let Some(fields) = data.as_object_mut()
-    {
-        fields.insert("movedByPullRequestId".to_owned(), json!(pr));
+    if let Some(fields) = data.as_object_mut() {
+        // `...(row.agentId ? { agentId: row.agentId } : {})`
+        if let Some(agent) = row
+            .get("agentId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            fields.insert("agentId".to_owned(), json!(agent));
+        }
+        if let Some(pr) = moved_by_pull_request_id.filter(|id| !id.is_empty()) {
+            fields.insert("movedByPullRequestId".to_owned(), json!(pr));
+        }
     }
     data
+}
+
+/// `recordLinkDto(row)`.
+pub(crate) fn record_link_dto(row: &Row) -> Value {
+    json!({
+        "id": col(row, "id"),
+        "issueId": col(row, "issueId"),
+        "recordType": col(row, "recordType"),
+        "recordId": col(row, "recordId"),
+        "title": col(row, "title"),
+        "createdAt": col(row, "createdAt"),
+    })
+}
+
+/// `recordLinkEventData(row)`: what a record link's entity event carries.
+pub(crate) fn record_link_event_data(row: &Row) -> Value {
+    json!({
+        "id": col(row, "id"),
+        "issueId": col(row, "issueId"),
+        "recordType": col(row, "recordType"),
+        "recordId": col(row, "recordId"),
+    })
 }
 
 /// `repositoryEventData(row)`.

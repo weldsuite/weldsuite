@@ -21,6 +21,7 @@ use weldsuite_kit::{ApiError, Data};
 use crate::db::{Row, rows_of, text};
 use crate::github::{combine_check_suites, js_string, review_decision_from_reviews};
 use crate::github_client::{GithubClient, list_check_suites, list_pull_request_reviews};
+use crate::hooks::{HookContext, after_pull_request_synced};
 use crate::mappers::{pull_request_event_data, repository_event_data};
 use crate::pr_sync::{UpsertStatus, upsert_pull_request};
 use crate::pull_requests::linked_issues;
@@ -30,18 +31,21 @@ use crate::{
 };
 
 /// `MERGE_GITHUB_FORWARDED_EVENTS`.
-pub(crate) const FORWARDED_EVENTS: [&str; 4] = [
+pub(crate) const FORWARDED_EVENTS: [&str; 7] = [
     "pull_request",
     "pull_request_review",
     "check_suite",
     "installation_repositories",
+    "issues",
+    "issue_comment",
+    "installation",
 ];
 
 /// What the intake reads off its request: the tenant when a layer opened it
 /// (conformance), and the overrides.
 pub(crate) struct Intake {
-    tenant: Option<Tenant>,
-    overrides: Overrides,
+    pub(crate) tenant: Option<Tenant>,
+    pub(crate) overrides: Overrides,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Intake {
@@ -58,20 +62,20 @@ impl<S: Send + Sync> FromRequestParts<S> for Intake {
     }
 }
 
-/// What an event did (`GithubEventResult`).
-struct Outcome {
-    reason: Option<&'static str>,
-    events: Vec<PendingEvent>,
+/// What an event did (`GithubEventResult`): `reason` set when it was dropped.
+pub(crate) struct Outcome {
+    pub(crate) reason: Option<String>,
+    pub(crate) events: Vec<PendingEvent>,
 }
 
-const fn ignored(reason: &'static str) -> Outcome {
+pub(crate) fn ignored(reason: &str) -> Outcome {
     Outcome {
-        reason: Some(reason),
+        reason: Some(reason.to_owned()),
         events: Vec::new(),
     }
 }
 
-const fn applied(events: Vec<PendingEvent>) -> Outcome {
+pub(crate) const fn applied(events: Vec<PendingEvent>) -> Outcome {
     Outcome {
         reason: None,
         events,
@@ -79,12 +83,12 @@ const fn applied(events: Vec<PendingEvent>) -> Outcome {
 }
 
 /// `obj(value)`: an object, not an array.
-fn obj(value: Option<&Value>) -> Option<&Map<String, Value>> {
+pub(crate) fn obj(value: Option<&Value>) -> Option<&Map<String, Value>> {
     value.and_then(Value::as_object)
 }
 
 /// A string or number id, as `String(id)`.
-fn id_of(value: Option<&Value>) -> Option<String> {
+pub(crate) fn id_of(value: Option<&Value>) -> Option<String> {
     match value {
         Some(id @ (Value::Number(_) | Value::String(_))) => Some(js_string(Some(id))),
         _ => None,
@@ -174,7 +178,11 @@ async fn installation_repositories(
     ))
 }
 
-async fn pull_request(db: &PgPool, payload: &Map<String, Value>) -> Result<Outcome, MergeError> {
+async fn pull_request(
+    db: &PgPool,
+    payload: &Map<String, Value>,
+    hooks: Option<&HookContext>,
+) -> Result<Outcome, MergeError> {
     let Some(pull) = obj(payload.get("pull_request")) else {
         return Ok(ignored("no_payload"));
     };
@@ -184,8 +192,15 @@ async fn pull_request(db: &PgPool, payload: &Map<String, Value>) -> Result<Outco
     if repository.get("prSync") != Some(&Value::Bool(true)) {
         return Ok(ignored("pr_sync_off"));
     }
-    let outcome =
-        upsert_pull_request(db, &repository, &Value::Object(pull.clone()), true, false).await?;
+    let outcome = upsert_pull_request(
+        db,
+        &repository,
+        &Value::Object(pull.clone()),
+        true,
+        false,
+        hooks,
+    )
+    .await?;
     if outcome.status == UpsertStatus::Stale {
         return Ok(ignored("stale"));
     }
@@ -237,6 +252,7 @@ async fn review(
     db: &PgPool,
     payload: &Map<String, Value>,
     client: &GithubClient,
+    hooks: Option<&HookContext>,
 ) -> Result<Outcome, MergeError> {
     let number = obj(payload.get("pull_request")).and_then(|p| p.get("number"));
     let Some(number) = number.and_then(Value::as_f64) else {
@@ -276,13 +292,18 @@ async fn review(
     .await?;
     let updated = js_row(updated);
     let event = update_event(db, &updated, "reviewDecision", pr["reviewDecision"].clone()).await?;
-    Ok(applied(vec![event]))
+    let events = vec![event];
+    if let Some(hooks) = hooks {
+        after_pull_request_synced(hooks, Some(&pr), &updated, &events).await;
+    }
+    Ok(applied(events))
 }
 
 async fn check_suite(
     db: &PgPool,
     payload: &Map<String, Value>,
     client: &GithubClient,
+    hooks: Option<&HookContext>,
 ) -> Result<Outcome, MergeError> {
     let sha = obj(payload.get("check_suite"))
         .and_then(|s| s.get("head_sha"))
@@ -325,7 +346,12 @@ async fn check_suite(
         .fetch_one(db)
         .await?;
         let updated = js_row(updated);
-        events.push(update_event(db, &updated, "checksStatus", pr["checksStatus"].clone()).await?);
+        let event = update_event(db, &updated, "checksStatus", pr["checksStatus"].clone()).await?;
+        if let Some(hooks) = hooks {
+            after_pull_request_synced(hooks, Some(pr), &updated, std::slice::from_ref(&event))
+                .await;
+        }
+        events.push(event);
     }
     Ok(applied(events))
 }
@@ -338,17 +364,22 @@ async fn handle(
     event: &str,
     payload: &Map<String, Value>,
     client_for: impl Fn(&str) -> GithubClient,
+    hooks: Option<&HookContext>,
 ) -> Result<Outcome, MergeError> {
     match event {
-        "pull_request" => pull_request(db, payload).await,
+        "pull_request" => pull_request(db, payload, hooks).await,
         "pull_request_review" => match installation_of(payload) {
-            Some(installation) => review(db, payload, &client_for(&installation)).await,
+            Some(installation) => review(db, payload, &client_for(&installation), hooks).await,
             None => Ok(ignored("no_installation")),
         },
         "check_suite" => match installation_of(payload) {
-            Some(installation) => check_suite(db, payload, &client_for(&installation)).await,
+            Some(installation) => check_suite(db, payload, &client_for(&installation), hooks).await,
             None => Ok(ignored("no_installation")),
         },
+        // Issue sync (issues, issue_comment) and the installation lifecycle.
+        "issues" | "issue_comment" | "installation" => {
+            crate::issue_sync::hooks::handle_github_event(db, event, payload, hooks).await
+        }
         _ => installation_repositories(db, payload).await,
     }
 }
@@ -401,9 +432,27 @@ pub(crate) async fn intake(
     };
     let events = system_events(&tenant);
     let overrides = intake.overrides;
-    let outcome = handle(&tenant.db, &event, &payload, |installation| {
-        overrides.github(&state, installation)
-    })
+    let hooks = HookContext {
+        db: tenant.db.clone(),
+        state: state.clone(),
+        overrides: overrides.clone(),
+        user_id: "system".to_owned(),
+        workspace_id: tenant.workspace_id.clone(),
+        clerk_org_id: Some(
+            tenant
+                .clerk_org_id
+                .clone()
+                .unwrap_or_else(|| workspace_id.clone()),
+        ),
+        events: events.clone(),
+    };
+    let outcome = handle(
+        &tenant.db,
+        &event,
+        &payload,
+        |installation| overrides.github(&state, installation),
+        Some(&hooks),
+    )
     .await
     .map_err(Refusal::from)?;
     publish(&state, &events, outcome.events);

@@ -14,6 +14,7 @@ mod flow;
 pub mod members;
 pub mod policy;
 pub mod publish;
+pub mod system_message;
 pub mod text;
 
 pub use access::{

@@ -1,6 +1,6 @@
 # WeldMerge phases 2–5
 
-Status: in progress on branch `claude/weldmerge-app-design-d2f5eb` (PR weldsuite/weldsuite#1477, with phase 1).
+Status: built in TypeScript and Rust on branch `claude/weldmerge-app-design-d2f5eb` (PR weldsuite/weldsuite#1477, with phase 1). The design doc `design/modules/weldmerge.md` and ADRs MERGE-004..006 describe what shipped; this plan records how it was split up.
 Design doc: `design/modules/weldmerge.md` in weldsuite-documentation (ADRs MERGE-001..003).
 
 All five phases ship in one PR. Phase 1 (teams, issues, GitHub pull request
