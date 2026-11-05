@@ -4,7 +4,7 @@
  * `portfolio:manage`; the list applies to every project.
  */
 
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -35,6 +35,20 @@ export function RiskCategoriesDialog({ open, onClose }: Readonly<RiskCategoriesD
   const copy = t.projects.raid.categoryManager;
   const query = useRiskCategories(open);
 
+  // The editor reads the list once when it mounts; a refetch while it is open does not reset the draft.
+  let body: ReactNode;
+  if (query.data) {
+    body = <CategoryEditor initial={draftFromCategories(query.data)} onClose={onClose} />;
+  } else if (query.isError) {
+    body = (
+      <div className="px-6 py-5">
+        <InlineError>{copy.loadFailed}</InlineError>
+      </div>
+    );
+  } else {
+    body = <PageLoader fullScreen={false} className="py-10" />;
+  }
+
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-lg">
@@ -42,16 +56,7 @@ export function RiskCategoriesDialog({ open, onClose }: Readonly<RiskCategoriesD
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
-        {/* The editor reads the list once when it mounts; a refetch while it is open does not reset the draft. */}
-        {query.data ? (
-          <CategoryEditor initial={draftFromCategories(query.data)} onClose={onClose} />
-        ) : query.isError ? (
-          <div className="px-6 py-5">
-            <InlineError>{copy.loadFailed}</InlineError>
-          </div>
-        ) : (
-          <PageLoader fullScreen={false} className="py-10" />
-        )}
+        {body}
       </DialogContent>
     </Dialog>
   );
