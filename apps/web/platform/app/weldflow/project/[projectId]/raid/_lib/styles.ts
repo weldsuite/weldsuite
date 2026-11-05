@@ -1,14 +1,15 @@
 /**
  * Tailwind classes of the RAID screens: one place for the band colours of the
- * matrix, score badges and trend chart, and the tones of status pills. Every
- * entry has a dark-mode variant.
+ * matrix, score badges and trend chart, and the tones of status pills. The
+ * matrix cells keep the classic flat risk-matrix colours (green, yellow,
+ * orange, red) in both themes; every other entry has a dark-mode variant.
  */
 
 import type { RiskBand } from '@weldsuite/app-api-client/domains/project-control';
 import type { Tone } from './raid';
 
 export interface BandStyle {
-  /** A matrix cell and legend swatch. */
+  /** A matrix cell: the flat classic colour, the same in both themes (its text is black). */
   cell: string;
   /** A score badge. */
   badge: string;
@@ -18,33 +19,25 @@ export interface BandStyle {
 
 export const BAND_STYLES: Readonly<Record<RiskBand, BandStyle>> = {
   low: {
-    cell: 'bg-green-100 dark:bg-green-950/70',
+    cell: 'bg-[#70ad47]',
     badge: 'bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-200',
     stripe: 'fill-green-50 dark:fill-green-950/40',
   },
   medium: {
-    cell: 'bg-amber-100 dark:bg-amber-950/70',
+    cell: 'bg-[#ffff00]',
     badge: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
     stripe: 'fill-amber-50 dark:fill-amber-950/40',
   },
   high: {
-    cell: 'bg-orange-200 dark:bg-orange-900/60',
+    cell: 'bg-[#ffc000]',
     badge: 'bg-orange-200 text-orange-900 dark:bg-orange-900/70 dark:text-orange-100',
     stripe: 'fill-orange-50 dark:fill-orange-950/40',
   },
   critical: {
-    cell: 'bg-red-600 dark:bg-red-700',
+    cell: 'bg-[#ff0000]',
     badge: 'bg-red-600 text-white dark:bg-red-700',
     stripe: 'fill-red-50 dark:fill-red-950/40',
   },
-};
-
-/** The scores a band shows in the legend (a critical risk scores 20 or more: 17-19 cannot occur). */
-export const BAND_LEGEND_RANGES: Readonly<Record<RiskBand, { min: number; max: number }>> = {
-  low: { min: 1, max: 4 },
-  medium: { min: 5, max: 9 },
-  high: { min: 10, max: 16 },
-  critical: { min: 20, max: 25 },
 };
 
 export const TONE_PILL: Readonly<Record<Tone, string>> = {

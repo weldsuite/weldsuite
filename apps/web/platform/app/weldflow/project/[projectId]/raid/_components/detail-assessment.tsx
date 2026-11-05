@@ -22,10 +22,10 @@ function MiniMatrix({ risk }: Readonly<{ risk: RaidItem }>) {
   const rows = [...RATINGS].reverse();
 
   return (
-    <div className="shrink-0 rounded-lg border p-3">
+    <div className="shrink-0">
       <div className="flex flex-col gap-[3px]" role="img" aria-label={`${copy.assessment}: ${format(copy.nowScore, { probability: risk.probability ?? '', impact: risk.impact ?? '', score: risk.score ?? '' })}`}>
         {rows.map((probability) => (
-          <div key={probability} className="grid grid-cols-[12px_repeat(5,22px)] items-center gap-[3px]">
+          <div key={probability} className="grid grid-cols-[12px_repeat(5,minmax(0,1fr))] items-center gap-[3px]">
             <span className="text-center text-[10px] text-muted-foreground">{probability}</span>
             {RATINGS.map((impact) => {
               const now = risk.probability === probability && risk.impact === impact;
@@ -33,7 +33,7 @@ function MiniMatrix({ risk }: Readonly<{ risk: RaidItem }>) {
               return (
                 <div
                   key={impact}
-                  className={cn('flex size-[22px] items-center justify-center rounded', BAND_STYLES[riskBand(riskScore(probability, impact))].cell)}
+                  className={cn('flex aspect-square items-center justify-center rounded', BAND_STYLES[riskBand(riskScore(probability, impact))].cell)}
                 >
                   {now ? <span className="size-3 rounded-full border-2 border-white bg-neutral-900 box-content dark:border-neutral-900 dark:bg-white" /> : null}
                   {target ? <span className="size-3 rounded-full border-2 border-dashed border-neutral-900 bg-white box-content dark:border-white dark:bg-neutral-900" /> : null}
@@ -42,7 +42,7 @@ function MiniMatrix({ risk }: Readonly<{ risk: RaidItem }>) {
             })}
           </div>
         ))}
-        <div className="grid grid-cols-[12px_repeat(5,22px)] gap-[3px]">
+        <div className="grid grid-cols-[12px_repeat(5,minmax(0,1fr))] gap-[3px]">
           <span />
           {RATINGS.map((impact) => (
             <span key={impact} className="text-center text-[10px] text-muted-foreground">
@@ -141,7 +141,7 @@ function TrendChart({ assessments }: Readonly<{ assessments: readonly RaidAssess
   );
 }
 
-/** The matrix position and the score trend side by side. */
+/** The matrix position, with the score trend under it (the panel is narrow). */
 export function AssessmentSummary({ risk, assessments }: Readonly<{ risk: RaidItem; assessments: readonly RaidAssessment[] | undefined }>) {
   const { t } = useI18n();
   return (
@@ -149,9 +149,9 @@ export function AssessmentSummary({ risk, assessments }: Readonly<{ risk: RaidIt
       <h2 id="raid-assessment-title" className="mb-3 text-sm font-semibold">
         {t.projects.raid.detail.assessment}
       </h2>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+      <div className="flex flex-col gap-4">
         <MiniMatrix risk={risk} />
-        {assessments ? <TrendChart assessments={assessments} /> : <Skeleton className="h-36 flex-1 rounded-lg" />}
+        {assessments ? <TrendChart assessments={assessments} /> : <Skeleton className="h-36 rounded-lg" />}
       </div>
     </section>
   );

@@ -1,15 +1,20 @@
 /**
- * The detail panel of a RAID item: what it is, who owns it, its assessment (for
- * a risk), the tasks behind it and the actions on it (reassess, convert, edit,
- * delete). It sits next to the register instead of over it, so the task panel
- * can open beside it.
+ * The object panel of a RAID item (risk, assumption, issue or dependency), on
+ * the same shell as the task panel: `useObjectPanelShell` + `EntityDetailView`
+ * + the configurable tab strip, so it has the shared header (close, expand,
+ * back, previous / next) and opens over the page like every record.
+ *
+ * Tabs: Details (what it is, its facts and assessment, linked items) · Tasks
+ * (mitigation or resolution, for risks and issues) · History (assessments, for
+ * risks). The object panel host sits outside the RAID tab, so the panel builds
+ * its own RAID context from the item's project.
  */
 
-import { AskSponsorAction, needsSponsorAcceptance } from './ask-sponsor-action';
-import { useState, type ReactNode } from 'react';
-import { ArrowRightLeft, MoreHorizontal, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowRightLeft, EllipsisVertical, History, LayoutGrid, ListChecks, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
@@ -19,24 +24,46 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import type { RaidItem, RaidItemDetail } from '@weldsuite/app-api-client/domains/project-control';
+import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
+import type { RaidItem, RaidItemDetail, RaidKind } from '@weldsuite/app-api-client/domains/project-control';
+import {
+  useObjectPanel,
+  useObjectPanelShell,
+  type ObjectPanelComponentProps,
+  type ObjectPanelTabDescriptor,
+} from '@/components/object-panel';
+import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
+import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
+import { ProjectPermissionProvider } from '@/app/weldflow/contexts/project-permission-context';
 import { useRouter } from '@/lib/router';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { useDeleteRaidItem, useRaidItem } from '@/hooks/queries/use-project-control-queries';
+import { useDeleteRaidItem, useRaidItem, useRaidItems } from '@/hooks/queries/use-project-control-queries';
+import { useProject } from '@/hooks/queries/use-projects-queries';
 import { categoryLabel, confidenceLabel, directionLabel, partyTypeLabel, reviewEveryLabel, strategyLabel } from '../_lib/copy';
 import { intlLocaleOf } from '../_lib/locale';
-import { RAID_KIND_PATHS, formatShortDate, linkedMilestones, linkedRaidItems, linkedTasks } from '../_lib/raid';
+import { EMPTY_FILTERS, RAID_KIND_PATHS, formatShortDate, linkedMilestones, linkedRaidItems, linkedTasks } from '../_lib/raid';
 import { isOpenItem, isOverdue, reviewIntervalDays, reviewIntervalLabel } from '../_lib/risk';
+import { AskSponsorAction, needsSponsorAcceptance } from './ask-sponsor-action';
 import { AssessDialog } from './assess-dialog';
 import { ConvertDialog } from './convert-dialog';
 import { AssessmentHistory, AssessmentSummary } from './detail-assessment';
 import { MilestoneValue } from './detail-milestone';
 import { DetailTasks } from './detail-tasks';
+import { ItemDialog, type ItemDialogState } from './item-dialog';
 import { OwnerCell, ScoreBadge, SeverityBadge, StatusPill } from './raid-parts';
-import { useRaid } from './raid-context';
+import { RAID_ITEM_PANEL_TYPE } from './raid-item-panel-type';
+import {
+  RaidContext,
+  useRaid,
+  useRaidAbilities,
+  useRaidMembers,
+  useToday,
+  type RaidContextValue,
+} from './raid-context';
 import { CreateTaskDialog, LinkTaskDialog } from './task-dialogs';
+
+/** The task panel's width, so a RAID item and a task opened from it take the same room. */
+const RAID_ITEM_PANEL_WIDTH = 400;
 
 function Property({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
   return (
@@ -149,7 +176,7 @@ function Properties({ item, detail }: Readonly<{ item: RaidItem; detail: RaidIte
   const copy = t.projects.raid;
 
   return (
-    <dl className="mx-6 mt-3 grid grid-cols-[8.5rem_minmax(0,1fr)] gap-x-3 gap-y-2.5 border-y py-4 text-[13px]">
+    <dl className="mx-6 mt-4 grid grid-cols-[8.5rem_minmax(0,1fr)] gap-x-3 gap-y-2.5 border-y py-4 text-[13px]">
       <Property label={copy.detail.owner}>
         <OwnerCell ownerId={item.ownerId} />
       </Property>
@@ -196,6 +223,7 @@ interface ItemActionsMenuProps {
   onDelete: (item: RaidItem) => void;
 }
 
+/** The three-dot menu of the panel header, as on every object panel. */
 function ItemActionsMenu({ item, onConvert, onDelete }: Readonly<ItemActionsMenuProps>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
@@ -204,8 +232,14 @@ function ItemActionsMenu({ item, onConvert, onDelete }: Readonly<ItemActionsMenu
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="icon-sm" aria-label={copy.detail.moreActions} title={copy.detail.moreActions}>
-          <MoreHorizontal aria-hidden />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
+          aria-label={copy.detail.moreActions}
+        >
+          <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
@@ -235,51 +269,53 @@ function ItemActionsMenu({ item, onConvert, onDelete }: Readonly<ItemActionsMenu
   );
 }
 
-interface DetailHeaderProps {
-  item: RaidItem | undefined;
+interface HeaderActionsProps {
+  item: RaidItem;
   onAssess: (item: RaidItem) => void;
   onConvert: (item: RaidItem) => void;
   onDelete: (item: RaidItem) => void;
 }
 
-function DetailHeader({ item, onAssess, onConvert, onDelete }: Readonly<DetailHeaderProps>) {
+/** Reassess (an open risk), ask the sponsor (a risk to accept) and the menu. */
+function HeaderActions({ item, onAssess, onConvert, onDelete }: Readonly<HeaderActionsProps>) {
   const { t } = useI18n();
   const copy = t.projects.raid;
-  const { projectName, abilities, select } = useRaid();
+  const { abilities } = useRaid();
   return (
-    <div className="flex items-center gap-2 border-b px-4 py-3">
-      <Button type="button" variant="ghost" size="icon-sm" onClick={() => select(null)} aria-label={copy.detail.close} title={copy.detail.close}>
-        <X aria-hidden />
-      </Button>
-      <span className="min-w-0 truncate text-[13px] text-muted-foreground">{projectName}</span>
-      {item ? (
-        <>
-          <span aria-hidden className="text-muted-foreground/60">/</span>
-          <span className="shrink-0 text-[13px] font-medium">{item.code}</span>
-        </>
-      ) : null}
-      <div className="min-w-0 flex-1" />
-      {item && isOpenItem(item) && abilities.update && item.kind === 'risk' ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => onAssess(item)}>
-          <RefreshCw aria-hidden />
-          {copy.detail.reassess}
+    <div className="flex items-center gap-1.5">
+      {isOpenItem(item) && abilities.update && item.kind === 'risk' ? (
+        // An icon, as the header actions of the task panel, so the title keeps the room.
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7"
+          onClick={() => onAssess(item)}
+          aria-label={copy.detail.reassess}
+          title={copy.detail.reassess}
+        >
+          <RefreshCw className="h-4 w-4 text-muted-foreground" />
         </Button>
       ) : null}
-      {item && abilities.update && needsSponsorAcceptance(item) ? <AskSponsorAction item={item} /> : null}
-      {item && (abilities.update || abilities.remove) ? <ItemActionsMenu item={item} onConvert={onConvert} onDelete={onDelete} /> : null}
+      {abilities.update && needsSponsorAcceptance(item) ? <AskSponsorAction item={item} /> : null}
+      {abilities.update || abilities.remove ? <ItemActionsMenu item={item} onConvert={onConvert} onDelete={onDelete} /> : null}
     </div>
   );
 }
 
 const PILL_RED = 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-200';
 
+/** The code, the score or severity, the status and the other flags of an item. */
 function ItemBadges({ item }: Readonly<{ item: RaidItem }>) {
   const { t, language, format } = useI18n();
   const copy = t.projects.raid;
   const { now } = useRaid();
   const open = isOpenItem(item);
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="inline-flex h-[20px] items-center rounded bg-gray-100 px-1.5 font-mono text-[11px] leading-none text-gray-500 dark:bg-secondary dark:text-muted-foreground">
+        {item.code}
+      </span>
       {item.kind === 'risk' && item.score !== null && item.band !== null ? <ScoreBadge score={item.score} band={item.band} /> : null}
       {item.kind === 'issue' ? <SeverityBadge severity={item.severity} /> : null}
       <StatusPill kind={item.kind} status={item.status} />
@@ -293,49 +329,120 @@ function ItemBadges({ item }: Readonly<{ item: RaidItem }>) {
   );
 }
 
-interface ItemBodyProps {
-  item: RaidItem;
-  detail: RaidItemDetail | undefined;
-  tasks: ReturnType<typeof linkedTasks>;
-  onCreateTask: (item: RaidItem) => void;
-  onLinkTask: (item: RaidItem) => void;
-}
-
-function ItemBody({ item, detail, tasks, onCreateTask, onLinkTask }: Readonly<ItemBodyProps>) {
+/** Details tab: the badges, the description, the facts, the assessment (a risk) and the linked items. */
+function DetailsTab({ item, detail }: Readonly<{ item: RaidItem; detail: RaidItemDetail | undefined }>) {
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="pb-7">
       <div className="px-6 pt-5">
-        <h1 className="text-xl leading-snug font-semibold">{item.title}</h1>
         <ItemBadges item={item} />
         {item.description ? <p className="mt-3.5 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">{item.description}</p> : null}
       </div>
-
       <Properties item={item} detail={detail} />
-
       {item.kind === 'risk' ? <AssessmentSummary risk={item} assessments={detail?.assessments} /> : null}
-
-      {item.kind === 'risk' || item.kind === 'issue' ? (
-        <DetailTasks item={item} tasks={detail ? tasks : undefined} onCreateTask={() => onCreateTask(item)} onLinkTask={() => onLinkTask(item)} />
-      ) : null}
-
       <LinkedItems detail={detail} />
-
-      {item.kind === 'risk' ? <AssessmentHistory assessments={detail?.assessments} /> : <div className="pb-7" />}
     </div>
   );
 }
 
-interface RaidDetailPanelProps {
-  itemId: string;
+type RaidItemTabId = 'details' | 'tasks' | 'history';
+
+interface RaidItemTab extends ObjectPanelTabDescriptor {
+  id: RaidItemTabId;
+  defaultVisibleInPanel?: boolean;
+  defaultVisibleInFullscreen?: boolean;
+  required?: boolean;
 }
 
-/** The panel for the selected item. */
-export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
+/** The tabs of a kind: tasks back risks and issues, assessments only risks. */
+function raidItemTabs(kind: RaidKind | undefined, labels: { details: string; tasks: string; history: string; tasksCount?: number }): RaidItemTab[] {
+  const shown = { defaultVisibleInPanel: true, defaultVisibleInFullscreen: true };
+  const tabs: RaidItemTab[] = [{ id: 'details', label: labels.details, icon: LayoutGrid, required: true, ...shown }];
+  if (kind === 'risk' || kind === 'issue') tabs.push({ id: 'tasks', label: labels.tasks, icon: ListChecks, count: labels.tasksCount, ...shown });
+  if (kind === 'risk') tabs.push({ id: 'history', label: labels.history, icon: History, ...shown });
+  return tabs;
+}
+
+/** The item could not be loaded: gone, or a failure that can be retried. */
+function LoadError({ notFound, onRetry }: Readonly<{ notFound: boolean; onRetry: () => void }>) {
+  const { t } = useI18n();
+  const copy = t.projects.raid;
+  return (
+    <div className="space-y-3 p-4">
+      <p className="text-sm text-muted-foreground" role="alert">
+        {notFound ? copy.detail.notFound : copy.detail.loadFailed}
+      </p>
+      {notFound ? null : (
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          {copy.states.retry}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+interface PanelContextProps {
+  projectId: string;
+  itemId: string;
+  kind: RaidKind;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+/**
+ * The RAID context the item's parts read, built for the panel: the project's
+ * members and grants, today, and the edit dialog. Another item opened from this
+ * one (a linked item) goes on top of the panel, with a back arrow.
+ */
+function RaidPanelContext({ projectId, itemId, kind, onClose, children }: Readonly<PanelContextProps>) {
+  const abilities = useRaidAbilities();
+  const itemsQuery = useRaidItems(projectId);
+  const projectQuery = useProject(projectId);
+  const { members, memberOf } = useRaidMembers(projectId);
+  const { open } = useObjectPanel();
+  const now = useToday();
+  const [dialog, setDialog] = useState<ItemDialogState | null>(null);
+  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
+
+  const value: RaidContextValue = {
+    projectId,
+    projectName: projectQuery.data?.data?.name ?? '',
+    items,
+    isLoading: itemsQuery.isLoading,
+    isError: itemsQuery.isError && !itemsQuery.data,
+    retry: () => void itemsQuery.refetch(),
+    now,
+    members,
+    memberOf,
+    abilities,
+    selectedId: itemId,
+    select: (id) => (id ? open({ type: RAID_ITEM_PANEL_TYPE, id, stack: true }) : onClose()),
+    openCreate: (newKind) => setDialog({ mode: 'create', kind: newKind }),
+    openEdit: (item) => setDialog({ mode: 'edit', item }),
+    // The register's toolbar state belongs to the RAID tab; the panel has none.
+    activeKind: kind,
+    filters: EMPTY_FILTERS,
+    setFilters: () => undefined,
+    showClosed: false,
+    toggleShowClosed: () => undefined,
+  };
+
+  return (
+    <RaidContext.Provider value={value}>
+      {children}
+      <ItemDialog state={dialog} onClose={() => setDialog(null)} />
+    </RaidContext.Provider>
+  );
+}
+
+type ItemQuery = ReturnType<typeof useRaidItem>;
+
+function RaidItemPanelView({ query, ...props }: Readonly<ObjectPanelComponentProps & { query: ItemQuery }>) {
   const { t, format } = useI18n();
+  const st = useTranslations();
   const copy = t.projects.raid;
   const router = useRouter();
-  const { projectId, items, select } = useRaid();
-  const query = useRaidItem(itemId);
+  const { projectId } = useRaid();
+  const { open } = useObjectPanel();
   const deleteItem = useDeleteRaidItem();
 
   const [assessing, setAssessing] = useState<RaidItem | null>(null);
@@ -345,26 +452,28 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
   const [deleting, setDeleting] = useState<RaidItem | null>(null);
 
   const detail = query.data;
-  const item: RaidItem | undefined = detail ?? items.find((candidate) => candidate.id === itemId);
+  const item: RaidItem | undefined = detail;
   const notFound = query.isError && isApiError(query.error) && query.error.status === 404;
   const tasks = linkedTasks(detail);
 
-  let body: ReactNode;
-  if (!item && notFound) {
-    body = <PanelMessage text={copy.detail.notFound} />;
-  } else if (!item && query.isError) {
-    body = <PanelMessage text={copy.detail.loadFailed} action={{ label: copy.states.retry, onClick: () => void query.refetch() }} />;
-  } else if (!item) {
-    body = (
-      <div className="space-y-4 p-6" role="status" aria-busy="true">
-        <Skeleton className="h-7 w-3/4" />
-        <Skeleton className="h-5 w-1/2" />
-        <Skeleton className="h-24" />
-      </div>
-    );
-  } else {
-    body = <ItemBody item={item} detail={detail} tasks={tasks} onCreateTask={setCreatingTask} onLinkTask={setLinkingTask} />;
-  }
+  const shell = useObjectPanelShell({
+    ...props,
+    width: RAID_ITEM_PANEL_WIDTH,
+    loading: query.isLoading && !item,
+  });
+
+  const tabs = useMemo(
+    () =>
+      raidItemTabs(item?.kind, {
+        details: st('sweep.entities.detailsTab'),
+        tasks: item?.kind === 'issue' ? copy.tasks.resolution : copy.tasks.mitigation,
+        history: copy.detail.history,
+        tasksCount: item?.taskProgress.total || undefined,
+      }),
+    [st, copy, item?.kind, item?.taskProgress.total],
+  );
+  // A deep-linked tab that only appears once the item is loaded is applied when it does.
+  const [activeTab, setActiveTab] = usePanelInitialTab<RaidItemTabId>(tabs, props.initialTab, 'details');
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -372,16 +481,44 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
       await deleteItem.mutateAsync(deleting.id);
       toast.success(copy.toasts.deleted);
       setDeleting(null);
-      select(null);
+      props.onClose();
     } catch {
       toast.error(copy.toasts.deleteFailed);
     }
   };
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col')}>
-      <DetailHeader item={item} onAssess={setAssessing} onConvert={setConverting} onDelete={setDeleting} />
-      {body}
+    <>
+      <EntityDetailView
+        {...shell.entityDetailViewProps}
+        title={
+          item ? (
+            <span className="relative top-px text-[15px] font-medium text-foreground">{item.title}</span>
+          ) : (
+            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+          )
+        }
+        titleWrap
+        actions={item ? <HeaderActions item={item} onAssess={setAssessing} onConvert={setConverting} onDelete={setDeleting} /> : null}
+        tabs={
+          <ConfigurablePanelTabs
+            objectType={RAID_ITEM_PANEL_TYPE}
+            tabs={tabs}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            mode={shell.mode}
+          />
+        }
+      >
+        {!query.isLoading && !item ? <LoadError notFound={notFound} onRetry={() => void query.refetch()} /> : null}
+        {item && activeTab === 'details' ? <DetailsTab item={item} detail={detail} /> : null}
+        {item && activeTab === 'tasks' ? (
+          <div className="pb-7">
+            <DetailTasks item={item} tasks={detail ? tasks : undefined} onCreateTask={() => setCreatingTask(item)} onLinkTask={() => setLinkingTask(item)} />
+          </div>
+        ) : null}
+        {item && activeTab === 'history' ? <AssessmentHistory assessments={detail?.assessments} /> : null}
+      </EntityDetailView>
 
       <AssessDialog risk={assessing} onClose={() => setAssessing(null)} />
       <ConvertDialog
@@ -389,14 +526,14 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
         onClose={() => setConverting(null)}
         onConverted={(created) => {
           router.push(`/weldflow/project/${projectId}/raid${RAID_KIND_PATHS[created.kind]}`);
-          select(created.id);
+          open({ type: RAID_ITEM_PANEL_TYPE, id: created.id });
         }}
       />
       <CreateTaskDialog item={creatingTask} onClose={() => setCreatingTask(null)} />
       <LinkTaskDialog item={linkingTask} linkedTaskIds={new Set(tasks.map((link) => link.target.id))} onClose={() => setLinkingTask(null)} />
       <ConfirmDialog
         open={deleting !== null}
-        onOpenChange={(open) => (open ? undefined : setDeleting(null))}
+        onOpenChange={(isOpen) => (isOpen ? undefined : setDeleting(null))}
         title={deleting ? format(copy.deleteDialog.title, { code: deleting.code }) : ''}
         description={deleting ? format(copy.deleteDialog.description, { title: deleting.title }) : ''}
         confirmLabel={copy.deleteDialog.confirm}
@@ -405,19 +542,19 @@ export function RaidDetailPanel({ itemId }: Readonly<RaidDetailPanelProps>) {
         loading={deleteItem.isPending}
         onConfirm={confirmDelete}
       />
-    </div>
+    </>
   );
 }
 
-function PanelMessage({ text, action }: Readonly<{ text: string; action?: { label: string; onClick: () => void } }>) {
+/** The panel of a RAID item, registered as the `raid_item` object panel. */
+export function RaidItemPanel(props: Readonly<ObjectPanelComponentProps>) {
+  const query = useRaidItem(props.id);
+  const projectId = query.data?.projectId ?? '';
   return (
-    <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <p className="text-sm text-muted-foreground">{text}</p>
-      {action ? (
-        <Button type="button" variant="outline" size="sm" onClick={action.onClick}>
-          {action.label}
-        </Button>
-      ) : null}
-    </div>
+    <ProjectPermissionProvider projectId={projectId}>
+      <RaidPanelContext projectId={projectId} itemId={props.id} kind={query.data?.kind ?? 'risk'} onClose={props.onClose}>
+        <RaidItemPanelView {...props} query={query} />
+      </RaidPanelContext>
+    </ProjectPermissionProvider>
   );
 }

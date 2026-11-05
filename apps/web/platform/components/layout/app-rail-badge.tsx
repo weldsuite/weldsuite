@@ -14,6 +14,14 @@ export function formatRailBadgeCount(count: number): string {
 }
 
 /**
+ * The look of the red count pill, without its place on the rail icon: other
+ * counts that should read the same (the RAID risk matrix) use it with
+ * `railBadgeSizeClass`.
+ */
+export const RAIL_BADGE_CLASS =
+  'text-[11px] font-semibold tabular-nums leading-none text-white bg-red-500 h-[18px] flex items-center justify-center rounded-full ring-2 ring-[var(--shell-chrome,var(--background))]';
+
+/**
  * Red unread-count pill pinned to the top-right of an app rail icon (the
  * parent must be `relative`). Renders nothing when there is nothing unread.
  * Its 2px ring is the rail's own colour (the shell chrome on desktop, the
@@ -26,7 +34,8 @@ export function AppRailBadge({ count, className }: Readonly<{ count?: number; cl
     <span
       data-testid="app-rail-badge"
       className={cn(
-        'absolute -top-[3px] -right-[3px] z-10 text-[11px] font-semibold tabular-nums leading-none text-white bg-red-500 h-[18px] flex items-center justify-center rounded-full ring-2 ring-[var(--shell-chrome,var(--background))] pointer-events-none',
+        'absolute -top-[3px] -right-[3px] z-10 pointer-events-none',
+        RAIL_BADGE_CLASS,
         railBadgeSizeClass(count),
         className
       )}

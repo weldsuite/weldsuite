@@ -5,6 +5,7 @@ import { analyticsApi } from '@/app/weldflow/lib/api-client';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { ProjectReportViewClient } from './_components/project-report-view-client';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PageColumn } from '@weldsuite/ui/components/page-layout';
 import { useI18n } from '@/lib/i18n/provider';
 
 export default function ProjectAnalyticsReportPage() {
@@ -34,20 +35,20 @@ export default function ProjectAnalyticsReportPage() {
 
   if (!report) {
     return (
-      <div className="container mx-auto py-6 px-4">
+      <PageColumn className="py-6">
         <p className="text-muted-foreground">{t.projects.analyticsReports.reportNotFound}</p>
-      </div>
+      </PageColumn>
     );
   }
 
   return (
-    <div className="container mx-auto py-6 px-4">
+    <PageColumn className="py-6">
       <ProjectReportViewClient
         key={`${report.id}:${charts.map((chart: { id: string }) => chart.id).join(',')}`}
         report={report}
         charts={charts}
         projectId={projectId}
       />
-    </div>
+    </PageColumn>
   );
 }

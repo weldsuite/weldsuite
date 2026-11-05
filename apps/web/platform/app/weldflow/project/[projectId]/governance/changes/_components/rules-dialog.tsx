@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, Loader2, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import type { ChangeControlResponse } from '@weldsuite/app-api-client/domains/flow-approvals';
@@ -15,17 +16,19 @@ import type { MemberOption } from '@/app/weldflow/_approvals/use-member-names';
 
 const NO_SPONSOR = '__none__';
 
-interface RulesCardProps {
+interface RulesFormProps {
   projectId: string;
   control: ChangeControlResponse;
   /** Project members (a viewer is enough for the board and the sponsor). */
   members: MemberOption[];
   /** Only a project manager edits the rules; everybody else reads them. */
   canEdit: boolean;
+  /** Cancel or Close, and after the limits and the board were saved. */
+  onClose: () => void;
 }
 
 /** The approval rules of a project: the two limits, the change board and the sponsor. */
-export function RulesCard({ projectId, control, members, canEdit }: Readonly<RulesCardProps>) {
+export function RulesForm({ projectId, control, members, canEdit, onClose }: Readonly<RulesFormProps>) {
   const { t, format } = useI18n();
   const copy = t.flowApprovals.changes.rules;
   const save = useSetChangeControl(projectId);
@@ -53,26 +56,17 @@ export function RulesCard({ projectId, control, members, canEdit }: Readonly<Rul
     try {
       await save.mutateAsync({ costLimit: values.costLimit, scheduleLimitDays: values.scheduleLimitDays, boardMemberIds: values.boardMemberIds });
       toast.success(copy.saved);
+      onClose();
     } catch {
       toast.error(copy.saveFailed);
     }
   });
 
   return (
-    <section className="rounded-lg border" aria-labelledby="change-rules-title" data-testid="rules-card">
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
-        <h2 id="change-rules-title" className="text-sm font-semibold">
-          {copy.title}
-        </h2>
-        {control.warnings.includes('no_board') ? (
-          <Badge variant="outline" className="gap-1 border-amber-500 text-amber-700 dark:text-amber-400" title={copy.noBoardWarning}>
-            <AlertTriangle className="size-3" aria-hidden />
-            {copy.noBoard}
-          </Badge>
-        ) : null}
-      </div>
-      <form onSubmit={submit} className="space-y-3 px-4 py-3" noValidate>
-        <p className="text-xs text-muted-foreground">{copy.description}</p>
+    <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col" data-testid="rules-form">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        {control.warnings.includes('no_board') ? <InfoBanner variant="warning">{copy.noBoardWarning}</InfoBanner> : null}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="text-sm font-medium" htmlFor="rule-cost">
@@ -93,22 +87,31 @@ export function RulesCard({ projectId, control, members, canEdit }: Readonly<Rul
         <div className="space-y-1">
           <p className="text-sm font-medium">{copy.board}</p>
           <p className="text-xs text-muted-foreground">{copy.boardHint}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {board.length === 0 ? <span className="text-xs text-muted-foreground">{copy.noBoard}</span> : null}
-            {board.map((userId) => (
-              <Badge key={userId} variant="secondary" className="gap-1">
-                {nameOf(userId)}
-                {canEdit ? (
-                  <button type="button" aria-label={`${t.flowApprovals.changes.form.remove} ${nameOf(userId)}`} onClick={() => form.setValue('boardMemberIds', board.filter((id) => id !== userId), { shouldDirty: true })}>
-                    <X className="size-3" aria-hidden />
-                  </button>
-                ) : null}
-              </Badge>
-            ))}
-          </div>
+          {board.length === 0 ? (
+            <p className="py-1.5 text-sm text-muted-foreground">{copy.noBoard}</p>
+          ) : (
+            <ul className="divide-y divide-border border-y border-border">
+              {board.map((userId) => (
+                <li key={userId} className="flex items-center justify-between gap-2 py-1 text-sm">
+                  <span className="min-w-0 truncate">{nameOf(userId)}</span>
+                  {canEdit ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`${t.flowApprovals.changes.form.remove} ${nameOf(userId)}`}
+                      onClick={() => form.setValue('boardMemberIds', board.filter((id) => id !== userId), { shouldDirty: true })}
+                    >
+                      <X aria-hidden />
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
           {canEdit ? (
             <Select value="" onValueChange={(value) => form.setValue('boardMemberIds', [...board, value], { shouldDirty: true })}>
-              <SelectTrigger className="w-full sm:w-64" aria-label={copy.addBoardMember}>
+              <SelectTrigger className="mt-2 w-full sm:w-64" aria-label={copy.addBoardMember}>
                 <SelectValue placeholder={copy.addBoardMember} />
               </SelectTrigger>
               <SelectContent>
@@ -149,16 +152,50 @@ export function RulesCard({ projectId, control, members, canEdit }: Readonly<Rul
           </Select>
           <p className="text-xs text-muted-foreground">{copy.sponsorHint}</p>
         </div>
+      </div>
 
+      <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
         {canEdit ? (
-          <Button type="submit" size="sm" disabled={save.isPending}>
-            {save.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
-            {copy.save}
-          </Button>
+          <>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t.flowApprovals.common.cancel}
+            </Button>
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
+              {copy.save}
+            </Button>
+          </>
         ) : (
-          <p className="text-xs text-muted-foreground">{copy.managerOnly}</p>
+          <>
+            <p className="mr-auto text-xs text-muted-foreground">{copy.managerOnly}</p>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t.flowApprovals.common.close}
+            </Button>
+          </>
         )}
-      </form>
-    </section>
+      </div>
+    </form>
+  );
+}
+
+interface RulesDialogProps extends Omit<RulesFormProps, 'onClose'> {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+/** The approval rules in a dialog, opened from the toolbar of the change requests page. */
+export function RulesDialog({ open, onOpenChange, ...form }: Readonly<RulesDialogProps>) {
+  const { t } = useI18n();
+  const copy = t.flowApprovals.changes.rules;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-xl">
+        <DialogHeader className="border-b border-border px-6 pb-4 pt-6 text-left">
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.description}</DialogDescription>
+        </DialogHeader>
+        <RulesForm {...form} onClose={() => onOpenChange(false)} />
+      </DialogContent>
+    </Dialog>
   );
 }
