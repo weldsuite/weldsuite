@@ -98,6 +98,25 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = if mounts("board") {
+        let board = weldsuite_board::BoardState {
+            events: state.infra.events.clone(),
+            files: file_stores(state),
+            collab: crate::collab::rooms(state),
+            // Conformance: the test's fetch stub, through the request.
+            links: if cfg!(feature = "conformance") {
+                None
+            } else {
+                board_links()
+            },
+        };
+        router.nest(
+            "/boards",
+            weldsuite_board::router(board, &state.permissions),
+        )
+    } else {
+        router
+    };
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
@@ -1702,6 +1721,19 @@ pub(crate) fn sign_portal(state: &AppState) -> Router<AppState> {
     router
 }
 
+/// WeldBoard's link previews: public addresses only, each redirect checked
+/// by the route (`weldsuite_board::PublicLinks`). Without one, a link card
+/// shows just its address.
+fn board_links() -> Option<weldsuite_ports::OutboundHttp> {
+    match weldsuite_board::PublicLinks::new() {
+        Ok(links) => Some(links.outbound()),
+        Err(error) => {
+            tracing::error!(%error, "board: the link preview client failed to build");
+            None
+        }
+    }
+}
+
 /// The private bucket and the legacy public one, when object storage is
 /// configured.
 fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
@@ -1902,6 +1934,11 @@ fn onboarding(state: &AppState) -> Router<AppState> {
         identity: state.infra.identity.clone(),
         mail: state.infra.mail.clone(),
         workspace_service,
+        // As the worker with its BOARD_API binding: ported, and its rooms
+        // configured (in conformance builds the test's own bindings decide).
+        board_offered: !cfg!(feature = "conformance")
+            && mounts("board")
+            && crate::collab::rooms(state).is_some(),
     };
     Router::new().nest("/onboarding", weldsuite_core_onboarding::router(onboarding))
 }

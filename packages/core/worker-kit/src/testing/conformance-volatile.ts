@@ -365,6 +365,10 @@ const ROUTES: VolatileRoute[] = [
     fields: [],
     events: [{ path: 'data.fileSize' }],
   })),
+  // WeldBoard: an import's elements get new ids (`generateId('el')`), so its
+  // gzipped first checkpoint, whose size the drive file's event carries,
+  // compresses a byte or two differently per run.
+  { method: 'POST', route: '/api/boards/import', fields: [], events: [{ path: 'data.fileSize' }] },
 ];
 
 /** The value at a dot path, as text for ordering. */

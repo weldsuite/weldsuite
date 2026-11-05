@@ -1,15 +1,17 @@
-# Collaborative rooms on Kubernetes (WeldDocs, WeldSheets)
+# Collaborative rooms on Kubernetes (WeldDocs, WeldSheets, WeldBoard)
 
-On Global every open document or spreadsheet is one Durable Object
+On Global every open document, spreadsheet or board is one Durable Object
 (`DocRoom` in `apps/workers/docs-api`, `SheetRoom` in
-`apps/workers/sheets-api`): it orders the edits (`RoomCore` from
+`apps/workers/sheets-api`, `BoardRoom` in `apps/workers/board-api`): it orders the edits (`RoomCore` from
 `@weldsuite/collab` on the engine's OT adapter), holds the sockets, logs every
 committed op in its own storage before the ack leaves, checkpoints the whole
 document to R2 (every 200 ops, 30 s after an edit, when the last person
 leaves), records the checkpoint on the tenant row and announces `doc:updated` /
 `sheet:updated`. SheetRoom also runs connected-table refreshes on its alarm and
-the agent tools' reads and writes. The engines (`@weldsuite/docs-engine`,
-`@weldsuite/sheets-engine`, ~37k lines) are shared with the browser.
+the agent tools' reads and writes; BoardRoom draws a thumbnail next to each
+checkpoint and takes server writes (the task cards). The engines
+(`@weldsuite/docs-engine`, `@weldsuite/sheets-engine`,
+`@weldsuite/board-engine`) are shared with the browser.
 
 The Kubernetes editions run those classes unchanged, in Node, beside the Rust
 server. No engine is rewritten.
@@ -17,16 +19,16 @@ server. No engine is rewritten.
 ## Shape
 
 ```
-browser ──/api/docs/*, /api/sheets/*──▶ weldsuite serve (Rust: modules/docs, modules/sheets)
+browser ──/api/{docs,sheets,boards}/*──▶ weldsuite serve (Rust: modules/docs, modules/sheets, modules/board)
    │                                          │  POST /rpc {binding, name, method, args}
    │                                          ▼  (owner pod by room id)
-   └──wss /api/{docs,sheets}/connect──▶ Rust proxy ──▶ collab-rooms-N (Node: DocRoom, SheetRoom)
+   └──wss /api/{docs,sheets,boards}/connect──▶ Rust proxy ──▶ collab-rooms-N (Node: DocRoom, SheetRoom, BoardRoom)
                                                           │ S3 (private bucket), tenant Postgres,
                                                           └─ entity events → POST /internal/collab/events
 ```
 
 - **`apps/tools/collab-rooms`** (image: `rust/Dockerfile --target collab-rooms`)
-  bundles `DocRoom` and `SheetRoom` from the workers with a Durable Object
+  bundles `DocRoom`, `SheetRoom` and `BoardRoom` from the workers with a Durable Object
   runtime for Node (`src/runtime/`): `ctx.storage` is kept in memory and
   written through to S3, one object per key under
   `collab-rooms/<binding>/<room id>/`, with the output gate (a socket send
@@ -72,9 +74,9 @@ session, live snapshot, export, version save, export and restore,
 connected tables) answers 503 `Live editing is not configured`; the records
 can still be listed, renamed, moved and trashed. `/config.json` then lists
 `collab-rooms` in `unavailableFeatures` (`bins/weldsuite/src/edition.rs`),
-and the platform hides WeldDocs and WeldSheets (`MODULE_FEATURES` in
+and the platform hides WeldDocs, WeldSheets and WeldBoard (`MODULE_FEATURES` in
 `apps/web/platform/lib/edition.ts`: their apps, WeldDrive's "open in", the
-WeldFlow project's sheets tab).
+WeldFlow project's sheets and whiteboards tabs).
 
 Tests: `apps/tools/collab-rooms/test` (two editors on the engines' own
 `CollabClient`, a second service catching up from the op log, the

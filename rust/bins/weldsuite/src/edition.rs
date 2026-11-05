@@ -130,10 +130,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "agent-ai",
 ];
 
-/// WeldDocs and WeldSheets: live editing runs in the collab-rooms service
-/// (`rust/docs/collab-rooms.md`). Without `COLLAB_ROOMS_URLS` (the chart's
-/// `collabRooms.enabled: false`) every route that needs a room or an engine
-/// answers 503, so the platform hides both apps.
+/// WeldDocs, WeldSheets and WeldBoard: live editing runs in the collab-rooms
+/// service (`rust/docs/collab-rooms.md`). Without `COLLAB_ROOMS_URLS` (the
+/// chart's `collabRooms.enabled: false`) every route that needs a room or an
+/// engine answers 503, so the platform hides the three apps.
 pub(crate) const COLLAB_ROOMS_FEATURE: &str = "collab-rooms";
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

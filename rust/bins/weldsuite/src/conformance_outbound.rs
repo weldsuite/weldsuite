@@ -964,10 +964,24 @@ impl weldsuite_core_platform::DnsTransport for BridgedDns {
 }
 
 /// The bridged providers by bridge URL, made once per test process.
-#[derive(Default)]
 pub(crate) struct OutboundBridges {
     identities: Mutex<HashMap<String, Arc<dyn Identity>>>,
     client: Client,
+}
+
+impl Default for OutboundBridges {
+    /// A redirect the test's stub answers comes back to the route as it is,
+    /// as the stub's `Response` reaches the worker: following it would leave
+    /// the bridge for the address it names.
+    fn default() -> Self {
+        Self {
+            identities: Mutex::default(),
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap_or_default(),
+        }
+    }
 }
 
 impl OutboundBridges {
