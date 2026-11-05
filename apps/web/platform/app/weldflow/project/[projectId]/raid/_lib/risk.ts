@@ -33,8 +33,13 @@ export const DEFAULT_REVIEW_INTERVAL_DAYS: Readonly<Record<RiskBand, number>> = 
   low: 90,
 };
 
-/** The categories the forms offer; a stored value outside this list is shown as typed. */
-export const RISK_CATEGORIES = ['technical', 'schedule', 'budget', 'scope', 'resource', 'compliance', 'external'] as const;
+/**
+ * The built-in categories (stored by key, labelled per locale). The workspace
+ * hides some and adds its own (`useRiskCategories`); `riskCategoryOptions` in
+ * `copy.ts` builds what the form offers. A stored value outside the list is
+ * shown as typed.
+ */
+export { RISK_CATEGORIES } from '@weldsuite/app-api-client/schemas/project-control';
 
 export function riskScore(probability: number, impact: number): number {
   return probability * impact;

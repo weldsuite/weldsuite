@@ -21,6 +21,7 @@ import type {
   CreateRaidTaskInput,
   RaidItem,
   UpdateRaidItemInput,
+  UpdateRiskCategoriesInput,
 } from '@weldsuite/app-api-client/domains/project-control';
 
 export const raidKeys = {
@@ -31,6 +32,8 @@ export const raidKeys = {
   matrix: (projectId: string, residual: boolean) => [...raidKeys.matrices(), projectId, residual] as const,
   details: () => [...raidKeys.all, 'detail'] as const,
   detail: (id: string) => [...raidKeys.details(), id] as const,
+  /** Workspace-wide: the same list for every project. */
+  categories: () => [...raidKeys.all, 'categories'] as const,
 };
 
 /** Rows per request: the most `GET /api/project-raid` returns. */
@@ -94,6 +97,20 @@ export function useRaidItem(id: string | null) {
     queryFn: () => projectControl.getRaidItem(id as string),
     select: (res) => res.data,
     enabled: !!id,
+    retry: retryUnlessClientError,
+  });
+}
+
+/** The workspace's risk categories: the built-ins (with their hidden flags) and the custom ones. */
+export function useRiskCategories(enabled = true) {
+  const { projectControl } = useAppApi();
+
+  return useQuery({
+    queryKey: raidKeys.categories(),
+    queryFn: () => projectControl.getRiskCategories(),
+    select: (res) => res.data,
+    enabled,
+    staleTime: 5 * 60_000,
     retry: retryUnlessClientError,
   });
 }
@@ -165,6 +182,17 @@ export function useUpdateRaidItem() {
 
   return useMutation({
     mutationFn: (input: { id: string; data: UpdateRaidItemInput }) => projectControl.updateRaidItem(input.id, input.data),
+    onSuccess: () => invalidateRaid(qc),
+  });
+}
+
+/** Replace the risk categories. A rename moves items too, so every RAID query refreshes. */
+export function useUpdateRiskCategories() {
+  const { projectControl } = useAppApi();
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: UpdateRiskCategoriesInput) => projectControl.updateRiskCategories(input),
     onSuccess: () => invalidateRaid(qc),
   });
 }

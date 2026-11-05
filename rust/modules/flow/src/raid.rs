@@ -6,6 +6,8 @@
 //! ```text
 //! GET    /                list (projectId optional, filters, cursor)
 //! GET    /matrix          5x5 counts of open risks
+//! GET    /categories      the workspace's risk categories (built-ins, hidden flags, custom)
+//! PUT    /categories      replace them; a renamed custom category moves its items (portfolio:manage)
 //! GET    /:id             item, assessments (newest first), links, task progress
 //! POST   /                create (kind picks the fields)
 //! PATCH  /:id             edit
@@ -23,6 +25,7 @@
 //! parameters`.
 
 mod acceptance;
+mod categories;
 
 use std::sync::Arc;
 
@@ -30,7 +33,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_CREATED, PROJECT_CONTROL_LINK_DELETED,
@@ -86,6 +89,14 @@ where
         .route("/", get(list).route_layer(need("projects:read")))
         .route("/", post(create).route_layer(need("projects:create")))
         .route("/matrix", get(matrix).route_layer(need("projects:read")))
+        .route(
+            "/categories",
+            get(categories::list_categories).route_layer(need("projects:read")),
+        )
+        .route(
+            "/categories",
+            put(categories::save_categories).route_layer(need("portfolio:manage")),
+        )
         .route("/{id}", get(detail).route_layer(need("projects:read")))
         .route("/{id}", patch(update).route_layer(need("projects:update")))
         .route("/{id}", delete(remove).route_layer(need("projects:delete")))

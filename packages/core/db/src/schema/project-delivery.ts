@@ -664,6 +664,17 @@ export interface ScoringCriterion {
   inverse: boolean;
 }
 
+/**
+ * The workspace's risk categories (`flow_workspace_settings.risk_categories`):
+ * the built-ins it hides from the forms (by key) and the ones it added. A risk
+ * stores a built-in by key and a custom category by name, so renaming a
+ * custom category also renames it on the risks that carry it.
+ */
+export interface RiskCategorySettings {
+  hidden: string[];
+  custom: Array<{ id: string; name: string }>;
+}
+
 /** A skill a project request needs, with the hours per week it takes. */
 export interface NeededSkill {
   skill: string;
@@ -805,7 +816,8 @@ export type NewResourceRequest = typeof resourceRequests.$inferInsert;
  * unique and always true, is what keeps it one). Holds the intake scoring
  * model, the portfolio board (member ids; the approvers of a project request)
  * and the expense approval limit (open question in the design: whether a
- * project-tagged declaration above it also needs the sponsor).
+ * project-tagged declaration above it also needs the sponsor), and the
+ * workspace's risk categories (null until first saved: every built-in shows).
  */
 export const flowWorkspaceSettings = pgTable(
   'flow_workspace_settings',
@@ -815,6 +827,7 @@ export const flowWorkspaceSettings = pgTable(
     scoringModel: jsonb('scoring_model').$type<ScoringCriterion[]>().notNull().default([]),
     portfolioBoardIds: jsonb('portfolio_board_ids').$type<string[]>().notNull().default([]),
     expenseApprovalLimit: numeric('expense_approval_limit', { precision: 18, scale: 2 }),
+    riskCategories: jsonb('risk_categories').$type<RiskCategorySettings>(),
     updatedBy: varchar('updated_by', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
