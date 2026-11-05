@@ -308,4 +308,12 @@ When the work lands:
 ## Status
 
 All decisions above agreed 2026-11-05 and recorded as BOARD-001 to BOARD-003
-(Proposed). Nothing built yet; phase 1 (engine core) is next.
+(Proposed). Built in one PR (weldsuite/weldsuite#1460), phase by phase:
+
+- Phase 1, engine core: done (`packages/core/board-engine`).
+- Phase 2, editor: done (`apps/web/platform/app/weldboard`, the preview mirror).
+- Phase 3, backend: `apps/workers/board-api` (routes, `BoardRoom`, `BoardsInternal`),
+  migration 0240, app-api forwarding, secrets, WeldDrive links, download and purge
+  (TypeScript and Rust). Old WeldFlow whiteboards are listed with a project's
+  boards and converted in place on first open.
+- Phases 4 to 11: in progress.

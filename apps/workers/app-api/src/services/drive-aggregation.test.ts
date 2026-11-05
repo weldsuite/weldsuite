@@ -256,6 +256,36 @@ describe('purging a document or spreadsheet removes its R2 snapshots too', () =>
     expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, docFile))).toEqual([]);
     expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, sheetFile))).toEqual([]);
   });
+
+  it.each([
+    ['from the trash list', (fileId: string) => purgeTrashed(db, { fileIds: [fileId], folderIds: [] })],
+    ['one file', (fileId: string) => purgeFile(db, fileId)],
+  ])('removes a WeldBoard board, its versions and its snapshot keys with the file (%s)', async (_label, purge) => {
+    const fileId = generateId('fil');
+    const boardId = generateId('brd');
+    const prefix = `workspaces/w/boards/${boardId}`;
+    await db.insert(schema.files).values({
+      id: fileId,
+      fileName: 'Retro board',
+      mimeType: 'application/vnd.weldsuite.board+json',
+      fileSize: 1,
+      fileType: 'whiteboard',
+      storagePath: `${prefix}/board.json.gz`,
+      metadata: { weldBoardId: boardId },
+      deletedAt: new Date(),
+    });
+    await db.insert(schema.whiteboards).values({ id: boardId, fileId, snapshotKey: `${prefix}/board.json.gz` });
+    await db.insert(schema.boardVersions).values({ id: generateId('brdv'), boardId, revision: 4, snapshotKey: `${prefix}/versions/a.json.gz` });
+    expect((await listDocumentSnapshotKeys(db, [fileId])).sort()).toEqual([
+      `${prefix}/board.json.gz`,
+      `${prefix}/thumbnail.svg`,
+      `${prefix}/versions/a.json.gz`,
+    ]);
+    await purge(fileId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
+    expect(await db.select().from(schema.whiteboards).where(eq(schema.whiteboards.id, boardId))).toEqual([]);
+    expect(await db.select().from(schema.boardVersions).where(eq(schema.boardVersions.boardId, boardId))).toEqual([]);
+  });
 });
 
 describe('aggregateAllFiles · mail attachments', () => {
@@ -422,6 +452,17 @@ describe('normalizeGenericFiles · navigateTo', () => {
     expect(file!.navigateTo).toBe('/welddocs/doc_1');
     expect(file!.isWeldDoc).toBe(false);
     expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
+  });
+
+  it('opens a WeldBoard board in WeldBoard, or on its project\'s whiteboard tab', () => {
+    const [own, project] = normalizeGenericFiles([
+      { id: 'file_3', fileName: 'Retro', fileType: 'whiteboard', entityType: null, entityId: null, metadata: { weldBoardId: 'brd_1' }, createdAt: new Date(), updatedAt: null },
+      { id: 'file_4', fileName: 'Plan', fileType: 'whiteboard', entityType: 'project', entityId: 'prj_1', metadata: { weldBoardId: 'pwb_1' }, createdAt: new Date(), updatedAt: null },
+    ] as unknown as (typeof schema.files.$inferSelect)[]);
+    expect(own!.navigateTo).toBe('/weldboard/brd_1');
+    expect(project!.navigateTo).toBe('/weldflow/project/prj_1/whiteboard/pwb_1');
+    expect(isPlatformRoute(own!.navigateTo!)).toBe(true);
+    expect(isPlatformRoute(project!.navigateTo!)).toBe(true);
   });
 
   it.each([

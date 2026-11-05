@@ -481,10 +481,11 @@ pub async fn restore_file(db: &PgPool, id: &str, now: &str) -> Result<Option<Val
     Ok(Some(existing))
 }
 
-/// The storage keys behind the spreadsheets and `WeldDocs` documents backed by
-/// `file_ids`: each one's checkpoint, every saved version, and the `.xlsx` an
-/// old project sheet was converted from (`listDocumentSnapshotKeys`). Purging
-/// removes those rows, so list the keys first.
+/// The storage keys behind the spreadsheets, `WeldDocs` documents and
+/// `WeldBoard` boards backed by `file_ids`: each one's checkpoint, every saved
+/// version, a board's thumbnail, and the `.xlsx` an old project sheet was
+/// converted from (`listDocumentSnapshotKeys`). Purging removes those rows, so
+/// list the keys first.
 pub async fn list_document_snapshot_keys(
     db: &PgPool,
     file_ids: &[String],
@@ -506,6 +507,14 @@ pub async fn list_document_snapshot_keys(
              union all
              select 5, metadata->'convertedFrom'->>'key' from files
               where id = any($1) and metadata->'convertedFrom'->>'key' is not null
+             union all
+             select 6, snapshot_key from whiteboards where file_id = any($1)
+             union all
+             select 7, regexp_replace(snapshot_key, '[^/]*$', 'thumbnail.svg') from whiteboards
+              where file_id = any($1) and snapshot_key is not null
+             union all
+             select 8, v.snapshot_key from board_versions v join whiteboards w on w.id = v.board_id
+              where w.file_id = any($1)
          ) k order by part",
     )
     .bind(file_ids)
@@ -519,13 +528,17 @@ pub async fn list_document_snapshot_keys(
         .collect())
 }
 
-/// Delete a trashed file for good, with the spreadsheet or document rows
-/// that reference it; the row as it was (`purgeFile`).
+/// Delete a trashed file for good, with the spreadsheet, document or board
+/// rows that reference it; the row as it was (`purgeFile`).
 pub async fn purge_file(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
     let Some(existing) = trashed_file(db, id).await? else {
         return Ok(None);
     };
     sqlx::query("delete from sheets where file_id = $1")
+        .bind(id)
+        .execute(db)
+        .await?;
+    sqlx::query("delete from whiteboards where file_id = $1")
         .bind(id)
         .execute(db)
         .await?;

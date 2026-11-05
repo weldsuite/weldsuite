@@ -75,7 +75,7 @@ export interface UnifiedFile {
   effectiveAccess?: DriveAccessFields['effectiveAccess'];
 }
 
-/** Drive files a module stores for one of its records (WeldFlow sheets and documents). */
+/** Drive files a module stores for one of its records (WeldFlow sheets, documents and boards). */
 const PROJECT_ENTITY_TYPES = new Set(['project', 'project_document']);
 
 function buildNavigateUrl(
@@ -97,6 +97,10 @@ function buildNavigateUrl(
       if (fileType === 'spreadsheet' && fileId) {
         return `/weldflow/project/${entityId}/table/${fileId}`;
       }
+      // A project's WeldBoard board opens on the project's whiteboard tab.
+      if (fileType === 'whiteboard' && typeof metadata?.weldBoardId === 'string') {
+        return `/weldflow/project/${entityId}/whiteboard/${metadata.weldBoardId}`;
+      }
       return `/weldflow/project/${entityId}/files`;
     case 'project_document': {
       const projectId = metadata?.projectId as string | undefined;
@@ -113,15 +117,18 @@ function buildNavigateUrl(
 }
 
 /**
- * A WeldSheets spreadsheet or WeldDocs document (a drive file whose metadata
- * names its sheet or document) opens in its editor. A WeldDocs document is not
- * `isWeldDoc` (that flag is the BlockNote editor's, at `/documents/:fileId`).
+ * A WeldSheets spreadsheet, WeldDocs document or WeldBoard board (a drive
+ * file whose metadata names its sheet, document or board) opens in its
+ * editor. A WeldDocs document is not `isWeldDoc` (that flag is the BlockNote
+ * editor's, at `/documents/:fileId`).
  */
 function weldModuleUrl(metadata: Record<string, unknown> | null | undefined): string | null {
   const sheetId = metadata?.weldsheetId;
   if (typeof sheetId === 'string') return `/weldsheets/${sheetId}`;
   const docId = metadata?.weldDocId;
-  return typeof docId === 'string' ? `/welddocs/${docId}` : null;
+  if (typeof docId === 'string') return `/welddocs/${docId}`;
+  const boardId = metadata?.weldBoardId;
+  return typeof boardId === 'string' ? `/weldboard/${boardId}` : null;
 }
 
 function guessFileType(mimeType: string | null, fileName: string | null): string {
@@ -718,9 +725,10 @@ export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise
 export async function purgeTrashed(db: Database, ids: TrashedIds): Promise<void> {
   const where = purgedFilesWhere(ids);
   if (where) {
-    // A WeldSheets spreadsheet's or WeldDocs document's row references its file; files reference their folder.
+    // A WeldSheets spreadsheet's, WeldDocs document's or WeldBoard board's row references its file; files reference their folder.
     const purged = db.select({ id: files.id }).from(files).where(where);
     await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, purged));
+    await db.delete(schema.whiteboards).where(inArray(schema.whiteboards.fileId, purged));
     await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, purged));
     await db.delete(schema.docs).where(inArray(schema.docs.fileId, purged));
     await db.delete(files).where(where);

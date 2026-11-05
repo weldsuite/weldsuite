@@ -4,17 +4,7 @@
  * file; the signed-out preview reads it here with the same engine.
  */
 
-import {
-  Board,
-  applyOp,
-  emptySnapshot,
-  fromExcalidraw,
-  isWellFormedSnapshot,
-  newId,
-  placeFragment,
-  stickiesFromText,
-  type BoardSnapshot,
-} from '@weldsuite/board-engine';
+import { snapshotFromImport, type BoardSnapshot } from '@weldsuite/board-engine';
 import type { ImportBoardInput } from '@weldsuite/app-api-client/schemas/boards';
 
 export const IMPORT_ACCEPT = '.excalidraw,.json,.csv,.tsv,.txt';
@@ -35,27 +25,5 @@ export function boardName(fileName: string): string {
 
 /** A board snapshot from a file's text (the preview's import; board-api does the same). */
 export function snapshotFromFile(format: ImportBoardInput['format'], content: string): { snapshot: BoardSnapshot; skipped: number } | null {
-  if (format === 'weldboard') {
-    try {
-      const v = JSON.parse(content) as { kind?: string; snapshot?: unknown };
-      const snapshot = v.kind === 'weldboard' ? v.snapshot : v;
-      return isWellFormedSnapshot(snapshot) ? { snapshot, skipped: 0 } : null;
-    } catch {
-      return null;
-    }
-  }
-  let fragment;
-  let skipped = 0;
-  if (format === 'excalidraw') {
-    try {
-      const result = fromExcalidraw(JSON.parse(content), () => newId());
-      fragment = result.fragment;
-      skipped = result.skipped;
-    } catch {
-      return null;
-    }
-  } else fragment = stickiesFromText(content, () => newId());
-  const board = Board.fromSnapshot(emptySnapshot());
-  applyOp(board, placeFragment(board, fragment, { x: 0, y: 0, makeId: () => newId() }).op);
-  return { snapshot: board.toSnapshot(), skipped };
+  return snapshotFromImport(format, content);
 }

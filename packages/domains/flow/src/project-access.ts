@@ -128,3 +128,37 @@ export async function canWriteProject(
 ): Promise<boolean> {
   return (await resolveProjectAccess(db, userId, opts, projectId)).canWrite;
 }
+
+/**
+ * The ids of the live projects a user may open, for constraining a list:
+ * null for a `projects:scope:all` holder (every live project), else the ones
+ * they manage or actively belong to (an empty list: none). flow-api's
+ * `accessibleProjectIds` is the same rule on a Hono context.
+ */
+export async function accessibleProjectIds(
+  db: Database,
+  userId: string | undefined,
+  opts: { scopeAll: boolean },
+): Promise<string[] | null> {
+  if (opts.scopeAll) return null;
+  if (!userId) return [];
+  const [managed, memberOf] = await Promise.all([
+    db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.projectManagerId, userId), isNull(schema.projects.deletedAt))),
+    db
+      .select({ projectId: schema.projectMembers.projectId })
+      .from(schema.projectMembers)
+      .innerJoin(schema.projects, eq(schema.projects.id, schema.projectMembers.projectId))
+      .where(
+        and(
+          eq(schema.projectMembers.userId, userId),
+          eq(schema.projectMembers.isActive, true),
+          isNull(schema.projectMembers.deletedAt),
+          isNull(schema.projects.deletedAt),
+        ),
+      ),
+  ]);
+  return [...new Set([...managed.map((m) => m.id), ...memberOf.map((m) => m.projectId)])];
+}

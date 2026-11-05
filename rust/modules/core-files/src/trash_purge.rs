@@ -90,6 +90,7 @@ impl TrashPurgeJob {
         self.delete_objects(&keys).await;
         for statement in [
             "delete from sheets where file_id = $1",
+            "delete from whiteboards where file_id = $1",
             "delete from document_versions where file_id = $1",
             "delete from docs where file_id = $1",
             "delete from files where id = $1",

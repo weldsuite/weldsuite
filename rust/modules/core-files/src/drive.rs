@@ -39,8 +39,8 @@ const DRIVE_FOLDER_HOLDS_LOCKED_FILES: &str = "This folder holds files you canno
 
 // ── The unified shape ──────────────────────────────────────────────────────
 
-/// Drive files a module stores for one of its records (WeldFlow sheets and
-/// documents).
+/// Drive files a module stores for one of its records (WeldFlow sheets,
+/// documents and boards).
 const PROJECT_ENTITY_TYPES: [&str; 2] = ["project", "project_document"];
 
 fn build_navigate_url(row: &Value) -> Option<String> {
@@ -51,9 +51,14 @@ fn build_navigate_url(row: &Value) -> Option<String> {
         "crm_customer" => Some(build_result_url(SearchType::Customer, entity_id, None)),
         "project" => {
             let id = text(row, "id").filter(|id| !id.is_empty());
-            match (text(row, "fileType"), id) {
-                (Some("spreadsheet"), Some(file_id)) => {
+            let board = row["metadata"]["weldBoardId"].as_str();
+            match (text(row, "fileType"), id, board) {
+                (Some("spreadsheet"), Some(file_id), _) => {
                     Some(format!("/weldflow/project/{entity_id}/table/{file_id}"))
+                }
+                // A project's WeldBoard board opens on the project's whiteboard tab.
+                (Some("whiteboard"), _, Some(board)) => {
+                    Some(format!("/weldflow/project/{entity_id}/whiteboard/{board}"))
                 }
                 _ => Some(format!("/weldflow/project/{entity_id}/files")),
             }
@@ -69,14 +74,18 @@ fn build_navigate_url(row: &Value) -> Option<String> {
     }
 }
 
-/// A `WeldSheets` spreadsheet or `WeldDocs` document opens in its editor.
+/// A `WeldSheets` spreadsheet, `WeldDocs` document or `WeldBoard` board
+/// opens in its editor.
 fn weld_module_url(metadata: &Value) -> Option<String> {
     if let Some(sheet) = metadata["weldsheetId"].as_str() {
         return Some(format!("/weldsheets/{sheet}"));
     }
-    metadata["weldDocId"]
+    if let Some(doc) = metadata["weldDocId"].as_str() {
+        return Some(format!("/welddocs/{doc}"));
+    }
+    metadata["weldBoardId"]
         .as_str()
-        .map(|doc| format!("/welddocs/{doc}"))
+        .map(|board| format!("/weldboard/{board}"))
 }
 
 /// Extensions `guessFileType` reads as code.

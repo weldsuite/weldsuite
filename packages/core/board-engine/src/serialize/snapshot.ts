@@ -35,3 +35,18 @@ export function isWellFormedSnapshot(v: unknown): v is BoardSnapshot {
 export function loadSnapshot(v: unknown): Board | null {
   return isWellFormedSnapshot(v) ? Board.fromSnapshot(v) : null;
 }
+
+/**
+ * A board's content as the start of another board (duplicate, start from a
+ * template): its comment pins stay with the board they were made on (their
+ * threads are that board's), and so do the session's votes, timer, voting
+ * round and private mode.
+ */
+export function copySnapshot(snapshot: BoardSnapshot): BoardSnapshot {
+  const { timer: _timer, voting: _voting, privateMode: _private, ...props } = snapshot.props;
+  return {
+    version: snapshot.version,
+    props: structuredClone(props),
+    elements: structuredClone(snapshot.elements.filter((el) => el.type !== 'comment')),
+  };
+}

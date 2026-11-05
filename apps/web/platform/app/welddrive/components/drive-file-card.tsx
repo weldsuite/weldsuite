@@ -37,6 +37,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
 import { getLocale } from '@weldsuite/i18n';
 import { WELDSHEET_MIME_TYPE } from '@weldsuite/app-api-client/schemas/sheets';
+import { WELDBOARD_MIME_TYPE } from '@weldsuite/app-api-client/schemas/boards';
 import { isImportable } from '@/app/weldsheets/files';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
 import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
@@ -80,6 +81,33 @@ export function weldsheetIdOf(file: Partial<Pick<UnifiedFile, 'mimeType' | 'navi
   return /^\/weldsheets\/([^/?#]+)/.exec(file.navigateTo ?? '')?.[1] ?? null;
 }
 
+/** The board a WeldBoard drive file stands for (it opens at /weldboard/<id> or on its project's whiteboard tab), or null. */
+export function weldboardIdOf(file: Partial<Pick<UnifiedFile, 'mimeType' | 'navigateTo'>>): string | null {
+  if (file.mimeType !== WELDBOARD_MIME_TYPE) return null;
+  return /^\/(?:weldboard|weldflow\/project\/[^/]+\/whiteboard)\/([^/?#]+)/.exec(file.navigateTo ?? '')?.[1] ?? null;
+}
+
+/**
+ * A WeldBoard board keeps its content in its room, not in the drive file: it
+ * downloads as WeldBoard's own JSON (which imports back as a board).
+ */
+async function downloadBoard(boardId: string, name: string): Promise<void> {
+  const t = getTranslations('welddrive');
+  try {
+    const token = await getAuthToken();
+    const res = await fetch(apiUrl(`/api/boards/${boardId}/snapshot`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { data } = (await res.json()) as { data: { snapshot: unknown } };
+    const blob = new Blob([JSON.stringify({ kind: 'weldboard', name, snapshot: data.snapshot })], { type: 'application/json' });
+    const blobUrl = URL.createObjectURL(blob);
+    triggerAnchorDownload(blobUrl, `${name}.weldboard.json`, false);
+    URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error('[downloadFile] board export failed', err);
+    toast.error(t.toasts.failedToDownloadFile);
+  }
+}
+
 /**
  * A WeldSheets spreadsheet keeps its content in its own store, not in the
  * drive file: it downloads as an .xlsx that sheets-api writes.
@@ -120,6 +148,8 @@ export async function downloadFile(
   const t = getTranslations('welddrive');
   const sheetId = weldsheetIdOf(file);
   if (sheetId) return downloadSpreadsheet(sheetId, file.name);
+  const boardId = weldboardIdOf(file);
+  if (boardId) return downloadBoard(boardId, file.name);
   if (file.source === 'drive') {
     try {
       const token = await getAuthToken();

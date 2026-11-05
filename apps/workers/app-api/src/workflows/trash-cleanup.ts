@@ -71,8 +71,9 @@ export class TrashCleanupWorkflow extends WorkflowEntrypoint<Env, TrashCleanupPa
         console.error(`[TrashCleanup] Failed to delete R2 objects for ${fileId}:`, err);
       });
 
-      // Delete from database (a spreadsheet's or WeldDocs document's row references its file)
+      // Delete from database (a spreadsheet's, WeldDocs document's or WeldBoard board's row references its file)
       await db.delete(schema.sheets).where(eq(schema.sheets.fileId, fileId));
+      await db.delete(schema.whiteboards).where(eq(schema.whiteboards.fileId, fileId));
       await db.delete(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId));
       await db.delete(schema.docs).where(eq(schema.docs.fileId, fileId));
       await db.delete(files).where(eq(files.id, fileId));

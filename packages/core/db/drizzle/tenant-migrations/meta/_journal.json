@@ -1681,6 +1681,13 @@
       "when": 1793789065009,
       "tag": "0239_task_dependencies_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1793871701519,
+      "tag": "0240_weldboard_boards",
+      "breakpoints": true
     }
   ]
 }
