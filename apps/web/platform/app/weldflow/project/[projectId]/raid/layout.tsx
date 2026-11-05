@@ -55,6 +55,7 @@ function useRaidAbilities(): RaidAbilities {
     remove: canWrite && can('projects:delete'),
     createTasks: update && can('tasks:create'),
     updateTasks: update && can('tasks:update'),
+    manageCategories: can('portfolio:manage'),
   };
 }
 

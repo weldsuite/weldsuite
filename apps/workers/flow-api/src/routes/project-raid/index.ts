@@ -5,6 +5,8 @@
  *
  *   GET    /                list (projectId optional, filters, cursor)
  *   GET    /matrix          5x5 counts of open risks
+ *   GET    /categories      the workspace's risk categories (built-ins, hidden flags, custom ones)
+ *   PUT    /categories      replace them (portfolio:manage); a rename moves the items that carry the old name
  *   GET    /:id             item, assessments (newest first), links, task progress
  *   POST   /                create (kind picks the fields)
  *   PATCH  /:id             edit
@@ -22,13 +24,13 @@
 
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { and, desc, eq, gte, ilike, isNull, isNotNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   RAID_KINDS,
   RISK_BANDS,
@@ -37,6 +39,7 @@ import {
   createRaidItemSchema,
   createRaidTaskSchema,
   updateRaidItemSchemas,
+  updateRiskCategoriesSchema,
   type CreateRaidItemInput,
   type RaidKind,
   type UpdateIssueInput,
@@ -66,6 +69,8 @@ import {
   riskBand,
   riskScore,
 } from '@weldsuite/flow-domain/risk';
+import { planRiskCategories, presentRiskCategories } from '@weldsuite/flow-domain/risk-categories';
+import { DEFAULT_SCORING_MODEL } from '@weldsuite/flow-domain/intake';
 import { requestRiskAcceptanceSchema } from '@weldsuite/app-api-client/schemas/flow-approvals';
 import { acceptanceError } from '@weldsuite/flow-domain/acceptance';
 import { presentReviewApprover } from '@weldsuite/flow-domain/approval-views';
@@ -97,6 +102,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectRaidItems;
 const assessments = schema.projectRaidAssessments;
 const linksTable = schema.projectControlLinks;
+const settingsTable = schema.flowWorkspaceSettings;
 
 const PROJECT_DENIED = 'You are not a member of this project';
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
@@ -323,6 +329,107 @@ app.get('/matrix', requirePermission('projects:read'), async (c) => {
   } catch (err) {
     console.error('[flow-api/project-raid] matrix failed:', err);
     return error.internal(c, 'Failed to load the risk matrix');
+  }
+});
+
+// ── Risk categories ─────────────────────────────────────────────────────────
+
+/** The stored risk categories of the workspace, null before the first save. */
+async function storedRiskCategories(db: Database) {
+  const [row] = await db.select({ riskCategories: settingsTable.riskCategories }).from(settingsTable).limit(1);
+  return row?.riskCategories ?? null;
+}
+
+// MUST be before /:id.
+app.get('/categories', requirePermission('projects:read'), async (c) => {
+  try {
+    return success(c, presentRiskCategories(await storedRiskCategories(c.get('tenantDb'))));
+  } catch (err) {
+    console.error('[flow-api/project-raid] get categories failed:', err);
+    return error.internal(c, 'Failed to fetch risk categories');
+  }
+});
+
+/**
+ * Replace the workspace's risk categories. Workspace-level, so it takes
+ * `portfolio:manage`, not project membership. A rename moves every RAID item
+ * (any project, any kind) that carries the old name to the new one, in the
+ * same batch as the settings row.
+ */
+app.put('/categories', requirePermission('portfolio:manage'), async (c) => {
+  const db = c.get('tenantDb');
+  const userId = c.get('userId');
+  const body = await parseBody(c, updateRiskCategoriesSchema);
+  if (!body.ok) return body.response;
+
+  try {
+    const plan = planRiskCategories(await storedRiskCategories(db), body.data, () => generateId('rcat'));
+    if (!plan.ok) return error.badRequest(c, plan.message);
+
+    const now = new Date();
+    const renamed = plan.renames.length === 0
+      ? []
+      : await db
+          .select({ id: t.id })
+          .from(t)
+          .where(and(inArray(t.category, plan.renames.map((r) => r.from)), isNull(t.deletedAt)))
+          .orderBy(asc(t.id));
+    // One statement for every rename, so swapping two names does not merge them.
+    const renamedCategory = sql`case ${t.category} ${sql.join(
+      plan.renames.map((r) => sql`when ${r.from} then ${r.to}`),
+      sql` `,
+    )} else ${t.category} end`;
+
+    await atomically(db, (handle) => [
+      handle
+        .insert(settingsTable)
+        .values({
+          id: generateId('fws'),
+          singleton: true,
+          scoringModel: [...DEFAULT_SCORING_MODEL],
+          portfolioBoardIds: [],
+          riskCategories: plan.next,
+          updatedBy: userId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: settingsTable.singleton,
+          set: { riskCategories: plan.next, updatedBy: userId, updatedAt: now },
+        }),
+      ...(renamed.length === 0
+        ? []
+        : [
+            handle
+              .update(t)
+              .set({ category: renamedCategory, updatedAt: now })
+              .where(inArray(t.id, renamed.map((r) => r.id))),
+          ]),
+    ]);
+
+    const presented = presentRiskCategories(plan.next);
+    const [settings] = await db.select({ id: settingsTable.id }).from(settingsTable).limit(1);
+    if (settings) {
+      publishEntityEvent({
+        c,
+        entityType: 'flow_workspace_settings',
+        entityId: settings.id,
+        action: 'updated',
+        data: { id: settings.id, riskCategories: presented },
+      });
+    }
+    if (renamed.length > 0) {
+      const rows = await db
+        .select()
+        .from(t)
+        .where(inArray(t.id, renamed.map((r) => r.id)))
+        .orderBy(asc(t.id));
+      for (const row of rows) publishRaid(c, 'updated', row);
+    }
+    return success(c, presented);
+  } catch (err) {
+    console.error('[flow-api/project-raid] save categories failed:', err);
+    return error.internal(c, 'Failed to save risk categories');
   }
 });
 

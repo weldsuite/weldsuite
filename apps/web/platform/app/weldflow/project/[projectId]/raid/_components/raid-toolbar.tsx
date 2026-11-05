@@ -1,4 +1,5 @@
-import { ChevronDown, Plus, Search } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, Plus, Search, Tags } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -14,6 +15,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { categoryLabel, statusLabel } from '../_lib/copy';
 import { ALL, EMPTY_FILTERS, NO_OWNER, hasActiveFilters, type RegisterFilters } from '../_lib/raid';
 import { useRaid } from './raid-context';
+import { RiskCategoriesDialog } from './risk-categories-dialog';
 
 interface FilterMenuProps {
   label: string;
@@ -87,6 +89,7 @@ export function RaidToolbar({
   const copy = t.projects.raid;
   const { memberOf, abilities, openCreate } = useRaid();
   const set = (patch: Partial<RegisterFilters>) => onFiltersChange({ ...filters, ...patch });
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
 
   const statusOptions = [
     { value: ALL, label: copy.toolbar.all },
@@ -128,6 +131,15 @@ export function RaidToolbar({
 
       <div className="min-w-0 flex-1" />
 
+      {kind === 'risk' && abilities.manageCategories ? (
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => setCategoriesOpen(true)}>
+            <Tags aria-hidden />
+            {copy.categoryManager.open}
+          </Button>
+          <RiskCategoriesDialog open={categoriesOpen} onClose={() => setCategoriesOpen(false)} />
+        </>
+      ) : null}
       {onToggleClosed && closedCount > 0 ? (
         <Button type="button" variant="outline" size="sm" aria-pressed={showClosed} onClick={onToggleClosed}>
           {format(showClosed ? copy.toolbar.hideClosed : copy.toolbar.showClosed, { count: closedCount })}

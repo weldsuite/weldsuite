@@ -16,6 +16,7 @@
     "./schemas/flow-approvals": "./src/schemas/flow-approvals.ts",
     "./schemas/project-governance": "./src/schemas/project-governance.ts",
     "./schemas/project-schedule": "./src/schemas/project-schedule.ts",
+    "./schemas/project-tabs": "./src/schemas/project-tabs.ts",
     "./schemas/project-reporting": "./src/schemas/project-reporting.ts",
     "./schemas/project-finance": "./src/schemas/project-finance.ts",
     "./schemas/project-closing": "./src/schemas/project-closing.ts",

@@ -53,12 +53,16 @@ export interface ApiProject {
   endDate?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** The project manager; resolves to the owner role (`GET /projects/:id/permissions`). */
+  projectManagerId?: string | null;
   canWrite?: boolean;
   isAdmin?: boolean;
   /** Linked customer/client display name, when the project is tied to a CRM record. */
   clientName?: string | null;
   /** Project custom field values (`{ [slug]: value }`); absent when none are set. */
   customFields?: Record<string, unknown> | null;
+  /** `projects.settings` (jsonb): per-feature keys such as `tabs`, `schedule`, `finance`. */
+  settings?: Record<string, unknown> | null;
 }
 
 /** `/tasks` responses also carry `duration`/`repeat`/`customFields` (and,

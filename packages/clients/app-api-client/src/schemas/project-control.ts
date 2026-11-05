@@ -43,6 +43,50 @@ export const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 export const DEPENDENCY_DIRECTIONS = ['inbound', 'outbound'] as const;
 export const DEPENDENCY_PARTY_TYPES = ['project', 'supplier', 'team', 'customer'] as const;
 
+// ── Risk categories ─────────────────────────────────────────────────────────
+
+/**
+ * The built-in risk categories. A risk stores one by key and every locale
+ * labels it; a workspace may hide some and add its own (stored by name).
+ * `/api/project-raid/categories` reads and changes that list.
+ */
+export const RISK_CATEGORIES = ['technical', 'schedule', 'budget', 'scope', 'resource', 'compliance', 'external'] as const;
+export type BuiltInRiskCategory = (typeof RISK_CATEGORIES)[number];
+
+/** At most this many custom categories per workspace. */
+export const MAX_CUSTOM_RISK_CATEGORIES = 50;
+
+/**
+ * The whole list, replaced in one go. A custom category keeps its `id` across
+ * saves (a new one has none); giving a kept id a new name renames it on every
+ * risk that carries the old name. Leaving one out deletes it from the list,
+ * and the risks that carry it keep the name.
+ */
+export const updateRiskCategoriesSchema = z
+  .object({
+    hidden: z.array(z.enum(RISK_CATEGORIES)).max(RISK_CATEGORIES.length),
+    custom: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(30).optional(),
+            name: z.string().trim().min(1).max(100),
+          })
+          .strict(),
+      )
+      .max(MAX_CUSTOM_RISK_CATEGORIES),
+  })
+  .strict();
+export type UpdateRiskCategoriesInput = z.infer<typeof updateRiskCategoriesSchema>;
+
+export const riskCategoriesSchema = z.object({
+  /** Every built-in, in `RISK_CATEGORIES` order. */
+  builtIn: z.array(z.object({ key: z.enum(RISK_CATEGORIES), hidden: z.boolean() })),
+  /** The workspace's own, in the order it saved them. */
+  custom: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export type RiskCategories = z.infer<typeof riskCategoriesSchema>;
+
 /** What a control link can join. */
 export const CONTROL_LINK_TYPES = [
   'raid_item',

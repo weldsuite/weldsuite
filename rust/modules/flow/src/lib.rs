@@ -78,6 +78,7 @@ mod project_schedule;
 mod project_scope;
 mod project_stakeholders;
 mod project_status_reports;
+mod project_tabs;
 mod project_templates;
 mod public_project_portal;
 mod task_dependencies;

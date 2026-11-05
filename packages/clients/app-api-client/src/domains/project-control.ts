@@ -26,10 +26,15 @@ import type {
   RaidMatrix,
   RaidTaskResult,
   RiskBand,
+  RiskCategories,
   UpdateRaidItemInput,
+  UpdateRiskCategoriesInput,
 } from '../schemas/project-control';
 
 export type {
+  BuiltInRiskCategory,
+  RiskCategories,
+  UpdateRiskCategoriesInput,
   AssessRiskInput,
   ControlLink,
   ControlLinkRelation,
@@ -100,6 +105,16 @@ export function createProjectControlApi(api: ClientApi) {
     /** The 5x5 counts of open risks, current or after mitigation. */
     getRaidMatrix(params: RaidMatrixQuery = {}): Promise<DataResponse<RaidMatrix>> {
       return api.get(`${raidBase}/matrix${buildQueryString({ ...params })}`);
+    },
+
+    /** The workspace's risk categories: every built-in (hidden or not) and the custom ones. */
+    getRiskCategories(): Promise<DataResponse<RiskCategories>> {
+      return api.get(`${raidBase}/categories`);
+    },
+
+    /** Replace the list (`portfolio:manage`). Renaming a kept id renames it on the items too. */
+    updateRiskCategories(input: UpdateRiskCategoriesInput): Promise<DataResponse<RiskCategories>> {
+      return api.put(`${raidBase}/categories`, input);
     },
 
     /** The item with its assessments (newest first), its links and its task progress. */

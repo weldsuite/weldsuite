@@ -66,6 +66,22 @@
       "autoPort": true
     },
     {
+      "name": "api-docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "api-docs",
+        "exec",
+        "next",
+        "dev",
+        "--webpack",
+        "--port",
+        "3009"
+      ],
+      "port": 3009,
+      "autoPort": true
+    },
+    {
       "name": "admin",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

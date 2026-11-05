@@ -14,7 +14,7 @@ name: CI
 #
 # On a pull request most jobs run only when the PR touches what they check:
 # the "changes" job maps the changed files onto areas (api, platform, desktop,
-# packages, rust, conformance, workers; see .github/scripts/ci-changes.mjs) and
+# packages, rust, image, conformance, workers; see .github/scripts/ci-changes.mjs) and
 # each job skips when its area is "false". A job skipped by its `if:` counts as
 # passed for branch protection, and the aggregating jobs accept "skipped" too.
 # Never gate this workflow with `on.pull_request.paths`: a workflow that does
@@ -46,6 +46,7 @@ jobs:
       desktop: ${{ steps.areas.outputs.desktop }}
       packages: ${{ steps.areas.outputs.packages }}
       rust: ${{ steps.areas.outputs.rust }}
+      image: ${{ steps.areas.outputs.image }}
       conformance: ${{ steps.areas.outputs.conformance }}
       workers: ${{ steps.areas.outputs.workers }}
     steps:
@@ -198,10 +199,13 @@ jobs:
   # Cached, the builds take minutes; when a change misses the cache, the
   # release build (LTO, one codegen unit, every module) takes about 40
   # minutes for amd64 and again for the arm64 cross-build.
+  # On a PR it runs only when a file the image alone reads changes (the
+  # "image" area, IMAGE_PATHS in ci-changes.mjs); every push to develop and
+  # main builds it.
   rust-image:
     name: Rust · image and chart
     needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.image != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

@@ -3,28 +3,11 @@ import * as React from 'react';
 import { useParams, usePathname, useRouter, Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import {
-  File,
-  GanttChart,
-  Table2,
-  SquareDashedMousePointer,
-  Target,
-  ShieldAlert,
-  Gavel,
-  Crosshair,
-  Wallet,
-  SquareKanban,
-  Users,
-  Timer,
-  SquareCheck,
-  Folder,
-  Settings,
   PanelLeftOpen,
   PanelRightOpen,
-  BarChart3,
   AlertCircle,
   FolderX,
   Lock,
-  type LucideIcon,
 } from 'lucide-react';
 import { ProjectChatPanel } from '@/components/project-chat/project-chat-panel';
 import { useObjectPanelStack } from '@/components/object-panel';
@@ -58,9 +41,17 @@ import { ProjectPermissionProvider } from '@/app/weldflow/contexts/project-permi
 import { ProjectActionsMenu } from '@/app/weldflow/components/project-actions-menu';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { isApiError } from '@weldsuite/api-client';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { useProject } from '@/hooks/queries/use-projects-queries';
 import { useProjectTabPreference } from '@/hooks/queries/use-weldflow-preferences';
-import { isModuleOffered } from '@/lib/edition';
+import {
+  isProjectTabId,
+  useProjectTabAccess,
+  useProjectTabDefs,
+  type ProjectTabDef,
+} from '@/app/weldflow/hooks/use-project-tabs';
+import { activeTabFor, nextTabPreference, shownTabIds } from '@/app/weldflow/lib/project-tabs';
 import {
   DndContext,
   closestCenter,
@@ -79,12 +70,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-interface ProjectTab {
-  id: string;
-  name: string;
-  href: string;
-  icon: LucideIcon;
-}
+type ProjectTab = ProjectTabDef;
 
 // Tabs whose content manages its own top spacing (no extra `pt-4` wrapper padding).
 const TABS_WITHOUT_TOP_PADDING = new Set([
@@ -135,14 +121,6 @@ function reorderedTabIds(ids: string[], activeId: string | number, overId: strin
   const newIndex = ids.indexOf(String(overId));
   if (oldIndex === -1 || newIndex === -1) return null;
   return arrayMove(ids, oldIndex, newIndex);
-}
-
-/** The tab a pathname belongs to (the project root is the tasks tab). */
-function activeTabFor(pathname: string, projectId: string): string {
-  const basePath = `/weldflow/project/${projectId}`;
-  if (pathname === basePath) return 'tasks';
-  const segment = pathname.replace(basePath, '').split('/')[1];
-  return segment || 'tasks';
 }
 
 /** The chip that follows the pointer while a tab is dragged. */
@@ -367,56 +345,59 @@ function ProjectChatAside({
 }
 
 export default function ProjectLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { t } = useI18n();
   const params = useParams();
-  const pathname = usePathname();
-  const router = useRouter();
   const projectId = params.projectId as string;
-
-  // Translated tab names (derived at render time so they respond to locale changes).
-  // The sheets tab opens WeldSheets and the whiteboard tab WeldBoard boards:
-  // each hidden where the deployment doesn't offer that module.
-  const sheetsOffered = isModuleOffered('sheets');
-  const boardsOffered = isModuleOffered('board');
-  const allTabs: ProjectTab[] = [
-    { id: 'tasks', name: t.projects.projectLayout.tabs.tasks, href: '/tasks', icon: SquareCheck },
-    { id: 'gantt', name: t.projects.projectLayout.tabs.gantt, href: '/gantt', icon: GanttChart },
-    { id: 'table', name: t.projects.projectLayout.tabs.sheets, href: '/table', icon: Table2 },
-    { id: 'whiteboard', name: t.projects.projectLayout.tabs.whiteboard, href: '/whiteboard', icon: SquareDashedMousePointer },
-    { id: 'workload', name: t.projects.projectLayout.tabs.workload, href: '/workload', icon: Users },
-    { id: 'files', name: t.projects.projectLayout.tabs.files, href: '/files', icon: Folder },
-    { id: 'timesheet', name: t.projects.projectLayout.tabs.timesheet, href: '/timesheet', icon: Timer },
-    { id: 'pipeline', name: t.projects.projectLayout.tabs.pipeline, href: '/pipeline', icon: SquareKanban },
-    { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
-    { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
-    { id: 'raid', name: t.projects.projectLayout.tabs.raid, href: '/raid', icon: ShieldAlert },
-    { id: 'governance', name: t.projects.projectLayout.tabs.governance, href: '/governance', icon: Gavel },
-    { id: 'scope', name: t.projects.projectLayout.tabs.scope, href: '/scope', icon: Crosshair },
-    { id: 'finance', name: t.projects.projectLayout.tabs.finance, href: '/finance', icon: Wallet },
-    { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
-    { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
-  ];
-  const translatedTabs = allTabs.filter((tab) => (tab.id !== 'table' || sheetsOffered) && (tab.id !== 'whiteboard' || boardsOffered));
-
   // Project header data. A failed load surfaces as a not-found / forbidden state
   // instead of a skeleton that never resolves.
   const projectQuery = useProject(projectId);
-  const [renamed, setRenamed] = React.useState<{ id: string; name: string } | null>(null);
-  const projectName =
-    (renamed?.id === projectId ? renamed.name : undefined) ?? projectQuery.data?.data?.name ?? '';
 
-  // Which tabs are shown, and in what order, is a per-user preference (saved
-  // server-side), not local state: it survives reloads and is the same in every
-  // project. The tab objects (labels included) are derived from the ids at render
-  // time, so they follow the locale.
-  const { tabIds: savedTabIds, setTabIds } = useProjectTabPreference();
-  const savedTabs = (savedTabIds ?? []).flatMap((id) => {
-    const tab = translatedTabs.find((candidate) => candidate.id === id);
+  // The project could not be loaded: say why instead of showing a skeleton forever
+  // (and never mount tabs whose pages would just fail against the same project).
+  if (projectQuery.isError && !projectQuery.data) {
+    return <ProjectLoadError error={projectQuery.error} onRetry={() => void projectQuery.refetch()} />;
+  }
+
+  return (
+    <ProjectPermissionProvider projectId={projectId}>
+      <ProjectLayoutBody projectId={projectId} loadedName={projectQuery.data?.data?.name ?? ''}>
+        {children}
+      </ProjectLayoutBody>
+    </ProjectPermissionProvider>
+  );
+}
+
+/** The project header, tab bar, page and chat; inside the permission provider. */
+function ProjectLayoutBody({
+  projectId,
+  loadedName,
+  children,
+}: Readonly<{ projectId: string; loadedName: string; children: React.ReactNode }>) {
+  const { t } = useI18n();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const [renamed, setRenamed] = React.useState<{ id: string; name: string } | null>(null);
+  const projectName = (renamed?.id === projectId ? renamed.name : undefined) ?? loadedName;
+
+  // Which tabs someone may see is the project's setting (settings › Tabs: for
+  // the project, per role, per member). Which of those they show, and in what
+  // order, is their own preference (saved server-side, the same in every
+  // project). The tab objects (labels included) are derived from the ids at
+  // render time, so they follow the locale.
+  const tabDefs = useProjectTabDefs();
+  const offeredIds = tabDefs.map((tab) => tab.id);
+  const access = useProjectTabAccess(projectId, offeredIds);
+  const allowedTabs = tabDefs.filter((tab) => access.allowed.includes(tab.id));
+  const { tabIds: savedTabIds, setTabIds: savePreference } = useProjectTabPreference();
+  const tabs: ProjectTab[] = shownTabIds(savedTabIds, access.allowed).flatMap((id) => {
+    const tab = tabDefs.find((candidate) => candidate.id === id);
     return tab ? [tab] : [];
   });
-  // No preference yet (or one that matches no known tab) shows every tab.
-  const tabs: ProjectTab[] = savedTabs.length > 0 ? savedTabs : translatedTabs;
   const tabIdList = tabs.map((tab) => tab.id);
+  // Saving keeps the tabs this project hides in the preference, so they still
+  // show in the projects that allow them.
+  const setTabIds = (ids: string[]) =>
+    savePreference(nextTabPreference(savedTabIds, offeredIds, ids, access.allowed));
   const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
 
   // When any object panel (task, customer, contact, …) is open the project
@@ -446,9 +427,9 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     if (reordered) setTabIds(reordered);
   };
 
-  // Get tabs that are not currently visible
-  const hiddenTabs = translatedTabs.filter(
-    (defaultTab) => !tabs.some((tab) => tab.id === defaultTab.id)
+  // Tabs the user may see but has hidden themselves (the "+" menu).
+  const hiddenTabs = allowedTabs.filter(
+    (allowedTab) => !tabs.some((tab) => tab.id === allowedTab.id)
   );
 
   const handleMoveLeft = (index: number) => {
@@ -503,7 +484,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   };
 
   const handleAddTab = (tabId: string) => {
-    const tabToAdd = translatedTabs.find((tab) => tab.id === tabId);
+    const tabToAdd = allowedTabs.find((tab) => tab.id === tabId);
     if (tabToAdd) {
       setTabIds([...tabIdList, tabToAdd.id]);
     }
@@ -523,6 +504,29 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
 
   const activeTab = activeTabFor(pathname, projectId);
 
+  // A tab this person may not see is not reachable by its URL either: it goes
+  // to their first tab. Other project pages (members, close, ...) are not tabs.
+  const activeTabHidden = isProjectTabId(activeTab) && access.hidden.has(activeTab);
+  const fallbackHref = (tabs[0] ?? allowedTabs[0])?.href;
+  React.useEffect(() => {
+    if (!access.ready || !activeTabHidden || !fallbackHref) return;
+    router.replace(`/weldflow/project/${projectId}${fallbackHref}`);
+  }, [access.ready, activeTabHidden, fallbackHref, projectId, router]);
+
+  let page: React.ReactNode = children;
+  if (!access.ready || (activeTabHidden && fallbackHref)) {
+    page = <PageLoader fullScreen={false} />;
+  } else if (activeTabHidden) {
+    page = (
+      <EmptyState
+        icon={EyeOff}
+        title={t.projects.projectLayout.noTabsTitle}
+        description={t.projects.projectLayout.noTabsDescription}
+        className="m-4"
+      />
+    );
+  }
+
   // Build PageTab array with hrefs
   const pageTabs: PageTab[] = tabs.map((tab) => ({
     id: tab.id,
@@ -531,14 +535,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     href: `/weldflow/project/${projectId}${tab.href}`,
   }));
 
-  // The project could not be loaded: say why instead of showing a skeleton forever
-  // (and never mount tabs whose pages would just fail against the same project).
-  if (projectQuery.isError && !projectQuery.data) {
-    return <ProjectLoadError error={projectQuery.error} onRetry={() => void projectQuery.refetch()} />;
-  }
-
   return (
-    <ProjectPermissionProvider projectId={projectId}>
     <div className="flex flex-col h-full">
       {/* Project Header */}
       <div className="bg-background sticky top-0 z-10 group/header pt-[6px]">
@@ -709,7 +706,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
               !TABS_WITHOUT_TOP_PADDING.has(activeTab) && 'pt-4'
             )}
           >
-            {children}
+            {page}
           </div>
         </div>
         <ProjectChatAside
@@ -748,6 +745,5 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
       </Dialog>
 
     </div>
-    </ProjectPermissionProvider>
   );
 }

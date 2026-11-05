@@ -1393,12 +1393,14 @@
         "src/routes/projects/integration.test.ts",
         "src/routes/projects/stats.integration.test.ts",
         "src/routes/projects/custom-fields.integration.test.ts",
-        "src/routes/projects/coverage.integration.test.ts"
+        "src/routes/projects/coverage.integration.test.ts",
+        "src/routes/projects/tabs.integration.test.ts"
       ],
       "paths": [
         "apps/workers/flow-api/src/routes/projects/",
         "apps/workers/flow-api/src/routes/project-members/",
         "packages/clients/app-api-client/src/schemas/projects.ts",
+        "packages/clients/app-api-client/src/schemas/project-tabs.ts",
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",
@@ -1546,6 +1548,10 @@
         {
           "route": "PATCH /api/project-documents/:projectId/:fileId",
           "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        },
+        {
+          "route": "PUT /api/projects/:id/tabs",
+          "reason": "The project tab visibility settings, reached by the flow: projects suite (src/routes/projects/tabs.integration.test.ts), viewers and members refused included."
         }
       ]
     },
@@ -1568,6 +1574,10 @@
         {
           "route": "PATCH /api/project-documents/:projectId/:fileId",
           "reason": "The client-visible toggle (FLOW-020), reached by the flow: client portal suite (src/routes/project-documents/client-visible.integration.test.ts)."
+        },
+        {
+          "route": "PUT /api/projects/:id/tabs",
+          "reason": "The project tab visibility settings, reached by the flow: projects suite (src/routes/projects/tabs.integration.test.ts), viewers and members refused included."
         }
       ]
     },

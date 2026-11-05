@@ -1,5 +1,5 @@
 {
-  "id": "717aa22d-9b4f-4422-afc0-b80508992771",
+  "id": "34e158d7-d272-4884-ae8a-c891e8d55cbf",
   "prevId": "e742e92f-37a8-4834-8cc4-a58dd4f5ee9b",
   "version": "7",
   "dialect": "postgresql",
@@ -4992,6 +4992,12 @@
         "expense_approval_limit": {
           "name": "expense_approval_limit",
           "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "risk_categories": {
+          "name": "risk_categories",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -11350,48 +11356,15 @@
           "primaryKey": false,
           "notNull": true
         },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
+        "scene": {
+          "name": "scene",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "snapshot_key": {
-          "name": "snapshot_key",
-          "type": "varchar(1000)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "snapshot_revision": {
-          "name": "snapshot_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "is_template": {
-          "name": "is_template",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "template_category": {
-          "name": "template_category",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "updated_by_id": {
           "name": "updated_by_id",
           "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scene": {
-          "name": "scene",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         }
@@ -11402,21 +11375,6 @@
           "columns": [
             {
               "expression": "file_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "whiteboards_template_idx": {
-          "name": "whiteboards_template_idx",
-          "columns": [
-            {
-              "expression": "is_template",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -11440,105 +11398,6 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.board_versions": {
-      "name": "board_versions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(255)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "board_id": {
-          "name": "board_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "snapshot_key": {
-          "name": "snapshot_key",
-          "type": "varchar(1000)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size": {
-          "name": "size",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_by_id": {
-          "name": "created_by_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "board_versions_board_idx": {
-          "name": "board_versions_board_idx",
-          "columns": [
-            {
-              "expression": "board_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "board_versions_board_id_whiteboards_id_fk": {
-          "name": "board_versions_board_id_whiteboards_id_fk",
-          "tableFrom": "board_versions",
-          "tableTo": "whiteboards",
-          "columnsFrom": [
-            "board_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

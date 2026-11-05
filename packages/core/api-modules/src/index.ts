@@ -524,6 +524,8 @@ const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
   'knowledge-pages': 'know',
   'knowledge-spaces': 'know',
   quotes: 'crm',
+  // WeldFlow's deprecated project whiteboard API (served on WeldBoard boards): licensed as it always was.
+  whiteboards: 'flow',
 };
 
 /**

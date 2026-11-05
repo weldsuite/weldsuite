@@ -14,6 +14,16 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-11-05: Companies and people in one request
+
+- **Custom fields land in WeldCRM.** `customFields` on [Companies](/companies#custom-fields) and [People](/people#custom-fields) is now written where WeldCRM reads custom fields, so values sent through the API show in the record panel, filters and sorting like values set in the app. Responses return the stored values.
+- **New endpoints**, `GET /v1/companies/custom-fields` and `GET /v1/people/custom-fields`, list the workspace's custom field slugs, types and select options.
+- **People and their companies**, `companyIds` and `primaryCompanyId` on `POST /v1/people` now link the person to those companies (they were accepted and ignored).
+- **Changes to existing behaviour.** These go beyond the additive-only rule above:
+  - A custom field value that doesn't suit its field (text in a number field, a value that isn't one of a select's options) now fails the request with `400` and writes nothing. `error.details.errors` lists every refused value by slug. It used to be stored as sent.
+  - `PATCH` now merges `customFields`: only the slugs you send change, and `null` clears one. It used to replace the whole object.
+  - On `POST /v1/people`, a `companyIds` or `primaryCompanyId` entry that names no company fails the request with `400`.
+
 ### 2026-10-13: WeldReach
 
 - **New resources** under `/v1/reach`: [Campaigns](/reach-campaigns) (with steps, mailboxes, enrollments, launch, pause, resume and step stats), [Prospects](/reach-prospects) (with JSON imports of up to 5,000 rows), [Lists](/reach-lists), [Suppressions](/reach-suppressions), [Threads](/reach-threads) (the reply inbox, with replying) and [Mailboxes and domains](/reach-mailboxes) (read-only), plus `GET /v1/reach/access` and `GET /v1/reach/overview`. See the [WeldReach overview](/weldreach).

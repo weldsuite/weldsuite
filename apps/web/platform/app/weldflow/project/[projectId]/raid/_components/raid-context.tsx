@@ -13,6 +13,8 @@ export interface RaidAbilities {
   createTasks: boolean;
   /** Check linked tasks off (`update` and `tasks:update`). */
   updateTasks: boolean;
+  /** Change the workspace's risk categories (`portfolio:manage`; not tied to this project). */
+  manageCategories: boolean;
 }
 
 export interface RaidMember {
