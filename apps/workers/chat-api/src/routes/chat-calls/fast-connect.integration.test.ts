@@ -12,7 +12,7 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { addParticipant, createMeeting, endMeeting, kickAllParticipants, listParticipants, removeParticipant } from '@weldsuite/cloudflare-realtime';
+import { addParticipant, createMeeting, endMeeting, ensurePresets, kickAllParticipants, listParticipants, removeParticipant } from '@weldsuite/cloudflare-realtime';
 import { dmCallRoomKey } from '@weldsuite/chat-domain/dm-call-room';
 import { publishChatCallIncoming } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
 import type { Env } from '../../types';
@@ -23,6 +23,7 @@ vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
   createMeeting: vi.fn(),
   addParticipant: vi.fn(),
+  ensurePresets: vi.fn(),
   removeParticipant: vi.fn(),
   kickAllParticipants: vi.fn(),
   endMeeting: vi.fn(),
@@ -80,6 +81,7 @@ beforeEach(() => {
   store = new Map();
   vi.mocked(createMeeting).mockReset().mockResolvedValue({ id: 'rtk_created' } as never);
   vi.mocked(addParticipant).mockReset().mockResolvedValue({ id: 'cf_added', token: 'tok_added' } as never);
+  vi.mocked(ensurePresets).mockReset().mockResolvedValue(undefined);
   vi.mocked(removeParticipant).mockReset().mockResolvedValue(undefined as never);
   vi.mocked(kickAllParticipants).mockReset().mockResolvedValue(0);
   vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
@@ -292,5 +294,68 @@ describe('POST /:callId/prepare · the token is ready before the callee answers'
     const res = await post(DAVE, `/${callId}/prepare`);
 
     expect(res.status).toBe(400);
+  });
+});
+
+/** Hold the next ensurePresets until the returned function is called. */
+function holdPresetSeeding(): () => void {
+  let release: (() => void) | undefined;
+  vi.mocked(ensurePresets).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  return () => release?.();
+}
+
+/** Long enough for the request's other parallel lookups to finish. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+// RealtimeKit turns down a participant whose preset does not exist. Presets
+// are renamed when their settings change, so a call must seed them itself
+// rather than count on WeldMeet having done it (calls failed after a rename).
+describe('the RealtimeKit presets exist before anyone is added to a call', () => {
+  it('start-and-join adds the caller only once they are seeded', async () => {
+    const channelId = await seedChannel();
+    const release = holdPresetSeeding();
+
+    const pending = post(CAROL, '/start-and-join', { channelId, callType: 'voice' });
+
+    await vi.waitFor(() => expect(ensurePresets).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(addParticipant).not.toHaveBeenCalled();
+    release();
+    expect((await pending).status).toBe(201);
+    expect(addParticipant).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['prepare', 'join'] as const)('/%s adds the callee only once they are seeded', async (route) => {
+    const channelId = await seedChannel();
+    const { callId } = await startCall(CAROL, channelId);
+    vi.mocked(addParticipant).mockClear();
+    vi.mocked(ensurePresets).mockClear();
+    const release = holdPresetSeeding();
+
+    const pending = post(DAVE, `/${callId}/${route}`);
+
+    await vi.waitFor(() => expect(ensurePresets).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(addParticipant).not.toHaveBeenCalled();
+    release();
+    expect((await pending).status).toBe(200);
+    expect(addParticipant).toHaveBeenCalledTimes(1);
+  });
+
+  it('a seed that fails does not hold up the call', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const channelId = await seedChannel();
+    vi.mocked(ensurePresets).mockRejectedValueOnce(new Error('Failed to create RTK preset: 409'));
+
+    const { authToken } = await startCall(CAROL, channelId);
+
+    expect(authToken).toBe('tok_added');
+    expect(errors).toHaveBeenCalledWith('[Chat:Calls] Seeding RealtimeKit presets failed:', expect.any(Error));
+    errors.mockRestore();
   });
 });
