@@ -43,7 +43,10 @@ export function loadSnapshot(v: unknown): Board | null {
  * round and private mode.
  */
 export function copySnapshot(snapshot: BoardSnapshot): BoardSnapshot {
-  const { timer: _timer, voting: _voting, privateMode: _private, ...props } = snapshot.props;
+  const props: BoardProps = { ...snapshot.props };
+  delete props.timer;
+  delete props.voting;
+  delete props.privateMode;
   return {
     version: snapshot.version,
     props: structuredClone(props),

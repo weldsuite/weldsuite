@@ -44,11 +44,28 @@ export const SHAPE_FILLS = ['#ffffff', '#fee2e2', '#ffedd5', '#fef9c3', '#dcfce7
 
 let counter = 0;
 
+/** How many values the random part of an id can take: six base-36 digits. */
+const RANDOM_RANGE = 36 ** 6;
+
+/**
+ * A uniform random integer below `RANDOM_RANGE`, from the platform's
+ * cryptographic source (`crypto` is global in browsers, Workers and Node).
+ * Draws outside the range are drawn again rather than folded in, so no value
+ * is likelier than another.
+ */
+function randomPart(): number {
+  const buf = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(buf);
+  } while (buf[0]! >= RANDOM_RANGE);
+  return buf[0]!;
+}
+
 /** A new element id: short, unique enough across replicas (time + randomness + a counter). */
 export function newId(prefix = 'e'): string {
   counter = (counter + 1) % 1296;
   const time = Date.now().toString(36);
-  const rand = Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0');
+  const rand = randomPart().toString(36).padStart(6, '0');
   return `${prefix}${time}${rand}${counter.toString(36).padStart(2, '0')}`;
 }
 

@@ -90,6 +90,16 @@ function markAll(c: BoardController, els: BoardElement[], mark: 'b' | 'i' | 'u' 
   c.apply({ type: 'batch', ops: texty.map((e) => ({ type: 'formatText' as const, id: e.id, at: 0, runs: [[e.text!.text.length, { [mark]: all ? null : true }]] as [number, Record<string, true | null>][] })) });
 }
 
+/** The fill button's swatch: the fill colour, or a red slash for none. */
+function fillSwatch(fill: BoardElement['fill']) {
+  return (
+    <span
+      className={cn('size-5 rounded-sm border shadow-sm', !fill || fill === 'transparent' ? 'bg-[linear-gradient(135deg,transparent_45%,#ef4444_45%,#ef4444_55%,transparent_55%)]' : '')}
+      style={{ backgroundColor: fill !== 'transparent' ? fill : undefined }}
+    />
+  );
+}
+
 export function ContextToolbar({ controller: c, actions }: { controller: BoardController; actions: ContextActions }) {
   const { t } = useI18n();
   const te = t.weldboard.editor;
@@ -168,7 +178,7 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
             </>
           )}
           {(only === 'shape' || only === 'card' || only === 'frame' || only === 'text') && (
-            <BarPopover label={ts.fill} trigger={<span className={cn('size-5 rounded-sm border shadow-sm', !els[0]!.fill || els[0]!.fill === 'transparent' ? 'bg-[linear-gradient(135deg,transparent_45%,#ef4444_45%,#ef4444_55%,transparent_55%)]' : '')} style={{ backgroundColor: els[0]!.fill !== 'transparent' ? els[0]!.fill : undefined }} />}>
+            <BarPopover label={ts.fill} trigger={fillSwatch(els[0]!.fill)}>
               <div className="flex flex-col gap-2">
                 <Swatches colors={['transparent', ...SHAPE_FILLS]} value={els[0]!.fill} onPick={(color) => color && setAll(c, els, { fill: color })} />
                 <Swatches colors={PALETTE} value={els[0]!.fill} onPick={(color) => color && setAll(c, els, { fill: color })} />
@@ -345,12 +355,18 @@ function FontSize({ c, els, auto }: { c: BoardController; els: BoardElement[]; a
   );
 }
 
+/** The alignment the align button moves to on a click, and its icon for the current one. */
+function alignStep(align: string): { next: 'left' | 'center' | 'right'; Icon: typeof AlignLeft } {
+  if (align === 'left') return { next: 'center', Icon: AlignLeft };
+  if (align === 'center') return { next: 'right', Icon: AlignCenter };
+  return { next: 'left', Icon: AlignRight };
+}
+
 function AlignControl({ c, els }: { c: BoardController; els: BoardElement[] }) {
   const { t } = useI18n();
   const ts = t.weldboard.editor.style;
   const align = els[0]!.textAlign ?? (els[0]!.type === 'text' ? 'left' : 'center');
-  const next = align === 'left' ? 'center' : align === 'center' ? 'right' : 'left';
-  const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
+  const { next, Icon } = alignStep(align);
   return (
     <BarButton label={ts.align} onClick={() => setAll(c, els, { textAlign: next })}>
       <Icon />

@@ -44,6 +44,13 @@ export function usePresentation(c: BoardController) {
   return { index, total: frames().length, start, stop, show, presenting: index !== null };
 }
 
+/** A text field other than the board's own hidden input. */
+function typingIn(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement) || target.hasAttribute('data-board-input')) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
 export function PresentControls({ presentation }: { presentation: ReturnType<typeof usePresentation> }) {
   const { t, format } = useI18n();
   const tp = t.weldboard.editor.present;
@@ -51,6 +58,8 @@ export function PresentControls({ presentation }: { presentation: ReturnType<typ
   useEffect(() => {
     if (index === null) return;
     const onKey = (e: KeyboardEvent) => {
+      // Typing in the comments, the find bar or a rename keeps its keys; the board's own input does not.
+      if (typingIn(e.target) && e.key !== 'Escape') return;
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         if (index < total - 1) show(index + 1);

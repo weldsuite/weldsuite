@@ -298,14 +298,92 @@ export function elbowRoute(start: ResolvedEnd, end: ResolvedEnd): Point[] {
   return simplify([s0, ...middle, e0]);
 }
 
+/** A direction of travel on the grid: 0 none (yet), 1 horizontal, 2 vertical. */
+type Travel = 0 | 1 | 2;
+
 interface Node {
   i: number;
   j: number;
-  /** Direction of travel into this node: 0 none, 1 horizontal, 2 vertical. */
-  d: 0 | 1 | 2;
+  /** Direction of travel into this node. */
+  d: Travel;
   g: number;
   f: number;
   prev: Node | null;
+}
+
+/** Extra cost of a turn, so routes prefer fewer bends. */
+const BEND = 40;
+
+/** Moves to the four neighbours of a grid node, with the direction each travels in. */
+const STEPS: readonly (readonly [number, number, 1 | 2])[] = [
+  [1, 0, 1],
+  [-1, 0, 1],
+  [0, 1, 2],
+  [0, -1, 2],
+];
+
+/** The grid an A* search runs over, and its state. */
+interface Search {
+  X: number[];
+  Y: number[];
+  ei: number;
+  ej: number;
+  key: (i: number, j: number) => number;
+  blocked: (p: Point) => boolean;
+  obstacles: Rect[];
+  open: Node[];
+  /** Cheapest cost found so far per node and direction of travel. */
+  best: Map<string, number>;
+}
+
+function gridPoint(s: Search, i: number, j: number): Point {
+  return { x: s.X[i]!, y: s.Y[j]! };
+}
+
+/** The distance left from a node to the end, ignoring obstacles. */
+function remaining(s: Search, i: number, j: number): number {
+  return Math.abs(s.X[i]! - s.X[s.ei]!) + Math.abs(s.Y[j]! - s.Y[s.ej]!);
+}
+
+/** The direction a route leaves its start in: 0 any, 1 horizontal, 2 vertical. */
+function startDirection(ds: Point | null): Travel {
+  if (!ds) return 0;
+  return ds.x !== 0 ? 1 : 2;
+}
+
+/** Takes the open node with the lowest estimated cost (the first of equals). */
+function takeCheapest(open: Node[]): Node {
+  let bi = 0;
+  for (let k = 1; k < open.length; k++) if (open[k]!.f < open[bi]!.f) bi = k;
+  return open.splice(bi, 1)[0]!;
+}
+
+/** The points from the start to `node`. */
+function tracePath(s: Search, node: Node): Point[] {
+  const out: Point[] = [];
+  for (let n: Node | null = node; n; n = n.prev) out.push(gridPoint(s, n.i, n.j));
+  return out.reverse();
+}
+
+function bendCost(from: Travel, dir: 1 | 2): number {
+  return from !== 0 && from !== dir ? BEND : 0;
+}
+
+/** Opens the neighbours of `node` that can be reached more cheaply than before. */
+function expand(s: Search, node: Node): void {
+  for (const [di, dj, dir] of STEPS) {
+    const ni = node.i + di;
+    const nj = node.j + dj;
+    if (ni < 0 || nj < 0 || ni >= s.X.length || nj >= s.Y.length) continue;
+    const a = gridPoint(s, node.i, node.j);
+    const b = gridPoint(s, ni, nj);
+    if (s.blocked(b) || s.obstacles.some((o) => segmentCrosses(a, b, o))) continue;
+    const g = node.g + Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + bendCost(node.d, dir);
+    const k = `${s.key(ni, nj)}:${dir}`;
+    if ((s.best.get(k) ?? Infinity) <= g) continue;
+    s.best.set(k, g);
+    s.open.push({ i: ni, j: nj, d: dir, g, f: g + remaining(s, ni, nj), prev: node });
+  }
 }
 
 function astar(
@@ -320,40 +398,12 @@ function astar(
   obstacles: Rect[],
   ds: Point | null,
 ): Point[] | null {
-  const BEND = 40;
-  const at = (i: number, j: number): Point => ({ x: X[i]!, y: Y[j]! });
-  const h = (i: number, j: number) => Math.abs(X[i]! - X[ei]!) + Math.abs(Y[j]! - Y[ej]!);
-  const startDir: 0 | 1 | 2 = ds ? (ds.x !== 0 ? 1 : 2) : 0;
-  const open: Node[] = [{ i: si, j: sj, d: startDir, g: 0, f: h(si, sj), prev: null }];
-  const best = new Map<string, number>();
-  for (let guard = 0; open.length && guard < 20_000; guard++) {
-    let bi = 0;
-    for (let k = 1; k < open.length; k++) if (open[k]!.f < open[bi]!.f) bi = k;
-    const node = open.splice(bi, 1)[0]!;
-    if (node.i === ei && node.j === ej) {
-      const out: Point[] = [];
-      for (let n: Node | null = node; n; n = n.prev) out.push(at(n.i, n.j));
-      return out.reverse();
-    }
-    const steps: [number, number, 1 | 2][] = [
-      [1, 0, 1],
-      [-1, 0, 1],
-      [0, 1, 2],
-      [0, -1, 2],
-    ];
-    for (const [di, dj, dir] of steps) {
-      const ni = node.i + di;
-      const nj = node.j + dj;
-      if (ni < 0 || nj < 0 || ni >= X.length || nj >= Y.length) continue;
-      const a = at(node.i, node.j);
-      const b = at(ni, nj);
-      if (blocked(b) || obstacles.some((o) => segmentCrosses(a, b, o))) continue;
-      const g = node.g + Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + (node.d !== 0 && node.d !== dir ? BEND : 0);
-      const k = `${key(ni, nj)}:${dir}`;
-      if ((best.get(k) ?? Infinity) <= g) continue;
-      best.set(k, g);
-      open.push({ i: ni, j: nj, d: dir, g, f: g + h(ni, nj), prev: node });
-    }
+  const s: Search = { X, Y, ei, ej, key, blocked, obstacles, open: [], best: new Map() };
+  s.open.push({ i: si, j: sj, d: startDirection(ds), g: 0, f: remaining(s, si, sj), prev: null });
+  for (let guard = 0; s.open.length && guard < 20_000; guard++) {
+    const node = takeCheapest(s.open);
+    if (node.i === ei && node.j === ej) return tracePath(s, node);
+    expand(s, node);
   }
   return null;
 }

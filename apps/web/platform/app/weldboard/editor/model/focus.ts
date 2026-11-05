@@ -20,7 +20,8 @@ export function focusStep(c: BoardController, dir: 1 | -1): boolean {
   const order = readingOrderIds(c.board);
   if (!order.length) return false;
   const current = c.selection.size === 1 ? order.indexOf([...c.selection][0]!) : -1;
-  const next = current === -1 ? (dir === 1 ? 0 : order.length - 1) : current + dir;
+  const first = dir === 1 ? 0 : order.length - 1;
+  const next = current === -1 ? first : current + dir;
   if (next < 0 || next >= order.length) {
     c.select([]);
     return false;

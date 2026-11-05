@@ -78,13 +78,21 @@ export interface PointerInfo {
   pointerType: string;
 }
 
+/** Where a new element goes: its frame (if any), its order key and who made it when. */
+interface Placed {
+  parent?: string;
+  order: string;
+  createdBy: string;
+  now: number;
+}
+
 const HANDLE_RADIUS = 7;
 const ROTATE_OFFSET = 26;
 const CONNECT_OFFSET = 18;
 const DRAG_START = 3;
 
 function gestureId(kind: string): string {
-  return `${kind}:${Math.random().toString(36).slice(2, 10)}`;
+  return newId(`${kind}:`);
 }
 
 /** The box handles are drawn around: one element's own (rotated) box, or a selection's bounds. */
@@ -101,22 +109,41 @@ export function selectionFrame(c: BoardController): { box: Rect; rotation: numbe
   return b ? { box: b, rotation: 0 } : null;
 }
 
+interface HandleAt {
+  handle: Handle;
+  at: Point;
+}
+
 /** Where each handle sits on screen. */
 export function handlePositions(c: BoardController): { handle: Handle; at: Point }[] {
-  const out: { handle: Handle; at: Point }[] = [];
   const els = c.selected;
-  if (c.readOnly || c.editing || els.some((e) => e.locked)) return out;
-  if (els.length === 1 && els[0]!.type === 'connector') {
-    const el = els[0]!;
-    const g = connectorGeometry(c.board, el);
-    out.push({ handle: { kind: 'end', which: 'start' }, at: toScreen(c.camera, g.start.p) });
-    out.push({ handle: { kind: 'end', which: 'end' }, at: toScreen(c.camera, g.end.p) });
-    if (el.route === 'curved') out.push({ handle: { kind: 'control' }, at: toScreen(c.camera, g.label) });
-    return out;
-  }
+  if (c.readOnly || c.editing || els.some((e) => e.locked)) return [];
+  if (els.length === 1 && els[0]!.type === 'connector') return connectorHandles(c, els[0]!);
   const frame = selectionFrame(c);
-  if (!frame) return out;
-  const { box, rotation } = frame;
+  if (!frame) return [];
+  return frameHandles(c, frame, els.length === 1 ? els[0]! : null);
+}
+
+/** A selected connector: its two ends, and the bend of a curved one. */
+function connectorHandles(c: BoardController, el: BoardElement): HandleAt[] {
+  const out: HandleAt[] = [];
+  const g = connectorGeometry(c.board, el);
+  out.push({ handle: { kind: 'end', which: 'start' }, at: toScreen(c.camera, g.start.p) });
+  out.push({ handle: { kind: 'end', which: 'end' }, at: toScreen(c.camera, g.end.p) });
+  if (el.route === 'curved') out.push({ handle: { kind: 'control' }, at: toScreen(c.camera, g.label) });
+  return out;
+}
+
+const ALL_RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+const CORNER_HANDLES: ResizeHandle[] = ['nw', 'ne', 'se', 'sw'];
+const CONNECT_SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
+const SIDE_HANDLE: Record<Side, ResizeHandle> = { top: 'n', right: 'e', bottom: 's', left: 'w' };
+/** The way a connect handle sticks out from its side, before rotating. */
+const SIDE_DIRECTION: Record<Side, Point> = { top: { x: 0, y: -1 }, right: { x: 1, y: 0 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 } };
+
+/** The handles on a selection's box: resize, rotate, and (one connectable element, select tool) the connect handles. */
+function frameHandles(c: BoardController, { box, rotation }: { box: Rect; rotation: number }, single: BoardElement | null): HandleAt[] {
+  const out: HandleAt[] = [];
   const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
   const local: Record<ResizeHandle, Point> = {
     nw: { x: box.x, y: box.y },
@@ -128,8 +155,7 @@ export function handlePositions(c: BoardController): { handle: Handle; at: Point
     sw: { x: box.x, y: box.y + box.h },
     w: { x: box.x, y: center.y },
   };
-  const single = els.length === 1 ? els[0]! : null;
-  const sides: ResizeHandle[] = single?.type === 'sticky' ? ['nw', 'ne', 'se', 'sw'] : ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  const sides = single?.type === 'sticky' ? CORNER_HANDLES : ALL_RESIZE_HANDLES;
   for (const h of sides) out.push({ handle: { kind: 'resize', handle: h }, at: toScreen(c.camera, rotatePoint(local[h], center, rotation)) });
   if (!single || single.type !== 'pen') {
     const top = toScreen(c.camera, rotatePoint(local.n, center, rotation));
@@ -137,10 +163,9 @@ export function handlePositions(c: BoardController): { handle: Handle; at: Point
     out.push({ handle: { kind: 'rotate' }, at: { x: top.x + up.x, y: top.y + up.y } });
   }
   if (single && isConnectable(single) && c.tool === 'select') {
-    const sideAt: Record<Side, ResizeHandle> = { top: 'n', right: 'e', bottom: 's', left: 'w' };
-    for (const side of ['top', 'right', 'bottom', 'left'] as Side[]) {
-      const p = toScreen(c.camera, rotatePoint(local[sideAt[side]], center, rotation));
-      const dir = rotatePoint({ x: side === 'right' ? 1 : side === 'left' ? -1 : 0, y: side === 'bottom' ? 1 : side === 'top' ? -1 : 0 }, { x: 0, y: 0 }, rotation);
+    for (const side of CONNECT_SIDES) {
+      const p = toScreen(c.camera, rotatePoint(local[SIDE_HANDLE[side]], center, rotation));
+      const dir = rotatePoint(SIDE_DIRECTION[side], { x: 0, y: 0 }, rotation);
       out.push({ handle: { kind: 'connect', side }, at: { x: p.x + dir.x * CONNECT_OFFSET, y: p.y + dir.y * CONNECT_OFFSET } });
     }
   }
@@ -224,7 +249,7 @@ export class Interactions {
     const p = toBoard(c.camera, screen);
     const el = c.index.hit(p, this.tolerance());
     if (el && c.editing?.id === el.id) return 'text';
-    return el ? (el.locked ? 'default' : 'move') : 'default';
+    return el && !el.locked ? 'move' : 'default';
   }
 
   // ---------------------------------------------------------------- touch
@@ -294,7 +319,7 @@ export class Interactions {
     if (info.button !== 0) return;
     if (c.readOnly) {
       if (c.tool === 'comment' && c.canComment) this.placeComment(p);
-      else this.drag = { kind: 'pan', start: info.screen, camera: { ...c.camera } };
+      else if (!this.voteAt(p, info)) this.drag = { kind: 'pan', start: info.screen, camera: { ...c.camera } };
       return;
     }
 
@@ -323,7 +348,7 @@ export class Interactions {
         return;
       case 'eraser':
         this.drag = { kind: 'erase', last: p, erased: new Set() };
-        this.eraseAt(p);
+        this.eraseAt(p, this.drag);
         return;
       case 'comment':
         this.placeComment(p);
@@ -338,20 +363,7 @@ export class Interactions {
 
   private downSelect(info: PointerInfo, p: Point): void {
     const c = this.c;
-    // Inside the text being edited: place the caret / start a text selection.
-    if (c.editing) {
-      const el = c.board.get(c.editing.id);
-      if (el && this.pointInTextBox(el, p)) {
-        const pos = this.textOffsetAt(el, p);
-        if (pos !== null) {
-          c.editing = info.shift ? { ...c.editing, head: pos, goalX: undefined } : { id: el.id, anchor: pos, head: pos };
-          this.drag = { kind: 'text-select', id: el.id, anchor: c.editing.anchor };
-          c.changed();
-          return;
-        }
-      }
-      c.stopEditing();
-    }
+    if (this.downInEditedText(info, p)) return;
 
     const handle = this.hitHandle(info.screen);
     if (handle) {
@@ -361,35 +373,76 @@ export class Interactions {
 
     const hit = c.index.hit(p, this.tolerance());
     if (hit) {
-      const target = c.selection.has(hit.id) ? hit : outerGroup(c, hit);
-      if (hit.type === 'comment') this.onComment?.(hit.id);
-      if (!info.shift && this.onVote?.(hit, info.alt)) return;
-      if (info.shift) {
-        const next = new Set(c.selection);
-        if (next.has(target.id)) next.delete(target.id);
-        else next.add(target.id);
-        c.select(next);
-        return;
-      }
-      if (!c.selection.has(target.id)) c.select([target.id]);
-      const movable = c.selected.filter((e) => !e.locked);
-      if (movable.length === 0) return;
-      let ids = movable.map((e) => e.id);
-      const gesture = gestureId('move');
-      if (info.alt) {
-        // Alt-drag: drag a copy.
-        const fragment = makeFragment(c.board, ids);
-        const b = selectionBounds(c.board, ids)!;
-        const placed = placeFragment(c.board, fragment, { x: b.x, y: b.y, createdBy: c.options.userId, now: Date.now() });
-        c.apply(placed.op, { gesture, select: placed.ids });
-        ids = placed.ids;
-      }
-      this.drag = { kind: 'move', start: p, ids, startBounds: selectionBounds(c.board, ids)!, applied: { x: 0, y: 0 }, gesture, moved: false };
+      this.downOnElement(info, p, hit);
       return;
     }
 
     this.drag = { kind: 'marquee', start: p, base: info.shift ? new Set(c.selection) : new Set() };
     if (!info.shift) c.select([]);
+  }
+
+  /**
+   * Inside the text being edited: place the caret / start a text selection.
+   * Anywhere else editing stops. True when the press went to the text.
+   */
+  private downInEditedText(info: PointerInfo, p: Point): boolean {
+    const c = this.c;
+    if (!c.editing) return false;
+    const el = c.board.get(c.editing.id);
+    if (el && this.pointInTextBox(el, p)) {
+      const pos = this.textOffsetAt(el, p);
+      if (pos !== null) {
+        c.editing = info.shift ? { ...c.editing, head: pos, goalX: undefined } : { id: el.id, anchor: pos, head: pos };
+        this.drag = { kind: 'text-select', id: el.id, anchor: c.editing.anchor };
+        c.changed();
+        return true;
+      }
+    }
+    c.stopEditing();
+    return false;
+  }
+
+  /**
+   * Someone who may only comment votes too (the room takes their vote ops):
+   * a click on an element casts or takes back a vote. False when it did not.
+   */
+  private voteAt(p: Point, info: PointerInfo): boolean {
+    const c = this.c;
+    if (!c.canComment || info.shift) return false;
+    const hit = c.index.hit(p, this.tolerance());
+    return !!hit && !!this.onVote?.(hit, info.alt);
+  }
+
+  /** A press on an element: comment, vote, toggle it in the selection (Shift), or start moving the selection. */
+  private downOnElement(info: PointerInfo, p: Point, hit: BoardElement): void {
+    const c = this.c;
+    const target = c.selection.has(hit.id) ? hit : outerGroup(c, hit);
+    if (hit.type === 'comment') this.onComment?.(hit.id);
+    if (!info.shift && this.onVote?.(hit, info.alt)) return;
+    if (info.shift) {
+      const next = new Set(c.selection);
+      if (next.has(target.id)) next.delete(target.id);
+      else next.add(target.id);
+      c.select(next);
+      return;
+    }
+    if (!c.selection.has(target.id)) c.select([target.id]);
+    const movable = c.selected.filter((e) => !e.locked);
+    if (movable.length === 0) return;
+    let ids = movable.map((e) => e.id);
+    const gesture = gestureId('move');
+    if (info.alt) ids = this.placeDragCopy(ids, gesture);
+    this.drag = { kind: 'move', start: p, ids, startBounds: selectionBounds(c.board, ids)!, applied: { x: 0, y: 0 }, gesture, moved: false };
+  }
+
+  /** Alt-drag: drag a copy. Places the copy where the elements are and returns its ids. */
+  private placeDragCopy(ids: string[], gesture: string): string[] {
+    const c = this.c;
+    const fragment = makeFragment(c.board, ids);
+    const b = selectionBounds(c.board, ids)!;
+    const placed = placeFragment(c.board, fragment, { x: b.x, y: b.y, createdBy: c.options.userId, now: Date.now() });
+    c.apply(placed.op, { gesture, select: placed.ids });
+    return placed.ids;
   }
 
   private startHandleDrag(handle: Handle, p: Point, info: PointerInfo): void {
@@ -445,96 +498,33 @@ export class Interactions {
     c.cursor = p;
     const drag = this.drag;
     if (!drag) {
-      // Hover: outline what the pointer is over.
-      if (c.tool === 'select' || c.tool === 'connector' || c.tool === 'eraser') {
-        const hit = c.index.hit(p, this.tolerance());
-        const hover = hit?.id ?? null;
-        if (hover !== (c.transient.hover ?? null)) {
-          c.transient = { ...c.transient, hover };
-          c.changed(false);
-        }
-      }
+      this.hover(p);
       return;
     }
-    const far = this.downAt ? distance(this.downAt, info.screen) > DRAG_START : true;
     switch (drag.kind) {
       case 'pan':
         c.setCamera({ ...drag.camera, x: drag.camera.x - (info.screen.x - drag.start.x) / drag.camera.zoom, y: drag.camera.y - (info.screen.y - drag.start.y) / drag.camera.zoom });
         return;
-      case 'marquee': {
-        const r = rectFromPoints(drag.start, p);
-        // A frame the marquee takes brings its contents along: don't select those twice.
-        const touched = new Set(c.index.inRect(r, false).map((e) => outerGroup(c, e).id));
-        const next = new Set(drag.base);
-        for (const id of touched) {
-          const el = c.board.get(id);
-          if (!el || el.locked) continue;
-          let covered = false;
-          for (let p2 = el.parent ? c.board.get(el.parent) : undefined; p2 && !covered; p2 = p2.parent ? c.board.get(p2.parent) : undefined) {
-            if (touched.has(p2.id) && p2.type === 'frame' && elementInRect(c.board, p2, r, false)) covered = true;
-          }
-          if (!covered) next.add(id);
-        }
-        c.selection = next;
-        c.transient = { marquee: r };
-        c.changed();
+      case 'marquee':
+        this.marqueeTo(drag, p);
         return;
-      }
-      case 'move': {
-        if (!drag.moved && !far) return;
-        drag.moved = true;
-        let dx = p.x - drag.start.x;
-        let dy = p.y - drag.start.y;
-        const guides = [];
-        if (!info.alt) {
-          const moving = { ...drag.startBounds, x: drag.startBounds.x + dx, y: drag.startBounds.y + dy };
-          const snap = snapRect(moving, this.neighbours(moving, new Set(drag.ids)), 6 / c.camera.zoom);
-          dx += snap.dx;
-          dy += snap.dy;
-          guides.push(...snap.guides);
-        }
-        const step = { x: dx - drag.applied.x, y: dy - drag.applied.y };
-        if (step.x || step.y) {
-          c.apply(moveOps(c.board, drag.ids, step.x, step.y), { gesture: drag.gesture });
-          drag.applied = { x: dx, y: dy };
-        }
-        const moved = selectionBounds(c.board, drag.ids);
-        const frame = moved ? this.frameUnder(moved, new Set(drag.ids)) : null;
-        c.transient = { guides, dropTarget: frame };
-        c.changed(false);
+      case 'move':
+        this.moveTo(drag, p, info);
         return;
-      }
       case 'resize':
         this.resizeTo(drag, p, info);
         return;
-      case 'rotate': {
-        let angle = Math.atan2(p.y - drag.center.y, p.x - drag.center.x) - drag.startAngle;
-        if (info.shift) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
-        const ops: Op[] = [];
-        for (const [id, el] of drag.origin) {
-          if (el.type === 'connector') continue;
-          const cx = el.x + el.w / 2;
-          const cy = el.y + el.h / 2;
-          const nc = rotatePoint({ x: cx, y: cy }, drag.center, angle);
-          const patch: Record<string, unknown> = { x: nc.x - el.w / 2, y: nc.y - el.h / 2 };
-          if (el.type !== 'pen') patch.rotation = normalizeAngle((el.rotation ?? 0) + angle);
-          ops.push({ type: 'set', id, patch });
-        }
-        c.apply(batch(ops), { gesture: drag.gesture });
+      case 'rotate':
+        this.rotateTo(drag, p, info);
         return;
-      }
       case 'create':
         drag.current = p;
         c.transient = { creating: this.createRect(drag.start, p, info.shift) };
         c.changed(false);
         return;
-      case 'connector': {
-        drag.current = p;
-        drag.target = this.snapTarget(p, drag.existing?.id ?? null);
-        c.transient = { connector: { points: this.previewConnector(drag), target: drag.target?.el ?? null }, hover: drag.target?.el ?? null };
-        c.changed(false);
+      case 'connector':
+        this.connectorTo(drag, p);
         return;
-      }
       case 'control': {
         c.apply({ type: 'set', id: drag.id, patch: { control: { x: p.x, y: p.y } } }, { gesture: drag.gesture });
         return;
@@ -544,33 +534,129 @@ export class Interactions {
         if (el) c.apply({ type: 'set', id: drag.id, patch: { labelAt: Math.round(nearestAlong(connectorGeometry(c.board, el).points, p) * 1000) / 1000 } }, { gesture: drag.gesture });
         return;
       }
-      case 'stroke': {
-        drag.points.push(p);
-        drag.pressure.push(info.pointerType === 'pen' ? info.pressure : 0.5);
-        const highlighter = c.tool === 'highlighter';
-        c.transient = {
-          stroke: {
-            points: drag.points,
-            color: highlighter ? c.toolOptions.highlighterColor : c.toolOptions.penColor,
-            width: highlighter ? 16 : c.toolOptions.penWidth,
-            opacity: highlighter ? 0.45 : 1,
-          },
-        };
-        c.changed(false);
+      case 'stroke':
+        this.strokeTo(drag, p, info);
         return;
-      }
       case 'erase':
         this.eraseAt(p, drag);
         return;
-      case 'text-select': {
-        const el = c.board.get(drag.id);
-        const pos = el ? this.textOffsetAt(el, p) : null;
-        if (pos !== null && c.editing) {
-          c.editing = { ...c.editing, anchor: drag.anchor, head: pos };
-          c.changed();
-        }
+      case 'text-select':
+        this.textSelectTo(drag, p);
         return;
+    }
+  }
+
+  /** Hover: outline what the pointer is over. */
+  private hover(p: Point): void {
+    const c = this.c;
+    if (c.tool === 'select' || c.tool === 'connector' || c.tool === 'eraser') {
+      const hit = c.index.hit(p, this.tolerance());
+      const hover = hit?.id ?? null;
+      if (hover !== (c.transient.hover ?? null)) {
+        c.transient = { ...c.transient, hover };
+        c.changed(false);
       }
+    }
+  }
+
+  private marqueeTo(drag: Extract<Drag, { kind: 'marquee' }>, p: Point): void {
+    const c = this.c;
+    const r = rectFromPoints(drag.start, p);
+    // A frame the marquee takes brings its contents along: don't select those twice.
+    const touched = new Set(c.index.inRect(r, false).map((e) => outerGroup(c, e).id));
+    const next = new Set(drag.base);
+    for (const id of touched) {
+      const el = c.board.get(id);
+      if (!el || el.locked) continue;
+      if (!this.inTouchedFrame(el, touched, r)) next.add(id);
+    }
+    c.selection = next;
+    c.transient = { marquee: r };
+    c.changed();
+  }
+
+  /** Whether one of the element's enclosing frames is itself taken by the marquee `r`. */
+  private inTouchedFrame(el: BoardElement, touched: Set<string>, r: Rect): boolean {
+    const c = this.c;
+    for (let p2 = el.parent ? c.board.get(el.parent) : undefined; p2; p2 = p2.parent ? c.board.get(p2.parent) : undefined) {
+      if (touched.has(p2.id) && p2.type === 'frame' && elementInRect(c.board, p2, r, false)) return true;
+    }
+    return false;
+  }
+
+  private moveTo(drag: Extract<Drag, { kind: 'move' }>, p: Point, info: PointerInfo): void {
+    const c = this.c;
+    const far = this.downAt ? distance(this.downAt, info.screen) > DRAG_START : true;
+    if (!drag.moved && !far) return;
+    drag.moved = true;
+    let dx = p.x - drag.start.x;
+    let dy = p.y - drag.start.y;
+    const guides = [];
+    if (!info.alt) {
+      const moving = { ...drag.startBounds, x: drag.startBounds.x + dx, y: drag.startBounds.y + dy };
+      const snap = snapRect(moving, this.neighbours(moving, new Set(drag.ids)), 6 / c.camera.zoom);
+      dx += snap.dx;
+      dy += snap.dy;
+      guides.push(...snap.guides);
+    }
+    const step = { x: dx - drag.applied.x, y: dy - drag.applied.y };
+    if (step.x || step.y) {
+      c.apply(moveOps(c.board, drag.ids, step.x, step.y), { gesture: drag.gesture });
+      drag.applied = { x: dx, y: dy };
+    }
+    const moved = selectionBounds(c.board, drag.ids);
+    const frame = moved ? this.frameUnder(moved, new Set(drag.ids)) : null;
+    c.transient = { guides, dropTarget: frame };
+    c.changed(false);
+  }
+
+  private rotateTo(drag: Extract<Drag, { kind: 'rotate' }>, p: Point, info: PointerInfo): void {
+    let angle = Math.atan2(p.y - drag.center.y, p.x - drag.center.x) - drag.startAngle;
+    if (info.shift) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+    const ops: Op[] = [];
+    for (const [id, el] of drag.origin) {
+      if (el.type === 'connector') continue;
+      const cx = el.x + el.w / 2;
+      const cy = el.y + el.h / 2;
+      const nc = rotatePoint({ x: cx, y: cy }, drag.center, angle);
+      const patch: Record<string, unknown> = { x: nc.x - el.w / 2, y: nc.y - el.h / 2 };
+      if (el.type !== 'pen') patch.rotation = normalizeAngle((el.rotation ?? 0) + angle);
+      ops.push({ type: 'set', id, patch });
+    }
+    this.c.apply(batch(ops), { gesture: drag.gesture });
+  }
+
+  private connectorTo(drag: Extract<Drag, { kind: 'connector' }>, p: Point): void {
+    const c = this.c;
+    drag.current = p;
+    drag.target = this.snapTarget(p, drag.existing?.id ?? null);
+    c.transient = { connector: { points: this.previewConnector(drag), target: drag.target?.el ?? null }, hover: drag.target?.el ?? null };
+    c.changed(false);
+  }
+
+  private strokeTo(drag: Extract<Drag, { kind: 'stroke' }>, p: Point, info: PointerInfo): void {
+    const c = this.c;
+    drag.points.push(p);
+    drag.pressure.push(info.pointerType === 'pen' ? info.pressure : 0.5);
+    const highlighter = c.tool === 'highlighter';
+    c.transient = {
+      stroke: {
+        points: drag.points,
+        color: highlighter ? c.toolOptions.highlighterColor : c.toolOptions.penColor,
+        width: highlighter ? 16 : c.toolOptions.penWidth,
+        opacity: highlighter ? 0.45 : 1,
+      },
+    };
+    c.changed(false);
+  }
+
+  private textSelectTo(drag: Extract<Drag, { kind: 'text-select' }>, p: Point): void {
+    const c = this.c;
+    const el = c.board.get(drag.id);
+    const pos = el ? this.textOffsetAt(el, p) : null;
+    if (pos !== null && c.editing) {
+      c.editing = { ...c.editing, anchor: drag.anchor, head: pos };
+      c.changed();
     }
   }
 
@@ -704,7 +790,7 @@ export class Interactions {
     return { parent: null, order: keyBetween(this.c.board.topOrder(null), null) };
   }
 
-  private placement(p: Point): { parent?: string; order: string; createdBy: string; now: number } {
+  private placement(p: Point): Placed {
     const c = this.c;
     const frame = this.frameUnder({ x: p.x, y: p.y, w: 0, h: 0 }, new Set());
     const parent = frame ?? null;
@@ -774,29 +860,7 @@ export class Interactions {
     const dragged = distance(start, end) * c.camera.zoom > DRAG_START * 2;
     const r = dragged ? this.createRect(start, end, square) : null;
     const at = this.placement(r ? { x: r.x, y: r.y } : start);
-    let el: BoardElement;
-    switch (c.tool) {
-      case 'frame': {
-        const box = r && r.w > 20 && r.h > 20 ? r : { x: start.x - 400, y: start.y - 300, w: 800, h: 600 };
-        const count = [...c.board.elements.values()].filter((e) => e.type === 'frame').length;
-        el = makeFrame(box.x, box.y, box.w, box.h, `Frame ${count + 1}`, this.placeAt());
-        break;
-      }
-      case 'text': {
-        el = makeText(r?.x ?? start.x, r?.y ?? start.y - 16, '', at, { w: r && r.w > 40 ? r.w : 280 });
-        break;
-      }
-      case 'card':
-        el = makeCard((r?.x ?? start.x - 150), r?.y ?? start.y - 70, '', at);
-        if (r && r.w > 60) el = { ...el, w: r.w, h: Math.max(100, r.h) };
-        break;
-      default: {
-        const kind = c.toolOptions.shape;
-        const size = kind === 'rectangle' || kind === 'rounded' ? { w: 160, h: 100 } : { w: 120, h: 120 };
-        const box = r && r.w > 4 && r.h > 4 ? r : { x: start.x - size.w / 2, y: start.y - size.h / 2, ...size };
-        el = makeShape(kind, box.x, box.y, box.w, box.h, at, { fill: c.toolOptions.shapeFill });
-      }
-    }
+    const el = this.createdElement(start, r, at);
     el.createdBy = c.options.userId;
     el.createdAt = Date.now();
     const gesture = gestureId('create');
@@ -805,6 +869,39 @@ export class Interactions {
     c.history.seal();
     c.toolDone();
     if (el.type === 'text' || el.type === 'card') c.startEditing(el.id, 0);
+  }
+
+  /** The element the current tool creates: in the dragged box `r`, or at its default size at `start` (a click). */
+  private createdElement(start: Point, r: Rect | null, at: Placed): BoardElement {
+    const c = this.c;
+    switch (c.tool) {
+      case 'frame':
+        return this.createdFrame(start, r);
+      case 'text':
+        return makeText(r?.x ?? start.x, r?.y ?? start.y - 16, '', at, { w: r && r.w > 40 ? r.w : 280 });
+      case 'card': {
+        let el = makeCard((r?.x ?? start.x - 150), r?.y ?? start.y - 70, '', at);
+        if (r && r.w > 60) el = { ...el, w: r.w, h: Math.max(100, r.h) };
+        return el;
+      }
+      default:
+        return this.createdShape(start, r, at);
+    }
+  }
+
+  private createdFrame(start: Point, r: Rect | null): BoardElement {
+    const c = this.c;
+    const box = r && r.w > 20 && r.h > 20 ? r : { x: start.x - 400, y: start.y - 300, w: 800, h: 600 };
+    const count = [...c.board.elements.values()].filter((e) => e.type === 'frame').length;
+    return makeFrame(box.x, box.y, box.w, box.h, `Frame ${count + 1}`, this.placeAt());
+  }
+
+  private createdShape(start: Point, r: Rect | null, at: Placed): BoardElement {
+    const c = this.c;
+    const kind = c.toolOptions.shape;
+    const size = kind === 'rectangle' || kind === 'rounded' ? { w: 160, h: 100 } : { w: 120, h: 120 };
+    const box = r && r.w > 4 && r.h > 4 ? r : { x: start.x - size.w / 2, y: start.y - size.h / 2, ...size };
+    return makeShape(kind, box.x, box.y, box.w, box.h, at, { fill: c.toolOptions.shapeFill });
   }
 
   /** A connector end at `p`: bound to the element under it (its nearest side), else free. */
@@ -938,67 +1035,118 @@ export class Interactions {
     return offsetAt(t.layout, local.x - t.x, local.y - t.y);
   }
 
-  private resizeTo(drag: Extract<Drag, { kind: 'resize' }>, p: Point, info: PointerInfo): void {
+  private resizeTo(drag: ResizeDrag, p: Point, info: PointerInfo): void {
     const c = this.c;
-    const { startBox: b, rotation, handle } = drag;
+    const { startBox: b, rotation } = drag;
     const center = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     const local = rotatePoint(p, center, -rotation);
-    let left = b.x;
-    let top = b.y;
-    let right = b.x + b.w;
-    let bottom = b.y + b.h;
-    if (handle.includes('w')) left = Math.min(local.x, right - 4);
-    if (handle.includes('e')) right = Math.max(local.x, left + 4);
-    if (handle.includes('n')) top = Math.min(local.y, bottom - 4);
-    if (handle.includes('s')) bottom = Math.max(local.y, top + 4);
-    let w = right - left;
-    let h = bottom - top;
-    const corner = handle.length === 2;
-    if ((drag.keepRatio || info.shift) && corner && b.w > 0 && b.h > 0) {
-      const scale = Math.max(w / b.w, h / b.h);
-      w = b.w * scale;
-      h = b.h * scale;
-      if (handle.includes('w')) left = right - w;
-      else right = left + w;
-      if (handle.includes('n')) top = bottom - h;
-      else bottom = top + h;
-    }
-    if (info.alt) {
-      // Alt: resize from the centre.
-      w = Math.abs(local.x - center.x) * (handle.includes('e') || handle.includes('w') ? 2 : 0) || w;
-      h = Math.abs(local.y - center.y) * (handle.includes('n') || handle.includes('s') ? 2 : 0) || h;
-      left = center.x - w / 2;
-      top = center.y - h / 2;
-    }
+    const { left, top, w, h } = resizedBox(drag, local, center, info);
     // The new box's centre, rotated back.
     const newCenterLocal = { x: left + w / 2, y: top + h / 2 };
     const newCenter = rotatePoint(newCenterLocal, center, rotation);
     const nb = { x: newCenter.x - w / 2, y: newCenter.y - h / 2, w, h };
     const sx = b.w ? w / b.w : 1;
     const sy = b.h ? h / b.h : 1;
-    const ops: Op[] = [];
-    const single = drag.ids.length === 1 ? drag.origin.get(drag.ids[0]!) : undefined;
-    if (single && single.type !== 'pen' && drag.origin.size === 1) {
-      const patch: Record<string, unknown> = { x: nb.x, y: nb.y, w: Math.max(4, nb.w), h: Math.max(4, nb.h) };
-      if (single.type === 'text' && corner && single.fontSize) patch.fontSize = Math.max(4, Math.round(single.fontSize * sy * 10) / 10);
-      ops.push({ type: 'set', id: single.id, patch });
-    } else {
-      for (const [id, el] of drag.origin) {
-        if (el.type === 'connector') {
-          const patch: Record<string, unknown> = {};
-          if (el.start && !el.start.el) patch.start = { ...el.start, x: nb.x + (el.start.x - b.x) * sx, y: nb.y + (el.start.y - b.y) * sy };
-          if (el.end && !el.end.el) patch.end = { ...el.end, x: nb.x + (el.end.x - b.x) * sx, y: nb.y + (el.end.y - b.y) * sy };
-          if (Object.keys(patch).length) ops.push({ type: 'set', id, patch });
-          continue;
-        }
-        const patch: Record<string, unknown> = { x: nb.x + (el.x - b.x) * sx, y: nb.y + (el.y - b.y) * sy, w: Math.max(2, el.w * sx), h: Math.max(2, el.h * sy) };
-        if (el.type === 'pen' && el.points) patch.points = el.points.map((v, i) => (i % 3 === 0 ? round(v * sx) : i % 3 === 1 ? round(v * sy) : v));
-        if (el.type === 'text' && el.fontSize) patch.fontSize = Math.max(4, Math.round(el.fontSize * Math.min(sx, sy) * 10) / 10);
-        ops.push({ type: 'set', id, patch });
-      }
-    }
-    c.apply(batch(ops), { gesture: drag.gesture });
+    c.apply(batch(resizeOps(drag, nb, sx, sy)), { gesture: drag.gesture });
   }
+}
+
+type ResizeDrag = Extract<Drag, { kind: 'resize' }>;
+
+/** A box in the start box's own (unrotated) frame. */
+interface LocalBox {
+  left: number;
+  top: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The resized box in the start box's frame, `local` being the pointer in that
+ * frame: the dragged edges, a corner keeping the aspect ratio (when asked),
+ * and Alt resizing from the centre.
+ */
+function resizedBox(drag: ResizeDrag, local: Point, center: Point, info: PointerInfo): LocalBox {
+  const { startBox: b, handle } = drag;
+  const edges = draggedEdges(b, handle, local);
+  let box: LocalBox = { left: edges.left, top: edges.top, w: edges.right - edges.left, h: edges.bottom - edges.top };
+  if ((drag.keepRatio || info.shift) && handle.length === 2 && b.w > 0 && b.h > 0) box = keepAspect(box, edges, b, handle);
+  // Alt: resize from the centre.
+  if (info.alt) box = aboutCenter(box, local, center, handle);
+  return box;
+}
+
+/** The start box with the handle's edges moved to the pointer, at least 4 apart. */
+function draggedEdges(b: Rect, handle: ResizeHandle, local: Point): { left: number; top: number; right: number; bottom: number } {
+  let left = b.x;
+  let top = b.y;
+  let right = b.x + b.w;
+  let bottom = b.y + b.h;
+  if (handle.includes('w')) left = Math.min(local.x, right - 4);
+  if (handle.includes('e')) right = Math.max(local.x, left + 4);
+  if (handle.includes('n')) top = Math.min(local.y, bottom - 4);
+  if (handle.includes('s')) bottom = Math.max(local.y, top + 4);
+  return { left, top, right, bottom };
+}
+
+/** A corner drag keeping the start box's proportions: the larger scale wins, the opposite corner stays put. */
+function keepAspect(box: LocalBox, edges: { right: number; bottom: number }, b: Rect, handle: ResizeHandle): LocalBox {
+  const scale = Math.max(box.w / b.w, box.h / b.h);
+  const w = b.w * scale;
+  const h = b.h * scale;
+  return { left: handle.includes('w') ? edges.right - w : box.left, top: handle.includes('n') ? edges.bottom - h : box.top, w, h };
+}
+
+function aboutCenter(box: LocalBox, local: Point, center: Point, handle: ResizeHandle): LocalBox {
+  const w = Math.abs(local.x - center.x) * (handle.includes('e') || handle.includes('w') ? 2 : 0) || box.w;
+  const h = Math.abs(local.y - center.y) * (handle.includes('n') || handle.includes('s') ? 2 : 0) || box.h;
+  return { left: center.x - w / 2, top: center.y - h / 2, w, h };
+}
+
+/** The ops a resize to the box `nb` makes, `sx` and `sy` being its scale against the start box. */
+function resizeOps(drag: ResizeDrag, nb: Rect, sx: number, sy: number): Op[] {
+  const single = drag.ids.length === 1 ? drag.origin.get(drag.ids[0]!) : undefined;
+  if (single && single.type !== 'pen' && drag.origin.size === 1) {
+    const patch: Record<string, unknown> = { x: nb.x, y: nb.y, w: Math.max(4, nb.w), h: Math.max(4, nb.h) };
+    if (single.type === 'text' && drag.handle.length === 2 && single.fontSize) patch.fontSize = Math.max(4, Math.round(single.fontSize * sy * 10) / 10);
+    return [{ type: 'set', id: single.id, patch }];
+  }
+  const b = drag.startBox;
+  const ops: Op[] = [];
+  for (const [id, el] of drag.origin) {
+    if (el.type === 'connector') {
+      const patch = scaledConnectorEnds(el, nb, b, sx, sy);
+      if (Object.keys(patch).length) ops.push({ type: 'set', id, patch });
+      continue;
+    }
+    ops.push({ type: 'set', id, patch: scaledPatch(el, nb, b, sx, sy) });
+  }
+  return ops;
+}
+
+/** A connector in a resized selection: its free ends move with the box (bound ends follow their elements). */
+function scaledConnectorEnds(el: BoardElement, nb: Rect, b: Rect, sx: number, sy: number): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  if (el.start && !el.start.el) patch.start = { ...el.start, x: nb.x + (el.start.x - b.x) * sx, y: nb.y + (el.start.y - b.y) * sy };
+  if (el.end && !el.end.el) patch.end = { ...el.end, x: nb.x + (el.end.x - b.x) * sx, y: nb.y + (el.end.y - b.y) * sy };
+  return patch;
+}
+
+/** An element in a resized selection: moved and scaled with the box, a stroke's points and a text's size too. */
+function scaledPatch(el: BoardElement, nb: Rect, b: Rect, sx: number, sy: number): Record<string, unknown> {
+  const patch: Record<string, unknown> = { x: nb.x + (el.x - b.x) * sx, y: nb.y + (el.y - b.y) * sy, w: Math.max(2, el.w * sx), h: Math.max(2, el.h * sy) };
+  if (el.type === 'pen' && el.points) patch.points = scalePoints(el.points, sx, sy);
+  if (el.type === 'text' && el.fontSize) patch.fontSize = Math.max(4, Math.round(el.fontSize * Math.min(sx, sy) * 10) / 10);
+  return patch;
+}
+
+/** Scales flat [x, y, pressure, …] stroke points; the pressure stays. */
+function scalePoints(points: number[], sx: number, sy: number): number[] {
+  return points.map((v, i) => {
+    if (i % 3 === 0) return round(v * sx);
+    if (i % 3 === 1) return round(v * sy);
+    return v;
+  });
 }
 
 function oppositeSide(side: ConnectorEnd['side']): Side | 'auto' {

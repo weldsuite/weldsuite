@@ -11,7 +11,10 @@ export const TOOL_BUTTON =
 export const BAR_BUTTON =
   'inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-sm text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-4';
 
-export function WithTooltip({ label, side, children }: { label: string; side?: 'top' | 'right' | 'bottom' | 'left'; children: ReactNode }) {
+/** The side a tooltip or panel opens on. */
+type TooltipSide ='top' | 'right' | 'bottom' | 'left';
+
+export function WithTooltip({ label, side, children }: { label: string; side?: TooltipSide; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
@@ -35,7 +38,7 @@ export function BarButton({
   active?: boolean;
   disabled?: boolean;
   className?: string;
-  side?: 'top' | 'right' | 'bottom' | 'left';
+  side?: TooltipSide;
   children: ReactNode;
   onDoubleClick?: () => void;
 }) {
@@ -99,7 +102,7 @@ export function BarPopover({
   label: string;
   trigger: ReactNode;
   children: ReactNode;
-  side?: 'top' | 'right' | 'bottom' | 'left';
+  side?: TooltipSide;
   active?: boolean;
   className?: string;
   open?: boolean;

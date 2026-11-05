@@ -14,7 +14,7 @@ import {
   type Op,
   type RichText,
 } from '@weldsuite/board-engine';
-import type { BoardController } from './board-controller';
+import type { BoardController, TextEditing } from './board-controller';
 
 type MarkFlag = 'b' | 'i' | 'u' | 's';
 
@@ -43,31 +43,41 @@ const wordSegmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new I
 function nextBoundary(text: string, pos: number, dir: 1 | -1, word: boolean): number {
   if (word && wordSegmenter) {
     const segs = [...wordSegmenter.segment(text)];
-    if (dir > 0) {
-      for (const s of segs) if (s.index > pos && (s.isWordLike || s.index + s.segment.length === text.length)) return s.index;
-      for (const s of segs) if (s.index + s.segment.length > pos && s.isWordLike) return s.index + s.segment.length;
-      return text.length;
-    }
-    let last = 0;
-    for (const s of segs) {
-      if (s.index >= pos) break;
-      if (s.isWordLike) last = s.index;
-    }
-    return last;
+    return dir > 0 ? nextWordBoundary(segs, text, pos) : previousWordStart(segs, pos);
   }
-  if (segmenter) {
-    if (dir > 0) {
-      for (const s of segmenter.segment(text)) if (s.index > pos) return s.index;
-      return text.length;
-    }
-    let prev = 0;
-    for (const s of segmenter.segment(text)) {
-      if (s.index >= pos) break;
-      prev = s.index;
-    }
-    return prev;
-  }
+  if (segmenter) return dir > 0 ? nextGrapheme(segmenter, text, pos) : previousGrapheme(segmenter, text, pos);
   return Math.max(0, Math.min(text.length, pos + dir));
+}
+
+/** After `pos`: the next word's start (or the text's last segment), else the end of the word `pos` is in. */
+function nextWordBoundary(segs: Intl.SegmentData[], text: string, pos: number): number {
+  for (const s of segs) if (s.index > pos && (s.isWordLike || s.index + s.segment.length === text.length)) return s.index;
+  for (const s of segs) if (s.index + s.segment.length > pos && s.isWordLike) return s.index + s.segment.length;
+  return text.length;
+}
+
+/** The start of the last word that starts before `pos`. */
+function previousWordStart(segs: Intl.SegmentData[], pos: number): number {
+  let last = 0;
+  for (const s of segs) {
+    if (s.index >= pos) break;
+    if (s.isWordLike) last = s.index;
+  }
+  return last;
+}
+
+function nextGrapheme(graphemes: Intl.Segmenter, text: string, pos: number): number {
+  for (const s of graphemes.segment(text)) if (s.index > pos) return s.index;
+  return text.length;
+}
+
+function previousGrapheme(graphemes: Intl.Segmenter, text: string, pos: number): number {
+  let prev = 0;
+  for (const s of graphemes.segment(text)) {
+    if (s.index >= pos) break;
+    prev = s.index;
+  }
+  return prev;
 }
 
 function setCaret(c: BoardController, head: number, extend: boolean, goalX?: number): void {
@@ -159,20 +169,24 @@ export function moveCaret(c: BoardController, move: CaretMove, extend: boolean, 
       return setCaret(c, 0, extend);
     case 'end':
       return setCaret(c, text.length, extend);
-    default: {
-      const t = c.editingLayout();
-      if (!t) return;
-      const lines = t.layout.lines;
-      if (move === 'lineStart' || move === 'lineEnd') {
-        const caret = caretRect(t.layout, e.head);
-        const line = lines.find((l) => caret.y >= l.y && caret.y < l.y + l.height) ?? lines[0];
-        if (!line) return;
-        return setCaret(c, move === 'lineStart' ? line.start : line.end, extend);
-      }
-      const next = verticalMove(t.layout, e.head, move === 'up' ? -1 : 1, e.goalX);
-      return setCaret(c, next.pos, extend, next.x);
-    }
+    default:
+      return moveCaretInLayout(c, e, move, extend);
   }
+}
+
+/** Up, down, and to the start or end of the line: moves that need the laid-out text. */
+function moveCaretInLayout(c: BoardController, e: TextEditing, move: 'up' | 'down' | 'lineStart' | 'lineEnd', extend: boolean): void {
+  const t = c.editingLayout();
+  if (!t) return;
+  const lines = t.layout.lines;
+  if (move === 'lineStart' || move === 'lineEnd') {
+    const caret = caretRect(t.layout, e.head);
+    const line = lines.find((l) => caret.y >= l.y && caret.y < l.y + l.height) ?? lines[0];
+    if (!line) return;
+    return setCaret(c, move === 'lineStart' ? line.start : line.end, extend);
+  }
+  const next = verticalMove(t.layout, e.head, move === 'up' ? -1 : 1, e.goalX);
+  return setCaret(c, next.pos, extend, next.x);
 }
 
 export function selectAllText(c: BoardController): void {

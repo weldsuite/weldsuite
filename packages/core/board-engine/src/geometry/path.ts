@@ -258,11 +258,22 @@ export function smoothPath(points: Point[]): PathCmd[] {
   return cmds;
 }
 
+/**
+ * A fixed-point number without its trailing zeros, and without the point when
+ * nothing follows it ("1.50" → "1.5", "2.00" → "2"). A number without a point
+ * ("100") comes back as it is.
+ */
+export function trimTrailingZeros(s: string): string {
+  if (!s.includes('.')) return s;
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '0') end--;
+  if (end === s.length) return s;
+  if (s[end - 1] === '.') end--;
+  return s.slice(0, end);
+}
+
 /** The SVG `d` attribute of a path. */
 export function pathToSvg(cmds: PathCmd[], digits = 2): string {
-  const f = (n: number) => {
-    const s = n.toFixed(digits);
-    return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
-  };
+  const f = (n: number) => trimTrailingZeros(n.toFixed(digits));
   return cmds.map((c) => (c[0] === 'Z' ? 'Z' : c[0] + (c.slice(1) as number[]).map(f).join(' '))).join('');
 }

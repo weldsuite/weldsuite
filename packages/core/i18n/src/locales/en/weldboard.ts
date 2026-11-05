@@ -48,6 +48,9 @@ export const weldboard = {
     templateSaved: 'Saved as a template',
     templateRemoved: 'Removed from templates',
     templateFailed: 'The template could not be changed.',
+    createFailed: 'The board could not be created.',
+    renameFailed: 'The board could not be renamed.',
+    deleteFailed: 'The board could not be deleted.',
   },
 
   templates: {

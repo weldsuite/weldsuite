@@ -79,6 +79,13 @@ function piecesOf(text: RichText, from: number, to: number): Piece[] {
   return out;
 }
 
+/** Where a line `lineWidth` wide starts in a box `maxWidth` wide. */
+function alignOffset(align: TextAlign, maxWidth: number, lineWidth: number): number {
+  if (align === 'center') return (maxWidth - lineWidth) / 2;
+  if (align === 'right') return maxWidth - lineWidth;
+  return 0;
+}
+
 export function layoutText(text: RichText, style: TextStyle, width: number, measurer: TextMeasurer, size = style.fontSize): TextLayout {
   const lineHeight = (style.lineHeight ?? 1.3) * size;
   const lines: LaidLine[] = [];
@@ -93,7 +100,7 @@ export function layoutText(text: RichText, style: TextStyle, width: number, meas
       const metrics = measurer.metrics(fontFor(style, size, {}));
       const height = Math.max(lineHeight, metrics.ascent + metrics.descent);
       const baseline = y + (height - (metrics.ascent + metrics.descent)) / 2 + metrics.ascent;
-      const x = style.align === 'center' ? (maxWidth - line.width) / 2 : style.align === 'right' ? maxWidth - line.width : 0;
+      const x = alignOffset(style.align, maxWidth, line.width);
       lines.push({ ...line, x, y, height, baseline });
       y += height;
     }
@@ -118,8 +125,15 @@ function breakParagraph(
   const para = text.text.slice(from, to);
   if (para.length === 0) return [{ start: from, end: from, width: 0, runs: [], carets: [0] }];
   const pieces = piecesOf(text, from, to);
-  // Per-character advances (cached by the measurer, so repeated characters cost nothing).
-  // A surrogate pair is measured whole on its first unit.
+  const advances = charAdvances(pieces, style, size, measurer);
+  return lineRanges(para, advances, maxWidth).map(([start, end]) => makeLine(text, from, start, end, advances, style, size, pieces));
+}
+
+/**
+ * Per-character advances (cached by the measurer, so repeated characters cost
+ * nothing). A surrogate pair is measured whole on its first unit.
+ */
+function charAdvances(pieces: Piece[], style: TextStyle, size: number, measurer: TextMeasurer): number[] {
   const advances: number[] = [];
   for (const p of pieces) {
     const font = fontFor(style, size, p.marks);
@@ -131,34 +145,37 @@ function breakParagraph(
       } else advances.push(measurer.measure(p.text[i]!, font));
     }
   }
-  const lines: Broken[] = [];
+  return advances;
+}
+
+/** The sum of the advances from `from` up to `to`, added up in order. */
+function widthBetween(advances: number[], from: number, to: number): number {
+  let width = 0;
+  for (let k = from; k < to; k++) width += advances[k] ?? 0;
+  return width;
+}
+
+/** Where a paragraph breaks into lines `maxWidth` wide: [start, end) offsets into it, one pair per line. */
+function lineRanges(para: string, advances: number[], maxWidth: number): [number, number][] {
+  const ranges: [number, number][] = [];
   let lineStart = 0;
   let lineWidth = 0;
   let lastBreak = -1;
-  let widthAtBreak = 0;
   for (let i = 0; i < para.length; i++) {
-    if (i > lineStart && canBreakBefore(para, i)) {
-      lastBreak = i;
-      widthAtBreak = lineWidth;
-    }
+    if (i > lineStart && canBreakBefore(para, i)) lastBreak = i;
     const adv = advances[i] ?? 0;
-    const isSpace = para[i] === ' ';
-    if (lineWidth + adv > maxWidth && i > lineStart && !isSpace) {
+    if (lineWidth + adv > maxWidth && i > lineStart && para[i] !== ' ') {
       const breakAt = lastBreak > lineStart ? lastBreak : i;
-      lines.push(makeLine(text, from, lineStart, breakAt, advances, style, size, pieces));
+      ranges.push([lineStart, breakAt]);
       lineStart = breakAt;
-      lineWidth = breakAt === i ? 0 : lineWidth - widthAtBreak;
+      // What moves to the next line is recounted exactly.
+      lineWidth = breakAt === i ? 0 : widthBetween(advances, lineStart, i);
       lastBreak = -1;
-      if (breakAt !== i) {
-        // Recount the carried-over part exactly.
-        lineWidth = 0;
-        for (let k = lineStart; k < i; k++) lineWidth += advances[k] ?? 0;
-      }
     }
     lineWidth += adv;
   }
-  lines.push(makeLine(text, from, lineStart, para.length, advances, style, size, pieces));
-  return lines;
+  ranges.push([lineStart, para.length]);
+  return ranges;
 }
 
 function makeLine(

@@ -68,6 +68,13 @@ function isTextField(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable;
 }
 
+/** Pixels per wheel delta unit: a line is 16 px, a page is the canvas height. */
+function wheelScale(deltaMode: number, pageHeight: number): number {
+  if (deltaMode === 1) return 16;
+  if (deltaMode === 2) return pageHeight;
+  return 1;
+}
+
 /**
  * The board's two canvases (content, then the overlay on top) and the hidden
  * textarea that takes keyboard and IME input. Drawing happens outside React:
@@ -195,6 +202,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
     // Keys pressed while focus is elsewhere on the page (not in a field): handled as board keys.
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.target === input.current || isTextField(e.target as Element | null)) return;
+      // Only keys meant for the board: nothing focused, or focus inside the board. A focused
+      // button, link or menu trigger keeps its own keys (Tab, Enter, Delete) and its focus.
+      const target = e.target as Node | null;
+      if (target && target !== document.body && !container.current?.contains(target)) return;
       if (document.querySelector('[role="dialog"], [role="menu"]')) return;
       const handled = handleKey(c, ia, { key: e.key, shift: e.shiftKey, alt: e.altKey, mod: e.ctrlKey || e.metaKey, composing: e.isComposing }, propsRef.current.keyActions);
       if (handled) e.preventDefault();
@@ -240,7 +251,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      const lineScale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
+      const lineScale = wheelScale(e.deltaMode, r.height);
       ia.wheel({ x: e.clientX - r.left, y: e.clientY - r.top }, e.deltaX * lineScale, e.deltaY * lineScale, e.ctrlKey || e.metaKey);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -341,6 +352,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       />
       <textarea
         ref={input}
+        data-board-input=""
         aria-label={props.labels.board}
         className="absolute left-0 top-0 h-6 w-6 resize-none border-0 bg-transparent p-0 text-transparent caret-transparent opacity-0 outline-none"
         autoCapitalize="off"

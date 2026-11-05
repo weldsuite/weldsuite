@@ -25,10 +25,15 @@ export function LocalBoard({ boardId }: { boardId: string }) {
   const loadImage = useImageLoader();
   const uploadImage = useUploadImage();
   const saveTimer = useRef<number | null>(null);
+  // Read through a ref, so switching language does not reload the board (and drop its pending save).
+  const strings = useRef({ you: tw.editor.peers.you, saveFailed: tw.editor.saveFailed });
+  strings.current = { you: tw.editor.peers.you, saveFailed: tw.editor.saveFailed };
 
   useEffect(() => {
     if (!store) return;
     let cancelled = false;
+    let loaded: BoardController | null = null;
+    const save = (c: BoardController) => store.save(boardId, c.board.toSnapshot()).catch(() => toast.error(strings.current.saveFailed));
     void store.load(boardId).then((result) => {
       if (cancelled) return;
       if (!result) {
@@ -39,22 +44,28 @@ export function LocalBoard({ boardId }: { boardId: string }) {
       const board = result.snapshot ? Board.fromSnapshot(result.snapshot) : Board.create();
       const c = new BoardController(board, {
         userId: 'preview',
-        userName: tw.editor.peers.you,
+        userName: strings.current.you,
         onOp: () => {
           if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
           saveTimer.current = window.setTimeout(() => {
             saveTimer.current = null;
-            void store.save(boardId, c.board.toSnapshot()).catch(() => toast.error(tw.editor.saveFailed));
+            void save(c);
           }, SAVE_DELAY_MS);
         },
       });
+      loaded = c;
       setController(c);
     });
     return () => {
       cancelled = true;
-      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+      // Leaving the board: save what the debounce was still holding, now.
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        if (loaded) void save(loaded);
+      }
     };
-  }, [boardId, store, tw.editor.peers.you, tw.editor.saveFailed]);
+  }, [boardId, store]);
 
   useEffect(() => {
     if (controller && controller !== 'missing') controller.setReadOnly(!canUpdate);

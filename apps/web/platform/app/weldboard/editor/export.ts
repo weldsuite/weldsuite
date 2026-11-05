@@ -130,7 +130,11 @@ async function svgOf(ctx: ExportContext, r: Rect): Promise<string> {
     }),
   );
   const swap = (list: DisplayItem[]): DisplayItem[] =>
-    list.map((item) => (item.kind === 'image' ? { ...item, src: embedded.get(item.src) ?? item.src } : item.kind === 'group' ? { ...item, items: swap(item.items) } : item));
+    list.map((item) => {
+      if (item.kind === 'image') return { ...item, src: embedded.get(item.src) ?? item.src };
+      if (item.kind === 'group') return { ...item, items: swap(item.items) };
+      return item;
+    });
   return displayToSvg(swap(items), { view: r, background: '#ffffff', padding: 32 });
 }
 

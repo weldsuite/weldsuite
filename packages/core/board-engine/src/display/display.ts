@@ -15,8 +15,8 @@ import { shapeOutline, textBox } from '../geometry/shapes';
 import type { Board } from '../model/board';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_STROKE, DEFAULT_TEXT } from '../model/defaults';
 import { plain } from '../model/text';
-import type { BoardElement, RecordRef, RichText } from '../model/types';
-import { fitText, layoutText, verticalOffset, type TextLayout, type TextStyle } from '../text/layout';
+import type { BoardElement, Marks, RecordRef, RichText } from '../model/types';
+import { fitText, layoutText, verticalOffset, type LaidLine, type LaidRun, type TextLayout, type TextStyle } from '../text/layout';
 
 export type DisplayItem =
   | {
@@ -81,26 +81,35 @@ function textStyle(el: BoardElement, fallbackSize: number, align?: TextStyle['al
   };
 }
 
+/** A run's colour: its own, link blue for links and mentions, else the text's. */
+function runColor(marks: Marks, color: string): string {
+  return marks.c ?? (marks.a || marks.m ? '#2563eb' : color);
+}
+
+/** The draw item for one run of a line, placed at (x, y). */
+function runItem(run: LaidRun, line: LaidLine, x: number, y: number, color: string): DisplayItem {
+  const item: DisplayItem = {
+    kind: 'text',
+    x: x + line.x + run.x,
+    y: y + line.baseline,
+    text: run.text,
+    font: run.font,
+    color: runColor(run.marks, color),
+    width: run.width,
+  };
+  if (run.marks.u || run.marks.a) item.underline = true;
+  if (run.marks.s) item.strike = true;
+  if (run.marks.h) item.highlight = { color: run.marks.h, h: line.height };
+  if (run.marks.a) item.link = run.marks.a;
+  return item;
+}
+
 /** Draw items for a laid-out text, placed at (x, y). */
 export function textItems(layout: TextLayout, x: number, y: number, color: string): DisplayItem[] {
   const out: DisplayItem[] = [];
   for (const line of layout.lines) {
     for (const run of line.runs) {
-      if (!run.text) continue;
-      const item: DisplayItem = {
-        kind: 'text',
-        x: x + line.x + run.x,
-        y: y + line.baseline,
-        text: run.text,
-        font: run.font,
-        color: run.marks.c ?? (run.marks.a || run.marks.m ? '#2563eb' : color),
-        width: run.width,
-      };
-      if (run.marks.u || run.marks.a) item.underline = true;
-      if (run.marks.s) item.strike = true;
-      if (run.marks.h) item.highlight = { color: run.marks.h, h: line.height };
-      if (run.marks.a) item.link = run.marks.a;
-      out.push(item);
+      if (run.text) out.push(runItem(run, line, x, y, color));
     }
   }
   return out;
@@ -160,56 +169,78 @@ function rawDisplay(board: Board, el: BoardElement, options: DisplayOptions): Di
       return stickyDisplay(el, options);
     case 'shape':
       return shapeDisplay(el, options);
-    case 'text': {
-      const t = elementTextLayout(el, options);
-      const out: DisplayItem[] = [];
-      if (el.fill && el.fill !== 'transparent') out.push(rectItem(el.x, el.y, el.w, el.h, 4, el.fill));
-      if (t) out.push(...textItems(t.layout, t.x, t.y, t.style.color));
-      return out;
-    }
+    case 'text':
+      return textDisplay(el, options);
     case 'connector':
       return connectorDisplay(board, el, options);
-    case 'pen': {
-      const pts = penPoints(el);
-      const highlighter = el.pen === 'highlighter';
-      return [
-        {
-          kind: 'path',
-          cmds: smoothPath(pts),
-          stroke: el.stroke ?? (highlighter ? '#fde047' : DEFAULT_STROKE),
-          width: el.strokeWidth ?? (highlighter ? 16 : 3),
-          opacity: highlighter ? 0.45 : undefined,
-          round: true,
-        },
-      ];
-    }
-    case 'image': {
-      const src = el.src ? (options.imageSrc ? options.imageSrc(el.src) : el.src) : null;
-      const out: DisplayItem[] = [];
-      if (src) out.push({ kind: 'image', x: el.x, y: el.y, w: el.w, h: el.h, src, crop: el.crop ?? null, radius: el.radius });
-      else out.push(rectItem(el.x, el.y, el.w, el.h, el.radius ?? 0, '#f3f4f6', '#d1d5db', 1));
-      if (el.stroke && el.strokeWidth) out.push(rectItem(el.x, el.y, el.w, el.h, el.radius ?? 0, undefined, el.stroke, el.strokeWidth));
-      return out;
-    }
+    case 'pen':
+      return penDisplay(el);
+    case 'image':
+      return imageDisplay(el, options);
     case 'file':
-      return cardLike(el, options, el.fileName ?? 'File', [el.mime, el.size ? formatSize(el.size) : undefined].filter(Boolean).join(' · '), '#64748b');
+      return fileDisplay(el, options);
     case 'frame':
       return frameDisplay(el, options);
     case 'group':
       return [];
     case 'card':
       return cardDisplay(el, options);
-    case 'record': {
-      const view = el.record ? options.record?.(el.record) : null;
-      const title = view?.title ?? (el.record ? `${el.record.kind}` : 'Record');
-      const subtitle = [view?.kindLabel ?? el.record?.kind, view?.subtitle, view?.status].filter(Boolean).join(' · ');
-      return cardLike(el, options, title, subtitle, view?.color ?? '#6366f1');
-    }
+    case 'record':
+      return recordDisplay(el, options);
     case 'link':
       return cardLike(el, options, el.title || el.link || 'Link', [el.siteName, el.description].filter(Boolean).join(' · '), '#0ea5e9');
     case 'comment':
       return commentDisplay(el);
   }
+}
+
+function textDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {
+  const t = elementTextLayout(el, options);
+  const out: DisplayItem[] = [];
+  if (el.fill && el.fill !== 'transparent') out.push(rectItem(el.x, el.y, el.w, el.h, 4, el.fill));
+  if (t) out.push(...textItems(t.layout, t.x, t.y, t.style.color));
+  return out;
+}
+
+function penDisplay(el: BoardElement): DisplayItem[] {
+  const pts = penPoints(el);
+  const highlighter = el.pen === 'highlighter';
+  return [
+    {
+      kind: 'path',
+      cmds: smoothPath(pts),
+      stroke: el.stroke ?? (highlighter ? '#fde047' : DEFAULT_STROKE),
+      width: el.strokeWidth ?? (highlighter ? 16 : 3),
+      opacity: highlighter ? 0.45 : undefined,
+      round: true,
+    },
+  ];
+}
+
+/** The address an image loads from, or null when it has none. */
+function imageSource(el: BoardElement, options: DisplayOptions): string | null {
+  if (!el.src) return null;
+  return options.imageSrc ? options.imageSrc(el.src) : el.src;
+}
+
+function imageDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {
+  const src = imageSource(el, options);
+  const out: DisplayItem[] = [];
+  if (src) out.push({ kind: 'image', x: el.x, y: el.y, w: el.w, h: el.h, src, crop: el.crop ?? null, radius: el.radius });
+  else out.push(rectItem(el.x, el.y, el.w, el.h, el.radius ?? 0, '#f3f4f6', '#d1d5db', 1));
+  if (el.stroke && el.strokeWidth) out.push(rectItem(el.x, el.y, el.w, el.h, el.radius ?? 0, undefined, el.stroke, el.strokeWidth));
+  return out;
+}
+
+function fileDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {
+  return cardLike(el, options, el.fileName ?? 'File', [el.mime, el.size ? formatSize(el.size) : undefined].filter(Boolean).join(' · '), '#64748b');
+}
+
+function recordDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {
+  const view = el.record ? options.record?.(el.record) : null;
+  const title = view?.title ?? (el.record ? `${el.record.kind}` : 'Record');
+  const subtitle = [view?.kindLabel ?? el.record?.kind, view?.subtitle, view?.status].filter(Boolean).join(' · ');
+  return cardLike(el, options, title, subtitle, view?.color ?? '#6366f1');
 }
 
 function stickyDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {

@@ -73,43 +73,64 @@ export function randomOp(board: Board, random: () => number, makeId: () => strin
   }
   if (r < 0.5) {
     const el = pick(random, all)!;
-    const patch: Record<string, unknown> = {};
-    const k = random();
-    if (k < 0.3) patch.x = Math.round(random() * 2000);
-    else if (k < 0.45) patch.y = Math.round(random() * 2000);
-    else if (k < 0.55 && keyAllowed(el.type, 'fill')) patch.fill = pick(random, STICKY_COLORS)!;
-    else if (k < 0.65) patch.order = keyBetween(board.topOrder(board.effectiveParent(el)), null);
-    else if (k < 0.75 && el.type !== 'frame') {
-      const frames = all.filter((e) => e.type === 'frame' && e.id !== el.id);
-      const f = pick(random, frames);
-      patch.parent = f && random() < 0.6 ? f.id : null;
-    } else if (k < 0.85 && keyAllowed(el.type, 'locked')) patch.locked = random() < 0.5;
-    else patch.w = Math.round(50 + random() * 300);
-    return { type: 'set', id: el.id, patch };
+    return { type: 'set', id: el.id, patch: randomPatch(board, random, all, el) };
   }
-  if (r < 0.85 && texty.length) {
-    const el = pick(random, texty)!;
-    const text = el.text?.text ?? '';
-    const k = random();
-    // Positions never split a surrogate pair.
-    const positions: number[] = [];
-    for (let i = 0; i <= text.length; i++) {
-      const c = text.charCodeAt(i);
-      if (!(c >= 0xdc00 && c <= 0xdfff)) positions.push(i);
-    }
-    if (k < 0.55 || text.length === 0) {
-      const at = pick(random, positions)!;
-      const word = pick(random, WORDS)!;
-      return { type: 'insertText', id: el.id, at, text: { text: word, marks: random() < 0.3 ? [[word.length, { b: true }]] : [] } };
-    }
-    const a = pick(random, positions)!;
-    const b = pick(random, positions)!;
-    const from = Math.min(a, b);
-    const to = Math.max(a, b);
-    if (k < 0.8) return from < to ? { type: 'deleteText', id: el.id, from, to } : null;
-    return from < to ? { type: 'formatText', id: el.id, at: from, runs: [[to - from, random() < 0.5 ? { i: true } : { c: '#ff0000', b: null }]] } : null;
-  }
-  if (r < 0.92) return { type: 'setBoard', patch: random() < 0.5 ? { background: pick(random, STICKY_COLORS)! } : { grid: random() < 0.5 ? 'dots' : 'none' } };
+  if (r < 0.85 && texty.length) return randomTextOp(random, pick(random, texty)!);
+  if (r < 0.92) return { type: 'setBoard', patch: random() < 0.5 ? { background: pick(random, STICKY_COLORS)! } : { grid: randomGrid(random) } };
   const voteFor = all.filter((e) => e.type === 'sticky').slice(0, 3).map((e) => e.id);
   return { type: 'vote', user: `u${Math.floor(random() * 3)}`, elements: voteFor.length && random() < 0.8 ? voteFor : null };
+}
+
+function randomGrid(random: () => number): 'dots' | 'none' {
+  return random() < 0.5 ? 'dots' : 'none';
+}
+
+/** A one-key patch `el` takes: a position, fill, order, parent, lock or width. */
+function randomPatch(board: Board, random: () => number, all: BoardElement[], el: BoardElement): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const k = random();
+  if (k < 0.3) patch.x = Math.round(random() * 2000);
+  else if (k < 0.45) patch.y = Math.round(random() * 2000);
+  else if (k < 0.55 && keyAllowed(el.type, 'fill')) patch.fill = pick(random, STICKY_COLORS)!;
+  else if (k < 0.65) patch.order = keyBetween(board.topOrder(board.effectiveParent(el)), null);
+  else if (k < 0.75 && el.type !== 'frame') patch.parent = randomParent(random, all, el);
+  else if (k < 0.85 && keyAllowed(el.type, 'locked')) patch.locked = random() < 0.5;
+  else patch.w = Math.round(50 + random() * 300);
+  return patch;
+}
+
+/** Another frame for `el` to go in, or null (the top level). */
+function randomParent(random: () => number, all: BoardElement[], el: BoardElement): string | null {
+  const frames = all.filter((e) => e.type === 'frame' && e.id !== el.id);
+  const f = pick(random, frames);
+  return f && random() < 0.6 ? f.id : null;
+}
+
+/** Offsets in `text` a text op may use: none splits a surrogate pair. */
+function caretPositions(text: string): number[] {
+  const positions: number[] = [];
+  for (let i = 0; i <= text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (!(c >= 0xdc00 && c <= 0xdfff)) positions.push(i);
+  }
+  return positions;
+}
+
+/** A random insert, delete or format in `el`'s text, or null when the range it picked is empty. */
+function randomTextOp(random: () => number, el: BoardElement): Op | null {
+  const text = el.text?.text ?? '';
+  const k = random();
+  const positions = caretPositions(text);
+  if (k < 0.55 || text.length === 0) {
+    const at = pick(random, positions)!;
+    const word = pick(random, WORDS)!;
+    return { type: 'insertText', id: el.id, at, text: { text: word, marks: random() < 0.3 ? [[word.length, { b: true }]] : [] } };
+  }
+  const a = pick(random, positions)!;
+  const b = pick(random, positions)!;
+  const from = Math.min(a, b);
+  const to = Math.max(a, b);
+  if (from >= to) return null;
+  if (k < 0.8) return { type: 'deleteText', id: el.id, from, to };
+  return { type: 'formatText', id: el.id, at: from, runs: [[to - from, random() < 0.5 ? { i: true } : { c: '#ff0000', b: null }]] };
 }
