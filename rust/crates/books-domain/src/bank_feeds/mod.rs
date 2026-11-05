@@ -11,6 +11,7 @@
 pub mod connections;
 pub mod events;
 pub mod normalize;
+pub mod ponto_signature;
 pub mod providers;
 pub mod sync;
 

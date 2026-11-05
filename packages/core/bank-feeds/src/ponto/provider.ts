@@ -6,11 +6,13 @@
  * endpoint paths, paging and token lifetimes against the sandbox before
  * relying on it.
  *
- * Calls to `api.ibanity.com` need mutual TLS (a client certificate, and
- * request signing for payments, which we do not use). On Workers pass
- * `fetch: env.PONTO_CERT.fetch.bind(env.PONTO_CERT)` from an `mtls_certificates`
- * binding in `fetch`; the default is the global `fetch`, which works against
- * `api.myponto.com` (set `apiUrl`) when that host is used instead.
+ * Calls to `api.ibanity.com` need mutual TLS (a client certificate). On
+ * Workers pass `fetch: env.PONTO_CERT.fetch.bind(env.PONTO_CERT)` from an
+ * `mtls_certificates` binding in `fetch`; the default is the global `fetch`,
+ * which works against `api.myponto.com` (set `apiUrl`) when that host is used
+ * instead. A live application must also sign every request with its signature
+ * certificate (`signature`, see `./signature.ts`); the sandbox takes them
+ * unsigned.
  *
  * Onboarding is OAuth2 authorization code with PKCE. There is no server-side
  * change feed: sync is date-range polling that re-pulls the last 8 days.
@@ -31,6 +33,7 @@ import {
   utf8,
   type FetchLike,
   type JsonRecord,
+  type RequestOptions,
 } from '../http';
 import {
   accountFingerprint,
@@ -53,6 +56,7 @@ import type {
   StoredConnection,
   SyncResult,
 } from '../types';
+import { importPontoSigningKey, pontoSignatureHeaders, type PontoSignatureConfig, type SignableRequest } from './signature';
 
 export const PONTO_MAX_HISTORY_DAYS = 540;
 const PAGE_SIZE = 100;
@@ -72,6 +76,8 @@ export interface PontoConfig {
   stateSecret?: string;
   /** `env.PONTO_CERT.fetch` from a Workers mTLS binding. */
   fetch?: FetchLike;
+  /** The signature certificate every request is signed with; unset sends them unsigned, which only the sandbox accepts. */
+  signature?: PontoSignatureConfig;
 }
 
 export interface PontoCompletePayload {
@@ -136,6 +142,7 @@ export class PontoProvider implements BankFeedProvider {
   private readonly fetchImpl: FetchLike;
   /** Tokens refreshed during this request, so later calls reuse them. */
   private readonly refreshed = new Map<string, Tokens>();
+  private signingKey: Promise<CryptoKey> | null = null;
 
   constructor(private readonly config: PontoConfig) {
     this.apiUrl = config.apiUrl ?? 'https://api.ibanity.com/ponto-connect';
@@ -146,14 +153,33 @@ export class PontoProvider implements BankFeedProvider {
     return `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`;
   }
 
-  private tokenRequest(form: Array<[string, string]>): Promise<JsonRecord> {
-    return requestJson(this.config.tokenUrl ?? `${this.apiUrl}/oauth2/token`, {
+  /** The `Digest` and `Signature` headers of a request, from the signature certificate. */
+  private async sign(signature: PontoSignatureConfig, request: SignableRequest): Promise<Record<string, string>> {
+    this.signingKey ??= importPontoSigningKey(signature.privateKey);
+    const key = await this.signingKey.catch((err: unknown) => {
+      this.signingKey = null;
+      throw err;
+    });
+    return pontoSignatureHeaders(request, signature.certificateId, key, Math.floor(Date.now() / 1000));
+  }
+
+  /** One call to Ponto's API, signed when a signature certificate is configured. */
+  private request(url: string, options: Pick<RequestOptions, 'method' | 'headers' | 'json' | 'form'>): Promise<JsonRecord> {
+    const { signature } = this.config;
+    return requestJson(url, {
+      ...options,
       provider: 'ponto',
       fetchImpl: this.fetchImpl,
+      mapError: mapPontoError,
+      sign: signature ? (request) => this.sign(signature, request) : undefined,
+    });
+  }
+
+  private tokenRequest(form: Array<[string, string]>): Promise<JsonRecord> {
+    return this.request(this.config.tokenUrl ?? `${this.apiUrl}/oauth2/token`, {
       method: 'POST',
       headers: { Authorization: this.basicAuth },
       form,
-      mapError: mapPontoError,
     });
   }
 
@@ -182,12 +208,7 @@ export class PontoProvider implements BankFeedProvider {
   }
 
   private get(url: string, accessToken: string): Promise<JsonRecord> {
-    return requestJson(url, {
-      provider: 'ponto',
-      fetchImpl: this.fetchImpl,
-      headers: { Authorization: `Bearer ${accessToken}` },
-      mapError: mapPontoError,
-    });
+    return this.request(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   }
 
   /** PKCE verifier derived from the state, so no verifier is stored or sent to the browser. */
@@ -360,13 +381,10 @@ export class PontoProvider implements BankFeedProvider {
   async refresh(connection: StoredConnection): Promise<void> {
     const { tokens } = await this.ensureTokens(connection);
     for (const accountId of connection.accountIds ?? asArray(connection.metadata.accountIds).filter((v): v is string => typeof v === 'string')) {
-      await requestJson(`${this.apiUrl}/synchronizations`, {
-        provider: 'ponto',
-        fetchImpl: this.fetchImpl,
+      await this.request(`${this.apiUrl}/synchronizations`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.accessToken}`, 'Content-Type': 'application/vnd.api+json' },
         json: { data: { type: 'synchronization', attributes: { resourceType: 'account', resourceId: accountId, subtype: 'accountTransactions' } } },
-        mapError: mapPontoError,
       });
     }
   }
@@ -379,13 +397,10 @@ export class PontoProvider implements BankFeedProvider {
       return;
     }
     try {
-      await requestJson(this.config.tokenUrl ? this.config.tokenUrl.replace(/token$/, 'revoke') : `${this.apiUrl}/oauth2/revoke`, {
-        provider: 'ponto',
-        fetchImpl: this.fetchImpl,
+      await this.request(this.config.tokenUrl ? this.config.tokenUrl.replace(/token$/, 'revoke') : `${this.apiUrl}/oauth2/revoke`, {
         method: 'POST',
         headers: { Authorization: this.basicAuth },
         form: [['token', tokens.refreshToken]],
-        mapError: mapPontoError,
       });
     } catch (err) {
       // Already revoked.

@@ -53,6 +53,8 @@ export interface RequestOptions {
   form?: Array<[string, string]>;
   /** Maps a failed response to a provider-specific error; return null to fall back to the status mapping. */
   mapError?: (status: number, body: JsonRecord) => FeedProviderError | null;
+  /** Extra headers computed from the request as it will be sent (Ponto's HTTP signature). */
+  sign?: (request: { method: string; url: string; headers: Record<string, string>; body?: string }) => Promise<Record<string, string>>;
 }
 
 /**
@@ -70,9 +72,12 @@ export async function requestJson(url: string, options: RequestOptions): Promise
     body = new URLSearchParams(options.form).toString();
   }
 
+  const method = options.method ?? (body ? 'POST' : 'GET');
+  if (options.sign) Object.assign(headers, await options.sign({ method, url, headers: { ...headers }, body }));
+
   let response: Response;
   try {
-    response = await options.fetchImpl(url, { method: options.method ?? (body ? 'POST' : 'GET'), headers, body });
+    response = await options.fetchImpl(url, { method, headers, body });
   } catch (err) {
     throw new FeedProviderError(
       options.provider,

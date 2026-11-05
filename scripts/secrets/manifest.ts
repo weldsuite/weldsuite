@@ -503,6 +503,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Isabel Group Ponto Connect (Europe); needs the PONTO_CERT mTLS binding.
     "PONTO_CLIENT_ID",
     "PONTO_CLIENT_SECRET",
+    // A live Ponto application's signature certificate: its id in Isabel's
+    // developer portal and its unencrypted PEM private key. Every Ponto request
+    // is signed with it; the sandbox takes requests unsigned, so leave both unset there.
+    "PONTO_SIGNATURE_CERT_ID",
+    "PONTO_SIGNATURE_KEY",
     // Enable Banking (Europe): application id + PKCS#8 PEM private key.
     "ENABLE_BANKING_APP_ID",
     "ENABLE_BANKING_PRIVATE_KEY",
