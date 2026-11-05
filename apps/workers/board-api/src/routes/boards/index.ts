@@ -13,6 +13,7 @@
  *   POST   /api/boards/unfurl         → what a link card shows for an address (services/unfurl.ts)
  *   POST   /api/boards/records        → what record cards show, for the records the caller may see
  *   POST   /api/boards/:id/tasks      → stickies made WeldFlow tasks, and task cards in their place
+ *   POST   /api/boards/:id/ai         → an AI action: make, group, extend or summarise (services/ai.ts)
  *   GET    /api/boards/:id            → one board (an old WeldFlow whiteboard says `legacy`)
  *   PATCH  /api/boards/:id            → rename, move, make a template or not
  *   DELETE /api/boards/:id            → move to the trash
@@ -27,7 +28,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { copySnapshot, convertLegacyWhiteboard, emptySnapshot, isWellFormedSnapshot, newId, snapshotFromImport, Board, type BoardElement, type BoardSnapshot, type Op } from '@weldsuite/board-engine';
+import { copySnapshot, convertLegacyWhiteboard, emptySnapshot, isNoop, isWellFormedSnapshot, newId, snapshotFromImport, Board, type BoardElement, type BoardSnapshot, type Op } from '@weldsuite/board-engine';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -41,8 +42,10 @@ import {
   createBoardSchema,
   importBoardSchema,
   listBoardsQuerySchema,
+  boardAiSchema,
   boardTasksSchema,
   resolveBoardRecordsSchema,
+  type BoardAiResult,
   unfurlSchema,
   type BoardRecordKind,
   type BoardTasksResult,
@@ -70,6 +73,8 @@ import {
 import { readThumbnail, writeSnapshot } from '../../room/snapshot';
 import { unfurl } from '../../services/unfurl';
 import { RECORD_PERMISSION, resolveRecords } from '../../services/records';
+import { BoardAiError, runBoardAi } from '../../services/ai';
+import { InsufficientAiCreditsError, resolveAiMetering } from '@weldsuite/core-domain/ai-billing';
 import { colorFor } from '../../room/people';
 import {
   VIEW_ONLY,
@@ -411,6 +416,46 @@ app.post('/:id/tasks', requirePermission('boards:update'), zValidator('json', bo
   // The tasks stand even when the board changed meanwhile; the stickies then simply stay.
   if (!result.committed) console.warn('[board-api/tasks] the task cards could not be placed:', result.refused);
   return success(c, { created } satisfies BoardTasksResult, 201);
+});
+
+/**
+ * An AI action on the board. Making, grouping and extending write to the
+ * board (through the room, so everyone sees it) and need edit access; a
+ * summary only reads, and comes back as Markdown for the platform to save.
+ */
+app.post('/:id/ai', requirePermission('boards:read'), zValidator('json', boardAiSchema), async (c) => {
+  const userId = c.get('userId');
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!userId) return error.unauthorized(c);
+  if (!clerkOrgId) return error.orgRequired(c);
+  const input = c.req.valid('json');
+  const writes = input.action !== 'summarize';
+  if (writes && !(await hasContextPermission(c, 'boards:update'))) return error.forbidden(c, VIEW_ONLY);
+  const found = writes ? await editableBoard(c) : await findLiveBoard(c, c.req.param('id'));
+  if (found instanceof Response) return found;
+  const board = 'board' in found ? found.board : found;
+
+  const meta = roomMeta(board, clerkOrgId);
+  const room = roomFor(c, clerkOrgId, board);
+  const content = Board.fromSnapshot(JSON.parse((await room.snapshot(meta)).json) as BoardSnapshot);
+  const metering = await resolveAiMetering(c.env, c.get('workspaceId'), userId);
+  try {
+    const plan = await runBoardAi(c.env, content, input, { userId, metering, now: Date.now() });
+    if (!isNoop(plan.op)) {
+      const result = await room.applyOps(meta, plan.op, userId);
+      if (!result.committed) {
+        return error.conflict(c, 'The board changed while the AI was working. Try again.');
+      }
+    }
+    return success(c, { elementIds: plan.elementIds, ...(plan.text !== undefined ? { text: plan.text, title: plan.title } : {}) } satisfies BoardAiResult);
+  } catch (err) {
+    if (err instanceof InsufficientAiCreditsError) {
+      return error.insufficientCredits(c, { currentBalance: err.currentBalance, required: err.required, shortfall: err.shortfall });
+    }
+    if (err instanceof BoardAiError) return c.json({ error: { code: err.code, message: err.message } }, err.status);
+    console.error('[board-api/ai] failed:', err);
+    return error.internal(c, 'The AI action failed');
+  }
 });
 
 // ---------------------------------------------------------------------------

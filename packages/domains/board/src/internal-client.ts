@@ -2,8 +2,8 @@
  * A client for board-api's `BoardsInternal` entrypoint (a service binding
  * with entrypoint = "BoardsInternal"), for the workers that read or write
  * WeldBoard boards for someone: external-api's and the MCP server's
- * deprecated `/v1/whiteboards` (WeldFlow's old elements format), and the
- * WeldAgent board tools. See apps/workers/board-api/src/routes/internal/boards.ts.
+ * `/v1/boards` and deprecated `/v1/whiteboards` (WeldFlow's old elements
+ * format), and the WeldAgent board tools. See apps/workers/board-api/src/routes/internal/boards.ts.
  *
  * Every call acts for someone: a person (their WeldDrive access, project
  * membership and `boards:*` permissions apply), or a workspace API key
@@ -96,6 +96,10 @@ export function boardsInternal(options: BoardsInternalOptions) {
     update: (id: string, input: { name?: string; elements?: unknown[] }) => one(id, 'update', input),
     /** Commit a board-engine op: `{ data: { revision, url } }` */
     apply: (id: string, op: unknown) => one(id, 'apply', { op }),
+    /** Put a board spec on the board, laid out: `{ data: AddToBoardResult }` */
+    add: (id: string, input: { spec: unknown; at?: { x: number; y: number } }) => one(id, 'add', input),
+    /** Change or remove elements by id: `{ data: EditBoardElementsResult }` */
+    edit: (id: string, input: { changes: unknown[] }) => one(id, 'edit', input),
     /** Move to the trash: 204 */
     remove: (id: string) => one(id, 'delete'),
   };

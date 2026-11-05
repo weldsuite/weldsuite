@@ -183,6 +183,14 @@ binding = "SHEETS_INTERNAL"
 service = "weldsuite-sheets-api-test"
 entrypoint = "SheetsInternal"
 
+# board-api's BoardsInternal entrypoint: the WeldAgent board tools
+# (@weldsuite/agent-domain board-tools) find, read and write boards through it.
+# Reachable only over a service binding, so no secret.
+[[env.test.services]]
+binding = "BOARDS_INTERNAL"
+service = "weldsuite-board-api-test"
+entrypoint = "BoardsInternal"
+
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents-test
 #   wrangler queues create entity-agents-dlq-test
@@ -274,6 +282,14 @@ entrypoint = "AgentRuntimeInternal"
 binding = "SHEETS_INTERNAL"
 service = "weldsuite-sheets-api"
 entrypoint = "SheetsInternal"
+
+# board-api's BoardsInternal entrypoint: the WeldAgent board tools
+# (@weldsuite/agent-domain board-tools) find, read and write boards through it.
+# Reachable only over a service binding, so no secret.
+[[env.production.services]]
+binding = "BOARDS_INTERNAL"
+service = "weldsuite-board-api"
+entrypoint = "BoardsInternal"
 
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents

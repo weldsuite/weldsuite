@@ -152,6 +152,47 @@ describe('internal board routes', () => {
     expect((await asKey(`/${mine.id}/read`)).status).toBe(404);
   });
 
+  it('adds a board spec laid out, and edits elements by id', async () => {
+    const created = await data<Brief>(call('/create', { name: 'Retro' }), 201);
+    const added = await data<{ revision: number; elementIds: string[]; keys: Record<string, string>; url: string }>(
+      call(`/${created.id}/add`, {
+        spec: {
+          frames: [{ key: 'well', title: 'Went well' }],
+          items: [
+            { key: 'a', type: 'sticky', text: 'Shipped on time', frame: 'well' },
+            { key: 'b', type: 'shape', shape: 'diamond', text: 'Next?' },
+          ],
+          lines: [{ from: 'a', to: 'b' }],
+        },
+      }),
+      201,
+    );
+    expect(added).toMatchObject({ revision: 1, url: `/weldboard/${created.id}` });
+    expect(Object.keys(added.keys).sort()).toEqual(['a', 'b']);
+    const outline = await data<{ elements: { id: string; type: string; text: string; parent?: string }[] }>(call(`/${created.id}/read`, { format: 'outline' }));
+    expect(outline.elements.find((e) => e.id === added.keys.a)).toMatchObject({ type: 'sticky', text: 'Shipped on time', parent: expect.any(String) });
+
+    const edited = await data<{ changed: string[]; skipped: string[] }>(
+      call(`/${created.id}/edit`, {
+        changes: [
+          { id: added.keys.a, text: 'Shipped early', color: 'green' },
+          { id: added.keys.b, delete: true },
+          { id: 'nope', text: 'x' },
+        ],
+      }),
+    );
+    expect(edited.changed.sort()).toEqual([added.keys.a!, added.keys.b!].sort());
+    expect(edited.skipped).toEqual(['nope']);
+    const text = await data<{ text: string }>(call(`/${created.id}/read`, { format: 'text' }));
+    expect(text.text).toContain('Shipped early');
+    expect(text.text).not.toContain('Next?');
+
+    // Someone who cannot see the board cannot add to it; an empty spec adds nothing.
+    await db.update(schema.files).set({ generalAccess: 'restricted' }).where(eq(schema.files.fileName, 'Retro'));
+    expect((await call(`/${created.id}/add`, { spec: { items: [{ type: 'sticky', text: 'x' }] } }, BOB)).status).toBe(404);
+    expect((await call(`/${created.id}/add`, { spec: {} })).status).toBe(400);
+  });
+
   it('deletes, and refuses writes in a read-only workspace', async () => {
     const created = await data<Brief>(call('/create', { name: 'Scratch' }), 201);
     readOnly = true;

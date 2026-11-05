@@ -13,6 +13,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { Person } from '@/components/record-comments/comment-parts';
 import type { BoardController } from '../editor/model/board-controller';
 import { boardsQueryKey } from '../store/use-board-store';
+import { AiDialog } from './ai-dialog';
 import { CommentsPanel } from './comments-panel';
 import { RecordsDialog, TasksDialog } from './records';
 
@@ -26,11 +27,13 @@ interface PanelState {
   records: boolean;
   /** Elements being made tasks (the dialog is open), or null. */
   tasks: string[] | null;
+  /** The AI dialog is open. */
+  ai: boolean;
 }
 
 /** Which side panel a board shows, kept outside React so the board's callbacks can open one. */
 export class BoardPanels {
-  private state: PanelState = { open: null, activeComment: null, records: false, tasks: null };
+  private state: PanelState = { open: null, activeComment: null, records: false, tasks: null, ai: false };
   private readonly listeners = new Set<() => void>();
 
   subscribe = (fn: () => void) => {
@@ -64,6 +67,10 @@ export class BoardPanels {
   openTasks(ids: string[] | null) {
     this.set({ tasks: ids });
   }
+
+  openAi(open = true) {
+    this.set({ ai: open });
+  }
 }
 
 /** The board's right-hand panels: comments or version history. */
@@ -75,6 +82,7 @@ export function SidePanels({ controller, boardId, projectId, people, panels, can
       {state.open === 'versions' && <VersionsPanel boardId={boardId} canEdit={canEdit} onClose={() => panels.close()} />}
       <RecordsDialog controller={controller} open={state.records} onOpenChange={(open) => panels.openRecords(open)} />
       <TasksDialog boardId={boardId} elementIds={state.tasks} projectId={projectId} onOpenChange={(open) => !open && panels.openTasks(null)} />
+      {canEdit && <AiDialog controller={controller} boardId={boardId} open={state.ai} onOpenChange={(open) => panels.openAi(open)} />}
     </>
   );
 }

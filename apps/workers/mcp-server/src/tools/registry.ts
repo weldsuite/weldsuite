@@ -83,6 +83,7 @@ import { knowledgeTools } from './knowledge';
 import { mailTools } from './mail';
 import { projectsTools } from './projects';
 import { weldflowTools } from './weldflow';
+import { weldboardTools } from './weldboard';
 import { chatTools } from './chat';
 import { workspaceTools } from './workspace';
 import { commerceTools } from './commerce';
@@ -99,6 +100,7 @@ export const allTools: ToolDefinition[] = [
   ...mailTools,
   ...projectsTools,
   ...weldflowTools,
+  ...weldboardTools,
   ...chatTools,
   ...workspaceTools,
   ...commerceTools,

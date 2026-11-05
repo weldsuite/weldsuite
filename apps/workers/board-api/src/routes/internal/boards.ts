@@ -8,10 +8,12 @@
  *   POST /:id/read     → a board as a summary, WeldFlow elements, an outline, text or a snapshot
  *   POST /:id/update   → rename, and/or make the board match WeldFlow elements
  *   POST /:id/apply    → commit board-engine ops
+ *   POST /:id/add      → put a board spec on it (sticky notes, shapes, frames, lines, a mind map)
+ *   POST /:id/edit     → change or remove elements by id (text, colour, position)
  *   POST /:id/delete   → move to the trash
  *
- * Callers: external-api's and the MCP server's deprecated `/v1/whiteboards`
- * routes (the WeldFlow elements format) and the WeldAgent board tools, through
+ * Callers: external-api's `/v1/boards` and deprecated `/v1/whiteboards` routes
+ * (the WeldFlow elements format), the MCP server and the WeldAgent board tools, through
  * @weldsuite/board-domain/internal-client. Every call acts for someone:
  *
  *   - `x-weld-user`: a person. They see and change only what their WeldDrive
@@ -32,6 +34,8 @@ import {
   boardOutline,
   boardToPlainText,
   convertLegacyWhiteboard,
+  editOps,
+  placeSpec,
   emptySnapshot,
   isWellFormedOp,
   isWellFormedSnapshot,
@@ -47,7 +51,13 @@ import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { workspaceMovingResponse, workspaceReadOnlyBody } from '@weldsuite/worker-kit';
 import { loadDriveAccessForUser, visibleFilesCondition, canEdit, type DriveRole } from '@weldsuite/core-domain/drive-access';
 import { accessibleProjectIds } from '@weldsuite/flow-domain/project-access';
-import { DEFAULT_BOARD_NAME } from '@weldsuite/app-api-client/schemas/boards';
+import {
+  DEFAULT_BOARD_NAME,
+  addToBoardSchema,
+  editBoardElementsSchema,
+  type AddToBoardResult,
+  type EditBoardElementsResult,
+} from '@weldsuite/app-api-client/schemas/boards';
 import type { Env, Variables } from '../../types';
 import { getLiveBoard, legacyElements, listBoards, trashBoard, trashLegacy, updateBoard, type BoardRecord, type BoardScope, type LiveBoardRecord } from '../../services/boards';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -339,6 +349,40 @@ app.post('/:workspaceId/:id/apply', zValidator('json', z.object({ op: z.unknown(
   const result = await commit(c, target, op);
   if (!result.committed) return error.badRequest(c, `The change was refused: ${result.refused ?? 'unknown reason'}`);
   return success(c, { revision: result.revision, url: urlOf(target) });
+});
+
+/** The board to write to, converted if it was an old WeldFlow whiteboard; else the response to send. */
+async function writeTarget(c: Ctx): Promise<LiveBoardRecord | Response> {
+  if (!(await hasContextPermission(c, 'boards:update'))) return error.forbidden(c);
+  const refused = readOnlyRefusal(c);
+  if (refused) return refused;
+  const found = await findBoard(c, c.req.param('id') ?? '');
+  if (found instanceof Response) return found;
+  if (!(await mayEditBoard(c, found.role))) return error.forbidden(c, 'You can view this board but not change it');
+  return writable(c, found.board);
+}
+
+app.post('/:workspaceId/:id/add', zValidator('json', addToBoardSchema), async (c) => {
+  const target = await writeTarget(c);
+  if (target instanceof Response) return target;
+  const { spec, at } = c.req.valid('json');
+  const { board } = await liveBoard(c, target);
+  const placed = placeSpec(board, spec, { createdBy: c.get('userId')!, now: Date.now(), ...(at ? { at } : {}) });
+  if (!placed.all.length) return error.badRequest(c, 'There is nothing to add');
+  const result = await commit(c, target, placed.op);
+  if (!result.committed) return error.badRequest(c, `The change was refused: ${result.refused ?? 'unknown reason'}`);
+  return success(c, { revision: result.revision, elementIds: placed.ids, keys: placed.keys, url: urlOf(target) } satisfies AddToBoardResult, 201);
+});
+
+app.post('/:workspaceId/:id/edit', zValidator('json', editBoardElementsSchema), async (c) => {
+  const target = await writeTarget(c);
+  if (target instanceof Response) return target;
+  const { board, revision } = await liveBoard(c, target);
+  const { op, changed, skipped } = editOps(board, c.req.valid('json').changes);
+  if (isNoop(op)) return success(c, { revision, changed: [], skipped, url: urlOf(target) } satisfies EditBoardElementsResult);
+  const result = await commit(c, target, op);
+  if (!result.committed) return error.badRequest(c, `The change was refused: ${result.refused ?? 'unknown reason'}`);
+  return success(c, { revision: result.revision, changed, skipped, url: urlOf(target) } satisfies EditBoardElementsResult);
 });
 
 app.post('/:workspaceId/:id/delete', async (c) => {

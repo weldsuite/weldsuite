@@ -4883,6 +4883,9 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.4.0
         version: 0.4.3(hono@4.13.13)(zod@3.25.76)
+      '@weldsuite/ai':
+        specifier: workspace:*
+        version: link:../../../packages/core/ai
       '@weldsuite/api-modules':
         specifier: workspace:*
         version: link:../../../packages/core/api-modules
@@ -8768,6 +8771,9 @@ importers:
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../clients/app-api-client
+      '@weldsuite/board-domain':
+        specifier: workspace:*
+        version: link:../board
       '@weldsuite/chat-domain':
         specifier: workspace:*
         version: link:../chat

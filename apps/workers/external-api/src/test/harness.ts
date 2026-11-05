@@ -182,6 +182,8 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'files',
   'folders',
   'drive',
+  // WeldBoard
+  'boards',
   // Connect
   'webhooks',
   'workflows',

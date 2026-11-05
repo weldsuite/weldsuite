@@ -36,6 +36,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# The AI actions (@weldsuite/ai): the Cloudflare account its gateway runs in.
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -80,6 +82,8 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -123,6 +127,8 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

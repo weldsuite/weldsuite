@@ -100,6 +100,8 @@ const ROUTE_PERMISSIONS: Readonly<Record<string, string>> = {
   'POST /v1/reach/lists/:id/members/remove': 'reach_prospects:update',
   'POST /v1/reach/suppressions': 'reach_settings:update',
   'DELETE /v1/reach/suppressions/:id': 'reach_settings:update',
+  // Adding to a board, or changing what is on it, edits the board.
+  'POST /v1/boards/:id/elements': 'boards:update',
 };
 
 /** The permission a route pins for itself, or undefined when the HTTP verb decides. */

@@ -200,10 +200,121 @@ export type BoardAiInput = z.infer<typeof boardAiSchema>;
 export interface BoardAiResult {
   /** Ids of the elements the action created or moved. */
   elementIds: string[];
-  /** Text an action answered with (summarize). */
+  /**
+   * The summary, as Markdown (summarize). Nothing is written for it: the
+   * platform saves it as a WeldDocs document with the person's own access.
+   */
   text?: string;
-  /** A WeldDocs document the summary was saved to. */
-  docId?: string;
+  /** A title for the summary's document. */
+  title?: string;
+}
+
+// ---------------------------------------------------------------- specs
+
+/**
+ * Colours, shapes and item types a board spec may use (board-engine
+ * `SPEC_COLORS`, `SHAPE_KINDS`, `SPEC_ITEM_TYPES`; the engine clamps again).
+ */
+export const BOARD_SPEC_COLORS = ['yellow', 'orange', 'red', 'pink', 'violet', 'blue', 'cyan', 'teal', 'green', 'lime', 'grey', 'white'] as const;
+export const BOARD_SPEC_SHAPES = [
+  'rectangle', 'rounded', 'ellipse', 'triangle', 'diamond', 'parallelogram', 'trapezoid', 'pentagon', 'hexagon', 'octagon',
+  'star', 'cross', 'cylinder', 'cloud', 'callout', 'arrow-right', 'arrow-left', 'chevron', 'document', 'predefined', 'data',
+  'terminator', 'delay', 'manual-input',
+] as const;
+export const BOARD_SPEC_ITEM_TYPES = ['sticky', 'shape', 'text', 'card'] as const;
+
+const specKey = z.string().trim().min(1).max(100);
+const specColor = z.enum(BOARD_SPEC_COLORS);
+
+const boardSpecItem = z.object({
+  key: specKey.optional().describe('A name for this item, unique in the spec, for lines to refer to'),
+  type: z.enum(BOARD_SPEC_ITEM_TYPES),
+  text: z.string().max(2000),
+  shape: z.enum(BOARD_SPEC_SHAPES).optional().describe('For a shape: its kind (default rounded)'),
+  color: specColor.optional(),
+  description: z.string().max(5000).optional().describe('For a card: the text under its title'),
+  frame: specKey.optional().describe('The key of the frame this item goes in'),
+});
+
+interface SpecMindNodeInput {
+  text: string;
+  children?: SpecMindNodeInput[];
+}
+const mindNode: z.ZodType<SpecMindNodeInput> = z.lazy(() =>
+  z.object({ text: z.string().max(300), children: z.array(mindNode).max(40).optional() }),
+);
+
+/**
+ * Things to put on a board, laid out by the engine (`placeSpec`): sticky
+ * notes, shapes, text and cards, frames holding them, lines between them, or
+ * a mind map. For the agent tools and the public API, which do not draw.
+ */
+export const boardSpecSchema = z.object({
+  layout: z.enum(['grid', 'flow']).optional().describe('grid: rows of items; flow: layers following the lines, a flowchart. Default flow when there are lines'),
+  direction: z.enum(['down', 'right']).optional().describe('Which way a flow runs (default down)'),
+  items: z.array(boardSpecItem).max(500).optional(),
+  frames: z.array(z.object({ key: specKey, title: z.string().max(200) })).max(50).optional().describe('Frames side by side, each holding the items that name it'),
+  lines: z.array(z.object({ from: specKey, to: specKey, label: z.string().max(200).optional() })).max(1000).optional().describe('Arrows between items, by key'),
+  mindmap: mindNode.optional().describe('A mind map: the central topic and its branches'),
+});
+export type BoardSpecInput = z.infer<typeof boardSpecSchema>;
+
+// The mind map spelled out three levels deep instead of recursive: what tool
+// definitions (WeldAgent, MCP) take, so their JSON schema has no $ref for a
+// model to follow. Anything it accepts, boardSpecSchema accepts too.
+const mindLeaf = z.object({ text: z.string().max(300) });
+const mindTwig = z.object({ text: z.string().max(300), children: z.array(mindLeaf).max(12).optional() });
+const mindBranch = z.object({ text: z.string().max(300), children: z.array(mindTwig).max(12).optional() });
+
+/** {@link boardSpecSchema} for tool definitions: a mind map at most four levels deep. */
+export const boardSpecToolSchema = boardSpecSchema.extend({
+  mindmap: z
+    .object({ text: z.string().max(300), children: z.array(mindBranch).max(16).optional() })
+    .optional()
+    .describe('A mind map: the central topic and its branches'),
+});
+
+/** Add a spec to a board (internal and public API). */
+export const addToBoardSchema = z.object({
+  spec: boardSpecSchema,
+  at: z.object({ x: z.number().finite(), y: z.number().finite() }).optional().describe('Where the middle of the new content goes; default right of what is on the board'),
+});
+export type AddToBoardInput = z.infer<typeof addToBoardSchema>;
+
+export interface AddToBoardResult {
+  revision: number;
+  /** The new top-level elements. */
+  elementIds: string[];
+  /** The element id each keyed item got. */
+  keys: Record<string, string>;
+  url: string;
+}
+
+/** Change or remove elements already on a board, by id (internal and public API). */
+export const editBoardElementsSchema = z.object({
+  changes: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        text: z.string().max(2000).optional().describe('New text (replaces the old)'),
+        color: specColor.optional(),
+        x: z.number().finite().optional(),
+        y: z.number().finite().optional(),
+        delete: z.boolean().optional().describe('Remove the element (and what is inside it)'),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+export type EditBoardElementsInput = z.infer<typeof editBoardElementsSchema>;
+
+export interface EditBoardElementsResult {
+  revision: number;
+  /** Ids that were changed or removed. */
+  changed: string[];
+  /** Ids that are not on the board (or cannot be changed), left alone. */
+  skipped: string[];
+  url: string;
 }
 
 // ---------------------------------------------------------------- records

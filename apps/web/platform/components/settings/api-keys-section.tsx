@@ -87,6 +87,7 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'files', group: 'files', scopes: rw('files') },
   { entityKey: 'folders', group: 'files', scopes: rw('folders') },
   { entityKey: 'drive', group: 'files', scopes: ro('drive') },
+  { entityKey: 'boards', group: 'files', scopes: rw('boards') },
   // Calendar
   { entityKey: 'calendars', group: 'calendar', scopes: rw('calendars') },
   { entityKey: 'calendarEvents', group: 'calendar', scopes: rw('calendar_events') },

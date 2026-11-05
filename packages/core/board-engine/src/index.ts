@@ -57,6 +57,7 @@ export * from './serialize/fragment';
 export * from './serialize/text';
 export * from './serialize/import';
 export * from './serialize/import-file';
+export * from './serialize/spec';
 
 export * from './legacy/weldflow';
 export * from './templates/index';

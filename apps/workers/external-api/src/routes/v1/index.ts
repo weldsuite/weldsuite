@@ -26,6 +26,7 @@ import {
 import activities from './activities';
 import appStorage from './app-storage';
 import articles from './articles';
+import boards from './boards';
 import calendarEvents from './calendar-events';
 import calendars from './calendars';
 import categories from './categories';
@@ -105,6 +106,7 @@ v1.get('/', (c) => {
       '/v1/bank-accounts',
       '/v1/bank-transactions',
       '/v1/bills',
+      '/v1/boards',
       '/v1/calendar-events',
       '/v1/calendars',
       '/v1/categories',
@@ -224,6 +226,7 @@ v1.route('/vat-returns', vatReturns);
 v1.route('/activities', activities);
 v1.route('/app-storage', appStorage);
 v1.route('/articles', articles);
+v1.route('/boards', boards);
 v1.route('/calendar-events', calendarEvents);
 v1.route('/calendars', calendars);
 v1.route('/categories', categories);

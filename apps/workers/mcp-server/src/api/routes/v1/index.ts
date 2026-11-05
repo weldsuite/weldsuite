@@ -6,6 +6,7 @@ import { error, success } from '../../lib/response';
 import activities from './activities';
 import appStorage from './app-storage';
 import articles from './articles';
+import boards from './boards';
 import calendarEvents from './calendar-events';
 import calendars from './calendars';
 import channelMembers from './channel-members';
@@ -77,6 +78,7 @@ v1.get('/', (c) => {
       '/v1/activities',
       '/v1/app-storage',
       '/v1/articles',
+      '/v1/boards',
       '/v1/calendar-events',
       '/v1/calendars',
       '/v1/channel-members',
@@ -167,6 +169,7 @@ v1.get('/health/db', async (c) => {
 v1.route('/activities', activities);
 v1.route('/app-storage', appStorage);
 v1.route('/articles', articles);
+v1.route('/boards', boards);
 v1.route('/calendar-events', calendarEvents);
 v1.route('/calendars', calendars);
 v1.route('/channel-members', channelMembers);
