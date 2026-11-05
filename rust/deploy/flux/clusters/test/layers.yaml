@@ -1,13 +1,15 @@
-# The test cluster (rust/deploy/hetzner/TEST-CLUSTER.md): the eu layers on one
-# node, with
-#   - the weldsuite chart taken from the deploy branch instead of a release
-#     tag, so a push to that branch reaches the cluster without tagging;
+# The test cluster (rust/deploy/hetzner/TEST-CLUSTER.md): the eu layers on
+# small nodes, following develop, with
+#   - the weldsuite chart and images of the newest develop build instead of a
+#     release (weldsuite-develop.yaml), so every develop push that the "Rust
+#     images" workflow builds reaches the cluster, as it reaches Global's test
+#     environment;
 #   - single-instance Postgres (infrastructure/configs/test);
 #   - one replica of everything else (the patches below, on top of each
 #     release's values).
 # In order: chart sources, operators and the ingress, the encrypted secrets,
-# Postgres and the issuer, the services, the weldsuite server, and Prometheus
-# for Lens's charts (test only, so far).
+# Postgres and the issuer, the services, the weldsuite server with video
+# (LiveKit) beside it, and Prometheus for Lens's charts (test only, so far).
 # `flux create kustomization ... --path=./rust/deploy/flux/clusters/test`
 # applies this directory (runbook step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -26,23 +28,19 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
-  # The chart follows the branch this cluster was bootstrapped from, over
-  # anonymous HTTPS: the repository is public, and the organisation doesn't
-  # allow deploy keys.
+  # The chart comes from the develop builds (weldsuite-develop.yaml), not from
+  # a release tag in Git, so the release-tag source is left out.
   patches:
     - target:
         kind: GitRepository
         name: weldsuite
       patch: |
-        - op: replace
-          path: /spec/ref
-          value:
-            branch: deploy/eu-test
-        - op: replace
-          path: /spec/url
-          value: https://github.com/weldsuite/weldsuite
-        - op: remove
-          path: /spec/secretRef
+        $patch: delete
+        apiVersion: source.toolkit.fluxcd.io/v1
+        kind: GitRepository
+        metadata:
+          name: weldsuite
+          namespace: flux-system
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -217,6 +215,8 @@ spec:
       - kind: ConfigMap
         name: cluster-settings
   patches:
+    # The chart of the newest develop build, whose appVersion is that build's
+    # image tag (WELDSUITE_IMAGE_TAG is empty here, so the images follow it).
     # One pod of each; no autoscaling, and no disruption budget (with one
     # replica it would block every drain). Streams on the one NATS server.
     - target:
@@ -228,6 +228,16 @@ spec:
         metadata:
           name: weldsuite
         spec:
+          chart:
+            spec:
+              chart: weldsuite
+              version: ">=0.0.0-0"
+              reconcileStrategy: ChartVersion
+              interval: 5m
+              sourceRef:
+                kind: HelmRepository
+                name: weldsuite-develop
+                namespace: flux-system
           values:
             replicaCount: 1
             autoscaling:
@@ -236,11 +246,36 @@ spec:
               enabled: false
             signPortal:
               replicaCount: 1
+            collabRooms:
+              replicaCount: 1
             consume:
               replicaCount: 1
               streamReplicas: 1
               podDisruptionBudget:
                 enabled: false
+---
+# WeldMeet's media server (LiveKit) and its TURN, as on eu: one pod on each of
+# the two workers OpenTofu labels node.weldsuite.org/livekit.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: video
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: services
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/video
+  prune: true
+  wait: true
+  timeout: 20m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
 ---
 # CPU, memory and disk history for Lens (infrastructure/monitoring). Lens:
 # the cluster's Metrics settings, "Prometheus Operator",

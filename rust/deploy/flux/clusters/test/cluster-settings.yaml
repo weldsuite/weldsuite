@@ -26,8 +26,10 @@ data:
   ZITADEL_WEB_CLIENT_ID: "397293960835366963"
   # Mapbox's public token (pk.…) for maps and address search; none here.
   MAPBOX_PUBLIC_TOKEN: ""
-  # Unused here: the chart follows the deploy branch (layers.yaml).
+  # Unused here: the chart is the newest develop build's (layers.yaml,
+  # weldsuite-develop.yaml), not a release tag.
   WELDSUITE_GIT_TAG: unused
-  # The images the "Rust images" workflow pushed for a commit of the deploy
-  # branch: sha-<first 12 characters of the commit>.
-  WELDSUITE_IMAGE_TAG: sha-0aeda04f98ab
+  # Empty: the images are the ones the chart names (its appVersion, the
+  # develop build's tag). Pin a build here (sha-<12 characters of a develop
+  # commit>) only to hold the cluster at it.
+  WELDSUITE_IMAGE_TAG: ""

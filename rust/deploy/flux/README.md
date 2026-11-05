@@ -7,18 +7,23 @@ step 6). The cluster only pulls from the repository.
 clusters/
   eu/       layers.yaml (the Flux Kustomizations, in order), cluster-settings.yaml (${NAME} values)
   drill/    the same layers with Postgres restored from production's backup (../hetzner/DRILL.md)
+  test/     the EU test cluster: the same layers on small nodes, following develop, with the
+            chart and images of the newest develop build (../hetzner/TEST-CLUSTER.md)
 infrastructure/
   sources/      Helm repositories, Restate's OCI chart, this repository (the weldsuite chart)
-  controllers/  namespaces, OpenEBS LocalPV, cert-manager, Traefik, CloudNativePG, barman-cloud plugin
-  configs/      base: the issuer, Postgres clusters, poolers, backups; eu / drill overlays
+  controllers/  namespaces, OpenEBS LocalPV, cert-manager, Traefik, CloudNativePG, barman-cloud plugin,
+                metrics-server, the kubelet serving-certificate approver
+  configs/      base: the issuer, Postgres clusters, poolers, backups; eu / drill / test overlays
   services/     NATS JetStream, Valkey, Restate, Zitadel
   video/        LiveKit (WeldMeet and WeldChat calls), its signalling host and TURN over TLS through Traefik
+  monitoring/   Prometheus for Lens (test only, so far)
 apps/eu/        the weldsuite HelmRelease
-secrets/        eu/ and drill/: SOPS-encrypted Secrets; examples/: every Secret the layers expect
+secrets/        eu/, drill/ and test/: SOPS-encrypted Secrets; examples/: every Secret the layers expect
+scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values
 ```
 
 Order: `sources` → `controllers` → `secrets` → `configs` → `services` →
-`apps`, and `video` after `services`, beside `apps` (eu only; the drill
+`apps`, and `video` after `services`, beside `apps` (eu and test; the drill
 leaves it out). Each HelmRelease's values are in a `values/` file next to it
 (a generated ConfigMap), which `../validate.sh` renders with the chart at the
 pinned version.

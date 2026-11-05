@@ -35,7 +35,7 @@ for 90 days); the server needs no restart.
 
 **The images.** `docker compose` runs `weldsuite:local` and
 `weldsuite-sign-portal:local`. Build them from the repo root of a checkout with
-LF line endings (`git -c core.autocrlf=false worktree add <dir> deploy/eu-test`
+LF line endings (`git -c core.autocrlf=false worktree add <dir> develop`
 on Windows):
 
 ```bash
