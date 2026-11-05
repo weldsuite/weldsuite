@@ -19,7 +19,7 @@ import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { toChatContent } from './mentions';
 
-export type CommentRecordType = 'sheet' | 'doc';
+export type CommentRecordType = 'sheet' | 'doc' | 'board';
 
 /** What is said in one thread. */
 export interface CommentThread {

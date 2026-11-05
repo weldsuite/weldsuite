@@ -516,6 +516,7 @@ export const sweep = {
       "following": "Following",
       "groupHidden": "{group} is hidden from your sidebar",
       "groups": {
+        "board": "Boards",
         "company": "Companies",
         "doc": "Documents",
         "domain": "Domains",
@@ -527,6 +528,7 @@ export const sweep = {
       "hideGroup": "Hide this group",
       "muteAllFailed": "Couldn't update these chats",
       "open": {
+        "board": "Open board",
         "company": "Open company",
         "doc": "Open document",
         "domain": "Open domain",
@@ -580,6 +582,7 @@ export const sweep = {
       "showAll": "Show all ({count})",
       "title": "Record chats",
       "types": {
+        "board": "Board",
         "company": "Company",
         "doc": "Document",
         "domain": "Domain",

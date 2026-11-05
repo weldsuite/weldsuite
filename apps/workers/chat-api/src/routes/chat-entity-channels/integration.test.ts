@@ -195,7 +195,8 @@ describe('record chat providers', () => {
     expect(getEntityProvider('domain')?.requiredPermission).toBe('domains:read');
     expect(getEntityProvider('sheet')?.requiredPermission).toBe('sheets:read');
     expect(getEntityProvider('doc')?.requiredPermission).toBe('docs:read');
-    expect(listRecordChatProviders().map((p) => p.type)).toEqual(['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc']);
+    expect(getEntityProvider('board')?.requiredPermission).toBe('boards:read');
+    expect(listRecordChatProviders().map((p) => p.type)).toEqual(['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc', 'board']);
   });
 
   it('keeps the legacy contact name readable but out of the record chat lists', () => {

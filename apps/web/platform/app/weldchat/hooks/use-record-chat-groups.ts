@@ -47,5 +47,6 @@ export function useRecordChatGroups(
     domain: useFollowedRecordChats('domain', summaryOf('domain'), enabled),
     sheet: useFollowedRecordChats('sheet', summaryOf('sheet'), enabled),
     doc: useFollowedRecordChats('doc', summaryOf('doc'), enabled),
+    board: useFollowedRecordChats('board', summaryOf('board'), enabled),
   };
 }

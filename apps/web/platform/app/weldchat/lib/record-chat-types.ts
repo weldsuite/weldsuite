@@ -11,7 +11,7 @@
  * says how to show one. Add a type here when chat-api gets a provider for it.
  */
 
-import { Briefcase, Building2, CheckSquare, FileText, Globe, Sheet, User, type LucideIcon } from 'lucide-react';
+import { Briefcase, Building2, CheckSquare, FileText, Globe, Sheet, SquareDashedMousePointer, User, type LucideIcon } from 'lucide-react';
 import {
   RECORD_CHAT_TYPES,
   type RecordChatType,
@@ -93,6 +93,14 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     openLabelKey: `${K}.open.doc`,
     icon: FileText,
     href: (id) => `/welddocs/${encodeURIComponent(id)}`,
+  },
+  board: {
+    type: 'board',
+    groupLabelKey: `${K}.groups.board`,
+    labelKey: `${K}.types.board`,
+    openLabelKey: `${K}.open.board`,
+    icon: SquareDashedMousePointer,
+    href: (id) => `/weldboard/${encodeURIComponent(id)}`,
   },
 };
 

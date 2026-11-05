@@ -516,6 +516,7 @@ export const sweep = {
       "following": "Gevolgd",
       "groupHidden": "{group} is verborgen in je zijbalk",
       "groups": {
+        "board": "Borden",
         "company": "Bedrijven",
         "doc": "Documenten",
         "domain": "Domeinen",
@@ -527,6 +528,7 @@ export const sweep = {
       "hideGroup": "Deze groep verbergen",
       "muteAllFailed": "Deze chats konden niet worden bijgewerkt",
       "open": {
+        "board": "Bord openen",
         "company": "Bedrijf openen",
         "doc": "Document openen",
         "domain": "Domein openen",
@@ -580,6 +582,7 @@ export const sweep = {
       "showAll": "Alles tonen ({count})",
       "title": "Recordchats",
       "types": {
+        "board": "Bord",
         "company": "Bedrijf",
         "doc": "Document",
         "domain": "Domein",

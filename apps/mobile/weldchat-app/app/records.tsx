@@ -65,6 +65,7 @@ const TYPE_SYMBOLS = {
   domain: 'globe',
   sheet: 'tablecells',
   doc: 'doc.text',
+  board: 'rectangle.on.rectangle',
 } as const satisfies Record<RecordChatType, string>;
 
 function useDebounced<T>(value: T, ms: number): T {

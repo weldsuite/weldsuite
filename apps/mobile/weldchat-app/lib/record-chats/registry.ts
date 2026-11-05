@@ -10,7 +10,7 @@
  * one. Add a type here when chat-api gets a provider for it.
  */
 
-import { Briefcase, Building2, FileText, Globe, Sheet, SquareCheck, User, type LucideIcon } from 'lucide-react-native';
+import { Briefcase, Building2, FileText, Globe, Sheet, SquareCheck, SquareDashedMousePointer, User, type LucideIcon } from 'lucide-react-native';
 
 import type { Translations } from '@/lib/i18n';
 import { isRecordChatType, type RecordChatType } from './rules';
@@ -25,6 +25,7 @@ const ICONS: Record<RecordChatType, LucideIcon> = {
   domain: Globe,
   sheet: Sheet,
   doc: FileText,
+  board: SquareDashedMousePointer,
 };
 
 /** The type's icon, or null for a type WeldChat does not list (legacy `contact`, …). */

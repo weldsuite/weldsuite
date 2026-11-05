@@ -27,7 +27,7 @@ export const sendEntityMessageSchema = z.object({
 export type SendEntityMessageInput = z.infer<typeof sendEntityMessageSchema>;
 
 /** Record chat types, in sidebar group order. */
-export const RECORD_CHAT_TYPES = ['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc'] as const;
+export const RECORD_CHAT_TYPES = ['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc', 'board'] as const;
 export type RecordChatType = (typeof RECORD_CHAT_TYPES)[number];
 
 /**

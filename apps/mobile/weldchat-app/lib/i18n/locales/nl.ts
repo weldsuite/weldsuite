@@ -442,6 +442,7 @@ export const nl: Translations = {
       domain: 'Domeinen',
       sheet: 'Spreadsheets',
       doc: 'Documenten',
+      board: 'Borden',
     },
     types: {
       company: 'Bedrijf',
@@ -451,6 +452,7 @@ export const nl: Translations = {
       domain: 'Domein',
       sheet: 'Spreadsheet',
       doc: 'Document',
+      board: 'Bord',
     },
     allTypes: 'Alle recordchats',
     chooseType: 'Kies een soort record',
