@@ -3,6 +3,7 @@ import { useParams } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAllTeamMembers } from '@/hooks/queries/use-team-queries';
+import { CrmPersonSelect } from '@/components/objects/person/crm-person-select';
 import {
   useCommunicationPlan,
   useCreateStakeholder,
@@ -127,9 +128,10 @@ function AddForm({ projectId, existing, onDone }: Readonly<{ projectId: string; 
   const [organisation, setOrganisation] = useState('');
   const [role, setRole] = useState('');
   const taken = new Set(existing.flatMap((row) => (row.memberId ? [row.memberId] : [])));
+  const takenContacts = useMemo(() => new Set(existing.flatMap((row) => (row.crmContactId ? [row.crmContactId] : []))), [existing]);
   const submit = () =>
     create.mutate(
-      { projectId, ...(kind === 'member' ? { memberId } : { crmContactId: contactId.trim() }), organisation: organisation || null, role: role || null },
+      { projectId, ...(kind === 'member' ? { memberId } : { crmContactId: contactId }), organisation: organisation || null, role: role || null },
       { onSuccess: onDone },
     );
   return (
@@ -152,10 +154,21 @@ function AddForm({ projectId, existing, onDone }: Readonly<{ projectId: string; 
           </select>
         </label>
       ) : (
-        <label className="flex flex-col gap-1 text-xs">
-          {copy.form.contactId}
-          <input className={INPUT} value={contactId} onChange={(event) => setContactId(event.target.value)} />
-        </label>
+        <div className="flex flex-col gap-1 text-xs">
+          <label htmlFor="stakeholder-contact">{copy.form.contact}</label>
+          <CrmPersonSelect
+            id="stakeholder-contact"
+            value={contactId}
+            placeholder={copy.form.choosePerson}
+            searchPlaceholder={copy.form.searchPeople}
+            excludeIds={takenContacts}
+            onChange={(personId, person) => {
+              setContactId(personId);
+              // Take the job title as the role unless one was typed already.
+              if (person?.title && !role.trim()) setRole(person.title);
+            }}
+          />
+        </div>
       )}
       <label className="flex flex-col gap-1 text-xs">
         {copy.form.organisation}
@@ -165,7 +178,7 @@ function AddForm({ projectId, existing, onDone }: Readonly<{ projectId: string; 
         {copy.form.role}
         <input className={INPUT} value={role} onChange={(event) => setRole(event.target.value)} />
       </label>
-      <button type="button" className={PRIMARY} disabled={create.isPending || (kind === 'member' ? !memberId : !contactId.trim())} onClick={submit}>
+      <button type="button" className={PRIMARY} disabled={create.isPending || (kind === 'member' ? !memberId : !contactId)} onClick={submit}>
         {copy.form.save}
       </button>
       <button type="button" className={BTN} onClick={onDone}>{copy.form.cancel}</button>
