@@ -92,7 +92,26 @@ export interface ProjectFinanceSettings {
   history: ProjectManualForecast[];
 }
 
+/**
+ * `tabs`: which project tabs people see. Every list names the tabs that are
+ * HIDDEN, so a tab added later shows until someone turns it off. Written whole
+ * by `PUT /api/projects/:id/tabs`; the rule that applies it is
+ * `hiddenProjectTabs` in `@weldsuite/app-api-client/schemas/project-tabs`.
+ * It only shapes the tab bar (and redirects a hidden tab's URL): the data
+ * behind a tab is not access-controlled by it.
+ */
+export interface ProjectTabSettings {
+  /** Off for the whole project, admins included (an admin still sees `settings`). */
+  hidden: string[];
+  /** The default for each non-admin project role. */
+  roles: { member: string[]; viewer: string[] };
+  /** One member's own list, in place of their role's default. */
+  members: Array<{ userId: string; hidden: string[] }>;
+}
+
 export interface ProjectSettings {
+  /** Which project tabs are hidden, for the project, per role and per member. */
+  tabs?: ProjectTabSettings;
   // slice E:
   finance?: ProjectFinanceSettings;
   changeControl?: ProjectChangeControlSettings;

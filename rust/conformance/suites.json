@@ -1393,12 +1393,14 @@
         "src/routes/projects/integration.test.ts",
         "src/routes/projects/stats.integration.test.ts",
         "src/routes/projects/custom-fields.integration.test.ts",
-        "src/routes/projects/coverage.integration.test.ts"
+        "src/routes/projects/coverage.integration.test.ts",
+        "src/routes/projects/tabs.integration.test.ts"
       ],
       "paths": [
         "apps/workers/flow-api/src/routes/projects/",
         "apps/workers/flow-api/src/routes/project-members/",
         "packages/clients/app-api-client/src/schemas/projects.ts",
+        "packages/clients/app-api-client/src/schemas/project-tabs.ts",
         "apps/workers/flow-api/src/lib/",
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/flow-responses.ts",

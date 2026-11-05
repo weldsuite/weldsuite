@@ -8,9 +8,12 @@ import { StagesSection } from './stages-section';
 import { MembersClient } from '../members/members-client';
 import { GithubSection } from './github-section';
 import { ImportSection } from './import-section';
+import { TabsSection } from './tabs-section';
 import { useI18n } from '@/lib/i18n/provider';
 
-type SubTab = 'general' | 'members' | 'labels' | 'stages' | 'github' | 'import';
+type SubTab = 'general' | 'members' | 'tabs' | 'labels' | 'stages' | 'github' | 'import';
+
+const SUB_TABS: readonly SubTab[] = ['general', 'members', 'tabs', 'labels', 'stages', 'github', 'import'];
 
 // Mirrors the (unexported) `ProjectMember`/`AvailableUser` shapes that
 // `MembersClient` expects — kept local since `members`/`availableUsers` come
@@ -49,9 +52,8 @@ interface SettingsClientProps {
 function getInitialTab(): SubTab {
   if (typeof window === 'undefined') return 'general';
   const hash = window.location.hash.replace('#', '');
-  if (hash === 'general' || hash === 'members' || hash === 'labels' || hash === 'stages' || hash === 'github' || hash === 'import') {
-    return hash;
-  }
+  const known = SUB_TABS.find((tab) => tab === hash);
+  if (known) return known;
   return 'general';
 }
 
@@ -68,6 +70,7 @@ export function SettingsClient({
   const tabs: { id: SubTab; label: string; description: string }[] = [
     { id: 'general', label: t.projects.settings.generalLabel, description: t.projects.settings.generalDesc },
     { id: 'members', label: t.projects.settings.membersLabel, description: t.projects.settings.membersDesc },
+    { id: 'tabs', label: t.projects.settings.tabsLabel, description: t.projects.settings.tabsDesc },
     { id: 'labels', label: t.projects.settings.labelsLabel, description: t.projects.settings.labelsDesc },
     { id: 'stages', label: t.projects.settings.stagesLabel, description: t.projects.settings.stagesDesc },
     { id: 'github', label: t.projects.settings.githubLabel, description: t.projects.settings.githubDesc },
@@ -148,6 +151,9 @@ export function SettingsClient({
               canWrite={canWrite}
               isViewer={isViewer}
             />
+          )}
+          {active === 'tabs' && (
+            <TabsSection projectId={projectId} isAdmin={isAdmin} members={members} />
           )}
           {active === 'labels' && (
             <LabelsSection projectId={projectId} isAdmin={isAdmin} />

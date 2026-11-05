@@ -220,6 +220,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/support';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
+import { projectTabSettingsSchema } from '@weldsuite/app-api-client/schemas/project-tabs';
 import {
   accountDeletionStatusSchema,
   authSessionRevokedSchema,
@@ -574,6 +575,7 @@ const FLOW_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/projects/:id/workload', envelope: 'single', data: flowProjectWorkloadSchema },
   { method: 'GET', route: '/api/projects/:id', envelope: 'single', data: flowProjectSchema },
   { method: 'PATCH', route: '/api/projects/:id', envelope: 'single', data: flowIdResultSchema },
+  { method: 'PUT', route: '/api/projects/:id/tabs', envelope: 'single', data: projectTabSettingsSchema },
   { method: 'POST', route: '/api/projects/:projectId/tasks/import-jobs', envelope: 'single', data: flowImportJobStartedSchema },
   { method: 'GET', route: '/api/projects/:projectId/tasks/import-jobs/:jobId', envelope: 'single', data: flowImportJobStatusSchema },
   // project members

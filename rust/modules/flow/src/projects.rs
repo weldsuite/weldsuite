@@ -57,6 +57,10 @@ where
             get(permissions).route_layer(need(PROJECTS_READ)),
         )
         .route(
+            "/{id}/tabs",
+            axum::routing::put(crate::project_tabs::put_tabs).route_layer(need(PROJECTS_UPDATE)),
+        )
+        .route(
             "/{id}/gantt/tasks",
             get(gantt_tasks).route_layer(need(TASKS_READ)),
         )
