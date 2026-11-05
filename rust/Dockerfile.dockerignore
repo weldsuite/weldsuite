@@ -16,6 +16,7 @@
 !apps/tools/collab-rooms
 !apps/workers/docs-api
 !apps/workers/sheets-api
+!apps/workers/board-api
 
 # The Rust workspace, for the backend.
 !rust/rust-toolchain.toml

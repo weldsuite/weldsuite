@@ -590,7 +590,7 @@ const fn app(
 }
 
 /// `FALLBACK_CATALOG`, copied from the workers.
-const FALLBACK_CATALOG: [FallbackApp; 12] = [
+const FALLBACK_CATALOG: [FallbackApp; 13] = [
     app(
         "commerce",
         "Commerce",
@@ -672,6 +672,14 @@ const FALLBACK_CATALOG: [FallbackApp; 12] = [
         "/welddocs",
     ),
     app(
+        "weldboard",
+        "WeldBoard",
+        "Online whiteboards with sticky notes, shapes, connectors, templates and live collaboration",
+        "StickyNote",
+        "Productivity",
+        "/weldboard",
+    ),
+    app(
         "weldpass",
         "WeldPass",
         "Team password manager with shared vaults, plus encrypted secret vaults for your apps synced to Cloudflare and Vercel",
@@ -688,6 +696,14 @@ const FALLBACK_CATALOG: [FallbackApp; 12] = [
         "/weldhr",
     ),
 ];
+
+/// `fallbackCatalog(env)`: WeldBoard only where it is offered.
+fn fallback_catalog(state: &OnboardingState) -> Vec<&'static FallbackApp> {
+    FALLBACK_CATALOG
+        .iter()
+        .filter(|app| app.code != "weldboard" || state.board_offered)
+        .collect()
+}
 
 /// A published catalog row, mapped as the route maps it.
 #[derive(Serialize, sqlx::FromRow)]
@@ -733,10 +749,10 @@ async fn available_apps(
                 .collect();
             Data(mapped).into_response()
         }
-        Ok(_) => Data(FALLBACK_CATALOG).into_response(),
+        Ok(_) => Data(fallback_catalog(&state)).into_response(),
         Err(error) => {
             tracing::error!(%error, "onboarding: error getting available apps");
-            Data(FALLBACK_CATALOG).into_response()
+            Data(fallback_catalog(&state)).into_response()
         }
     }
 }

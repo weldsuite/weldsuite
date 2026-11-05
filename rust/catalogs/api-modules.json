@@ -669,7 +669,7 @@
     "prefixes": [
       "/api/boards"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "board-api"
   }
 ]

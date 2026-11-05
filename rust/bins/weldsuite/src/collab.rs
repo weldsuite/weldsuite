@@ -1,8 +1,10 @@
-//! WeldDocs' and WeldSheets' rooms on Kubernetes (`rust/docs/collab-rooms.md`):
-//! the collab-rooms service runs the workers' `DocRoom` and `SheetRoom` in
-//! Node; this server reaches them through `COLLAB_ROOMS_URLS`.
+//! WeldDocs', WeldSheets' and WeldBoard's rooms on Kubernetes
+//! (`rust/docs/collab-rooms.md`): the collab-rooms service runs the workers'
+//! `DocRoom`, `SheetRoom` and `BoardRoom` in Node; this server reaches them
+//! through `COLLAB_ROOMS_URLS`.
 //!
-//! - The room sockets, `/api/docs/connect` and `/api/sheets/connect`, are
+//! - The room sockets, `/api/docs/connect`, `/api/sheets/connect` and
+//!   `/api/boards/connect`, are
 //!   proxied to the pod that holds the ticket's room. They sit outside the
 //!   session pipeline, as on Global (`room/connect.ts`): the single-use ticket
 //!   is the credential, and the room checks it.
@@ -33,7 +35,7 @@ use weldsuite_ports::CollabRooms;
 
 use crate::server::AppState;
 
-/// The app's rooms, for the docs and sheets modules.
+/// The app's rooms, for the docs, sheets and board modules.
 pub(crate) fn rooms(state: &AppState) -> Option<Arc<dyn CollabRooms>> {
     state
         .collab
@@ -46,6 +48,7 @@ pub(crate) fn public(_state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/api/docs/connect", any(connect_doc))
         .route("/api/sheets/connect", any(connect_sheet))
+        .route("/api/boards/connect", any(connect_board))
         .route("/internal/collab/events", post(events))
 }
 
@@ -74,6 +77,22 @@ async fn connect_sheet(
     connect(
         &state,
         "/api/sheets/connect",
+        &headers,
+        query.as_deref(),
+        upgrade,
+    )
+    .await
+}
+
+async fn connect_board(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+    upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
+) -> Response {
+    connect(
+        &state,
+        "/api/boards/connect",
         &headers,
         query.as_deref(),
         upgrade,

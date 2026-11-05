@@ -93,7 +93,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board']);
 
 const mod = (
   id: ApiModuleId,

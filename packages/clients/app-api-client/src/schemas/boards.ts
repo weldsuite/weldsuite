@@ -360,3 +360,80 @@ export type BoardTasksInput = z.infer<typeof boardTasksSchema>;
 export interface BoardTasksResult {
   created: { elementId: string; taskId: string }[];
 }
+
+// ---------------------------------------------------------------- responses
+
+/** Response schemas: what the platform and the mobile apps parse, and what conformance checks the Rust backend's answers against. */
+
+export const boardSummarySchema = z.object({
+  id: z.string(),
+  fileId: z.string().nullable(),
+  name: z.string(),
+  folderId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  createdById: z.string().nullable(),
+  updatedById: z.string().nullable(),
+  revision: z.number().int(),
+  role: z.enum(['owner', 'editor', 'viewer']),
+  canEdit: z.boolean(),
+  templateCategory: z.enum(TEMPLATE_CATEGORIES).nullable(),
+  legacy: z.boolean(),
+}) satisfies z.ZodType<BoardSummary>;
+
+/** `POST /api/boards/import`: the new board, and how many of the file's items could not be read. */
+export const boardImportResultSchema = boardSummarySchema.extend({ skipped: z.number().int() });
+
+export const boardSessionSchema = z.object({
+  ticket: z.string(),
+  canEdit: z.boolean(),
+  mode: z.enum(['edit', 'comment', 'view']),
+  color: z.string(),
+}) satisfies z.ZodType<BoardSession>;
+
+export const boardSnapshotResponseSchema = z.object({
+  revision: z.number().int(),
+  snapshot: boardSnapshot,
+}) satisfies z.ZodType<BoardSnapshotResponse>;
+
+export const boardRenderSchema = z.object({
+  revision: z.number().int(),
+  svg: z.string(),
+  elements: z.number().int(),
+  drawn: z.number().int(),
+}) satisfies z.ZodType<BoardRender>;
+
+/** `GET /api/boards/:id/thumbnail`: a small SVG of the board as of its last checkpoint. */
+export const boardThumbnailSchema = z.object({ svg: z.string(), revision: z.number().int() });
+
+export const unfurlResultSchema = z.object({
+  url: z.string(),
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  image: z.string().nullable(),
+  siteName: z.string().nullable(),
+}) satisfies z.ZodType<UnfurlResult>;
+
+export const boardVersionSchema = z.object({
+  id: z.string(),
+  boardId: z.string(),
+  revision: z.number().int(),
+  name: z.string().nullable(),
+  size: z.number().int(),
+  createdAt: z.string(),
+  createdById: z.string().nullable(),
+}) satisfies z.ZodType<BoardVersion>;
+
+export const boardRestoreResultSchema = z.object({
+  revision: z.number().int(),
+  autoVersion: boardVersionSchema,
+}) satisfies z.ZodType<BoardRestoreResult>;
+
+export const resolveBoardRecordsResultSchema = z.object({
+  views: z.record(z.object({ title: z.string(), subtitle: z.string().nullable(), status: z.string().nullable() }).nullable()),
+}) satisfies z.ZodType<ResolveBoardRecordsResult>;
+
+export const boardTasksResultSchema = z.object({
+  created: z.array(z.object({ elementId: z.string(), taskId: z.string() })),
+}) satisfies z.ZodType<BoardTasksResult>;
