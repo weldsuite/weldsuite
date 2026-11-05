@@ -41,6 +41,7 @@ import { WELDBOARD_MIME_TYPE } from '@weldsuite/app-api-client/schemas/boards';
 import { isImportable } from '@/app/weldsheets/files';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
 import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
+import { canOpenInWeldBoard, useOpenInWeldBoard } from '@/app/weldboard/use-board-open';
 import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { apiUrl } from '@/lib/api/public-env';
 import { isPrivateStorageUrl } from '@/lib/storage/private-url';
@@ -268,6 +269,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
   const canChange = file.accessRole !== 'viewer';
   const openInSheets = useOpenInWeldSheets();
   const openInDocs = useOpenInWeldDocs();
+  const openInBoard = useOpenInWeldBoard();
 
   return (
     <Button
@@ -330,6 +332,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 <DropdownMenuItem onClick={() => void openInDocs(file)}>
                   <FileText className="h-4 w-4 mr-0.5" />
                   {t.welddrive.page.actions.openInWeldDocs}
+                </DropdownMenuItem>
+              )}
+              {openInBoard && canOpenInWeldBoard(file) && (
+                <DropdownMenuItem onClick={() => void openInBoard(file)}>
+                  <PenTool className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.openInWeldBoard}
                 </DropdownMenuItem>
               )}
               {(file.source === 'drive' || file.url) && (
