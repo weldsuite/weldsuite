@@ -63,6 +63,7 @@ import {
   boardAiSchema,
   boardTasksSchema,
   resolveBoardRecordsSchema,
+  type BoardAiInput,
   type BoardAiResult,
   unfurlSchema,
   type BoardRecordKind,
@@ -70,6 +71,7 @@ import {
   updateBoardSchema,
   type BoardSession,
   type BoardTemplateCategory,
+  type UpdateBoardInput,
 } from '@weldsuite/app-api-client/schemas/boards';
 import type { Env, Variables } from '../../types';
 import {
@@ -124,42 +126,53 @@ app.route('/:id/versions', versionRoutes);
 // Listing and creating
 // ---------------------------------------------------------------------------
 
+type ProjectAs = 'editor' | 'viewer';
+
+/**
+ * Which boards a list shows, from its query, and, for one project's list,
+ * what the caller is on that project (a project's boards are its members':
+ * the project decides, not the drive). Or the response to send instead.
+ */
+async function listScope(
+  c: Ctx,
+  query: { projectId?: string; projects?: string; templates?: string },
+): Promise<{ scope: BoardScope; projectAs: ProjectAs | null } | Response> {
+  if (query.projectId) {
+    const role = await projectRole(c, query.projectId, 'editor');
+    if (!role) return error.notFound(c, 'Project', query.projectId);
+    return { scope: { kind: 'project', projectId: query.projectId }, projectAs: role === 'viewer' ? 'viewer' : 'editor' };
+  }
+  if (query.projects === 'true') {
+    const scopeAll = await hasContextPermission(c, 'projects:scope:all');
+    const projectIds = await accessibleProjectIds(c.get('tenantDb'), c.get('userId') ?? undefined, { scopeAll });
+    return { scope: { kind: 'projects', projectIds }, projectAs: null };
+  }
+  return { scope: { kind: query.templates === 'true' ? 'templates' : 'drive' }, projectAs: null };
+}
+
+/** Across projects, each board's role follows its own project: the caller's, per project on the page. */
+async function projectRolesOf(c: Ctx, rows: readonly { projectId: string | null }[]): Promise<Map<string, ProjectAs>> {
+  const roles = new Map<string, ProjectAs>();
+  const ids = [...new Set(rows.map((r) => r.projectId).filter((p): p is string => !!p))];
+  const resolved = await Promise.all(ids.map(async (id) => [id, await projectAccess(c, id)] as const));
+  for (const [id, a] of resolved) if (mayOpenProject(a)) roles.set(id, a.canWrite ? 'editor' : 'viewer');
+  return roles;
+}
+
 app.get('/', requirePermission('boards:read'), zValidator('query', listBoardsQuerySchema), async (c) => {
-  const { search, limit = DEFAULT_LIMIT, cursor, projectId, projects, templates } = c.req.valid('query');
+  const { search, limit = DEFAULT_LIMIT, cursor, ...query } = c.req.valid('query');
   const db = c.get('tenantDb');
-  const userId = c.get('userId') ?? null;
-  const access = await loadDriveAccessForUser(db, userId);
+  const access = await loadDriveAccessForUser(db, c.get('userId') ?? null);
   const offset = cursor ? Number(cursor) : 0;
   const mayEdit = await mayUpdate(c);
-
-  let scope: BoardScope;
-  // A project's boards are its members': the project decides, not the drive.
-  let projectAs: 'editor' | 'viewer' | null = null;
-  if (projectId) {
-    const role = await projectRole(c, projectId, 'editor');
-    if (!role) return error.notFound(c, 'Project', projectId);
-    projectAs = role === 'viewer' ? 'viewer' : 'editor';
-    scope = { kind: 'project', projectId };
-  } else if (projects === 'true') {
-    const scopeAll = await hasContextPermission(c, 'projects:scope:all');
-    scope = { kind: 'projects', projectIds: await accessibleProjectIds(db, userId ?? undefined, { scopeAll }) };
-  } else if (templates === 'true') {
-    scope = { kind: 'templates' };
-  } else {
-    scope = { kind: 'drive' };
-  }
+  const found = await listScope(c, query);
+  if (found instanceof Response) return found;
+  const { scope, projectAs } = found;
 
   // Templates are open to everyone; drive boards follow the drive's sharing.
   const visible = scope.kind === 'drive' ? visibleFilesCondition(access) : undefined;
   const { rows, total } = await listBoards(db, { scope, visible, search, limit, offset });
-
-  // Across projects, each board's role follows its own project.
-  const projectRoles = new Map<string, 'editor' | 'viewer'>();
-  if (scope.kind === 'projects') {
-    const ids = [...new Set(rows.map((r) => r.projectId).filter((p): p is string => !!p))];
-    const resolved = await Promise.all(ids.map(async (id) => [id, await projectAccess(c, id)] as const));
-    for (const [id, a] of resolved) if (mayOpenProject(a)) projectRoles.set(id, a.canWrite ? 'editor' : 'viewer');
-  }
+  const projectRoles = scope.kind === 'projects' ? await projectRolesOf(c, rows) : new Map<string, ProjectAs>();
   const roleOf = (board: (typeof rows)[number]): DriveRole => {
     const base = driveRole(access, board) ?? 'viewer';
     if (!board.projectId) return base;
@@ -441,17 +454,34 @@ app.post('/:id/tasks', requirePermission('boards:update'), zValidator('json', bo
  * board (through the room, so everyone sees it) and need edit access; a
  * summary only reads, and comes back as Markdown for the platform to save.
  */
+/** The board an AI action works on: one the caller may edit, or only read for a summary. Or the response to send. */
+async function aiBoard(c: Ctx, action: BoardAiInput['action']): Promise<LiveBoardRecord | Response> {
+  if (action === 'summarize') {
+    const found = await findLiveBoard(c, c.req.param('id') ?? '');
+    return found instanceof Response ? found : found.board;
+  }
+  if (!(await hasContextPermission(c, 'boards:update'))) return error.forbidden(c, VIEW_ONLY);
+  return editableBoard(c);
+}
+
+/** What an AI action's failure answers. */
+function aiFailure(c: Ctx, err: unknown): Response {
+  if (err instanceof InsufficientAiCreditsError) {
+    return error.insufficientCredits(c, { currentBalance: err.currentBalance, required: err.required, shortfall: err.shortfall });
+  }
+  if (err instanceof BoardAiError) return c.json({ error: { code: err.code, message: err.message } }, err.status);
+  console.error('[board-api/ai] failed:', err);
+  return error.internal(c, 'The AI action failed');
+}
+
 app.post('/:id/ai', requirePermission('boards:read'), zValidator('json', boardAiSchema), async (c) => {
   const userId = c.get('userId');
   const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
   if (!clerkOrgId) return error.orgRequired(c);
   const input = c.req.valid('json');
-  const writes = input.action !== 'summarize';
-  if (writes && !(await hasContextPermission(c, 'boards:update'))) return error.forbidden(c, VIEW_ONLY);
-  const found = writes ? await editableBoard(c) : await findLiveBoard(c, c.req.param('id'));
-  if (found instanceof Response) return found;
-  const board = 'board' in found ? found.board : found;
+  const board = await aiBoard(c, input.action);
+  if (board instanceof Response) return board;
 
   const meta = roomMeta(board, clerkOrgId);
   const room = roomFor(c, clerkOrgId, board);
@@ -467,12 +497,7 @@ app.post('/:id/ai', requirePermission('boards:read'), zValidator('json', boardAi
     }
     return success(c, { elementIds: plan.elementIds, ...(plan.text !== undefined ? { text: plan.text, title: plan.title } : {}) } satisfies BoardAiResult);
   } catch (err) {
-    if (err instanceof InsufficientAiCreditsError) {
-      return error.insufficientCredits(c, { currentBalance: err.currentBalance, required: err.required, shortfall: err.shortfall });
-    }
-    if (err instanceof BoardAiError) return c.json({ error: { code: err.code, message: err.message } }, err.status);
-    console.error('[board-api/ai] failed:', err);
-    return error.internal(c, 'The AI action failed');
+    return aiFailure(c, err);
   }
 });
 
@@ -486,13 +511,9 @@ app.get('/:id', requirePermission('boards:read'), async (c) => {
   return success(c, toSummary(found.board, found.role, await mayUpdate(c)));
 });
 
-app.patch('/:id', requirePermission('boards:update'), zValidator('json', updateBoardSchema), async (c) => {
-  const writable = (role: DriveRole) => canEdit(role) && !c.get('readOnly');
-  const found = await findConverted(c, c.req.param('id'), writable);
-  if (found instanceof Response) return found;
-  if (!writable(found.role)) return error.forbidden(c, VIEW_ONLY);
-  const changes = c.req.valid('json');
-  if (found.board.projectId && (changes.folderId !== undefined || changes.template !== undefined)) {
+/** Why a board may not take these changes (a response to send), or null when it may. */
+async function patchRefusal(c: Ctx, board: BoardRecord, changes: UpdateBoardInput): Promise<Response | null> {
+  if (board.projectId && (changes.folderId !== undefined || changes.template !== undefined)) {
     return error.badRequest(c, "A project's board stays with the project: it cannot be moved or made a template");
   }
   if (changes.template !== undefined && !(await hasContextPermission(c, 'boards:create'))) {
@@ -502,6 +523,26 @@ app.patch('/:id', requirePermission('boards:update'), zValidator('json', updateB
     const folder = await editableFolder(c, changes.folderId);
     if (folder instanceof Response) return folder;
   }
+  return null;
+}
+
+/** The fields a rename, move or template change touched, as entity-event changes. */
+function boardChanges(before: BoardRecord, board: BoardRecord) {
+  return {
+    ...(before.name !== board.name ? { name: { old: before.name, new: board.name } } : {}),
+    ...(before.folderId !== board.folderId ? { folderId: { old: before.folderId, new: board.folderId } } : {}),
+    ...(before.templateCategory !== board.templateCategory ? { templateCategory: { old: before.templateCategory, new: board.templateCategory } } : {}),
+  };
+}
+
+app.patch('/:id', requirePermission('boards:update'), zValidator('json', updateBoardSchema), async (c) => {
+  const writable = (role: DriveRole) => canEdit(role) && !c.get('readOnly');
+  const found = await findConverted(c, c.req.param('id'), writable);
+  if (found instanceof Response) return found;
+  if (!writable(found.role)) return error.forbidden(c, VIEW_ONLY);
+  const changes = c.req.valid('json');
+  const refused = await patchRefusal(c, found.board, changes);
+  if (refused) return refused;
   const result = await updateBoard(c.get('tenantDb'), found.board, changes);
   if (!result.ok) {
     return result.reason === 'name_conflict'
@@ -509,12 +550,7 @@ app.patch('/:id', requirePermission('boards:update'), zValidator('json', updateB
       : error.notFound(c, 'Board', found.board.id);
   }
   const { board } = result;
-  const before = found.board;
-  const changed = {
-    ...(before.name !== board.name ? { name: { old: before.name, new: board.name } } : {}),
-    ...(before.folderId !== board.folderId ? { folderId: { old: before.folderId, new: board.folderId } } : {}),
-    ...(before.templateCategory !== board.templateCategory ? { templateCategory: { old: before.templateCategory, new: board.templateCategory } } : {}),
-  };
+  const changed = boardChanges(found.board, board);
   if (changed.name || changed.folderId) {
     publishEntityEvent({ c, entityType: 'file', entityId: board.fileId, action: 'updated', data: fileEventData(board), changes: changed });
   }

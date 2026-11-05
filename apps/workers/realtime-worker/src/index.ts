@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { AuthInfo, Env } from './lib/protocol';
+import type { Env } from './lib/protocol';
 import { AUTH_HEADERS } from './lib/protocol';
 import {
   verifyClerkJwt,

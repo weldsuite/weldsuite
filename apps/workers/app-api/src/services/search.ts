@@ -90,6 +90,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'project',
   'task',
   'sheet',
+  'board',
   'domain',
 ];
 

@@ -62,6 +62,20 @@ async function unwrap<T>(res: Response): Promise<{ ok: true; data: T } | { ok: f
   return { ok: true, data: ((await res.json()) as { data: T }).data };
 }
 
+type Client = NonNullable<ReturnType<typeof boards>>;
+
+/**
+ * A board as a whiteboard row, when it is a project's board; or the response
+ * to send. Only a project's boards are whiteboards here: a board in someone's
+ * WeldDrive is a 404, whatever the caller may do to it through `/v1/boards`.
+ */
+async function projectWhiteboard(c: Context<HonoEnv>, client: Client, id: string): Promise<LegacyWhiteboardRow | Response> {
+  const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(id, 'legacy'));
+  if (!read.ok) return read.response;
+  if (!read.data.row.projectId) return error.notFound(c, 'Whiteboard', id);
+  return read.data.row;
+}
+
 function eventData(row: Pick<LegacyWhiteboardRow, 'id' | 'name' | 'projectId'>) {
   return { id: row.id, name: row.name, projectId: row.projectId };
 }
@@ -90,9 +104,9 @@ app.get('/', requireScope('whiteboards:read'), zValidator('query', listWhiteboar
 app.get('/:id', requireScope('whiteboards:read'), async (c) => {
   const client = boards(c);
   if (!client) return unavailable(c);
-  const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(c.req.param('id'), 'legacy'));
-  if (!read.ok) return read.response;
-  return success(c, read.data.row);
+  const row = await projectWhiteboard(c, client, c.req.param('id'));
+  if (row instanceof Response) return row;
+  return success(c, row);
 });
 
 app.post('/', requireScope('whiteboards:write'), zValidator('json', createWhiteboardSchema), async (c) => {
@@ -119,12 +133,10 @@ app.patch('/:id', requireScope('whiteboards:write'), zValidator('json', updateWh
     ...(typeof body.name === 'string' && body.name ? { name: body.name } : {}),
     ...(Array.isArray(body.elements) ? { elements: body.elements } : {}),
   };
-  let row: LegacyWhiteboardRow;
-  if (Object.keys(changes).length === 0) {
-    const read = await unwrap<{ row: LegacyWhiteboardRow }>(await client.read(id, 'legacy'));
-    if (!read.ok) return read.response;
-    row = read.data.row;
-  } else {
+  const current = await projectWhiteboard(c, client, id);
+  if (current instanceof Response) return current;
+  let row = current;
+  if (Object.keys(changes).length > 0) {
     const updated = await unwrap<{ row: LegacyWhiteboardRow }>(await client.update(id, changes));
     if (!updated.ok) return updated.response;
     row = updated.data.row;
@@ -137,6 +149,8 @@ app.delete('/:id', requireScope('whiteboards:write'), async (c) => {
   const client = boards(c);
   if (!client) return unavailable(c);
   const id = c.req.param('id');
+  const current = await projectWhiteboard(c, client, id);
+  if (current instanceof Response) return current;
   const removed = await unwrap<void>(await client.remove(id));
   if (!removed.ok) return removed.response;
   publishEntityEvent({ c, entityType: 'project_whiteboard', entityId: id, action: 'deleted', data: { id } });

@@ -299,6 +299,28 @@ const updateInput = z
   .object({ name: z.string().trim().min(1).max(255).optional(), elements: legacyElementsInput.optional() })
   .refine((v) => v.name !== undefined || v.elements !== undefined, 'Send a name or elements');
 
+/** Renames the board, with its `file` and `board` events; or the response to send. */
+async function renameBoard(c: Ctx, board: LiveBoardRecord, name: string): Promise<LiveBoardRecord | Response> {
+  const result = await updateBoard(c.get('tenantDb'), board, { name });
+  if (!result.ok) {
+    return result.reason === 'name_conflict' ? error.conflict(c, 'A file with this name already exists') : error.notFound(c, 'Board', board.id);
+  }
+  const changes = { name: { old: board.name, new: result.board.name } };
+  publishEntityEvent({ c, entityType: 'file', entityId: result.board.fileId, action: 'updated', data: fileEventData(result.board), changes });
+  publishEntityEvent({ c, entityType: 'board', entityId: result.board.id, action: 'updated', data: eventData(result.board), changes });
+  return result.board;
+}
+
+/** Makes the board match WeldFlow-format elements through its room: the revision after, or the response to send. */
+async function writeLegacyElements(c: Ctx, board: LiveBoardRecord, elements: Record<string, unknown>[]): Promise<number | Response> {
+  const { board: content } = await liveBoard(c, board);
+  const op = legacyWriteOps(content, elements);
+  if (isNoop(op)) return board.revision;
+  const result = await commit(c, board, op);
+  if (!result.committed) return error.badRequest(c, `The change was refused: ${result.refused ?? 'unknown reason'}`);
+  return result.revision;
+}
+
 app.post('/:workspaceId/:id/update', zValidator('json', updateInput), async (c) => {
   if (!(await hasContextPermission(c, 'boards:update'))) return error.forbidden(c);
   const refused = readOnlyRefusal(c);
@@ -310,27 +332,10 @@ app.post('/:workspaceId/:id/update', zValidator('json', updateInput), async (c) 
   if (target instanceof Response) return target;
   const { name, elements } = c.req.valid('json');
 
-  let board = target;
-  if (name !== undefined && name !== board.name) {
-    const result = await updateBoard(c.get('tenantDb'), board, { name });
-    if (!result.ok) {
-      return result.reason === 'name_conflict' ? error.conflict(c, 'A file with this name already exists') : error.notFound(c, 'Board', board.id);
-    }
-    const changes = { name: { old: board.name, new: result.board.name } };
-    publishEntityEvent({ c, entityType: 'file', entityId: result.board.fileId, action: 'updated', data: fileEventData(result.board), changes });
-    publishEntityEvent({ c, entityType: 'board', entityId: result.board.id, action: 'updated', data: eventData(result.board), changes });
-    board = result.board;
-  }
-  let revision = board.revision;
-  if (elements) {
-    const { board: content } = await liveBoard(c, board);
-    const op = legacyWriteOps(content, elements);
-    if (!isNoop(op)) {
-      const result = await commit(c, board, op);
-      if (!result.committed) return error.badRequest(c, `The change was refused: ${result.refused ?? 'unknown reason'}`);
-      revision = result.revision;
-    }
-  }
+  const board = name !== undefined && name !== target.name ? await renameBoard(c, target, name) : target;
+  if (board instanceof Response) return board;
+  const revision = elements ? await writeLegacyElements(c, board, elements) : board.revision;
+  if (revision instanceof Response) return revision;
   const { board: after } = await liveBoard(c, board);
   return success(c, { ...brief({ ...board, revision }, found.role), row: legacyRow({ ...board, revision }, toLegacyElements(after)) });
 });

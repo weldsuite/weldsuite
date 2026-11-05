@@ -173,6 +173,12 @@ export type BoardScope =
 const MAX_PROJECT_WINDOW = 2000;
 
 /** Boards not in the trash, most recently changed first. `visible` narrows them to what the caller may see. */
+/** Ids in descending order, compared by code unit (the tie-break after `updatedAt`). */
+function idsDescending(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? 1 : -1;
+}
+
 export async function listBoards(
   db: Database,
   params: { scope: BoardScope; visible?: SQL; search?: string; limit: number; offset: number },
@@ -212,7 +218,7 @@ export async function listBoards(
     db.select({ total: sql<number>`count(*)::int` }).from(projectWhiteboards).where(legacyWhere),
   ]);
   const merged: BoardRecord[] = [...rows.map(toRecord), ...legacy.map(legacyRecord)].sort(
-    (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || idsDescending(a.id, b.id),
   );
   return { rows: merged.slice(params.offset, params.offset + params.limit), total: (counted?.total ?? 0) + (legacyCounted?.total ?? 0) };
 }
