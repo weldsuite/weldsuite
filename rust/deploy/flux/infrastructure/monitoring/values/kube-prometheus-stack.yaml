@@ -1,0 +1,82 @@
+# Prometheus for Lens's CPU, memory and disk charts (Lens: the cluster's
+# Metrics settings, "Prometheus Operator", monitoring/kube-prometheus-stack-
+# prometheus:9090). Lens needs the kubelet (pods), the node exporter (nodes)
+# and kube-state-metrics (which pod runs on which node), so only those are
+# scraped, kept three days, without alerting or Grafana.
+defaultRules:
+  create: false
+alertmanager:
+  enabled: false
+grafana:
+  enabled: false
+# Talos binds these to localhost (or doesn't run them as pods), and the API
+# server and CoreDNS series are most of what a scrape would cost.
+kubeApiServer:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+coreDns:
+  enabled: false
+kubeDns:
+  enabled: false
+# The chart skips verifying the kubelet, whose certificate kubeadm signs
+# itself; here the cluster CA signs it (../controllers/kubelet-serving-cert-
+# approver.yaml), so check it.
+kubelet:
+  serviceMonitor:
+    tlsConfig:
+      insecureSkipVerify: false
+      ca:
+        configMap:
+          name: kube-root-ca.crt
+          key: ca.crt
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 30s
+    retention: 3d
+    retentionSize: 4GB
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        memory: 1536Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: openebs-hostpath
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
