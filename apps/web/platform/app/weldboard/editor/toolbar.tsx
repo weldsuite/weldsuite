@@ -5,6 +5,7 @@ import {
   Hand,
   Highlighter,
   ImagePlus,
+  Paperclip,
   LayoutTemplate,
   MessageSquarePlus,
   MousePointer2,
@@ -41,12 +42,14 @@ export function ShapeIcon({ kind, className }: { kind: ShapeKind; className?: st
 interface ToolbarProps {
   controller: BoardController;
   onImage: () => void;
+  /** Adds a file card (where files can be stored). */
+  onFile?: () => void;
   onTemplates: () => void;
   onRecords?: () => void;
   onAi?: () => void;
 }
 
-export function Toolbar({ controller: c, onImage, onTemplates, onRecords, onAi }: ToolbarProps) {
+export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords, onAi }: ToolbarProps) {
   const { t } = useI18n();
   const tt = t.weldboard.editor.tools;
   const ts = t.weldboard.editor.shapes;
@@ -149,6 +152,11 @@ export function Toolbar({ controller: c, onImage, onTemplates, onRecords, onAi }
           <BarButton label={tt.image} side="right" className={TOOL_BUTTON} onClick={onImage}>
             <ImagePlus />
           </BarButton>
+          {onFile && (
+            <BarButton label={tt.file} side="right" className={TOOL_BUTTON} onClick={onFile}>
+              <Paperclip />
+            </BarButton>
+          )}
           <Divider vertical={false} />
           <BarButton label={tt.templates} side="right" className={TOOL_BUTTON} onClick={onTemplates}>
             <LayoutTemplate />

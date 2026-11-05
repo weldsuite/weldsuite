@@ -10,6 +10,7 @@
  *   POST   /api/boards                → create (empty, from a snapshot, or a copy of another board)
  *   POST   /api/boards/import         → a new board from a file's content
  *   POST   /api/boards/convert        → an old WeldFlow whiteboard made a board, in place
+ *   POST   /api/boards/unfurl         → what a link card shows for an address (services/unfurl.ts)
  *   GET    /api/boards/:id            → one board (an old WeldFlow whiteboard says `legacy`)
  *   PATCH  /api/boards/:id            → rename, move, make a template or not
  *   DELETE /api/boards/:id            → move to the trash
@@ -37,6 +38,7 @@ import {
   createBoardSchema,
   importBoardSchema,
   listBoardsQuerySchema,
+  unfurlSchema,
   updateBoardSchema,
   type BoardSession,
   type BoardTemplateCategory,
@@ -59,6 +61,7 @@ import {
   type LiveBoardRecord,
 } from '../../services/boards';
 import { readThumbnail, writeSnapshot } from '../../room/snapshot';
+import { unfurl } from '../../services/unfurl';
 import { colorFor } from '../../room/people';
 import {
   VIEW_ONLY,
@@ -315,6 +318,11 @@ app.post('/convert', requirePermission('boards:read'), zValidator('json', conver
   const result = await convertInPlace(c, board, { clerkOrgId, userId });
   if (!result) return error.notFound(c, 'Board', whiteboardId);
   return success(c, toSummary(result.board, role, mayEdit), result.created ? 201 : 200);
+});
+
+/** A link card's preview. Never an error for a page that cannot be read: the card just shows the address. */
+app.post('/unfurl', requirePermission('boards:read'), zValidator('json', unfurlSchema), async (c) => {
+  return success(c, await unfurl(c.req.valid('json').url));
 });
 
 // ---------------------------------------------------------------------------

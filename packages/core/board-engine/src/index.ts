@@ -13,6 +13,7 @@ export { compareOrder, isOrderKey, keyBetween, keysBetween } from './model/order
 export * from './model/text';
 export * from './model/schema';
 export * from './model/defaults';
+export * from './model/style';
 
 export { applyOp } from './ops/apply';
 export { transform, runsLength } from './ops/transform';

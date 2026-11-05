@@ -14,11 +14,13 @@ import {
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import { ContextToolbar, type ContextActions } from './context-toolbar';
+import { CropDialog } from './crop-dialog';
 import { copyAsImage, exportBoard, type ExportFormat } from './export';
 import type { BoardController } from './model/board-controller';
 import { pasteFragment } from './model/clipboard';
 import { Interactions } from './model/interactions';
 import { setMark } from './model/text-editing';
+import { FindBar } from './find-bar';
 import { FramesPanel, Minimap, ShortcutsDialog, ZoomControls } from './navigation';
 import { PresentControls, usePresentation } from './present';
 import { buildTemplate, TemplatesDialog } from './templates-dialog';
@@ -34,6 +36,13 @@ export interface UploadedImage {
   name: string;
 }
 
+export interface UploadedFile {
+  src: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
 export interface BoardEditorProps {
   controller: BoardController;
   name: string;
@@ -44,6 +53,8 @@ export interface BoardEditorProps {
   loadImage: (src: string) => Promise<string | null>;
   /** Stores an image file and returns its source (WeldDrive in a workspace, inline in the preview). */
   uploadImage: (file: File) => Promise<UploadedImage | null>;
+  /** Stores any other file for a file card; absent where files cannot be stored (the preview). */
+  uploadFile?: (file: File) => Promise<UploadedFile | null>;
   /** A link card's preview, when the backend can fetch one. */
   unfurl?: (url: string) => Promise<{ title: string | null; description: string | null; image: string | null; siteName: string | null } | null>;
   /** Left of the share button: peers, the presenting banner. */
@@ -95,6 +106,9 @@ export function BoardEditor(props: BoardEditorProps) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const imagePicker = useRef<HTMLInputElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+  const [finding, setFinding] = useState(false);
+  const [cropping, setCropping] = useState<string | null>(null);
   const imageAt = useRef<Point | null>(null);
   const presentation = usePresentation(c);
   const propsRef = useRef(props);
@@ -103,6 +117,13 @@ export function BoardEditor(props: BoardEditorProps) {
   useEffect(() => {
     ia.onRenameFrame = (id) => setRenaming(id);
     ia.onComment = (id) => propsRef.current.onComment?.(id);
+    ia.onOpen = (el) => {
+      if (el.type === 'link' && el.link && /^(https?:|mailto:)/i.test(el.link)) {
+        window.open(el.link, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (el.src) void propsRef.current.loadImage(el.src).then((url) => url && window.open(url, '_blank', 'noopener,noreferrer'));
+    };
     propsRef.current.onInteractions?.(ia);
   }, [ia]);
 
@@ -120,11 +141,49 @@ export function BoardEditor(props: BoardEditorProps) {
     else c.setCamera({ x: -c.viewport.width / 2, y: -c.viewport.height / 2, zoom: 1 }, true);
   });
 
+  /** A file card for a file that is not an image (where files can be stored). */
+  const insertFileCard = async (file: File, at: Point): Promise<boolean> => {
+    const upload = props.uploadFile;
+    if (!upload) {
+      toast.error(format(te.image.notImage, { name: file.name }));
+      return false;
+    }
+    const pending = toast.loading(format(te.image.uploading, { name: file.name }));
+    try {
+      const stored = await upload(file);
+      toast.dismiss(pending);
+      if (!stored) {
+        toast.error(format(te.image.failed, { name: file.name }));
+        return false;
+      }
+      const el: BoardElement = {
+        id: newId(),
+        type: 'file',
+        order: keyBetween(c.board.topOrder(null), null),
+        x: at.x - 160,
+        y: at.y - 44,
+        w: 320,
+        h: 88,
+        src: stored.src,
+        fileName: stored.name.slice(0, 500) || 'file',
+        mime: stored.mime.slice(0, 200),
+        size: stored.size,
+        createdBy: c.options.userId,
+        createdAt: Date.now(),
+      };
+      return c.apply({ type: 'create', elements: [el] }, { select: [el.id] });
+    } catch {
+      toast.dismiss(pending);
+      toast.error(format(te.image.failed, { name: file.name }));
+      return false;
+    }
+  };
+
   const insertImages = async (files: File[], at: Point) => {
     let offset = 0;
     for (const file of files) {
-      if (!file.type.startsWith('image/')) {
-        toast.error(format(te.image.notImage, { name: file.name }));
+      if (!file.type.startsWith('image/') || file.type === 'image/tiff' || file.type === 'image/heic') {
+        if (await insertFileCard(file, { x: at.x + offset, y: at.y + offset })) offset += 24;
         continue;
       }
       const pending = toast.loading(format(te.image.uploading, { name: file.name }));
@@ -227,6 +286,7 @@ export function BoardEditor(props: BoardEditorProps) {
     onRenameFrame: (id) => setRenaming(id),
     onPresentFrom: (id) => present(id),
     onExportSelection: () => void doExport('png', new Set(c.selection)),
+    onCrop: (id) => setCropping(id),
     onAltText: (id) => {
       const alt = window.prompt(te.actions.altTextPrompt, c.board.get(id)?.alt ?? '');
       if (alt !== null) c.apply({ type: 'set', id, patch: { alt: alt.slice(0, 1000) || null } });
@@ -245,7 +305,7 @@ export function BoardEditor(props: BoardEditorProps) {
           recordVersion={props.recordVersion}
           onFiles={(files, at) => void insertImages(files, at)}
           onPasteUrl={(url, at) => void pasteUrl(url, at)}
-          keyActions={{ openShortcuts: () => setShortcuts(true), openLink, togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
+          keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
           votes={props.votes}
           commentCounts={props.commentCounts}
           activeComment={props.activeComment}
@@ -353,6 +413,11 @@ export function BoardEditor(props: BoardEditorProps) {
         </div>
 
         {props.banner && <div className="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center">{props.banner}</div>}
+        {finding && (
+          <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
+            <FindBar controller={c} onClose={() => setFinding(false)} />
+          </div>
+        )}
 
         {/* Left: tools */}
         {!presentation.presenting && (
@@ -360,13 +425,28 @@ export function BoardEditor(props: BoardEditorProps) {
             <Toolbar controller={c} onImage={() => {
               imageAt.current = c.center();
               imagePicker.current?.click();
-            }} onTemplates={() => setTemplates(true)} onRecords={props.onRecords} onAi={props.onAi} />
+            }} onFile={props.uploadFile ? () => {
+              imageAt.current = c.center();
+              filePicker.current?.click();
+            } : undefined} onTemplates={() => setTemplates(true)} onRecords={props.onRecords} onAi={props.onAi} />
           </div>
         )}
         <input
           ref={imagePicker}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = '';
+            if (files.length) void insertImages(files, imageAt.current ?? c.center());
+          }}
+        />
+
+        <input
+          ref={filePicker}
+          type="file"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -417,6 +497,7 @@ export function BoardEditor(props: BoardEditorProps) {
       </div>
       <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
       <TemplatesDialog open={templates} onOpenChange={setTemplates} onPick={pickTemplate} />
+      <CropDialog controller={c} element={cropping ? (c.board.get(cropping) ?? null) : null} loadImage={props.loadImage} onClose={() => setCropping(null)} />
     </TooltipProvider>
   );
 }

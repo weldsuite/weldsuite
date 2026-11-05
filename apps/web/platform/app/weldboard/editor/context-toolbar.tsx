@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
 import { toScreen } from './model/camera';
 import { duplicateSelection } from './model/clipboard';
+import { copyStyle, pasteStyle } from './model/style';
 import { hasMark, setMark, toggleMark } from './model/text-editing';
 import { ShapeIcon } from './toolbar';
 import { BarButton, BarPopover, Divider, Swatches } from './ui';
@@ -62,6 +63,7 @@ export interface ContextActions {
   onExportSelection?: () => void;
   onRenameFrame?: (id: string) => void;
   onAltText?: (id: string) => void;
+  onCrop?: (id: string) => void;
 }
 
 const FONT_SIZES: { label: string; size: number | null }[] = [
@@ -293,7 +295,10 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
               {single?.type === 'frame' && actions.onPresentFrom && <DropdownMenuItem onSelect={() => actions.onPresentFrom!(single.id)}>{ta.presentFromHere}</DropdownMenuItem>}
               {single?.type === 'record' && actions.onOpenRecord && <DropdownMenuItem onSelect={() => actions.onOpenRecord!(single)}>{ta.openRecord}</DropdownMenuItem>}
               {single?.type === 'image' && actions.onAltText && <DropdownMenuItem onSelect={() => actions.onAltText!(single.id)}>{ta.altText}</DropdownMenuItem>}
+              {single?.type === 'image' && actions.onCrop && !single.locked && <DropdownMenuItem onSelect={() => actions.onCrop!(single.id)}>{ta.crop}</DropdownMenuItem>}
               {single?.type === 'image' && single.crop && <DropdownMenuItem onSelect={() => setAll(c, [single], { crop: null })}>{ta.resetCrop}</DropdownMenuItem>}
+              <DropdownMenuItem onSelect={() => copyStyle(c)}>{ta.copyStyle}</DropdownMenuItem>
+              {c.copiedStyle && <DropdownMenuItem onSelect={() => pasteStyle(c)}>{ta.pasteStyle}</DropdownMenuItem>}
               {single && single.type !== 'connector' && single.type !== 'pen' && (
                 <DropdownMenuItem onSelect={() => setAll(c, [single], { rotation: (((single.rotation ?? 0) + Math.PI / 2 + Math.PI) % (Math.PI * 2)) - Math.PI })}>{ta.rotate}</DropdownMenuItem>
               )}

@@ -25,6 +25,7 @@ import {
   type BoardElement,
   type BoardPeer,
   type BoardPresence,
+  type ElementStyle,
   type Guide,
   type Op,
   type Point,
@@ -109,6 +110,8 @@ export class BoardController {
   cursor: Point | null = null;
   /** Show who wrote each sticky. */
   showAuthors = false;
+  /** The style the style painter holds (copy style), or null. */
+  copiedStyle: ElementStyle | null = null;
   showGrid = true;
   /** Names by user id, for authors, assignees and peers. */
   names = new Map<string, string>();

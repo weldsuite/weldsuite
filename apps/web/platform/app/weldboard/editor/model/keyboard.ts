@@ -7,6 +7,7 @@ import { alignOps, groupOps, moveOps, newId, stackOps, ungroupOps } from '@welds
 import type { BoardController } from './board-controller';
 import { nextZoom } from './camera';
 import { duplicateSelection } from './clipboard';
+import { copyStyle, pasteStyle } from './style';
 import type { Interactions } from './interactions';
 import { deleteBackward, deleteForward, insertText, moveCaret, selectAllText, toggleMark } from './text-editing';
 import { TOOL_KEYS } from './tools';
@@ -25,6 +26,7 @@ export interface KeyActions {
   openShortcuts?: () => void;
   openLink?: () => void;
   togglePresent?: () => void;
+  openFind?: () => void;
 }
 
 /** Keys while editing text. */
@@ -144,6 +146,13 @@ export function handleKey(c: BoardController, ia: Interactions, k: KeyInfo, acti
       case 'k':
         actions.openLink?.();
         return true;
+      case 'f':
+        actions.openFind?.();
+        return true;
+      case 'p':
+        if (!k.alt) return false;
+        pasteStyle(c);
+        return true;
       case ']':
         c.apply(stackOps(c.board, c.selection, 'front'));
         return true;
@@ -161,6 +170,11 @@ export function handleKey(c: BoardController, ia: Interactions, k: KeyInfo, acti
         c.zoomTo(1);
         return true;
       case 'c':
+        if (k.alt) {
+          copyStyle(c);
+          return true;
+        }
+        return false;
       case 'x':
       case 'v':
         return false;

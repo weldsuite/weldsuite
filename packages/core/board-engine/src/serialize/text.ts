@@ -67,3 +67,30 @@ export function boardOutline(board: Board, limit = 500): { id: string; type: str
   }
   return out;
 }
+
+/** Lower case, without accents, for matching what people type against what is on the board. */
+function fold(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * Elements whose text contains `query` (any case, accents ignored), in
+ * reading order: frames before what they hold, then rows top to bottom.
+ * Find on the board walks these.
+ */
+export function findOnBoard(board: Board, query: string, limit = 1000): string[] {
+  const needle = fold(query.trim());
+  if (!needle) return [];
+  const map = board.childrenMap();
+  const out: string[] = [];
+  const visit = (parent: string | null) => {
+    const kids = [...(map.get(parent) ?? [])].map((e) => board.get(e.id)!).filter(Boolean).sort(readingOrder);
+    for (const el of kids) {
+      if (out.length >= limit) return;
+      if (el.type !== 'group' && fold(elementText(el)).includes(needle)) out.push(el.id);
+      if (el.type === 'frame' || el.type === 'group') visit(el.id);
+    }
+  };
+  visit(null);
+  return out;
+}

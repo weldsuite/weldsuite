@@ -17,7 +17,7 @@ import { BoardConnection } from '../collab/board-connection';
 import { BoardEditor, type BoardEditorProps, type BoardStatus } from '../editor/board-editor';
 import { BoardController } from '../editor/model/board-controller';
 import { boardsQueryKey, useBoardMutations } from '../store/use-board-store';
-import { useImageLoader, useUploadImage } from '../use-board-files';
+import { useImageLoader, useUploadFile, useUploadImage } from '../use-board-files';
 import { BackLink, MissingBoard } from './board-chrome';
 import { FollowBanner, PeerAvatars } from './peer-avatars';
 
@@ -57,6 +57,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
   const { rename } = useBoardMutations();
   const loadImage = useImageLoader();
   const uploadImage = useUploadImage();
+  const uploadFile = useUploadFile();
   const { user } = useUser();
   const [controller, setController] = useState<BoardController | null>(null);
   const [gone, setGone] = useState(false);
@@ -222,6 +223,7 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
         onRename={onRename}
         loadImage={loadImage}
         uploadImage={uploadImage}
+        uploadFile={uploadFile}
         unfurl={async (url) => (await boardsApi.current.unfurl({ url })).data}
         headerExtra={<PeerAvatars controller={controller} peers={peers} />}
         banner={<FollowBanner controller={controller} peers={peers} />}

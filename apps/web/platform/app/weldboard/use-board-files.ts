@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { getAppApiUrl } from '@/lib/api/public-env';
-import type { UploadedImage } from './editor/board-editor';
+import type { UploadedFile, UploadedImage } from './editor/board-editor';
 
 const WEB_IMAGES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -55,6 +55,27 @@ export function useUploadImage(): (file: File) => Promise<UploadedImage | null> 
     },
     [preview, uploadFile],
   );
+}
+
+/** Largest file a file card holds. */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Stores any file for a file card (WeldDrive storage). Null in the signed-out
+ * preview, which keeps its content in the browser: only images fit there.
+ */
+export function useUploadFile(): ((file: File) => Promise<UploadedFile | null>) | undefined {
+  const preview = usePreviewMode();
+  const { uploadFile } = useFileUpload({ folder: 'weldboard', maxFileSize: MAX_FILE_BYTES });
+  const upload = useCallback(
+    async (file: File) => {
+      if (file.size > MAX_FILE_BYTES) return null;
+      const uploaded = await uploadFile(file);
+      return uploaded?.url ? { src: uploaded.url, name: file.name, mime: file.type || 'application/octet-stream', size: file.size } : null;
+    },
+    [uploadFile],
+  );
+  return preview ? undefined : upload;
 }
 
 /** A private WeldDrive address on app-api itself. */

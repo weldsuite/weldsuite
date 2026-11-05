@@ -24,7 +24,8 @@ import { validateOp } from './ops/validate';
 import { fragmentFromText, fragmentToText, makeFragment, placeFragment } from './serialize/fragment';
 import { fromExcalidraw, parseCells, stickiesFromText } from './serialize/import';
 import { isWellFormedSnapshot } from './serialize/snapshot';
-import { boardToPlainText } from './serialize/text';
+import { boardToPlainText, findOnBoard } from './serialize/text';
+import { pasteStyleOps, styleOf } from './model/style';
 import { BUILT_IN_TEMPLATES } from './templates';
 import { caretRect, layoutText, offsetAt } from './text/layout';
 import { counterIds, randomOp, rng } from './test-support';
@@ -407,5 +408,40 @@ describe('fragments, imports, templates, export', () => {
     expect(svg.startsWith('<svg')).toBe(true);
     expect(svg).toContain('Ideas &amp; &lt;plans&gt;');
     expect(boardToPlainText(board)).toContain('Ship it');
+  });
+});
+
+describe('copy style and find', () => {
+  it("puts one element's look on others, only where their type takes it", () => {
+    const board = Board.create();
+    const sticky = { ...makeSticky(0, 0, {}, { id: 's', text: 'A' }), fill: '#bbf7d0', fontSize: 30, textColor: '#111111' };
+    const shape = makeShape('rectangle', 300, 0, 100, 100, {}, { id: 'r' });
+    const line = makeConnector({ x: 0, y: 300 }, { x: 200, y: 300 }, {}, { id: 'c' });
+    applyOp(board, { type: 'create', elements: [sticky, shape, line, { ...makeSticky(600, 0, {}, { id: 'l' }), locked: true }] });
+    const style = styleOf(board.get('s')!);
+    expect(style).toMatchObject({ fill: '#bbf7d0', fontSize: 30, textColor: '#111111' });
+    const op = pasteStyleOps(board, ['r', 'c', 'l', 'gone'], style);
+    applyOp(board, op);
+    expect(board.get('r')).toMatchObject({ fill: '#bbf7d0', fontSize: 30, textColor: '#111111' });
+    // A connector has no fill, and a locked sticky keeps its look.
+    expect(board.get('c')!.fill).toBeUndefined();
+    expect(board.get('l')!.fill).not.toBe('#bbf7d0');
+    expect(isWellFormedOp(op)).toBe(true);
+  });
+
+  it('finds text in reading order, any case and without accents', () => {
+    const board = Board.create();
+    applyOp(board, {
+      type: 'create',
+      elements: [
+        makeFrame(0, 0, 600, 400, 'Café plans', {}, { id: 'f' }),
+        makeSticky(20, 200, { parent: 'f' }, { id: 'lower', text: 'Second cafe idea' }),
+        makeSticky(20, 20, { parent: 'f' }, { id: 'upper', text: 'First CAFÉ idea' }),
+        makeSticky(900, 0, {}, { id: 'other', text: 'Nothing here' }),
+      ],
+    });
+    expect(findOnBoard(board, 'cafe')).toEqual(['f', 'upper', 'lower']);
+    expect(findOnBoard(board, '  ')).toEqual([]);
+    expect(findOnBoard(board, 'cafe', 2)).toHaveLength(2);
   });
 });

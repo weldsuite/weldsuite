@@ -215,8 +215,8 @@ export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenC
   const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
   const groups: [string, [string, string[]][]][] = [
     [ts.tools, [[i.select, ['V']], [i.hand, ['H']], [i.sticky, ['N']], [i.shape, ['S']], [i.text, ['T']], [i.connector, ['L']], [i.pen, ['P']], [i.eraser, ['E']], [i.frame, ['F']], [i.comment, ['C']], [i.mindmap, ['M']]]],
-    [ts.editing, [[i.undo, [mod, 'Z']], [i.redo, [mod, 'Shift', 'Z']], [i.duplicate, [mod, 'D']], [i.group, [mod, 'G']], [i.ungroup, [mod, 'Shift', 'G']], [i.lock, [mod, 'L']], [i.delete, ['Del']], [i.nudge, ['←↑→↓']], [i.front, [mod, '] / [']], [i.forward, ['] / [']], [i.multi, ['Shift', 'click']], [i.dragCopy, ['Alt', 'drag']], [i.noSnap, ['Alt']], [i.square, ['Shift']], [i.child, ['Tab / Enter']]]],
-    [ts.view, [[i.pan, ['Space', 'drag']], [i.zoom, [mod, 'scroll']], [i.fit, ['Shift', '1']], [i.zoomSelection, ['Shift', '2']], [i.present, ['F5']]]],
+    [ts.editing, [[i.undo, [mod, 'Z']], [i.redo, [mod, 'Shift', 'Z']], [i.duplicate, [mod, 'D']], [i.group, [mod, 'G']], [i.ungroup, [mod, 'Shift', 'G']], [i.lock, [mod, 'L']], [i.delete, ['Del']], [i.nudge, ['←↑→↓']], [i.front, [mod, '] / [']], [i.forward, ['] / [']], [i.multi, ['Shift', 'click']], [i.dragCopy, ['Alt', 'drag']], [i.noSnap, ['Alt']], [i.square, ['Shift']], [i.child, ['Tab / Enter']], [i.copyStyle, [mod, 'Alt', 'C']], [i.pasteStyle, [mod, 'Alt', 'P']]]],
+    [ts.view, [[i.pan, ['Space', 'drag']], [i.zoom, [mod, 'scroll']], [i.fit, ['Shift', '1']], [i.zoomSelection, ['Shift', '2']], [i.present, ['F5']], [i.find, [mod, 'F']]]],
     [ts.text, [[i.edit, ['Enter']], [i.finish, ['Esc']], [i.bold, [mod, 'B']], [i.italic, [mod, 'I']], [i.underline, [mod, 'U']]]],
   ];
   return (

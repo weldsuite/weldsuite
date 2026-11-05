@@ -187,6 +187,8 @@ export class Interactions {
   onComment: ((id: string) => void) | null = null;
   /** Called when the person double-clicks a frame's title. */
   onRenameFrame: ((id: string) => void) | null = null;
+  /** Opens what a file, link or image card points at (double-click). */
+  onOpen: ((el: BoardElement) => void) | null = null;
   /** Called to pick an image for the image tool. */
   onPickImage: ((at: Point) => void) | null = null;
 
@@ -642,6 +644,10 @@ export class Interactions {
     }
     if (hit.type === 'frame' && hit.y > p.y) {
       this.onRenameFrame?.(hit.id);
+      return;
+    }
+    if ((hit.type === 'file' && hit.src) || (hit.type === 'link' && hit.link)) {
+      this.onOpen?.(hit);
       return;
     }
     // Inside a group: the first double-click selects the element itself.
