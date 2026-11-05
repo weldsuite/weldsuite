@@ -558,6 +558,7 @@ export const weldboard = {
       loading: 'Loading the preview…',
     },
     records: {
+      all: 'All',
       title: 'Add WeldSuite records',
       search: 'Search',
       kinds: {

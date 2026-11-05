@@ -19,6 +19,7 @@ import { BoardController } from '../editor/model/board-controller';
 import { boardsQueryKey, useBoardMutations } from '../store/use-board-store';
 import { useImageLoader, useUploadFile, useUploadImage } from '../use-board-files';
 import { BackLink, MissingBoard } from './board-chrome';
+import { useRecordViews } from './records';
 import { FollowBanner, PeerAvatars } from './peer-avatars';
 
 /** How often, at most, this person's pointer and view go out to the others. */
@@ -37,7 +38,7 @@ export interface LiveBoardProps {
   /** Breadcrumbs above the board, given its name (a project's pages set their own). */
   breadcrumbs?: (name: string) => { label: string; href?: string }[];
   /** Panels and controls the later parts of WeldBoard add (comments, versions, facilitation). */
-  extend?: (c: BoardController, ctx: { boardId: string; mode: BoardSessionMode; name: string; peers: BoardPeer[] }) => Partial<BoardEditorProps> & { menuExtra?: ReactNode };
+  extend?: (c: BoardController, ctx: { boardId: string; projectId: string | null; mode: BoardSessionMode; name: string; peers: BoardPeer[] }) => Partial<BoardEditorProps> & { menuExtra?: ReactNode };
 }
 
 /**
@@ -183,7 +184,9 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
 
   useBreadcrumbs(breadcrumbs ? breadcrumbs(name || tw.home.untitled) : [{ label: tw.breadcrumb.home, href: '/weldboard' }, { label: name || tw.home.untitled }], { enabled: !!controller });
 
-  const extension = useMemo(() => (controller && extend ? extend(controller, { boardId, mode, name, peers }) : {}), [controller, extend, boardId, mode, name, peers]);
+  const projectId = record.data?.projectId ?? null;
+  const extension = useMemo(() => (controller && extend ? extend(controller, { boardId, projectId, mode, name, peers }) : {}), [controller, extend, boardId, projectId, mode, name, peers]);
+  const records = useRecordViews(controller, boardId);
 
   const missing = gone || (isApiError(record.error) && (record.error.status === 404 || record.error.status === 403));
   if (missing) return <MissingBoard message={controller ? tw.editor.removed : tw.home.notFound} backTo={backTo} />;
@@ -229,12 +232,15 @@ export function LiveBoard({ boardId, backTo = '/weldboard', backLabel, breadcrum
         banner={<FollowBanner controller={controller} peers={peers} />}
         onShare={fileId && !record.data?.projectId ? () => setShareTarget({ kind: 'item', fileId, name: name || tw.home.untitled, link }) : undefined}
         back={<BackLink to={backTo} label={backLabel ?? tw.home.backHome} />}
+        record={records.record}
+        recordVersion={records.version}
+        {...extension}
         context={{
           onCopyLink: (id) => {
             void navigator.clipboard.writeText(`${link}?el=${encodeURIComponent(id)}`).then(() => toast.success(tw.editor.actions.linkCopied));
           },
+          ...extension.context,
         }}
-        {...extension}
       />
       <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
     </>

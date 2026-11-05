@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
-import { boardVersions, files, folders, projectMembers, projectWhiteboards, projects, whiteboards, workspaceMembers } from '@weldsuite/db/schema';
+import { boardVersions, files, folders, projectMembers, projectWhiteboards, projects, tasks, whiteboards, workspaceMembers } from '@weldsuite/db/schema';
 import { WELDBOARD_MIME_TYPE, type BoardSession, type BoardSummary, type BoardVersion } from '@weldsuite/app-api-client/schemas/boards';
 import { emptySnapshot, makeSticky, type BoardElement, type BoardSnapshot } from '@weldsuite/board-engine';
 import type { Env, Variables } from '../../types';
@@ -78,6 +78,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.delete(boardVersions);
+  await db.delete(tasks);
   await db.delete(whiteboards);
   await db.delete(projectWhiteboards);
   await db.delete(files);
@@ -290,6 +291,37 @@ describe('WeldFlow project boards', () => {
     await db.insert(projectWhiteboards).values({ id: 'pwb_copy', projectId: 'prj_a', name: 'Source', elements: [{ id: 'n1', type: 'sticky', x: 0, y: 0, width: 200, height: 200, text: 'Hi' }], createdAt: new Date(), updatedAt: new Date() });
     const copy = await create({ fromBoardId: 'pwb_copy', projectId: 'prj_a', name: 'Source (copy)' });
     expect((await snapshotOf(copy.id)).elements.map((e) => e.type)).toEqual(['sticky']);
+  });
+
+  it('makes stickies tasks in the project, with task cards in their place, and shows them on record cards', async () => {
+    const withTasks = [...ALL, 'tasks:create', 'tasks:read', 'projects:read'];
+    const snapshot: BoardSnapshot = { ...emptySnapshot(), elements: [makeSticky(0, 0, {}, { id: 'st1', text: 'Write the plan\nWith the numbers' }), makeSticky(300, 0, {}, { id: 'empty' })] };
+    const board = await create({ name: 'Planning', projectId: 'prj_a', snapshot });
+
+    // A project viewer may not; nor may someone without tasks:create.
+    expect((await app({ userId: BOB, keys: withTasks }).request(`/api/boards/${board.id}/tasks`, json('POST', { elementIds: ['st1'], projectId: 'prj_a' }))).status).toBe(403);
+    expect((await app().request(`/api/boards/${board.id}/tasks`, json('POST', { elementIds: ['st1'], projectId: 'prj_a' }))).status).toBe(403);
+    expect((await app({ keys: withTasks }).request(`/api/boards/${board.id}/tasks`, json('POST', { elementIds: ['empty'], projectId: 'prj_a' }))).status).toBe(400);
+
+    const res = await app({ keys: withTasks }).request(`/api/boards/${board.id}/tasks`, json('POST', { elementIds: ['st1', 'empty'], projectId: 'prj_a' }));
+    expect(res.status).toBe(201);
+    const { created } = ((await res.json()) as { data: { created: { elementId: string; taskId: string }[] } }).data;
+    expect(created.map((x) => x.elementId)).toEqual(['st1']);
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, created[0]!.taskId));
+    expect(task).toMatchObject({ title: 'Write the plan', description: 'With the numbers', projectId: 'prj_a' });
+
+    const after = await snapshotOf(board.id);
+    expect(after.elements.find((e) => e.id === 'st1')).toBeUndefined();
+    expect(after.elements.find((e) => e.type === 'record')?.record).toEqual({ kind: 'task', id: created[0]!.taskId });
+
+    const refs = { refs: [{ kind: 'task', id: created[0]!.taskId }, { kind: 'project', id: 'prj_a' }, { kind: 'ticket', id: 'tk_none' }] };
+    const views = ((await (await app({ keys: withTasks }).request('/api/boards/records', json('POST', refs))).json()) as { data: { views: Record<string, unknown> } }).data.views;
+    expect(views[`task:${created[0]!.taskId}`]).toMatchObject({ title: 'Write the plan', status: 'todo' });
+    expect(views['project:prj_a']).toMatchObject({ title: 'Project prj_a' });
+    expect(views['ticket:tk_none']).toBeNull();
+    // Not on the project: the cards show nothing of it.
+    const eves = ((await (await app({ userId: 'user_eve', keys: withTasks }).request('/api/boards/records', json('POST', refs))).json()) as { data: { views: Record<string, unknown> } }).data.views;
+    expect(Object.values(eves).every((v) => v === null)).toBe(true);
   });
 
   it('deletes an old whiteboard nobody opened, as WeldFlow did', async () => {

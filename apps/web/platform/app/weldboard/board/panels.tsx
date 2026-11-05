@@ -14,6 +14,7 @@ import type { Person } from '@/components/record-comments/comment-parts';
 import type { BoardController } from '../editor/model/board-controller';
 import { boardsQueryKey } from '../store/use-board-store';
 import { CommentsPanel } from './comments-panel';
+import { RecordsDialog, TasksDialog } from './records';
 
 export type PanelKind = 'comments' | 'versions';
 
@@ -21,11 +22,15 @@ interface PanelState {
   open: PanelKind | null;
   /** The comment pin the panel shows first (just placed, or clicked). */
   activeComment: string | null;
+  /** The records picker is open. */
+  records: boolean;
+  /** Elements being made tasks (the dialog is open), or null. */
+  tasks: string[] | null;
 }
 
 /** Which side panel a board shows, kept outside React so the board's callbacks can open one. */
 export class BoardPanels {
-  private state: PanelState = { open: null, activeComment: null };
+  private state: PanelState = { open: null, activeComment: null, records: false, tasks: null };
   private readonly listeners = new Set<() => void>();
 
   subscribe = (fn: () => void) => {
@@ -51,14 +56,27 @@ export class BoardPanels {
   close() {
     this.set({ open: null, activeComment: null });
   }
+
+  openRecords(open = true) {
+    this.set({ records: open });
+  }
+
+  openTasks(ids: string[] | null) {
+    this.set({ tasks: ids });
+  }
 }
 
 /** The board's right-hand panels: comments or version history. */
-export function SidePanels({ controller, boardId, people, panels, canEdit }: { controller: BoardController; boardId: string; people: Person[]; panels: BoardPanels; canEdit: boolean }) {
+export function SidePanels({ controller, boardId, projectId, people, panels, canEdit }: { controller: BoardController; boardId: string; projectId: string | null; people: Person[]; panels: BoardPanels; canEdit: boolean }) {
   const state = useSyncExternalStore(panels.subscribe, panels.get);
-  if (state.open === 'comments') return <CommentsPanel controller={controller} boardId={boardId} people={people} panels={panels} />;
-  if (state.open === 'versions') return <VersionsPanel boardId={boardId} canEdit={canEdit} onClose={() => panels.close()} />;
-  return null;
+  return (
+    <>
+      {state.open === 'comments' && <CommentsPanel controller={controller} boardId={boardId} people={people} panels={panels} />}
+      {state.open === 'versions' && <VersionsPanel boardId={boardId} canEdit={canEdit} onClose={() => panels.close()} />}
+      <RecordsDialog controller={controller} open={state.records} onOpenChange={(open) => panels.openRecords(open)} />
+      <TasksDialog boardId={boardId} elementIds={state.tasks} projectId={projectId} onOpenChange={(open) => !open && panels.openTasks(null)} />
+    </>
+  );
 }
 
 /** Board menu items that open the panels. */

@@ -29,6 +29,7 @@ const RECORD_NOUN: Record<SearchEntityType, string> = {
   task: 'task',
   domain: 'domain',
   sheet: 'spreadsheet',
+  board: 'board',
 };
 
 export interface TaggedRecord {

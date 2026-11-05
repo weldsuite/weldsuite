@@ -11,6 +11,8 @@
  *   POST   /api/boards/import         → a new board from a file's content
  *   POST   /api/boards/convert        → an old WeldFlow whiteboard made a board, in place
  *   POST   /api/boards/unfurl         → what a link card shows for an address (services/unfurl.ts)
+ *   POST   /api/boards/records        → what record cards show, for the records the caller may see
+ *   POST   /api/boards/:id/tasks      → stickies made WeldFlow tasks, and task cards in their place
  *   GET    /api/boards/:id            → one board (an old WeldFlow whiteboard says `legacy`)
  *   PATCH  /api/boards/:id            → rename, move, make a template or not
  *   DELETE /api/boards/:id            → move to the trash
@@ -25,7 +27,8 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { copySnapshot, convertLegacyWhiteboard, emptySnapshot, isWellFormedSnapshot, snapshotFromImport, Board, type BoardSnapshot } from '@weldsuite/board-engine';
+import { copySnapshot, convertLegacyWhiteboard, emptySnapshot, isWellFormedSnapshot, newId, snapshotFromImport, Board, type BoardElement, type BoardSnapshot, type Op } from '@weldsuite/board-engine';
+import { createTask } from '@weldsuite/flow-domain/tasks';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -38,7 +41,11 @@ import {
   createBoardSchema,
   importBoardSchema,
   listBoardsQuerySchema,
+  boardTasksSchema,
+  resolveBoardRecordsSchema,
   unfurlSchema,
+  type BoardRecordKind,
+  type BoardTasksResult,
   updateBoardSchema,
   type BoardSession,
   type BoardTemplateCategory,
@@ -62,10 +69,12 @@ import {
 } from '../../services/boards';
 import { readThumbnail, writeSnapshot } from '../../room/snapshot';
 import { unfurl } from '../../services/unfurl';
+import { RECORD_PERMISSION, resolveRecords } from '../../services/records';
 import { colorFor } from '../../room/people';
 import {
   VIEW_ONLY,
   driveRole,
+  editableBoard,
   eventData,
   fileEventData,
   findBoard,
@@ -323,6 +332,85 @@ app.post('/convert', requirePermission('boards:read'), zValidator('json', conver
 /** A link card's preview. Never an error for a page that cannot be read: the card just shows the address. */
 app.post('/unfurl', requirePermission('boards:read'), zValidator('json', unfurlSchema), async (c) => {
   return success(c, await unfurl(c.req.valid('json').url));
+});
+
+/** What record cards show: each record as far as the caller may see it (services/records.ts). */
+app.post('/records', requirePermission('boards:read'), zValidator('json', resolveBoardRecordsSchema), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c);
+  const kinds = new Set<BoardRecordKind>();
+  for (const [kind, permission] of Object.entries(RECORD_PERMISSION) as [BoardRecordKind, string][]) {
+    if (await hasContextPermission(c, permission)) kinds.add(kind);
+  }
+  const scopeAll = await hasContextPermission(c, 'projects:scope:all');
+  const views = await resolveRecords(c.get('tenantDb'), { userId, scopeAll, kinds }, c.req.valid('json').refs);
+  c.header('Cache-Control', 'private, no-store');
+  return success(c, { views });
+});
+
+/** The first line of an element's text as a task title, the rest as its description. */
+function taskFields(el: BoardElement): { title: string; description?: string } | null {
+  const text = (el.text?.text ?? el.title ?? '').trim();
+  if (!text) return null;
+  const [first, ...rest] = text.split('\n');
+  const description = rest.join('\n').trim();
+  return { title: first!.trim().slice(0, 500) || text.slice(0, 500), ...(description ? { description: description.slice(0, 10_000) } : {}) };
+}
+
+const TASKABLE = new Set<BoardElement['type']>(['sticky', 'card', 'shape', 'text']);
+
+/**
+ * Stickies (and cards, shapes, texts) made WeldFlow tasks in a project: one
+ * task per element, from its text, and a task card where the element was, so
+ * the board keeps showing it with the task's live title and status.
+ */
+app.post('/:id/tasks', requirePermission('boards:update'), zValidator('json', boardTasksSchema), async (c) => {
+  const userId = c.get('userId');
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!userId) return error.unauthorized(c);
+  if (!clerkOrgId) return error.orgRequired(c);
+  if (!(await hasContextPermission(c, 'tasks:create'))) return error.forbidden(c, 'You may not create tasks');
+  const board = await editableBoard(c);
+  if (board instanceof Response) return board;
+  const { elementIds, projectId } = c.req.valid('json');
+  const project = await writableProject(c, projectId);
+  if (project instanceof Response) return project;
+
+  const meta = roomMeta(board, clerkOrgId);
+  const room = roomFor(c, clerkOrgId, board);
+  const content = Board.fromSnapshot(JSON.parse((await room.snapshot(meta)).json) as BoardSnapshot);
+  const picked = [...new Set(elementIds)]
+    .map((id) => content.get(id))
+    .filter((el): el is BoardElement => !!el && TASKABLE.has(el.type) && !el.locked && taskFields(el) !== null);
+  if (picked.length === 0) return error.badRequest(c, 'None of these elements has text to make a task of');
+
+  const db = c.get('tenantDb');
+  const created: BoardTasksResult['created'] = [];
+  const ops: Op[] = [];
+  const now = Date.now();
+  for (const el of picked) {
+    const { row } = await createTask(db, taskFields(el)!, { projectId: project, userId });
+    publishEntityEvent({ c, entityType: 'task', entityId: row.id, action: 'created', data: { id: row.id, title: row.title, number: row.number, status: row.status, priority: row.priority, projectId: row.projectId, assigneeId: row.assigneeId } });
+    created.push({ elementId: el.id, taskId: row.id });
+    const card: BoardElement = {
+      id: newId(),
+      type: 'record',
+      order: el.order,
+      ...(el.parent ? { parent: el.parent } : {}),
+      x: el.x,
+      y: el.y,
+      w: Math.max(240, Math.min(el.w, 400)),
+      h: 96,
+      record: { kind: 'task', id: row.id },
+      createdBy: userId,
+      createdAt: now,
+    };
+    ops.push({ type: 'create', elements: [card] }, { type: 'delete', ids: [el.id] });
+  }
+  const result = await room.applyOps(meta, { type: 'batch', ops }, userId);
+  // The tasks stand even when the board changed meanwhile; the stickies then simply stay.
+  if (!result.committed) console.warn('[board-api/tasks] the task cards could not be placed:', result.refused);
+  return success(c, { created } satisfies BoardTasksResult, 201);
 });
 
 // ---------------------------------------------------------------------------

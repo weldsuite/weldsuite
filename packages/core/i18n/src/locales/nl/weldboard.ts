@@ -558,6 +558,7 @@ export const weldboard = {
       loading: 'Het voorbeeld laden…',
     },
     records: {
+      all: 'Alle',
       title: 'WeldSuite-records toevoegen',
       search: 'Zoeken',
       kinds: {

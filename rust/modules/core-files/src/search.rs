@@ -35,12 +35,13 @@ pub(crate) enum SearchType {
     Project,
     Task,
     Sheet,
+    Board,
     Domain,
 }
 
 /// Every type with the permission that lets a caller search it
 /// (`ENTITY_REGISTRY`), in canonical order.
-const REGISTRY: [(SearchType, &str, &str); 15] = [
+const REGISTRY: [(SearchType, &str, &str); 16] = [
     (SearchType::Contact, "contact", "contacts:read"),
     (SearchType::Customer, "customer", "contacts:read"),
     (SearchType::Lead, "lead", "leads:read"),
@@ -59,6 +60,7 @@ const REGISTRY: [(SearchType, &str, &str); 15] = [
     (SearchType::Project, "project", "projects:read"),
     (SearchType::Task, "task", "tasks:read"),
     (SearchType::Sheet, "sheet", "sheets:read"),
+    (SearchType::Board, "board", "boards:read"),
     (SearchType::Domain, "domain", "domains:read"),
 ];
 
@@ -119,6 +121,7 @@ pub(crate) fn build_result_url(
         SearchType::Project => format!("/weldflow/project/{id}"),
         SearchType::Task => format!("/weldflow/task/{id}"),
         SearchType::Sheet => format!("/weldsheets/{id}"),
+        SearchType::Board => format!("/weldboard/{id}"),
         SearchType::Domain => format!("/weldhost/domains/{id}"),
     }
 }
@@ -506,6 +509,7 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
             first(&[s("name")]).unwrap_or("Spreadsheet").to_owned(),
             None,
         ),
+        SearchType::Board => (first(&[s("name")]).unwrap_or("Board").to_owned(), None),
         SearchType::Domain => {
             let title = first(&[s("fullDomain")]).map_or_else(
                 || {
@@ -591,7 +595,8 @@ async fn search_rows(
         SearchType::Project => PROJECTS,
         SearchType::Domain => DOMAINS,
         SearchType::Task => return search_tasks(db, q, &term).await,
-        SearchType::Sheet => return search_sheets(db, q, limit, user_id).await,
+        SearchType::Sheet => return search_files(db, FileKind::Sheet, q, limit, user_id).await,
+        SearchType::Board => return search_files(db, FileKind::Board, q, limit, user_id).await,
     };
     let rows = fetch(db, sql, &term).await?;
     Ok(rows)
@@ -631,14 +636,35 @@ fn escape_like(text: &str) -> String {
     out
 }
 
-/// Spreadsheets, by the name of their Drive file, as far as the WeldDrive
-/// rules let `user_id` see them (`searchSheets`). Without a user, none.
-async fn search_sheets(
+/// The record tables that are Drive files, searched by their file's name.
+#[derive(Clone, Copy)]
+enum FileKind {
+    Sheet,
+    Board,
+}
+
+impl FileKind {
+    /// The table, joined to `files` as `f` on `s.file_id`.
+    fn table(self) -> &'static str {
+        match self {
+            Self::Sheet => "sheets",
+            Self::Board => "whiteboards",
+        }
+    }
+}
+
+/// Spreadsheets or boards, by the name of their Drive file, as far as the
+/// WeldDrive rules let `user_id` see them (`searchSheets`, `searchBoards`).
+/// Without a user, none.
+async fn search_files(
     db: &PgPool,
+    kind: FileKind,
     q: &str,
     limit: usize,
     user_id: Option<&str>,
 ) -> Result<Vec<Value>, sqlx::Error> {
+    // The table comes from the closed `FileKind` set, never from input.
+    let table = kind.table();
     let Some(user_id) = user_id else {
         return Ok(Vec::new());
     };
@@ -646,12 +672,12 @@ async fn search_sheets(
     let escaped = escape_like(&term);
     let contains = format!("%{escaped}%");
     let starts_with = format!("{escaped}%");
-    // Most keystrokes match no spreadsheet: skip the access rules until one does.
-    let candidate: Option<String> = sqlx::query_scalar(
-        "select s.id from sheets s join files f on f.id = s.file_id
+    // Most keystrokes match nothing: skip the access rules until a row does.
+    let candidate: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "select s.id from {table} s join files f on f.id = s.file_id
          where f.deleted_at is null and f.entity_type is null and lower(f.file_name) like $1
-         limit 1",
-    )
+         limit 1"
+    )))
     .bind(&contains)
     .fetch_optional(db)
     .await?;
@@ -659,7 +685,7 @@ async fn search_sheets(
         return Ok(Vec::new());
     }
     let access = load_drive_access_for_user(db, Some(user_id)).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
+    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select jsonb_build_object(
                 'row', jsonb_build_object('id', s.id, 'name', f.file_name),
                 'score', case when lower(f.file_name) = $1 then 1.0
@@ -668,13 +694,13 @@ async fn search_sheets(
                 'file', jsonb_build_object('id', f.id, 'uploadedById', f.uploaded_by_id,
                     'folderId', f.folder_id, 'generalAccess', f.general_access,
                     'entityType', f.entity_type))
-         from sheets s join files f on f.id = s.file_id
+         from {table} s join files f on f.id = s.file_id
          where f.deleted_at is null and f.entity_type is null and lower(f.file_name) like $3
          order by case when lower(f.file_name) = $1 then 1.0
                        when lower(f.file_name) like $2 then 0.9
                        when lower(f.file_name) like $3 then 0.6 else 0 end desc,
-                  greatest(s.updated_at, f.updated_at) desc, s.id desc",
-    )
+                  greatest(s.updated_at, f.updated_at) desc, s.id desc"
+    )))
     .bind(&term)
     .bind(&starts_with)
     .bind(&contains)

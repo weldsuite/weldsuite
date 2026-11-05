@@ -174,6 +174,8 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   // sheet
   sheet: 'sheet', sheets: 'sheet', spreadsheet: 'sheet', spreadsheets: 'sheet',
   rekenblad: 'sheet', rekenbladen: 'sheet',
+  // board
+  board: 'board', boards: 'board', whiteboard: 'board', whiteboards: 'board',
   // domain
   domain: 'domain', domains: 'domain', domein: 'domain', domeinen: 'domain',
 };

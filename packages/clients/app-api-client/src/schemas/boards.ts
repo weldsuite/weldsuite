@@ -206,6 +206,29 @@ export interface BoardAiResult {
   docId?: string;
 }
 
+// ---------------------------------------------------------------- records
+
+/** WeldSuite records a board can hold as cards (board-engine `RecordKind`). */
+export const BOARD_RECORD_KINDS = ['task', 'project', 'company', 'person', 'opportunity', 'ticket'] as const;
+export type BoardRecordKind = (typeof BOARD_RECORD_KINDS)[number];
+
+/** `POST /api/boards/records`: what the cards on a board show, as far as the caller may see each record. */
+export const resolveBoardRecordsSchema = z.object({
+  refs: z.array(z.object({ kind: z.enum(BOARD_RECORD_KINDS), id: z.string().min(1).max(255) })).min(1).max(500),
+});
+export type ResolveBoardRecordsInput = z.infer<typeof resolveBoardRecordsSchema>;
+
+export interface BoardRecordView {
+  title: string;
+  subtitle: string | null;
+  status: string | null;
+}
+
+export interface ResolveBoardRecordsResult {
+  /** By `kind:id`; null for a record the caller may not see, or that is gone. */
+  views: Record<string, BoardRecordView | null>;
+}
+
 // ---------------------------------------------------------------- tasks
 
 /** `POST /api/boards/:id/tasks`: turn stickies into WeldFlow tasks (they become task cards in place). */

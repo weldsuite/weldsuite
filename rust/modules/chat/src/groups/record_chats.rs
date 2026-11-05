@@ -728,7 +728,7 @@ fn read_send(issues: &mut Issues, body: &Map<String, Value>) -> PostInput {
 
 /// `extractChatMentions(content, extra)`: user and agent ids.
 fn extract_chat_mentions(content: &str, extra: &[String]) -> Vec<String> {
-    const SEARCH_ENTITY_TYPES: [&str; 14] = [
+    const SEARCH_ENTITY_TYPES: [&str; 15] = [
         "contact",
         "customer",
         "lead",
@@ -742,6 +742,7 @@ fn extract_chat_mentions(content: &str, extra: &[String]) -> Vec<String> {
         "project",
         "task",
         "sheet",
+        "board",
         "domain",
     ];
     let mut found: Vec<String> = extra.to_vec();

@@ -25,6 +25,8 @@ import type {
   ImportBoardInput,
   ListBoardVersionsQuery,
   ListBoardsQuery,
+  ResolveBoardRecordsInput,
+  ResolveBoardRecordsResult,
   UnfurlInput,
   UnfurlResult,
   UpdateBoardInput,
@@ -70,6 +72,10 @@ export function createBoardsApi(api: ClientApi) {
     },
     ai(id: string, input: BoardAiInput): Promise<DataResponse<BoardAiResult>> {
       return api.post(`${base}/${encodeURIComponent(id)}/ai`, input);
+    },
+    /** What record cards show, for the records the caller may see. */
+    records(input: ResolveBoardRecordsInput): Promise<DataResponse<ResolveBoardRecordsResult>> {
+      return api.post(`${base}/records`, input);
     },
     tasks(id: string, input: BoardTasksInput): Promise<DataResponse<BoardTasksResult>> {
       return api.post(`${base}/${encodeURIComponent(id)}/tasks`, input);

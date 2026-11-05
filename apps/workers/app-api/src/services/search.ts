@@ -162,6 +162,8 @@ export function buildResultUrl(
       return `/weldflow/task/${id}`;
     case 'sheet':
       return `/weldsheets/${id}`;
+    case 'board':
+      return `/weldboard/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
   }
@@ -1056,6 +1058,60 @@ export async function searchDomains(
   return { type: 'domain', items, totalCount: items.length, hasMore };
 }
 
+/**
+ * WeldBoard boards, matched on the name of their WeldDrive file, the same way
+ * as spreadsheets (`searchSheets`): not in the trash, of no module record (a
+ * WeldFlow project's boards follow the project), narrowed to what `userId`
+ * may see in WeldDrive; without a user nothing is returned.
+ */
+export async function searchBoards(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  userId: string | null,
+): Promise<SearchResultGroup> {
+  const none: SearchResultGroup = { type: 'board', items: [], totalCount: 0, hasMore: false };
+  if (!userId) return none;
+
+  const { whiteboards, files } = schema;
+  const term = q.toLowerCase();
+  const escaped = escapeLike(term);
+  const contains = `%${escaped}%`;
+  const startsWith = `${escaped}%`;
+  const nameMatches = and(isNull(files.deletedAt), isNull(files.entityType), sql`lower(${files.fileName}) LIKE ${contains}`);
+
+  const [candidate] = await db.select({ id: whiteboards.id }).from(whiteboards).innerJoin(files, eq(files.id, whiteboards.fileId)).where(nameMatches).limit(1);
+  if (!candidate) return none;
+
+  const access = await loadDriveAccessForUser(db, userId);
+  const score = sql<number>`CASE
+    WHEN lower(${files.fileName}) = ${term} THEN 1.0
+    WHEN lower(${files.fileName}) LIKE ${startsWith} THEN 0.9
+    WHEN lower(${files.fileName}) LIKE ${contains} THEN 0.6
+    ELSE 0
+  END`;
+  const changedAt = sql`greatest(${whiteboards.updatedAt}, ${files.updatedAt})`;
+  const rows = await db
+    .select({ id: whiteboards.id, name: files.fileName, score })
+    .from(whiteboards)
+    .innerJoin(files, eq(files.id, whiteboards.fileId))
+    .where(and(nameMatches, visibleFilesCondition(access)))
+    .orderBy(desc(score), desc(changedAt), desc(whiteboards.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type: 'board',
+    title: r.name || 'Board',
+    subtitle: null,
+    url: buildResultUrl('board', r.id),
+    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
+  }));
+  return { type: 'board', items, totalCount: items.length, hasMore };
+}
+
 // ============================================================================
 // Registry + Orchestrator
 // ============================================================================
@@ -1075,6 +1131,7 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'project', permission: 'projects:read', search: searchProjects },
   { type: 'task', permission: 'tasks:read', search: searchTasks },
   { type: 'sheet', permission: 'sheets:read', search: searchSheets },
+  { type: 'board', permission: 'boards:read', search: searchBoards },
   { type: 'domain', permission: 'domains:read', search: searchDomains },
 ];
 
