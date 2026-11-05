@@ -45,10 +45,9 @@ export const Default: Story = {
   ),
 };
 
-/** Field changes listed under each entry instead of behind "Details". */
-export const AlwaysShowChanges: Story = {
+/** Several field changes on one entry, one line per field. */
+export const MultipleChanges: Story = {
   args: {
-    alwaysShowChanges: true,
     logs: [
       {
         id: 'a',

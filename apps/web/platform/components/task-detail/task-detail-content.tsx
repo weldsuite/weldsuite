@@ -1898,11 +1898,7 @@ export function TaskDetailContent({
         <div className="-mx-4">
           {/* flow-api `/tasks` audits every task as `project_task`, with or
               without a project (CRM and personal tasks included). */}
-          <EntityAuditPanel
-            entityType="project_task"
-            entityId={taskId}
-            alwaysShowChanges
-          />
+          <EntityAuditPanel entityType="project_task" entityId={taskId} />
         </div>
       )}
 
