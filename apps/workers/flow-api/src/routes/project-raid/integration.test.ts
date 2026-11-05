@@ -957,3 +957,123 @@ describe('tasks outside the register', () => {
     expect(await softDeleteTaskTree(db, row.id)).toHaveLength(1);
   });
 });
+
+// ── Risk categories ─────────────────────────────────────────────────────────
+
+describe('risk categories', () => {
+  type Categories = { builtIn: Array<{ key: string; hidden: boolean }>; custom: Array<{ id: string; name: string }> };
+  const ADMIN_KEYS = [...FULL, 'portfolio:manage'];
+  const admin = () => as(MANAGER, ADMIN_KEYS);
+  const BUILT_IN = ['technical', 'schedule', 'budget', 'scope', 'resource', 'compliance', 'external'];
+
+  async function categoryOf(id: string) {
+    return (await getItem(id) as unknown as { category: string | null }).category;
+  }
+
+  it('answers every built-in and no custom category before anything is saved', async () => {
+    const res = await manager()('GET', '/categories');
+    expect(res.status).toBe(200);
+    expect(await data<Categories>(res)).toEqual({
+      builtIn: BUILT_IN.map((key) => ({ key, hidden: false })),
+      custom: [],
+    });
+  });
+
+  it('saves hidden built-ins and custom categories, and publishes the settings event', async () => {
+    const res = await admin()('PUT', '/categories', {
+      hidden: ['external', 'budget'],
+      custom: [{ name: '  Security ' }, { name: 'Vendr' }],
+    });
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+    const saved = await data<Categories>(res);
+    expect(saved.builtIn.filter((b) => b.hidden).map((b) => b.key)).toEqual(['budget', 'external']);
+    expect(saved.custom.map((c) => c.name)).toEqual(['Security', 'Vendr']);
+    for (const category of saved.custom) expect(category.id).toMatch(/^rcat_/);
+    expect(events()).toEqual([
+      {
+        entityType: 'flow_workspace_settings',
+        action: 'updated',
+        entityId: expect.stringMatching(/^fws_/),
+        // Each backend mints its own category ids (see `minted`).
+        data: {
+          id: expect.stringMatching(/^fws_/),
+          riskCategories: { ...saved, custom: saved.custom.map((category) => ({ ...category, id: minted(category.id) })) },
+        },
+      },
+    ]);
+
+    // Any project reader sees the list; it does not touch the intake settings.
+    expect(await data<Categories>(await as(VIEWER, ['projects:read'])('GET', '/categories'))).toEqual(saved);
+    const [row] = await db.select().from(schema.flowWorkspaceSettings);
+    expect(row?.scoringModel.length).toBeGreaterThan(0);
+  });
+
+  it('takes portfolio:manage and refuses a list it cannot store', async () => {
+    const current = await data<Categories>(await manager()('GET', '/categories'));
+    const keep = current.custom.map(({ id, name }) => ({ id, name }));
+
+    expect((await manager()('PUT', '/categories', { hidden: [], custom: [] })).status).toBe(403);
+
+    const refused = async (body: unknown) => {
+      const res = await admin()('PUT', '/categories', body);
+      expect(res.status).toBe(400);
+      return (await errorOf(res)).message;
+    };
+    expect(await refused({ hidden: [], custom: [...keep, { name: 'technical' }] })).toBe('"technical" is a built-in category');
+    expect(await refused({ hidden: [], custom: [...keep, { name: 'security' }] })).toBe('There are two categories called "security"');
+    expect(await refused({ hidden: [], custom: [{ id: 'rcat_missing', name: 'Ghost' }] })).toBe('Unknown category id: rcat_missing');
+    expect(await refused({ hidden: ['weather'], custom: [] })).toBe('Invalid request body');
+    expect(await refused({ hidden: [], custom: [{ name: '' }] })).toBe('Invalid request body');
+    expect(await refused({ hidden: [], custom: [], extra: true })).toBe('Invalid request body');
+
+    // Nothing changed.
+    expect(await data<Categories>(await manager()('GET', '/categories'))).toEqual(current);
+    expect(events()).toEqual([]);
+  });
+
+  it('renames a custom category on every item that carries it, swaps included', async () => {
+    await seedProject('prj_raid_cat');
+    const vendorRisk = await createItem('prj_raid_cat', risk('prj_raid_cat', { category: 'Vendr' }));
+    const vendorIssue = await createItem('prj_raid_cat', { kind: 'issue', title: 'Late parts', category: 'Vendr' });
+    const security = await createItem('prj_raid_cat', risk('prj_raid_cat', { category: 'Security' }));
+    const builtIn = await createItem('prj_raid_cat', risk('prj_raid_cat', { category: 'technical' }));
+
+    const current = await data<Categories>(await manager()('GET', '/categories'));
+    const id = (name: string) => current.custom.find((c) => c.name === name)!.id;
+
+    published.mockClear();
+    const res = await admin()('PUT', '/categories', {
+      hidden: [],
+      custom: [{ id: id('Security'), name: 'Security' }, { id: id('Vendr'), name: 'Vendor' }],
+    });
+    expect(res.status).toBe(200);
+    expect((await data<Categories>(res)).custom).toEqual([
+      { id: id('Security'), name: 'Security' },
+      { id: id('Vendr'), name: 'Vendor' },
+    ]);
+    expect(await categoryOf(vendorRisk.id)).toBe('Vendor');
+    expect(await categoryOf(vendorIssue.id)).toBe('Vendor');
+    expect(await categoryOf(security.id)).toBe('Security');
+    expect(await categoryOf(builtIn.id)).toBe('technical');
+    const renamedIds = [vendorRisk.id, vendorIssue.id].sort();
+    expect(actions()).toEqual(['flow_workspace_settings.updated', 'project_raid_item.updated', 'project_raid_item.updated']);
+    expect(events().slice(1).map((event) => event.entityId)).toEqual(renamedIds);
+
+    // Swapping two names in one save swaps them on the items too.
+    const swap = await admin()('PUT', '/categories', {
+      hidden: [],
+      custom: [{ id: id('Security'), name: 'Vendor' }, { id: id('Vendr'), name: 'Security' }],
+    });
+    expect(swap.status).toBe(200);
+    expect(await categoryOf(vendorRisk.id)).toBe('Security');
+    expect(await categoryOf(security.id)).toBe('Vendor');
+  });
+
+  it('leaves the items alone when a custom category is deleted', async () => {
+    const created = await createItem('prj_raid_cat', risk('prj_raid_cat', { category: 'Security' }));
+    const res = await admin()('PUT', '/categories', { hidden: [], custom: [] });
+    expect(res.status).toBe(200);
+    expect((await data<Categories>(res)).custom).toEqual([]);
+    expect(await categoryOf(created.id)).toBe('Security');
+  });
+});
