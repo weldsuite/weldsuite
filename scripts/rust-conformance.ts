@@ -7,6 +7,7 @@
  *   pnpm rust:conformance --changed BASE  only suites whose paths (or rust/) changed since BASE
  *   pnpm rust:conformance --shard 2/4     every fourth of the selected suites, from the second (CI)
  *   pnpm rust:conformance --suite merge   only the suites named (repeatable; a name or a `prefix:` like `connect:`)
+ *   pnpm rust:conformance --module board  only the suites of these modules (repeatable)
  *   pnpm rust:conformance --coverage apps/workers/know-api [...]
  *       run those workers' whole test suites on the Hono app in record-only
  *       mode and report which of their routes the tests reach (playbook step 1)
@@ -95,6 +96,8 @@ const shard = shardIndex >= 0 ? parseShard(args[shardIndex + 1]) : undefined;
 const suiteNames = args.flatMap((arg, i) => (arg === '--suite' && args[i + 1] ? [args[i + 1]!] : []));
 const namedSuite = (name: string) =>
   suiteNames.length === 0 || suiteNames.some((wanted) => name === wanted || (wanted.endsWith(':') && name.startsWith(wanted)));
+/** `--module id`, repeatable: only those modules' suites. */
+const onlyModules = new Set(args.flatMap((arg, i) => (arg === '--module' && args[i + 1] ? [args[i + 1]!] : [])));
 
 /** `--shard i/n`: the i-th of n slices of the selected suites, 1-based. */
 function parseShard(value: string | undefined): { index: number; count: number } {
@@ -125,6 +128,7 @@ function changedFiles(base: string): string[] {
 }
 
 function selectSuites(): Suite[] {
+  if (onlyModules.size > 0) return suites.filter((suite) => onlyModules.has(suite.module) && namedSuite(suite.name));
   const named = suites.filter((suite) => namedSuite(suite.name));
   if (!changedBase) return named;
   const changed = changedFiles(changedBase);

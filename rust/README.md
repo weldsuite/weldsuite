@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-five
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-six
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -192,6 +192,21 @@ modules, each with conformance suites that reach every route:
   refreshes run on the rooms' alarms. Not ported: `/internal/agent/*` (the
   `SheetsInternal` entrypoint the WeldAgent tools call from agent-api,
   chat-api and app-api), which waits for those workers' ports
+- **board** (WeldBoard: boards as WeldDrive files and WeldFlow project
+  whiteboards, the old `project_whiteboards` listed beside a project's boards
+  and converted in place on first open, templates, imports, room sessions,
+  the live snapshot, the SVG render and thumbnail, version history with
+  restore, record cards, stickies made WeldFlow tasks, and link previews
+  fetched through `PublicLinks`: public addresses only, each redirect
+  checked). Its rooms are the workers' own `BoardRoom` in the collab-rooms
+  service, and the work its routes do without a room is the board engine there
+  (`BOARD_ENGINE`, `apps/workers/board-api/src/engine-ops.ts`). The AI
+  actions answer 503 (`agent-ai` is unavailable and the editor hides them).
+  Not ported: `/internal/boards/*` (the `BoardsInternal` entrypoint the
+  WeldAgent tools and mcp-server call). `/v1/whiteboards` still serves
+  `project_whiteboards`; it is to move onto boards where WeldBoard is offered,
+  as on Global, since a whiteboard someone opens is converted and leaves that
+  table
 - **panel** (WeldPanel, product analytics, phase 1: projects with their
   token, settings, pausing, rotation and the install check at
   `/api/panel/projects`, kept in step with the master
@@ -380,8 +395,8 @@ renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-One follows the deployment rather than the code: `collab-rooms` (WeldDocs and
-WeldSheets, hidden altogether) when no collab-rooms service is configured
+One follows the deployment rather than the code: `collab-rooms` (WeldDocs,
+WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
 (`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
@@ -494,6 +509,8 @@ rust/
                         the collab-rooms service, apps/tools/collab-rooms);
                         modules/sheets (WeldSheets; its rooms and the sheets engine the same way,
                         connected tables' definitions checked against catalogs/sheet-data.json);
+                        modules/board (WeldBoard; its rooms and the board engine the same way,
+                        link previews on public addresses only);
 
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
@@ -503,7 +520,7 @@ rust/
                         dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
-  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs' and WeldSheets' rooms, apps/tools/collab-rooms)
+  deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs', WeldSheets' and WeldBoard's rooms, apps/tools/collab-rooms)
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
@@ -608,7 +625,7 @@ weldsuite migrate --tenants --only ws_123 --check-journal
 ```bash
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
-docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs' and WeldSheets' rooms (Node, docs/collab-rooms.md)
+docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs', WeldSheets' and WeldBoard's rooms (Node, docs/collab-rooms.md)
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
@@ -698,7 +715,7 @@ every 5 (WeldConnect's connectors; nothing while connect is not served). The ser
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `PROJECT_PORTAL_URL` | WeldFlow: the client portal's origin (`https://projects.weldsuite.org`), for the links in the portal invitation and in status reports emailed to client contacts. Unset: those emails are not sent. `weldsuite cron flow-status-reports` (daily) drafts the status reports whose cadence has come due, over the `status_report_due` due index |
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
-| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs and WeldSheets' live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs and WeldSheets |
+| `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |

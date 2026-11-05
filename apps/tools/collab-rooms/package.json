@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WeldDocs' and WeldSheets' rooms (the workers' DocRoom and SheetRoom) on Node, for the Kubernetes editions (rust/docs/collab-rooms.md)",
+  "description": "WeldDocs', WeldSheets' and WeldBoard's rooms (the workers' DocRoom, SheetRoom and BoardRoom) on Node, for the Kubernetes editions (rust/docs/collab-rooms.md)",
   "scripts": {
     "build": "node build.mjs",
     "start": "node dist/server.mjs",
@@ -22,6 +22,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
     "@types/ws": "^8.0.0",
+    "@weldsuite/board-engine": "workspace:*",
     "@weldsuite/collab": "workspace:*",
     "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",

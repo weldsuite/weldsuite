@@ -2454,6 +2454,9 @@ importers:
       '@types/ws':
         specifier: ^8.0.0
         version: 8.18.1
+      '@weldsuite/board-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/board-engine
       '@weldsuite/collab':
         specifier: workspace:*
         version: link:../../../packages/core/collab

@@ -3981,6 +3981,7 @@ dependencies = [
  "weldsuite-adapters-oss",
  "weldsuite-ads",
  "weldsuite-auth",
+ "weldsuite-board",
  "weldsuite-books",
  "weldsuite-books-banking",
  "weldsuite-books-domain",
@@ -4144,6 +4145,32 @@ dependencies = [
  "tower",
  "tracing",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-board"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "flate2",
+ "http",
+ "regex",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]

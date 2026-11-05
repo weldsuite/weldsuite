@@ -69,6 +69,7 @@ weldsuite-know = { path = "modules/know" }
 weldsuite-know-domain = { path = "crates/know-domain" }
 weldsuite-docs = { path = "modules/docs" }
 weldsuite-sheets = { path = "modules/sheets" }
+weldsuite-board = { path = "modules/board" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
