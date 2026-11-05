@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Download, Frame, Keyboard, MoreHorizontal, Presentation, Users } from 'lucide-react';
-import { keyAllowed, keyBetween, newId, type BoardElement, type BuiltInTemplate, type Point, type RecordRef, type RecordView } from '@weldsuite/board-engine';
+import { canVoteOn, castVoteOp, keyAllowed, keyBetween, newId, type BoardElement, type BuiltInTemplate, type Point, type RecordRef, type RecordView } from '@weldsuite/board-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -20,6 +20,7 @@ import type { BoardController } from './model/board-controller';
 import { pasteFragment } from './model/clipboard';
 import { Interactions } from './model/interactions';
 import { setMark } from './model/text-editing';
+import { FacilitationBar, votingView } from './facilitation';
 import { FindBar } from './find-bar';
 import { FramesPanel, Minimap, ShortcutsDialog, ZoomControls } from './navigation';
 import { PresentControls, usePresentation } from './present';
@@ -111,12 +112,24 @@ export function BoardEditor(props: BoardEditorProps) {
   const [cropping, setCropping] = useState<string | null>(null);
   const imageAt = useRef<Point | null>(null);
   const presentation = usePresentation(c);
+  // Votes and fading come from the board's voting round, unless the page says otherwise.
+  const voting = votingView(c.board, c.options.userId);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const strings = useRef(te);
+  strings.current = te;
 
   useEffect(() => {
     ia.onRenameFrame = (id) => setRenaming(id);
     ia.onComment = (id) => propsRef.current.onComment?.(id);
+    ia.onVote = (el, take) => {
+      // During an open round a click on something that can be voted on is a vote, not a selection.
+      if ((c.readOnly && !c.canComment) || !canVoteOn(c.board.props.voting, el)) return false;
+      const op = castVoteOp(c.board, c.options.userId, el.id, take);
+      if (op) c.apply(op, { comment: true });
+      else if (!take) toast.info(strings.current.voting.noneLeft);
+      return true;
+    };
     ia.onOpen = (el) => {
       if (el.type === 'link' && el.link && /^(https?:|mailto:)/i.test(el.link)) {
         window.open(el.link, '_blank', 'noopener,noreferrer');
@@ -125,7 +138,7 @@ export function BoardEditor(props: BoardEditorProps) {
       if (el.src) void propsRef.current.loadImage(el.src).then((url) => url && window.open(url, '_blank', 'noopener,noreferrer'));
     };
     propsRef.current.onInteractions?.(ia);
-  }, [ia]);
+  }, [c, ia]);
 
   useEffect(() => {
     props.onPresentingChange?.(presentation.presenting);
@@ -306,10 +319,10 @@ export function BoardEditor(props: BoardEditorProps) {
           onFiles={(files, at) => void insertImages(files, at)}
           onPasteUrl={(url, at) => void pasteUrl(url, at)}
           keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
-          votes={props.votes}
+          votes={props.votes ?? voting.votes}
           commentCounts={props.commentCounts}
           activeComment={props.activeComment}
-          faded={props.faded}
+          faded={props.faded ?? voting.faded}
           renaming={renaming}
           onRenamed={(id, name) => {
             setRenaming(null);
@@ -469,6 +482,7 @@ export function BoardEditor(props: BoardEditorProps) {
         {/* Bottom centre: presenting controls, facilitation */}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
           <PresentControls presentation={presentation} />
+          {!presentation.presenting && (!c.readOnly || c.canComment) && <FacilitationBar controller={c} />}
           {props.facilitation}
         </div>
 

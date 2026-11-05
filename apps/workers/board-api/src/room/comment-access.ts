@@ -10,7 +10,8 @@
  *
  *   - `create` of comment pins they start (createdBy is them);
  *   - `set` on their own pins (move them), or only `resolved` on anyone's;
- *   - `delete` of their own pins.
+ *   - `delete` of their own pins;
+ *   - `vote` for themselves, in an open round (apply checks the round).
  *
  * Anything else is refused like a viewer's edit.
  */
@@ -41,6 +42,8 @@ export function isCommentersOp(op: Op, userId: string, board: Board): boolean {
       }
       case 'delete':
         return o.ids.every(own);
+      case 'vote':
+        return o.user === userId;
       default:
         return false;
     }

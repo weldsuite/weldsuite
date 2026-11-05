@@ -451,7 +451,7 @@ export const weldboard = {
       results: 'Uitslag',
       closed: 'Stemming gesloten',
       clearResults: 'Uitslag wissen',
-      clickToVote: 'Klik op sticky notes, vormen of kaarten om te stemmen. Klik nog eens om een stem terug te nemen.',
+      clickToVote: 'Klik op sticky notes, vormen of kaarten om te stemmen. Alt+klik om een stem terug te nemen.',
       started: '{name} heeft een stemming gestart',
       votes: '{count} stemmen',
       oneVote: '1 stem',
@@ -459,6 +459,7 @@ export const weldboard = {
     },
     timer: {
       title: 'Timer',
+      startFor: 'Start een timer voor iedereen',
       start: 'Starten',
       pause: 'Pauzeren',
       resume: 'Doorgaan',

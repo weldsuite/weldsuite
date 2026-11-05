@@ -130,6 +130,26 @@ describe('BoardRoom', () => {
     expect(ofType(commenter, 'reject').map((r) => r.batchId)).toEqual(['c:2', 'c:4']);
   });
 
+  it('lets a commenter vote for themselves in an open round, never for someone else', async () => {
+    const room = new BoardRoom(state.ctx, env);
+    const editor = await join(room, 'alice');
+    const commenter = await join(room, 'carl', false, true);
+    for (const s of [editor, commenter]) await send(room, s, { type: 'hello', revision: null });
+    await send(room, editor, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: create(sticky('s1', 'Idea')) });
+    await send(room, editor, {
+      type: 'submit',
+      batchId: 'a:2',
+      baseRevision: 1,
+      op: { type: 'setBoard', patch: { voting: { id: 'v1', votesPerPerson: 2, anonymous: false, status: 'open' } } },
+    });
+    await send(room, commenter, { type: 'submit', batchId: 'c:1', baseRevision: 2, op: { type: 'vote', user: 'carl', elements: ['s1'] } });
+    expect(ofType(commenter, 'ack').map((a) => a.batchId)).toEqual(['c:1']);
+    await send(room, commenter, { type: 'submit', batchId: 'c:2', baseRevision: 3, op: { type: 'vote', user: 'alice', elements: ['s1'] } });
+    expect(ofType(commenter, 'reject').map((r) => r.batchId)).toEqual(['c:2']);
+    const live = JSON.parse((await room.snapshot(meta())).json);
+    expect(live.votes).toEqual({ carl: ['s1'] });
+  });
+
   it('commits server writes and sends them to everyone connected', async () => {
     const room = new BoardRoom(state.ctx, env);
     const alice = await join(room, 'alice');

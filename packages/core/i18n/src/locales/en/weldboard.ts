@@ -451,7 +451,7 @@ export const weldboard = {
       results: 'Results',
       closed: 'Vote closed',
       clearResults: 'Clear results',
-      clickToVote: 'Click sticky notes, shapes or cards to vote. Click again to take a vote back.',
+      clickToVote: 'Click sticky notes, shapes or cards to vote. Alt+click to take a vote back.',
       started: '{name} started a vote',
       votes: '{count} votes',
       oneVote: '1 vote',
@@ -459,6 +459,7 @@ export const weldboard = {
     },
     timer: {
       title: 'Timer',
+      startFor: 'Start a timer for everyone',
       start: 'Start',
       pause: 'Pause',
       resume: 'Resume',

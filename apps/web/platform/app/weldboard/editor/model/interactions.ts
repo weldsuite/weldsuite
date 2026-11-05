@@ -187,6 +187,8 @@ export class Interactions {
   onComment: ((id: string) => void) | null = null;
   /** Called when the person double-clicks a frame's title. */
   onRenameFrame: ((id: string) => void) | null = null;
+  /** During a voting round: a click on an element votes for it (Alt: takes a vote back). True when the click was a vote. */
+  onVote: ((el: BoardElement, take: boolean) => boolean) | null = null;
   /** Opens what a file, link or image card points at (double-click). */
   onOpen: ((el: BoardElement) => void) | null = null;
   /** Called to pick an image for the image tool. */
@@ -361,6 +363,7 @@ export class Interactions {
     if (hit) {
       const target = c.selection.has(hit.id) ? hit : outerGroup(c, hit);
       if (hit.type === 'comment') this.onComment?.(hit.id);
+      if (!info.shift && this.onVote?.(hit, info.alt)) return;
       if (info.shift) {
         const next = new Set(c.selection);
         if (next.has(target.id)) next.delete(target.id);

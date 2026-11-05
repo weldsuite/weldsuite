@@ -133,7 +133,18 @@ function applySetBoard(board: Board, op: OpOf<'setBoard'>): Op {
   return { type: 'setBoard', patch: revert };
 }
 
+/**
+ * A person's votes. Casting needs an open round, at most the votes a person
+ * has, inside the round's scope; otherwise the op does nothing (a vote that
+ * crossed the round closing), like an edit of an element someone deleted.
+ * Taking votes back always applies.
+ */
 function applyVote(board: Board, op: OpOf<'vote'>): Op {
+  if (op.elements && op.elements.length > 0) {
+    const round = board.props.voting;
+    if (!round || round.status !== 'open' || op.elements.length > round.votesPerPerson) return NOOP;
+    if (round.scope && !op.elements.every((id) => round.scope!.includes(id))) return NOOP;
+  }
   const before = board.votes.get(op.user) ?? null;
   if (op.elements === null || op.elements.length === 0) board.votes.delete(op.user);
   else board.votes.set(op.user, [...op.elements]);

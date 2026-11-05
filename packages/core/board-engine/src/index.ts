@@ -14,6 +14,7 @@ export * from './model/text';
 export * from './model/schema';
 export * from './model/defaults';
 export * from './model/style';
+export * from './model/facilitation';
 
 export { applyOp } from './ops/apply';
 export { transform, runsLength } from './ops/transform';

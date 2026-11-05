@@ -26,6 +26,7 @@ import { fromExcalidraw, parseCells, stickiesFromText } from './serialize/import
 import { isWellFormedSnapshot } from './serialize/snapshot';
 import { boardToPlainText, findOnBoard } from './serialize/text';
 import { pasteStyleOps, styleOf } from './model/style';
+import { addTimeOp, castVoteOp, clearVotingOp, closeVotingOp, pauseTimerOp, resumeTimerOp, startTimerOp, startVotingOp, timerRemaining, voteCounts, votesLeft } from './model/facilitation';
 import { BUILT_IN_TEMPLATES } from './templates';
 import { caretRect, layoutText, offsetAt } from './text/layout';
 import { counterIds, randomOp, rng } from './test-support';
@@ -443,5 +444,53 @@ describe('copy style and find', () => {
     expect(findOnBoard(board, 'cafe')).toEqual(['f', 'upper', 'lower']);
     expect(findOnBoard(board, '  ')).toEqual([]);
     expect(findOnBoard(board, 'cafe', 2)).toHaveLength(2);
+  });
+});
+
+describe('facilitation', () => {
+  it('runs a timer everyone counts down from the same end', () => {
+    const board = Board.create();
+    applyOp(board, startTimerOp(5 * 60_000, 1_000, 'alice'));
+    expect(timerRemaining(board.props.timer, 61_000)).toBe(4 * 60_000);
+    applyOp(board, pauseTimerOp(board.props.timer!, 61_000));
+    expect(board.props.timer).toMatchObject({ remaining: 4 * 60_000 });
+    expect(timerRemaining(board.props.timer, 999_999)).toBe(4 * 60_000);
+    applyOp(board, resumeTimerOp(board.props.timer!, 100_000));
+    applyOp(board, addTimeOp(board.props.timer!, 60_000, 100_000));
+    expect(timerRemaining(board.props.timer, 100_000)).toBe(5 * 60_000);
+  });
+
+  it('takes votes within an open round, and only as many as a person has', () => {
+    const board = Board.create();
+    applyOp(board, { type: 'create', elements: [makeSticky(0, 0, {}, { id: 'a' }), makeSticky(300, 0, {}, { id: 'b' }), makeFrame(0, 400, 100, 100, 'F', {}, { id: 'f' })] });
+    // No round: no vote, and one sent anyway (it crossed the round closing) does nothing.
+    expect(castVoteOp(board, 'u1', 'a')).toBeNull();
+    applyOp(board, { type: 'vote', user: 'u1', elements: ['a'] });
+    expect(board.votes.size).toBe(0);
+
+    applyOp(board, startVotingOp(board, { votesPerPerson: 2, anonymous: false }, 'v1', 'alice'));
+    for (const [user, id] of [['u1', 'a'], ['u1', 'a'], ['u2', 'b']] as const) applyOp(board, castVoteOp(board, user, id)!);
+    expect(castVoteOp(board, 'u1', 'b')).toBeNull();
+    expect(castVoteOp(board, 'u2', 'f')).toBeNull();
+    expect(votesLeft(board, 'u2')).toBe(1);
+    applyOp(board, { type: 'vote', user: 'u3', elements: ['a', 'a', 'a'] });
+    expect(board.votes.has('u3')).toBe(false);
+    expect(Object.fromEntries(voteCounts(board))).toEqual({ a: 2, b: 1 });
+
+    applyOp(board, castVoteOp(board, 'u1', 'a', true)!);
+    applyOp(board, closeVotingOp(board)!);
+    expect(castVoteOp(board, 'u2', 'b')).toBeNull();
+    expect(Object.fromEntries(voteCounts(board))).toEqual({ a: 1, b: 1 });
+
+    // A new round starts from nothing; clearing ends it.
+    const restart = startVotingOp(board, { votesPerPerson: 1, anonymous: true, scope: ['b'] }, 'v2');
+    expect(validateOp(board, restart)).toBeNull();
+    applyOp(board, restart);
+    expect(voteCounts(board).size).toBe(0);
+    expect(castVoteOp(board, 'u1', 'a')).toBeNull();
+    applyOp(board, castVoteOp(board, 'u1', 'b')!);
+    applyOp(board, clearVotingOp(board));
+    expect(board.props.voting).toBeUndefined();
+    expect(board.votes.size).toBe(0);
   });
 });
