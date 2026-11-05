@@ -4,6 +4,10 @@ People are the individual contacts in your CRM. This page covers the person mode
 
 <ResourceVersionBanner />
 
+<Note>
+  A person is created or updated in **one request**: every standard field, every [custom field](#custom-fields) and the companies they work for go in the same JSON body.
+</Note>
+
 ---
 
 ## The person model
@@ -15,22 +19,62 @@ People are the individual contacts in your CRM. This page covers the person mode
   <Property name="firstName" type="string">First name.</Property>
   <Property name="lastName" type="string">Last name.</Property>
   <Property name="fullName" type="string">Full name (derived from first/last when not supplied).</Property>
-  <Property name="displayName" type="string">Server-derived display name (full name, else email).</Property>
-  <Property name="email" type="string">Primary email address.</Property>
+  <Property name="displayName" type="string">Server-derived display name (first and last name, else full name, else email).</Property>
+  <Property name="dateOfBirth" type="timestamp">Date of birth.</Property>
+  <Property name="gender" type="string">Gender.</Property>
   <Property name="title" type="string">Job title.</Property>
   <Property name="department" type="string">Department.</Property>
+  <Property name="role" type="string">Role.</Property>
+  <Property name="email" type="string">Primary email address.</Property>
+  <Property name="alternateEmails" type="array">Other email addresses.</Property>
   <Property name="directPhone" type="string">Direct phone number.</Property>
   <Property name="mobilePhone" type="string">Mobile phone number.</Property>
-  <Property name="primaryAddress" type="object">Primary address object.</Property>
+  <Property name="extension" type="string">Phone extension.</Property>
+  <Property name="primaryAddress" type="object">Primary address: `line1`, `line2`, `postalCode`, `city`, `state`, `country`.</Property>
+  <Property name="addresses" type="array">Other addresses, each in the `primaryAddress` shape.</Property>
+  <Property name="avatarUrl" type="string">Photo URL.</Property>
+  <Property name="linkedinUrl" type="string">LinkedIn profile. `linkedin.com/in/jane` is stored as `https://linkedin.com/in/jane`.</Property>
+  <Property name="twitterHandle" type="string">X / Twitter handle.</Property>
   <Property name="ownerId" type="string">Owner user ID.</Property>
-  <Property name="status" type="string">Lifecycle status (e.g. `active`).</Property>
+  <Property name="accountManagerId" type="string">Account manager user ID.</Property>
+  <Property name="status" type="string">Status (e.g. `active`).</Property>
+  <Property name="lifecycleStage" type="string">One of `subscriber`, `lead`, `marketing_qualified`, `sales_qualified`, `opportunity`, `customer`, `evangelist`.</Property>
+  <Property name="rating" type="string">Rating.</Property>
+  <Property name="source" type="string">Where the person came from.</Property>
+  <Property name="nextFollowUpDate" type="timestamp">Next follow-up.</Property>
   <Property name="isSupplier" type="boolean">Supplier-contact flag.</Property>
   <Property name="isLead" type="boolean">Lead flag.</Property>
-  <Property name="dateOfBirth" type="timestamp">Date of birth.</Property>
+  <Property name="isFavorite" type="boolean">Starred in WeldCRM.</Property>
+  <Property name="isDecisionMaker" type="boolean">Decision maker.</Property>
+  <Property name="isBillingContact" type="boolean">Billing contact.</Property>
+  <Property name="isTechnicalContact" type="boolean">Technical contact.</Property>
+  <Property name="influenceLevel" type="string">Influence level.</Property>
+  <Property name="preferredContactMethod" type="string">Preferred contact method.</Property>
+  <Property name="preferredLanguage" type="string">Language code (e.g. `nl`, `en`).</Property>
+  <Property name="bestTimeToContact" type="string">Best time to contact.</Property>
+  <Property name="marketingConsent" type="boolean">Marketing consent given.</Property>
+  <Property name="emailOptIn" type="boolean">Opted in to email.</Property>
+  <Property name="smsOptIn" type="boolean">Opted in to SMS.</Property>
+  <Property name="doNotCall" type="boolean">Do not call.</Property>
   <Property name="tags" type="array">Free-form tags.</Property>
+  <Property name="interests" type="array">Interests.</Property>
+  <Property name="customFields" type="object">Your workspace's own fields, keyed by slug. See [Custom fields](#custom-fields).</Property>
+  <Property name="notes" type="string">Notes.</Property>
+  <Property name="internalNotes" type="string">Internal notes.</Property>
   <Property name="createdAt" type="timestamp">When the person was created.</Property>
   <Property name="updatedAt" type="timestamp">When the person was last updated.</Property>
 </Properties>
+
+---
+
+## Custom fields {{ id: 'custom-fields' }}
+
+Custom fields on people work exactly as [on companies](/companies#custom-fields): they travel in `customFields`, keyed by slug, in the same body as the standard fields.
+
+- [List custom fields](#list-custom-fields) returns the slugs, types and select options.
+- Values are checked against their field before anything is written. A refused value fails the request with `400`, nothing is saved, and `error.details.errors` lists every refused value by slug.
+- `null` (or `""`) clears a field. On `PATCH`, only the slugs you send change.
+- A key that is not one of the workspace's slugs is kept and returned by the API, but WeldCRM doesn't show it.
 
 ---
 
@@ -78,10 +122,58 @@ People are the individual contacts in your CRM. This page covers the person mode
           "fullName": "Jane Doe",
           "displayName": "Jane Doe",
           "email": "jane@doe.example",
-          "title": "Operations Director"
+          "title": "Operations Director",
+          "customFields": { "shirt_size": "m" }
         }
       ],
       "pagination": { "totalCount": 12, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## List custom fields {{ tag: 'GET', label: '/v1/people/custom-fields', id: 'list-custom-fields' }}
+
+<Row>
+  <Col>
+
+    The workspace's person custom fields, in the order WeldCRM shows them. Each has the same fields as [company custom fields](/companies#list-custom-fields): `slug`, `name`, `fieldType`, `options`, `required`, `description`, `group`, `config` and `sortOrder`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/people/custom-fields">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/people/custom-fields \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cfd_ghi789",
+          "slug": "shirt_size",
+          "name": "Shirt size",
+          "description": null,
+          "fieldType": "single_select",
+          "options": [
+            { "label": "S", "value": "s" },
+            { "label": "M", "value": "m" }
+          ],
+          "config": null,
+          "required": false,
+          "group": null,
+          "sortOrder": 0
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
     }
     ```
 
@@ -95,23 +187,25 @@ People are the individual contacts in your CRM. This page covers the person mode
 <Row>
   <Col>
 
-    Create a person. `fullName` and `displayName` are derived when omitted.
+    Create a person with all their fields, custom fields and companies in one request. `fullName` and `displayName` are derived when omitted. Custom field values and company IDs are checked before anything is written: when one is refused, the request fails with `400` and no person is created.
 
     ### Optional attributes
 
+    Every field of [the person model](#the-person-model) except `id`, `displayName`, `createdAt` and `updatedAt`, plus:
+
     <Properties>
-      <Property name="firstName" type="string">First name.</Property>
-      <Property name="lastName" type="string">Last name.</Property>
-      <Property name="email" type="string">Email address.</Property>
-      <Property name="title" type="string">Job title.</Property>
-      <Property name="directPhone" type="string">Direct phone.</Property>
-      <Property name="mobilePhone" type="string">Mobile phone.</Property>
-      <Property name="ownerId" type="string">Owner user ID.</Property>
-      <Property name="status" type="string">Lifecycle status.</Property>
-      <Property name="isSupplier" type="boolean">Supplier flag.</Property>
-      <Property name="isLead" type="boolean">Lead flag.</Property>
-      <Property name="dateOfBirth" type="string">ISO 8601 date-time.</Property>
-      <Property name="tags" type="array">Tags.</Property>
+      <Property name="companyIds" type="array">
+        IDs of the companies the person works for. Each becomes a current employment, so the person shows up under the company in WeldCRM and in `GET /v1/people?companyId=…`. An ID that names no company fails the request with `400` (`details: { field: "companyIds", missing: [...] }`).
+      </Property>
+      <Property name="primaryCompanyId" type="string">
+        The person's main company. Linked even when it is not in `companyIds`.
+      </Property>
+      <Property name="customFields" type="object">
+        Custom field values by slug. See [Custom fields](#custom-fields).
+      </Property>
+      <Property name="dateOfBirth" type="string">
+        ISO 8601 date-time.
+      </Property>
     </Properties>
 
   </Col>
@@ -127,7 +221,22 @@ People are the individual contacts in your CRM. This page covers the person mode
         "firstName": "Jane",
         "lastName": "Doe",
         "email": "jane@doe.example",
-        "title": "Operations Director"
+        "title": "Operations Director",
+        "department": "Operations",
+        "directPhone": "+31 20 123 4567",
+        "mobilePhone": "+31 6 1234 5678",
+        "linkedinUrl": "linkedin.com/in/janedoe",
+        "status": "active",
+        "lifecycleStage": "customer",
+        "isDecisionMaker": true,
+        "preferredLanguage": "nl",
+        "tags": ["erp"],
+        "companyIds": ["company_new456"],
+        "primaryCompanyId": "company_new456",
+        "customFields": {
+          "shirt_size": "m",
+          "nps": 9
+        }
       }'
     ```
 
@@ -142,9 +251,12 @@ People are the individual contacts in your CRM. This page covers the person mode
         "fullName": "Jane Doe",
         "displayName": "Jane Doe",
         "email": "jane@doe.example",
+        "title": "Operations Director",
+        "linkedinUrl": "https://linkedin.com/in/janedoe",
         "status": "active",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
+        "customFields": { "shirt_size": "m", "nps": 9 },
+        "createdAt": "2026-11-05T14:00:00Z",
+        "updatedAt": "2026-11-05T14:00:00Z"
       }
     }
     ```
@@ -159,7 +271,7 @@ People are the individual contacts in your CRM. This page covers the person mode
 <Row>
   <Col>
 
-    Retrieve a single person by ID.
+    Retrieve a single person by ID, with their custom fields.
 
   </Col>
   <Col sticky>
@@ -179,7 +291,8 @@ People are the individual contacts in your CRM. This page covers the person mode
         "id": "person_abc123",
         "fullName": "Jane Doe",
         "email": "jane@doe.example",
-        "title": "Operations Director"
+        "title": "Operations Director",
+        "customFields": { "shirt_size": "m", "nps": 9 }
       }
     }
     ```
@@ -194,7 +307,7 @@ People are the individual contacts in your CRM. This page covers the person mode
 <Row>
   <Col>
 
-    Partially update a person. Sending `firstName`/`lastName` recomputes `fullName` and `displayName`.
+    Partially update a person. Only the fields you send are changed, and any number of them can go in one request. Sending `firstName`/`lastName` recomputes `fullName` and `displayName`. In `customFields`, only the slugs you send change; send `null` to clear one. `companyIds` and `primaryCompanyId` are only read on create.
 
   </Col>
   <Col sticky>
@@ -205,14 +318,19 @@ People are the individual contacts in your CRM. This page covers the person mode
     curl -X PATCH https://api.weldsuite.org/v1/people/person_abc123 \
       -H "Authorization: Bearer wsk_your_api_key" \
       -H "Content-Type: application/json" \
-      -d '{ "title": "VP Operations" }'
+      -d '{ "title": "VP Operations", "customFields": { "nps": 10 } }'
     ```
 
     </CodeGroup>
 
     ```json {{ title: 'Response' }}
     {
-      "data": { "id": "person_abc123", "title": "VP Operations", "updatedAt": "2024-12-01T15:00:00Z" }
+      "data": {
+        "id": "person_abc123",
+        "title": "VP Operations",
+        "customFields": { "shirt_size": "m", "nps": 10 },
+        "updatedAt": "2026-11-05T15:00:00Z"
+      }
     }
     ```
 
