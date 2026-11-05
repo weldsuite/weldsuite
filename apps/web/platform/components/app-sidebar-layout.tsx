@@ -1370,7 +1370,7 @@ export function AppSidebarLayout({
         // content card read as one outlined area; the card's left border is
         // the divider between them.
         !isMobile &&
-          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-xl [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
+          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-md [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
       )}
       {...props}
     >
