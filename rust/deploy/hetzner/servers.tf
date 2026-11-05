@@ -15,8 +15,11 @@ locals {
       type     = var.control_plane_type
       role     = "controlplane"
       pool     = "control-plane"
+      livekit  = false
     }
   }
+  # The first livekit_worker_count workers also run LiveKit (round robin over
+  # the locations, so the first two are in different ones).
   workers = {
     for i in range(var.worker_count) : "worker-${i + 1}" => {
       location = var.worker_locations[i % length(var.worker_locations)]
@@ -24,6 +27,7 @@ locals {
       type     = var.worker_type
       role     = "worker"
       pool     = "general"
+      livekit  = i < var.livekit_worker_count
     }
   }
   postgres = {
@@ -33,6 +37,7 @@ locals {
       type     = var.postgres_type
       role     = "worker"
       pool     = "postgres"
+      livekit  = false
     }
   }
   nodes = merge(local.control_planes, local.workers, local.postgres)
@@ -46,7 +51,10 @@ resource "hcloud_server" "node" {
   location           = each.value.location
   image              = data.hcloud_image.talos.id
   placement_group_id = hcloud_placement_group.spread[each.value.location].id
-  firewall_ids       = [hcloud_firewall.nodes.id]
+  firewall_ids = concat(
+    [hcloud_firewall.nodes.id],
+    each.value.livekit ? [hcloud_firewall.livekit.id] : [],
+  )
   # Talos reads its machine config from the Hetzner metadata service.
   user_data = data.talos_machine_configuration.node[each.key].machine_configuration
 

@@ -1,0 +1,91 @@
+# What the LiveKit chart doesn't make for this cluster: its signalling host
+# behind Traefik, TURN over TLS on 443 through Traefik, and a disruption
+# budget.
+---
+# wss://livekit.${DOMAIN}: signalling (a WebSocket) and LiveKit's API, through
+# the ingress load balancer like every other host. Media never comes this way.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: livekit
+  namespace: livekit
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: livekit.${DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: livekit
+                port:
+                  number: 7880
+  tls:
+    - secretName: livekit-tls
+      hosts:
+        - livekit.${DOMAIN}
+---
+# TURN over TLS, for clients whose network lets only 443 out. LiveKit tells
+# them turns:turn.${DOMAIN}:443; the load balancer passes 443 to Traefik,
+# which ends TLS for this name and hands the stream to LiveKit's TURN port
+# (turn.external_tls in values/livekit.yaml).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: livekit-turn
+  namespace: livekit
+spec:
+  secretName: livekit-turn-tls
+  dnsNames:
+    - turn.${DOMAIN}
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-turn
+  namespace: livekit
+spec:
+  selector:
+    app.kubernetes.io/name: livekit-server
+    app.kubernetes.io/instance: livekit
+  ports:
+    - name: turn-tls
+      port: 5349
+      targetPort: turn-tls
+      protocol: TCP
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: livekit-turn
+  namespace: livekit
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostSNI(`turn.${DOMAIN}`)
+      services:
+        - name: livekit-turn
+          port: 5349
+  tls:
+    secretName: livekit-turn-tls
+---
+# One node's pod at a time, so a node drain never takes both.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: livekit
+  namespace: livekit
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit-server
+      app.kubernetes.io/instance: livekit

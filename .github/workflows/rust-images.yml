@@ -1,10 +1,17 @@
 name: Rust images
 
-# Publishes the Rust backend's images from develop and from a deploy branch
-# (deploy/*), for the test clusters that follow one:
+# Publishes the Rust backend's images from develop (and from a deploy/*
+# branch, should one exist):
 #   ghcr.io/weldsuite/weldsuite:sha-<12 characters of the commit>
 #   ghcr.io/weldsuite/weldsuite-sign-portal:sha-<same>
-# A push to develop also moves the tag `develop` on both images to that build.
+#   ghcr.io/weldsuite/weldsuite-collab-rooms:sha-<same>
+# A push to develop also moves the tag `develop` on the images to that build,
+# and publishes the weldsuite chart for it as
+#   oci://ghcr.io/weldsuite/charts/weldsuite:<chart version>-develop.<run number>
+# with the build's tag as its appVersion, so the chart installs these images.
+# The EU test cluster follows those charts: every develop build reaches it,
+# as every develop push reaches Global's test environment
+# (rust/deploy/hetzner/TEST-CLUSTER.md).
 # Releases for the EU edition come later from the EU registry (P5 5.4). The
 # build is the one "Rust · image and chart" in ci.yml runs, amd64 only (the
 # Hetzner servers), and reuses its layer cache.
@@ -13,12 +20,15 @@ on:
   workflow_dispatch:
   push:
     branches: [develop, 'deploy/**']
-    # What the images are built from (rust/Dockerfile). Deploy config and docs
-    # change nothing in them, so they start no build: a new run cancels the
-    # branch's running one, and a settings push must not do that.
+    # What the images are built from (rust/Dockerfile), and the chart that
+    # installs them. Other deploy config and docs change neither, so they
+    # start no build: a new run cancels the branch's running one, and a
+    # settings push must not do that. A chart change rebuilds the images
+    # (from the layer cache) so chart and images keep one tag.
     paths:
       - 'rust/**'
       - '!rust/deploy/**'
+      - 'rust/deploy/helm/**'
       - 'apps/web/platform/**'
       - 'apps/web/sign-portal/**'
       - 'packages/**'
@@ -76,6 +86,19 @@ jobs:
           tags: ghcr.io/weldsuite/weldsuite-sign-portal:${{ steps.tag.outputs.tag }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rust-image
+      # WeldDocs' and WeldSheets' rooms (rust/docs/collab-rooms.md), which the
+      # EU values turn on (collabRooms).
+      - name: Build the collab-rooms image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: collab-rooms
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/weldsuite/weldsuite-collab-rooms:${{ steps.tag.outputs.tag }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rust-image
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
@@ -90,7 +113,7 @@ jobs:
           MOVE_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-collab-rooms)
           for image in "${images[@]}"; do
             docker push "$image:$TAG"
             if [ "$MOVE_DEVELOP" = "true" ]; then
@@ -108,4 +131,26 @@ jobs:
               echo
               echo "\`develop\` now points at this build."
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      # The chart of this commit, installing this build's images (appVersion =
+      # the tag). The version is a prerelease that rises with every run, so a
+      # HelmRelease with `version: ">=0.0.0-0"` on this repository always takes
+      # the newest develop build (the EU test cluster, clusters/test).
+      - name: Publish the chart
+        if: github.ref == 'refs/heads/develop'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACTOR: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          chart=rust/deploy/helm/weldsuite
+          base="$(awk '$1 == "version:" { print $2; exit }' "$chart/Chart.yaml")"
+          version="${base}-develop.${GITHUB_RUN_NUMBER}"
+          helm package "$chart" --version "$version" --app-version "$TAG" --destination "$RUNNER_TEMP/chart"
+          echo "$REGISTRY_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm push "$RUNNER_TEMP/chart/weldsuite-$version.tgz" oci://ghcr.io/weldsuite/charts
+          {
+            echo
+            echo "Chart: \`oci://ghcr.io/weldsuite/charts/weldsuite\` $version (appVersion $TAG)"
           } >> "$GITHUB_STEP_SUMMARY"

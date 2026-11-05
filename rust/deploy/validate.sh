@@ -26,24 +26,34 @@ substitute() {
   sed -e "$script"
 }
 
+# SOPS-encrypted Secrets carry a top-level `sops:` block that Flux removes
+# when it decrypts them; the strict Secret schema would refuse it.
+strip_sops() {
+  awk '/^sops:/{skip=1; next} skip && /^[^ ]/{skip=0} !skip'
+}
+
 echo "== OpenTofu"
 tofu -chdir=hetzner fmt -check -recursive
 tofu -chdir=hetzner init -backend=false -input=false >/dev/null
 tofu -chdir=hetzner validate
 
 echo "== Flux layers"
-kc flux/clusters/eu/*.yaml flux/clusters/drill/*.yaml
+kc flux/clusters/eu/*.yaml flux/clusters/drill/*.yaml flux/clusters/test/*.yaml
 for dir in \
   flux/infrastructure/sources \
   flux/infrastructure/controllers \
   flux/infrastructure/configs/eu \
   flux/infrastructure/configs/drill \
+  flux/infrastructure/configs/test \
   flux/infrastructure/services \
+  flux/infrastructure/video \
+  flux/infrastructure/monitoring \
   flux/apps/eu \
   flux/secrets/eu \
-  flux/secrets/drill; do
+  flux/secrets/drill \
+  flux/secrets/test; do
   echo "-- $dir"
-  kubectl kustomize "$dir" | substitute | kc -
+  kubectl kustomize "$dir" | strip_sops | substitute | kc -
 done
 echo "-- secret templates"
 kc flux/secrets/examples/secrets.example.yaml
@@ -56,10 +66,13 @@ releases=(
   "traefik traefik https://traefik.github.io/charts|traefik 41.7.1 flux/infrastructure/controllers/values/traefik.yaml flux/infrastructure/controllers/releases.yaml"
   "cloudnative-pg cnpg-system https://cloudnative-pg.github.io/charts|cloudnative-pg 0.29.1 flux/infrastructure/controllers/values/cloudnative-pg.yaml flux/infrastructure/controllers/releases.yaml"
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
+  "metrics-server kube-system https://kubernetes-sigs.github.io/metrics-server|metrics-server 3.14.0 flux/infrastructure/controllers/values/metrics-server.yaml flux/infrastructure/controllers/releases.yaml"
+  "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml"
   "nats weldsuite https://nats-io.github.io/k8s/helm/charts|nats 2.15.0 flux/infrastructure/services/values/nats.yaml flux/infrastructure/services/releases.yaml"
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
-  "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/sources/helm-repositories.yaml"
+  "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/services/releases.yaml"
   "zitadel zitadel https://charts.zitadel.com|zitadel 10.4.0 flux/infrastructure/services/values/zitadel.yaml flux/infrastructure/services/releases.yaml"
+  "livekit livekit https://helm.livekit.io|livekit-server 1.9.0 flux/infrastructure/video/values/livekit.yaml flux/infrastructure/video/release.yaml"
 )
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

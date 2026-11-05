@@ -1,0 +1,100 @@
+# LiveKit on the general workers OpenTofu labels node.weldsuite.org/livekit
+# (livekit_worker_count in hetzner/variables.tf: two, one per location). One
+# pod per node on the host network: media goes to the node's own public
+# address, never through the load balancer. The media ports below match the
+# livekit firewall in hetzner/network.tf.
+fullnameOverride: livekit
+replicaCount: 2
+
+image:
+  # v1.13 or later for the platform's pinned livekit-client (rust/README.md);
+  # the chart's default (its appVersion, v1.9.0) is too old.
+  tag: v1.13.10
+
+# The new pod can't start beside the old one (same host ports), so a rollout
+# replaces one node's pod at a time, and the other node takes new calls
+# meanwhile.
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+# How long a stopping pod keeps its calls going (the chart's default, five
+# hours). Node drains for Talos upgrades wait for it too: do them at night.
+terminationGracePeriodSeconds: 18000
+
+nodeSelector:
+  node.weldsuite.org/livekit: "true"
+
+# It shares these nodes with the weldsuite server. A request keeps it its
+# share; no CPU limit, because throttling a media server breaks up audio.
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+
+# The namespace allows the host network; the container itself gets nothing
+# else (all its ports are above 1024).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# The Service (livekit:7880) is for the ingress and the weldsuite server;
+# livekit.${DOMAIN} is an Ingress in ../livekit.yaml.
+loadBalancer:
+  type: disable
+  servicePort: 7880
+# The chart's TURN Service is a cloud LoadBalancer; TURN over TLS comes
+# through Traefik instead (../livekit.yaml).
+turnLoadbalancer:
+  enable: false
+
+# livekit-server's config.yaml. The key pair and the Valkey password are not
+# here: they come from the livekit-env Secret (../release.yaml).
+livekit:
+  port: 7880
+  log_level: info
+  rtc:
+    # WebRTC over TCP when a network blocks UDP.
+    tcp_port: 7881
+    # All media over UDP on one port (the chart's default is a 10,000-port
+    # range, which this port replaces).
+    udp_port: 7882
+    port_range_start: null
+    port_range_end: null
+    # The address LiveKit gives clients: the node's public IPv4, which
+    # Hetzner Cloud puts on its first interface. Without a STUN lookup, which
+    # would ask Twilio's and Google's servers.
+    use_external_ip: false
+  # Several nodes route rooms through Valkey, in a database of its own (the
+  # weldsuite server's cache is in 0).
+  redis:
+    address: valkey.weldsuite.svc:6379
+    username: default
+    db: 1
+  # TURN for clients behind strict firewalls. Over UDP at the node's address
+  # (it also serves as the clients' STUN, so they don't use Google's); over
+  # TLS as turns:turn.${DOMAIN}:443, which Traefik ends and passes to
+  # tls_port in plain TCP (external_tls).
+  turn:
+    enabled: true
+    domain: turn.${DOMAIN}
+    udp_port: 3478
+    tls_port: 5349
+    external_tls: true
+  # Presence and the end of a session (/api/webhooks/livekit), signed with
+  # the key pair the weldsuite server holds too.
+  webhook:
+    api_key: weldsuite
+    urls:
+      - http://weldsuite.weldsuite.svc/api/webhooks/livekit
