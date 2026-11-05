@@ -2,6 +2,7 @@ import type { ClientMessage, Outgoing, ServerMessage } from '@weldsuite/collab';
 import { MetricsMeasurer } from '@weldsuite/docs-engine';
 import { describe, expect, it } from 'vitest';
 import { createBoardClient, createBoardRoom, type BoardPresence } from './collab/adapter';
+import { boardToPdf } from './display/pdf';
 import { displayToSvg } from './display/svg';
 import { boardDisplay } from './display/display';
 import { deleteOps, groupOps, moveOps, reparentOps, stackOps, ungroupOps } from './geometry/arrange';
@@ -386,6 +387,16 @@ describe('fragments, imports, templates, export', () => {
       const { op } = placeFragment(board, f, { x: 0, y: 0, makeId: counterIds('n') });
       expect(validateOp(board, op)).toBeNull();
     }
+  });
+
+  it('exports a PDF, one page per frame', async () => {
+    const board = Board.create();
+    applyOp(board, { type: 'create', elements: [makeFrame(0, 0, 600, 400, 'One', {}, { id: 'f1' }), makeFrame(800, 0, 600, 400, 'Two', {}, { id: 'f2' }), makeSticky(20, 20, { parent: 'f1' }, { id: 's', text: 'Hello' })] });
+    const pdf = await boardToPdf(board, { perFrame: true, title: 'Test' });
+    const text = new TextDecoder('latin1').decode(pdf!);
+    expect(text.startsWith('%PDF')).toBe(true);
+    expect(text).toContain('/Count 2');
+    expect(await boardToPdf(Board.create())).toBeNull();
   });
 
   it('exports SVG and plain text', () => {

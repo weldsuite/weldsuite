@@ -84,6 +84,8 @@ export const isImageSrc: Check = (v) =>
   typeof v === 'string' &&
   ((v.startsWith('drive:') && isId(v.slice(6))) ||
     (v.startsWith('https://') && v.length <= 4096) ||
+    // Local development: app-api on localhost serves uploads over http.
+    ((v.startsWith('http://localhost:') || v.startsWith('http://127.0.0.1:')) && v.length <= 4096) ||
     (v.startsWith('data:image/') && v.length <= 2_000_000));
 
 const isUrl: Check = (v) => typeof v === 'string' && v.length <= 2048 && /^(https?:|mailto:|\/)/i.test(v);

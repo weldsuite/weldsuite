@@ -44,6 +44,7 @@ import { sheetData } from './sheet-data';
 import { weldsign } from './weldsign';
 import { weldpanel } from './weldpanel';
 import { welddocs } from './welddocs';
+import { weldboard } from './weldboard';
 import { weldhr } from './weldhr';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
@@ -117,6 +118,7 @@ export const nl = {
   weldsign,
   weldpanel,
   welddocs,
+  weldboard,
   weldhr,
   weldknow,
   weldads,

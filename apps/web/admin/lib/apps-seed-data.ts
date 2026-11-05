@@ -686,6 +686,46 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
   },
   {
+    code: 'weldboard',
+    name: 'WeldBoard',
+    description: 'Online whiteboards with sticky notes, shapes, connectors, templates and live collaboration.',
+    icon: 'StickyNote',
+    category: 'Productivity',
+    path: '/weldboard',
+    overview:
+      'WeldBoard is an online whiteboard built into WeldSuite. Brainstorm with sticky notes, sketch flowcharts and mind maps, run a retrospective or plan a sprint on an infinite canvas. Everyone on a board sees each other’s cursors and edits as they happen, can follow the presenter, vote and keep time. Put WeldFlow tasks and CRM records on a board, turn sticky notes into tasks, and let AI draft a mind map or sort your ideas. A WeldFlow project’s whiteboards are WeldBoard boards too.',
+    features: [
+      'Infinite canvas with sticky notes, shapes, connectors, text, drawing, images and frames',
+      'Live collaboration with cursors, follow mode, comments and version history',
+      'Templates for retrospectives, brainstorms, flowcharts, kanban, story maps and more',
+      'Present frame by frame, run votes and a shared timer',
+      'WeldFlow tasks and CRM records as live cards; sticky notes into tasks',
+      'Export to PNG, SVG and PDF; import Excalidraw files',
+    ],
+    howItWorks: [
+      {
+        title: 'Start a board',
+        description: 'Begin from a blank canvas or one of the templates.',
+      },
+      {
+        title: 'Think together',
+        description: 'Add sticky notes, shapes and connectors, and see everyone’s changes live.',
+      },
+      {
+        title: 'Turn ideas into work',
+        description: 'Vote on the best ideas and turn sticky notes into WeldFlow tasks.',
+      },
+    ],
+    sortOrder: 159,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-11-05',
+    websiteUrl: 'https://weldsuite.com/weldboard',
+    documentationUrl: `${HELP_BASE}/weldboard`,
+    contactUrl: SUPPORT_EMAIL,
+  },
+  {
     code: 'weldsign',
     name: 'WeldSign',
     description: 'Send PDFs for electronic signature and get them back signed, with a full audit trail.',

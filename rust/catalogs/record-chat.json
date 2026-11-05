@@ -1,5 +1,6 @@
 {
   "owners": {
+    "board": "board",
     "company": "crm",
     "contact": "crm",
     "doc": "docs",

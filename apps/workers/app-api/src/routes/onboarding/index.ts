@@ -167,6 +167,14 @@ const FALLBACK_CATALOG = [
     category: 'Productivity',
     path: '/welddocs',
   },
+  {
+    code: 'weldboard',
+    name: 'WeldBoard',
+    description: 'Online whiteboards with sticky notes, shapes, connectors, templates and live collaboration',
+    icon: 'StickyNote',
+    category: 'Productivity',
+    path: '/weldboard',
+  },
   // Deliberately not in DEFAULT_WORKSPACE_APPS: a secrets manager is opt-in,
   // not something every new workspace should silently have installed.
   {
