@@ -1934,6 +1934,11 @@ fn onboarding(state: &AppState) -> Router<AppState> {
         identity: state.infra.identity.clone(),
         mail: state.infra.mail.clone(),
         workspace_service,
+        // As the worker with its BOARD_API binding: ported, and its rooms
+        // configured (in conformance builds the test's own bindings decide).
+        board_offered: !cfg!(feature = "conformance")
+            && mounts("board")
+            && crate::collab::rooms(state).is_some(),
     };
     Router::new().nest("/onboarding", weldsuite_core_onboarding::router(onboarding))
 }
