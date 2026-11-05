@@ -77,12 +77,14 @@ export function useChangeActions({ onDeleted }: UseChangeActionsOptions = {}): C
   };
 
   const isWithdraw = confirming?.kind === 'withdraw';
+  const titleCopy = isWithdraw ? copy.actions.withdrawTitle : copy.actions.deleteTitle;
+  const descriptionCopy = isWithdraw ? copy.actions.withdrawDescription : copy.actions.deleteDescription;
   const confirmDialog = (
     <ConfirmDialog
       open={confirming !== null}
       onOpenChange={(open) => (open ? undefined : setConfirming(null))}
-      title={confirming ? format(isWithdraw ? copy.actions.withdrawTitle : copy.actions.deleteTitle, { code: confirming.change.code }) : ''}
-      description={confirming ? format(isWithdraw ? copy.actions.withdrawDescription : copy.actions.deleteDescription, { title: confirming.change.title }) : ''}
+      title={confirming ? format(titleCopy, { code: confirming.change.code }) : ''}
+      description={confirming ? format(descriptionCopy, { title: confirming.change.title }) : ''}
       confirmLabel={isWithdraw ? copy.withdraw : copy.delete}
       cancelLabel={t.flowApprovals.common.cancel}
       variant="destructive"

@@ -35,7 +35,8 @@ import {
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { ProjectPermissionProvider } from '@/app/weldflow/contexts/project-permission-context';
-import { useRouter } from '@/lib/router';
+import { useSetAtom } from 'jotai';
+import { usePathname, useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDeleteRaidItem, useRaidItem, useRaidItems } from '@/hooks/queries/use-project-control-queries';
 import { useProject } from '@/hooks/queries/use-projects-queries';
@@ -52,6 +53,7 @@ import { DetailTasks } from './detail-tasks';
 import { ItemDialog, type ItemDialogState } from './item-dialog';
 import { OwnerCell, ScoreBadge, SeverityBadge, StatusPill } from './raid-parts';
 import { RAID_ITEM_PANEL_TYPE } from './raid-item-panel-type';
+import { pendingRaidPanelAtom } from './pending-raid-panel';
 import {
   RaidContext,
   useRaid,
@@ -434,16 +436,65 @@ function RaidPanelContext({ projectId, itemId, kind, onClose, children }: Readon
   );
 }
 
+/** Confirms deleting the item; once it is gone the panel closes. */
+function DeleteItemDialog({ item, onClose, onDeleted }: Readonly<{ item: RaidItem | null; onClose: () => void; onDeleted: () => void }>) {
+  const { t, format } = useI18n();
+  const copy = t.projects.raid;
+  const deleteItem = useDeleteRaidItem();
+
+  const confirm = async () => {
+    if (!item) return;
+    try {
+      await deleteItem.mutateAsync(item.id);
+      toast.success(copy.toasts.deleted);
+      onClose();
+      onDeleted();
+    } catch {
+      toast.error(copy.toasts.deleteFailed);
+    }
+  };
+
+  return (
+    <ConfirmDialog
+      open={item !== null}
+      onOpenChange={(isOpen) => (isOpen ? undefined : onClose())}
+      title={item ? format(copy.deleteDialog.title, { code: item.code }) : ''}
+      description={item ? format(copy.deleteDialog.description, { title: item.title }) : ''}
+      confirmLabel={copy.deleteDialog.confirm}
+      cancelLabel={t.common.actions.cancel}
+      variant="destructive"
+      loading={deleteItem.isPending}
+      onConfirm={confirm}
+    />
+  );
+}
+
+/** Shows a converted item on its own sub-tab, with its panel open (a conversion always changes the kind). */
+function useShowConverted(projectId: string): (created: RaidItem) => void {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { open } = useObjectPanel();
+  const setPendingPanel = useSetAtom(pendingRaidPanelAtom);
+  return (created) => {
+    const path = `/weldflow/project/${projectId}/raid${RAID_KIND_PATHS[created.kind]}`;
+    if (pathname === path) {
+      open({ type: RAID_ITEM_PANEL_TYPE, id: created.id });
+      return;
+    }
+    // Moving there closes every panel, so the RAID layout opens this one once it has.
+    setPendingPanel({ path, id: created.id });
+    router.push(path);
+  };
+}
+
 type ItemQuery = ReturnType<typeof useRaidItem>;
 
 function RaidItemPanelView({ query, ...props }: Readonly<ObjectPanelComponentProps & { query: ItemQuery }>) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const st = useTranslations();
   const copy = t.projects.raid;
-  const router = useRouter();
   const { projectId } = useRaid();
-  const { open } = useObjectPanel();
-  const deleteItem = useDeleteRaidItem();
+  const showConverted = useShowConverted(projectId);
 
   const [assessing, setAssessing] = useState<RaidItem | null>(null);
   const [converting, setConverting] = useState<RaidItem | null>(null);
@@ -474,18 +525,6 @@ function RaidItemPanelView({ query, ...props }: Readonly<ObjectPanelComponentPro
   );
   // A deep-linked tab that only appears once the item is loaded is applied when it does.
   const [activeTab, setActiveTab] = usePanelInitialTab<RaidItemTabId>(tabs, props.initialTab, 'details');
-
-  const confirmDelete = async () => {
-    if (!deleting) return;
-    try {
-      await deleteItem.mutateAsync(deleting.id);
-      toast.success(copy.toasts.deleted);
-      setDeleting(null);
-      props.onClose();
-    } catch {
-      toast.error(copy.toasts.deleteFailed);
-    }
-  };
 
   return (
     <>
@@ -524,24 +563,11 @@ function RaidItemPanelView({ query, ...props }: Readonly<ObjectPanelComponentPro
       <ConvertDialog
         item={converting}
         onClose={() => setConverting(null)}
-        onConverted={(created) => {
-          router.push(`/weldflow/project/${projectId}/raid${RAID_KIND_PATHS[created.kind]}`);
-          open({ type: RAID_ITEM_PANEL_TYPE, id: created.id });
-        }}
+        onConverted={showConverted}
       />
       <CreateTaskDialog item={creatingTask} onClose={() => setCreatingTask(null)} />
       <LinkTaskDialog item={linkingTask} linkedTaskIds={new Set(tasks.map((link) => link.target.id))} onClose={() => setLinkingTask(null)} />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(isOpen) => (isOpen ? undefined : setDeleting(null))}
-        title={deleting ? format(copy.deleteDialog.title, { code: deleting.code }) : ''}
-        description={deleting ? format(copy.deleteDialog.description, { title: deleting.title }) : ''}
-        confirmLabel={copy.deleteDialog.confirm}
-        cancelLabel={t.common.actions.cancel}
-        variant="destructive"
-        loading={deleteItem.isPending}
-        onConfirm={confirmDelete}
-      />
+      <DeleteItemDialog item={deleting} onClose={() => setDeleting(null)} onDeleted={props.onClose} />
     </>
   );
 }

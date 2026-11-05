@@ -23,6 +23,23 @@ import { useChangeAbilities } from './_components/use-change-abilities';
 /** The change request dialog: closed, starting one, or editing one. */
 type DialogState = { mode: 'create' } | { mode: 'edit'; change: ChangeRequest } | null;
 
+/** The list once it has loaded; until then the loader, or the failed state with a retry. */
+function ChangesLoadState({ query, children }: Readonly<{ query: ReturnType<typeof useChangeRequests>; children: ReactNode }>) {
+  const { t } = useI18n();
+  if (query.isLoading) return <PageLoader fullScreen={false} className="h-auto min-h-[calc(100dvh-350px)] pb-0" />;
+  if (query.isError && !query.data) {
+    return (
+      <ErrorState
+        message={t.flowApprovals.changes.loadFailed}
+        retryLabel={t.flowApprovals.common.retry}
+        onRetry={() => void query.refetch()}
+        className="min-h-[calc(100dvh-350px)] justify-center rounded-none border-0 bg-transparent"
+      />
+    );
+  }
+  return <>{children}</>;
+}
+
 /**
  * Governance > Change requests: the list of the project's changes under the
  * toolbar of the Governance tab (search, status and route filters, the
@@ -86,33 +103,6 @@ export default function ChangeRequestsPage() {
     </Button>
   ) : null;
 
-  let body: ReactNode;
-  if (changes.isLoading) {
-    body = <PageLoader fullScreen={false} className="h-auto min-h-[calc(100dvh-350px)] pb-0" />;
-  } else if (changes.isError && !changes.data) {
-    body = (
-      <ErrorState
-        message={copy.loadFailed}
-        retryLabel={t.flowApprovals.common.retry}
-        onRetry={() => void changes.refetch()}
-        className="min-h-[calc(100dvh-350px)] justify-center rounded-none border-0 bg-transparent"
-      />
-    );
-  } else {
-    body = (
-      <ChangeRequestList
-        changes={visible}
-        filters={filters}
-        onFiltersChange={setFilters}
-        currency={currency}
-        selectedId={selectedId}
-        onSelect={select}
-        onEdit={(change) => setDialog({ mode: 'edit', change })}
-        onCreate={create}
-      />
-    );
-  }
-
   return (
     <>
       <SubNavToolbar
@@ -125,7 +115,18 @@ export default function ChangeRequestsPage() {
         actionButtons={rulesButton}
         createButton={create ? { label: copy.new, onClick: create } : undefined}
       />
-      {body}
+      <ChangesLoadState query={changes}>
+        <ChangeRequestList
+          changes={visible}
+          filters={filters}
+          onFiltersChange={setFilters}
+          currency={currency}
+          selectedId={selectedId}
+          onSelect={select}
+          onEdit={(change) => setDialog({ mode: 'edit', change })}
+          onCreate={create}
+        />
+      </ChangesLoadState>
 
       <ChangeDialog
         projectId={projectId}

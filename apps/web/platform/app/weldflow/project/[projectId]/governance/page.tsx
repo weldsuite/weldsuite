@@ -108,7 +108,11 @@ export default function StatusReportsPage() {
   }, [rows, selected, reports.isFetching]);
 
   const manage = canWrite && isAdmin;
-  const createReport = () => create.mutate({ projectId }, { onSuccess: (report) => setSelected(report.id) });
+  // The toolbar's create button has no disabled state: a second click while the first is saving does nothing.
+  const createReport = () => {
+    if (create.isPending) return;
+    create.mutate({ projectId }, { onSuccess: (report) => setSelected(report.id) });
+  };
 
   return (
     <>
@@ -399,6 +403,11 @@ function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; man
   const fail = () => setError(true);
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input }, { onError: fail, onSuccess: () => setError(false) });
 
+  // A draft says how fresh its data is; a published report when it was frozen.
+  let headerNote = '';
+  if (!draft) headerNote = fill(copy.report.frozen, { date: dateText(report.publishedAt) });
+  else if (report.snapshot) headerNote = fill(copy.report.asOf, { date: new Date(report.snapshot.asOf).toLocaleString() });
+
   return (
     <div className="flex flex-col">
       {/* The report's header row: the standard toolbar row, as a list's top bar and the analytics report header. */}
@@ -406,13 +415,7 @@ function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; man
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="shrink-0 text-sm font-medium">{report.period}</h2>
           <ListPill className="shrink-0 bg-muted text-foreground/80">{copy.status[report.status]}</ListPill>
-          <p className="hidden truncate text-sm text-muted-foreground md:block">
-            {draft
-              ? report.snapshot
-                ? fill(copy.report.asOf, { date: new Date(report.snapshot.asOf).toLocaleString() })
-                : ''
-              : fill(copy.report.frozen, { date: dateText(report.publishedAt) })}
-          </p>
+          <p className="hidden truncate text-sm text-muted-foreground md:block">{headerNote}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ReportActions

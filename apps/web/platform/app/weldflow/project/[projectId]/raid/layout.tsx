@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useAtom } from 'jotai';
 import { useParams, usePathname } from '@/lib/router';
 import type { RaidItem, RaidKind } from '@weldsuite/app-api-client/domains/project-control';
 import { useRaidItems } from '@/hooks/queries/use-project-control-queries';
@@ -7,6 +8,7 @@ import { useObjectPanel } from '@/components/object-panel';
 import { EMPTY_FILTERS, RAID_KINDS, RAID_KIND_PATHS, type RegisterFilters } from './_lib/raid';
 import { ItemDialog, type ItemDialogState } from './_components/item-dialog';
 import { RAID_ITEM_PANEL_TYPE } from './_components/raid-item-panel-type';
+import { pendingRaidPanelAtom } from './_components/pending-raid-panel';
 import { RaidToolbar } from './_components/raid-toolbar';
 import {
   RaidContext,
@@ -57,6 +59,14 @@ function RaidProvider({ projectId, children }: Readonly<{ projectId: string; chi
     (id: string | null) => (id ? open({ type: RAID_ITEM_PANEL_TYPE, id }) : closeAll()),
     [open, closeAll],
   );
+
+  // A converted item's panel, once its sub-tab shows and the panels of the page before are closed.
+  const [pendingPanel, setPendingPanel] = useAtom(pendingRaidPanelAtom);
+  useEffect(() => {
+    if (!pendingPanel || trimTrailingSlashes(pathname) !== pendingPanel.path || stack.length > 0) return;
+    setPendingPanel(null);
+    open({ type: RAID_ITEM_PANEL_TYPE, id: pendingPanel.id });
+  }, [pendingPanel, pathname, stack.length, open, setPendingPanel]);
 
   const now = useToday();
   const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);

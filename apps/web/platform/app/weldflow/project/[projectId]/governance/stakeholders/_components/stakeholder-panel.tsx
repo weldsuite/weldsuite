@@ -94,7 +94,9 @@ function PortalValue({ row, canManage }: Readonly<{ row: Stakeholder; canManage:
   const revoke = useRevokePortalAccess();
   const pending = invite.isPending || revoke.isPending;
 
-  const state = row.kind === 'member' ? copy.portalStates.team : row.portalAccess ? copy.portalStates.yes : copy.portalStates.none;
+  let state: string = copy.portalStates.none;
+  if (row.kind === 'member') state = copy.portalStates.team;
+  else if (row.portalAccess) state = copy.portalStates.yes;
 
   const run = (action: 'invite' | 'revoke') => {
     const mutation = action === 'invite' ? invite : revoke;
