@@ -28,6 +28,7 @@ import {
   seedEmployee,
   seedMember,
   today,
+  workdayFromToday,
 } from '../../test/hr-fixtures';
 
 const EMMA = 'user_emma';
@@ -626,8 +627,8 @@ describe('/me/leave', () => {
   it('requests leave, and an auto-approved type is approved straight away', async () => {
     const res = await me().send('POST', '/me/leave', {
       leaveTypeId: 'hrlvt_default_annual',
-      startDate: daysFromToday(30),
-      endDate: daysFromToday(30),
+      startDate: workdayFromToday(30),
+      endDate: workdayFromToday(30),
       reason: 'Wedding',
     });
     expect(res.status).toBe(201);

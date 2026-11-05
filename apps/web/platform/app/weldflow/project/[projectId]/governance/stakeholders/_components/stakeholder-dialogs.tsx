@@ -9,10 +9,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { Form } from '@weldsuite/ui/components/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
 import type { Stakeholder } from '@weldsuite/app-api-client/domains/project-reporting';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAllTeamMembers } from '@/hooks/queries/use-team-queries';
+import { CrmPersonSelect } from '@/components/objects/person/crm-person-select';
 import { useCreateStakeholder, useDeleteStakeholder, useUpdateStakeholder } from '@/hooks/queries/use-project-reporting-queries';
 import { FormDialog } from '../../_components/parts';
 import { SelectField, TextAreaField, TextField, type SelectOption } from '../../../raid/_components/form-fields';
@@ -66,6 +67,7 @@ function StakeholderForm({ projectId, existing = [], state, onClose }: Readonly<
   const kind = form.watch('kind');
 
   const taken = new Set(existing.flatMap((row) => (row.memberId ? [row.memberId] : [])));
+  const takenContacts = useMemo(() => new Set(existing.flatMap((row) => (row.crmContactId ? [row.crmContactId] : []))), [existing]);
   const memberOptions: SelectOption[] = (members.data ?? [])
     .filter((member) => !taken.has(member.userId))
     .map((member) => ({ value: member.userId, label: member.name ?? member.userId }));
@@ -109,7 +111,29 @@ function StakeholderForm({ projectId, existing = [], state, onClose }: Readonly<
             {kind === 'member' ? (
               <SelectField control={form.control} name="memberId" label={copy.form.member} options={memberOptions} placeholder={copy.form.choose} />
             ) : (
-              <TextField control={form.control} name="contactId" label={copy.form.contactId} />
+              <FormField
+                control={form.control}
+                name="contactId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{copy.form.contact}</FormLabel>
+                    <FormControl>
+                      <CrmPersonSelect
+                        value={field.value}
+                        placeholder={copy.form.choosePerson}
+                        searchPlaceholder={copy.form.searchPeople}
+                        excludeIds={takenContacts}
+                        onChange={(personId, person) => {
+                          field.onChange(personId);
+                          // Take the job title as the role unless one was typed already.
+                          if (person?.title && !form.getValues('role').trim()) form.setValue('role', person.title);
+                        }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             )}
           </>
         )}

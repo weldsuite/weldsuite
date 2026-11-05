@@ -57,6 +57,10 @@ where
             get(permissions).route_layer(need(PROJECTS_READ)),
         )
         .route(
+            "/{id}/tabs",
+            axum::routing::put(crate::project_tabs::put_tabs).route_layer(need(PROJECTS_UPDATE)),
+        )
+        .route(
             "/{id}/gantt/tasks",
             get(gantt_tasks).route_layer(need(TASKS_READ)),
         )
@@ -1614,6 +1618,12 @@ async fn transfer_tasks(
     .bind(source)
     .execute(&mut *tx)
     .await?;
+    // Links travel with their tasks: a dependency's project is its tasks' project.
+    sqlx::query("update task_dependencies set project_id = $1 where project_id = $2")
+        .bind(dest)
+        .bind(source)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "update projects set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
     )

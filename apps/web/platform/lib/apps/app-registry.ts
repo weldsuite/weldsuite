@@ -25,6 +25,7 @@ import {
   Send,
   Table2,
   SquareMenu,
+  StickyNote,
   Signature,
   ChartSpline,
   type LucideIcon,
@@ -189,6 +190,18 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/welddocs/logo-light.svg?v=2',
       iconDark: '/assets/images/welddocs/logo-dark.svg?v=2',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldBoard (whiteboards). Icon-only logo like WeldPass: a filled square
+  // with a sticky note and a connector to a node cut out.
+  weldboard: {
+    lucideIcon: StickyNote,
+    shortName: 'Boards',
+    icon: '/assets/images/weldboard/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldboard/logo-light.svg',
+      iconDark: '/assets/images/weldboard/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

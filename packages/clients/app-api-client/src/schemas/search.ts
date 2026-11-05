@@ -19,6 +19,7 @@ export const SEARCH_ENTITY_TYPES = [
   'project',
   'task',
   'sheet',
+  'board',
   'domain',
 ] as const;
 

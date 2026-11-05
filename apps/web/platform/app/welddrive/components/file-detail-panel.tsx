@@ -102,7 +102,7 @@ function FileActivity({ file }: Readonly<{ file: UnifiedFile }>) {
     performedByName: log.performedByName,
     createdAt: log.createdAt,
   }));
-  if (logs.length > 0) return <AuditTimeline logs={logs} alwaysShowChanges />;
+  if (logs.length > 0) return <AuditTimeline logs={logs} />;
 
   const activityItems = [
     ...(file.updatedAt && file.updatedAt !== file.createdAt

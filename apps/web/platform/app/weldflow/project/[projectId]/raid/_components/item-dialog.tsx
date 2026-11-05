@@ -27,11 +27,12 @@ import {
   useCreateRaidItem,
   useCreateRaidTask,
   useProjectMilestones,
+  useRiskCategories,
   useUpdateRaidItem,
 } from '@/hooks/queries/use-project-control-queries';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
-import { DEFAULT_REVIEW_INTERVAL_DAYS, RISK_CATEGORIES, reviewIntervalLabel, riskBand, riskScore } from '../_lib/risk';
-import { reviewEveryLabel } from '../_lib/copy';
+import { DEFAULT_REVIEW_INTERVAL_DAYS, reviewIntervalLabel, riskBand, riskScore } from '../_lib/risk';
+import { reviewEveryLabel, riskCategoryOptions } from '../_lib/copy';
 import { statusesOf } from '../_lib/raid';
 import {
   assumptionFormSchema,
@@ -270,6 +271,8 @@ function RiskForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onClose: 
   });
   const [probability, impact] = form.watch(['probability', 'impact']);
   const band = riskBand(riskScore(probability ?? 3, impact ?? 3));
+  const { data: categories } = useRiskCategories();
+  const categoryOptions = useMemo(() => riskCategoryOptions(copy, categories, edit?.category), [copy, categories, edit?.category]);
   const reviewHint = format(copy.form.reviewDefault, {
     interval: reviewEveryLabel(copy, reviewIntervalLabel(DEFAULT_REVIEW_INTERVAL_DAYS[band]), format),
   });
@@ -285,7 +288,7 @@ function RiskForm({ edit, onClose }: Readonly<{ edit: RaidItem | null; onClose: 
           name="category"
           label={copy.form.category}
           noneLabel={copy.form.noCategory}
-          options={RISK_CATEGORIES.map((category) => ({ value: category, label: copy.categories[category] }))}
+          options={categoryOptions}
         />
         <SelectField control={form.control} name="ownerId" label={copy.form.owner} noneLabel={copy.form.noOwner} options={members} />
       </div>

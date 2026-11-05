@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createExternalTestApp } from './harness';
 import { createPgliteDb } from './pglite';
 import { schema, type Database } from '../db';
@@ -67,7 +68,6 @@ describe('external-api · people', () => {
       lastName: 'Lovelace',
       email: 'ada@example.com',
       dateOfBirth: '1815-12-10T00:00:00Z',
-      companyIds: ['co_unknown'],
       isSupplier: true,
       linkedinUrl: 'linkedin.com/in/ada',
     });
@@ -132,6 +132,216 @@ describe('external-api · companies', () => {
     const badCount = await patch(`/v1/companies/${company.id}`, { employeeCount: 'lots' });
     expect(badCount.status).toBe(400);
     expect((await api().request('/v1/companies?listId=list_none')).status).toBe(200);
+  });
+});
+
+describe('external-api · custom fields in one request', () => {
+  beforeAll(async () => {
+    const definitions: (typeof schema.customFieldDefinitions.$inferInsert)[] = [
+      {
+        id: 'cfd_ext_co_tier',
+        entityType: 'company',
+        name: 'Tier',
+        slug: 'ext_tier',
+        fieldType: 'single_select',
+        options: [
+          { label: 'Gold', value: 'gold' },
+          { label: 'Silver', value: 'silver' },
+        ],
+        sortOrder: 1,
+      },
+      { id: 'cfd_ext_co_seats', entityType: 'company', name: 'Seats', slug: 'ext_seats', fieldType: 'number', sortOrder: 2 },
+      { id: 'cfd_ext_co_renewal', entityType: 'company', name: 'Renewal', slug: 'ext_renewal', fieldType: 'date', sortOrder: 3 },
+      { id: 'cfd_ext_co_erp', entityType: 'company', name: 'ERP id', slug: 'ext_erp_id', fieldType: 'text', sortOrder: 4 },
+      {
+        id: 'cfd_ext_pe_size',
+        entityType: 'person',
+        name: 'Shirt size',
+        slug: 'ext_shirt',
+        fieldType: 'single_select',
+        options: [
+          { label: 'S', value: 's' },
+          { label: 'M', value: 'm' },
+        ],
+      },
+      { id: 'cfd_ext_pe_nps', entityType: 'person', name: 'NPS', slug: 'ext_nps', fieldType: 'number' },
+    ];
+    await db.insert(schema.customFieldDefinitions).values(definitions).onConflictDoNothing();
+  });
+
+  async function storedValues(entityId: string) {
+    const rows = await db
+      .select({ fieldId: schema.customFieldValues.fieldId })
+      .from(schema.customFieldValues)
+      .where(eq(schema.customFieldValues.entityId, entityId));
+    return rows.map((r) => r.fieldId).sort();
+  }
+
+  it('lists the slugs a company and a person take', async () => {
+    const companies = await api().request('/v1/companies/custom-fields');
+    expect(companies.status).toBe(200);
+    const list = (await companies.json()) as { data: { slug: string; fieldType: string }[] };
+    expect(list.data.map((d) => d.slug)).toEqual(
+      expect.arrayContaining(['ext_tier', 'ext_seats', 'ext_renewal', 'ext_erp_id']),
+    );
+    expect(list.data.find((d) => d.slug === 'ext_tier')?.fieldType).toBe('single_select');
+
+    const people = await api().request('/v1/people/custom-fields');
+    const peopleList = (await people.json()) as { data: { slug: string }[] };
+    expect(peopleList.data.map((d) => d.slug)).toEqual(expect.arrayContaining(['ext_shirt', 'ext_nps']));
+
+    expect((await api(['people:read']).request('/v1/companies/custom-fields')).status).toBe(403);
+  });
+
+  it('creates a company with its fields and custom fields in one POST, and merges on PATCH', async () => {
+    const created = await post('/v1/companies', {
+      name: 'Batch Metals BV',
+      tradingName: 'Batch Metals',
+      registrationNumber: '12345678',
+      vatNumber: 'NL123456789B01',
+      industry: 'metalworking',
+      employeeCount: '51-200',
+      website: 'batch.example',
+      description: 'Sheet metal and welding',
+      email: 'info@batch.example',
+      phone: '+31 20 123 4567',
+      mobile: '+31 6 1234 5678',
+      primaryAddress: { line1: 'Kade 1', postalCode: '1011 AB', city: 'Amsterdam', country: 'NL' },
+      status: 'customer',
+      lifecycleStage: 'customer',
+      segment: 'mid-market',
+      rating: 'A',
+      source: 'erp-sync',
+      isSupplier: true,
+      preferredLanguage: 'nl',
+      timezone: 'Europe/Amsterdam',
+      marketingConsent: true,
+      tags: ['erp', 'priority'],
+      notes: 'Imported from the ERP',
+      customFields: {
+        ext_tier: 'gold',
+        ext_seats: '25',
+        ext_renewal: '2027-01-31',
+        ext_erp_id: 'ERP-1001',
+        ext_unknown_key: 'kept in the record',
+      },
+    });
+    expect(created.status).toBe(201);
+    const company = await data<{
+      id: string;
+      displayName: string;
+      vatNumber: string;
+      tags: string[];
+      primaryAddress: { city: string };
+      customFields: Record<string, unknown>;
+    }>(created);
+    expect(company.displayName).toBe('Batch Metals');
+    expect(company.vatNumber).toBe('NL123456789B01');
+    expect(company.tags).toEqual(['erp', 'priority']);
+    expect(company.primaryAddress.city).toBe('Amsterdam');
+    expect(company.customFields).toEqual({
+      ext_tier: 'gold',
+      ext_seats: 25,
+      ext_renewal: '2027-01-31T00:00:00.000Z',
+      ext_erp_id: 'ERP-1001',
+      ext_unknown_key: 'kept in the record',
+    });
+    // Written to the typed table WeldCRM reads, one row per defined field.
+    expect(await storedValues(company.id)).toEqual(
+      ['cfd_ext_co_erp', 'cfd_ext_co_renewal', 'cfd_ext_co_seats', 'cfd_ext_co_tier'],
+    );
+
+    const read = await api().request(`/v1/companies/${company.id}`);
+    expect((await data<{ customFields: Record<string, unknown> }>(read)).customFields.ext_seats).toBe(25);
+    const listed = await api().request('/v1/companies?search=Batch%20Metals');
+    const page = (await listed.json()) as { data: { id: string; customFields: Record<string, unknown> }[] };
+    expect(page.data.find((row) => row.id === company.id)?.customFields.ext_tier).toBe('gold');
+
+    // PATCH changes only the keys it sends; null clears one.
+    const patched = await patch(`/v1/companies/${company.id}`, {
+      phone: '+31 20 765 4321',
+      customFields: { ext_seats: 30, ext_erp_id: null },
+    });
+    expect(patched.status).toBe(200);
+    const after = await data<{ phone: string; customFields: Record<string, unknown> }>(patched);
+    expect(after.phone).toBe('+31 20 765 4321');
+    expect(after.customFields).toEqual({
+      ext_tier: 'gold',
+      ext_seats: 30,
+      ext_renewal: '2027-01-31T00:00:00.000Z',
+      ext_unknown_key: 'kept in the record',
+    });
+    expect(await storedValues(company.id)).toEqual(['cfd_ext_co_renewal', 'cfd_ext_co_seats', 'cfd_ext_co_tier']);
+
+    const badPatch = await patch(`/v1/companies/${company.id}`, { customFields: { ext_renewal: 'someday' } });
+    expect(badPatch.status).toBe(400);
+  });
+
+  it('refuses every bad custom field value at once and writes nothing', async () => {
+    const refused = await post('/v1/companies', {
+      name: 'Refused Custom Co',
+      customFields: { ext_tier: 'bronze', ext_seats: 'many', ext_erp_id: 'fine' },
+    });
+    expect(refused.status).toBe(400);
+    const body = (await refused.json()) as {
+      error: { code: string; message: string; details: { field: string; errors: Record<string, string> } };
+    };
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.details.field).toBe('customFields');
+    expect(body.error.details.errors).toEqual({
+      ext_seats: "'ext_seats' must be a number",
+      ext_tier: "'bronze' is not a valid option for 'ext_tier'",
+    });
+    const search = await api().request('/v1/companies?search=Refused%20Custom');
+    expect(((await search.json()) as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('creates a person with custom fields and their company in one POST', async () => {
+    const employer = await data<{ id: string }>(await post('/v1/companies', { name: 'Employer Co' }));
+    const created = await post('/v1/people', {
+      firstName: 'Grace',
+      lastName: 'Hopper',
+      email: 'grace@employer.example',
+      title: 'Rear Admiral',
+      department: 'Engineering',
+      directPhone: '+1 555 0100',
+      mobilePhone: '+1 555 0101',
+      status: 'active',
+      lifecycleStage: 'customer',
+      isDecisionMaker: true,
+      preferredLanguage: 'en',
+      tags: ['cobol'],
+      companyIds: [employer.id],
+      primaryCompanyId: employer.id,
+      customFields: { ext_shirt: 'm', ext_nps: 9 },
+    });
+    expect(created.status).toBe(201);
+    const person = await data<{ id: string; displayName: string; customFields: Record<string, unknown> }>(created);
+    expect(person.displayName).toBe('Grace Hopper');
+    expect(person.customFields).toEqual({ ext_shirt: 'm', ext_nps: 9 });
+    expect(await storedValues(person.id)).toEqual(['cfd_ext_pe_nps', 'cfd_ext_pe_size']);
+
+    const staff = await api().request(`/v1/people?companyId=${employer.id}`);
+    expect(((await staff.json()) as { data: { id: string }[] }).data.map((p) => p.id)).toEqual([person.id]);
+    const [link] = await db
+      .select({ isPrimary: schema.personCompanies.isPrimary })
+      .from(schema.personCompanies)
+      .where(eq(schema.personCompanies.personId, person.id));
+    expect(link?.isPrimary).toBe(true);
+
+    const merged = await patch(`/v1/people/${person.id}`, { customFields: { ext_nps: '10' } });
+    expect((await data<{ customFields: Record<string, unknown> }>(merged)).customFields).toEqual({
+      ext_shirt: 'm',
+      ext_nps: 10,
+    });
+
+    const unknownCompany = await post('/v1/people', { firstName: 'Nobody', companyIds: ['company_missing'] });
+    expect(unknownCompany.status).toBe(400);
+    const refusal = (await unknownCompany.json()) as { error: { details: { field: string; missing: string[] } } };
+    expect(refusal.error.details).toEqual({ field: 'companyIds', missing: ['company_missing'] });
+
+    const badValue = await post('/v1/people', { firstName: 'Bad', customFields: { ext_shirt: 'xxl' } });
+    expect(badValue.status).toBe(400);
   });
 });
 

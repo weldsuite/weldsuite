@@ -6,7 +6,8 @@
 
 import type { TranslationsType } from '@weldsuite/i18n/types';
 import type { PluralForms } from '@weldsuite/i18n/plural';
-import type { RaidKind, RiskBand } from '@weldsuite/app-api-client/domains/project-control';
+import { RISK_CATEGORIES } from '@weldsuite/app-api-client/schemas/project-control';
+import type { RaidKind, RiskBand, RiskCategories } from '@weldsuite/app-api-client/domains/project-control';
 import type { DueStatus, ReviewInterval } from './risk';
 
 export type RaidCopy = TranslationsType['projects']['raid'];
@@ -42,6 +43,33 @@ export function categoryLabel(copy: RaidCopy, category: string | null): string |
   if (!category) return null;
   const labels = copy.categories as Record<string, string>;
   return labels[category.toLowerCase()] ?? category;
+}
+
+export interface CategoryOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * What the risk form's category field offers: the built-ins the workspace
+ * shows, then its own categories, then the risk's current value when it is
+ * none of those (a hidden built-in, a deleted or hand-typed category), so an
+ * edit never silently drops it. Before the list has loaded, every built-in.
+ */
+export function riskCategoryOptions(
+  copy: RaidCopy,
+  categories: RiskCategories | undefined,
+  current: string | null | undefined,
+): CategoryOption[] {
+  const builtIn = categories?.builtIn ?? RISK_CATEGORIES.map((key) => ({ key, hidden: false }));
+  const options: CategoryOption[] = [
+    ...builtIn.filter((entry) => !entry.hidden).map((entry) => ({ value: entry.key, label: copy.categories[entry.key] })),
+    ...(categories?.custom ?? []).map((entry) => ({ value: entry.name, label: entry.name })),
+  ];
+  if (current && !options.some((option) => option.value === current)) {
+    options.push({ value: current, label: categoryLabel(copy, current) ?? current });
+  }
+  return options;
 }
 
 export function strategyLabel(copy: RaidCopy, strategy: string | null): string | null {

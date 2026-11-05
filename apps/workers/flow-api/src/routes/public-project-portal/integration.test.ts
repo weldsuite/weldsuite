@@ -12,7 +12,13 @@ import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { requestApprovals } from '@weldsuite/flow-domain/approvals';
-import { portalCodeHash, portalCodeKey, sha256Hex } from '@weldsuite/flow-domain/project-portal';
+import {
+  PORTAL_REQUEST_LIMIT_WORKSPACE,
+  PORTAL_VERIFY_LIMIT_WORKSPACE,
+  portalCodeHash,
+  portalCodeKey,
+  sha256Hex,
+} from '@weldsuite/flow-domain/project-portal';
 import { createMemoryRateLimitNamespace, createUnreachableRateLimitNamespace } from '../../testing/memory-rate-limiter';
 import type { Env } from '../../types';
 import { publicProjectPortalRoutes } from './index';
@@ -241,6 +247,28 @@ describe('sign-in', () => {
     }
     expect(p.kv.keys().find((k) => k.startsWith('pportal:code:'))).toBeUndefined();
   });
+
+  it('does not charge the workspace budget for verify calls with no pending code', async () => {
+    const p = portal();
+    for (let i = 0; i <= PORTAL_VERIFY_LIMIT_WORKSPACE; i++) {
+      const res = await p.send('POST', '/auth/verify', { workspace: SLUG, email: `junk${i}@nowhere.test`, code: '000000' });
+      expect(res.status).toBe(401);
+      expect((await json<{ error: { message: string } }>(res)).error.message).toBe('Invalid or expired code');
+    }
+    // A real client of the workspace still signs in.
+    await signIn(p, 'femke@client.test');
+  }, 60_000);
+
+  it('does not charge the workspace budget for code requests to addresses without access', async () => {
+    const p = portal();
+    for (let i = 0; i <= PORTAL_REQUEST_LIMIT_WORKSPACE; i++) {
+      expect((await p.send('POST', '/auth/request-code', { workspace: SLUG, email: `junk${i}@nowhere.test` })).status).toBe(204);
+    }
+    expect(p.mail.sent).toHaveLength(0);
+    // A real client of the workspace still gets a mail.
+    expect((await p.send('POST', '/auth/request-code', { workspace: SLUG, email: 'femke@client.test' })).status).toBe(204);
+    expect(p.mail.sent.map((m) => m.to)).toEqual(['femke@client.test']);
+  }, 60_000);
 
   it('signs out', async () => {
     const p = portal();

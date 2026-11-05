@@ -564,6 +564,10 @@ export const platformSyncMap: EntitySyncMap = {
   sheet: inv(['weldsheets'], ['drive']),
   // A version named, renamed or saved by a restore: the version history panel.
   sheet_version: inv(['weldsheets', 'versions']),
+  // WeldBoard boards (create/rename/trash also publish `file`). An open board
+  // is live over its own room socket; this only refreshes the lists.
+  board: inv(['weldboard'], ['drive']),
+  board_version: inv(['weldboard', 'versions']),
   // A connected table added, changed or removed: the data sources panel.
   sheet_data_source: inv(['weldsheets', 'data-sources']),
 

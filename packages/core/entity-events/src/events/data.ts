@@ -512,6 +512,28 @@ export interface SheetVersionEventData {
   createdById: string | null;
 }
 
+export interface BoardEventData {
+  id: string;
+  /** The drive file (files.id) this board is backed by. */
+  fileId: string;
+  name?: string;
+  /** The WeldFlow project it belongs to. */
+  projectId?: string | null;
+  /** Latest committed revision (content updates). */
+  revision?: number;
+  updatedById?: string | null;
+}
+
+export interface BoardVersionEventData {
+  id: string;
+  /** The board (whiteboards.id) this is a version of. */
+  boardId: string;
+  /** Null for an automatic version (saved before a restore). */
+  name: string | null;
+  revision: number;
+  createdById: string | null;
+}
+
 /** What a connected table lists; never the records themselves. */
 export interface SheetDataSourceEventData {
   id: string;
@@ -709,6 +731,10 @@ export interface EntityEventData {
   sheet: SheetEventData;
   sheet_version: SheetVersionEventData;
   sheet_data_source: SheetDataSourceEventData;
+
+  // WeldBoard
+  board: BoardEventData;
+  board_version: BoardVersionEventData;
 
   // WeldSign
   sign_envelope: SignEnvelopeEventData;

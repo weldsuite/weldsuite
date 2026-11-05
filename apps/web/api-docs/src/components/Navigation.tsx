@@ -276,8 +276,12 @@ export const navigation: Array<NavGroup> = [
       { title: 'Project Labels', href: '/project-labels' },
       { title: 'Task Comments', href: '/task-comments' },
       { title: 'Task Tags', href: '/task-tags' },
-      { title: 'Whiteboards', href: '/whiteboards' },
+      { title: 'Whiteboards (deprecated)', href: '/whiteboards' },
     ],
+  },
+  {
+    title: 'WeldBoard',
+    links: [{ title: 'Boards', href: '/boards' }],
   },
   {
     title: 'WeldChat',

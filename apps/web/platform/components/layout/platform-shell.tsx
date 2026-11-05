@@ -129,7 +129,7 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
                 <main
                   id={MAIN_CONTENT_ID}
                   tabIndex={-1}
-                  className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] outline-none md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border"
+                  className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] outline-none md:rounded-md md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border"
                 >
                   <AppAccessGuard>
                     {children}

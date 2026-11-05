@@ -4,6 +4,10 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
 
 <ResourceVersionBanner />
 
+<Note>
+  A company is created or updated in **one request**: every standard field and every [custom field](#custom-fields) goes in the same JSON body. There is no need to create the company first and then set its fields one call at a time.
+</Note>
+
 ---
 
 ## The company model
@@ -23,32 +27,95 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
   <Property name="displayName" type="string">
     Server-derived display name (`tradingName` if set, otherwise `name`).
   </Property>
+  <Property name="registrationNumber" type="string">
+    Company registration number (e.g. KvK, Companies House).
+  </Property>
   <Property name="vatNumber" type="string">
     VAT / tax registration number.
-  </Property>
-  <Property name="registrationNumber" type="string">
-    Company registration number.
   </Property>
   <Property name="industry" type="string">
     Industry classification.
   </Property>
+  <Property name="employeeCount" type="string">
+    Head count, as a number (`42`) or a range (`11-50`, `10001+`).
+  </Property>
+  <Property name="website" type="string">
+    Company website URL. A bare domain (`acme.com`) is stored as `https://acme.com`.
+  </Property>
+  <Property name="description" type="string">
+    Free-text description.
+  </Property>
+  <Property name="annualRevenue" type="object">
+    Estimated annual revenue, `{ "amount": 1200000, "currency": "EUR" }`.
+  </Property>
+  <Property name="fundingRaised" type="object">
+    Funding raised, same shape as `annualRevenue`.
+  </Property>
+  <Property name="foundationDate" type="timestamp">
+    When the company was founded.
+  </Property>
   <Property name="email" type="string">
     Primary email address.
+  </Property>
+  <Property name="alternateEmails" type="array">
+    Other email addresses.
   </Property>
   <Property name="phone" type="string">
     Primary phone number.
   </Property>
-  <Property name="website" type="string">
-    Company website URL.
+  <Property name="mobile" type="string">
+    Mobile phone number.
+  </Property>
+  <Property name="fax" type="string">
+    Fax number.
   </Property>
   <Property name="primaryAddress" type="object">
-    Primary address (`street`, `houseNumber`, `postalCode`, `city`, `state`, `country`, …).
+    Primary address: `line1`, `line2`, `postalCode`, `city`, `state`, `country` (the older `street` and `houseNumber` keys are accepted too).
+  </Property>
+  <Property name="addresses" type="array">
+    Other addresses, each in the `primaryAddress` shape.
+  </Property>
+  <Property name="avatarUrl" type="string">
+    Logo URL.
+  </Property>
+  <Property name="linkedinUrl" type="string">
+    LinkedIn page.
+  </Property>
+  <Property name="twitterHandle" type="string">
+    X / Twitter handle.
+  </Property>
+  <Property name="facebookUrl" type="string">
+    Facebook page.
+  </Property>
+  <Property name="instagramUrl" type="string">
+    Instagram page.
   </Property>
   <Property name="ownerId" type="string">
     ID of the user who owns this company.
   </Property>
+  <Property name="accountManagerId" type="string">
+    ID of the account manager.
+  </Property>
   <Property name="status" type="string">
-    Lifecycle status (e.g. `prospect`, `customer`).
+    Status (e.g. `prospect`, `customer`).
+  </Property>
+  <Property name="lifecycleStage" type="string">
+    One of `subscriber`, `lead`, `marketing_qualified`, `sales_qualified`, `opportunity`, `customer`, `evangelist`.
+  </Property>
+  <Property name="segment" type="string">
+    Customer segment.
+  </Property>
+  <Property name="rating" type="string">
+    Rating (e.g. `A`, `hot`).
+  </Property>
+  <Property name="source" type="string">
+    Where the company came from (e.g. `erp-sync`, `website`).
+  </Property>
+  <Property name="lastContactDate" type="timestamp">
+    Last contact.
+  </Property>
+  <Property name="nextFollowUpDate" type="timestamp">
+    Next follow-up.
   </Property>
   <Property name="isSupplier" type="boolean">
     Whether this company is also a supplier.
@@ -56,8 +123,41 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
   <Property name="isLead" type="boolean">
     Whether this company is a lead.
   </Property>
+  <Property name="isFavorite" type="boolean">
+    Starred in WeldCRM.
+  </Property>
+  <Property name="preferredContactMethod" type="string">
+    Preferred contact method (e.g. `email`, `phone`).
+  </Property>
+  <Property name="preferredLanguage" type="string">
+    Language code (e.g. `nl`, `en`).
+  </Property>
+  <Property name="timezone" type="string">
+    IANA time zone (e.g. `Europe/Amsterdam`).
+  </Property>
+  <Property name="marketingConsent" type="boolean">
+    Marketing consent given.
+  </Property>
+  <Property name="emailOptIn" type="boolean">
+    Opted in to email.
+  </Property>
+  <Property name="smsOptIn" type="boolean">
+    Opted in to SMS.
+  </Property>
+  <Property name="doNotCall" type="boolean">
+    Do not call.
+  </Property>
   <Property name="tags" type="array">
     Free-form tags.
+  </Property>
+  <Property name="customFields" type="object">
+    Your workspace's own fields, keyed by slug. See [Custom fields](#custom-fields).
+  </Property>
+  <Property name="notes" type="string">
+    Notes.
+  </Property>
+  <Property name="internalNotes" type="string">
+    Internal notes.
   </Property>
   <Property name="createdAt" type="timestamp">
     When the company was created.
@@ -66,6 +166,48 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
     When the company was last updated.
   </Property>
 </Properties>
+
+---
+
+## Custom fields {{ id: 'custom-fields' }}
+
+Custom fields are the fields your workspace adds to companies in WeldCRM (Settings → Custom fields). In the API they travel in the `customFields` object of the company, keyed by the field's **slug**, next to the standard fields:
+
+```json
+{
+  "name": "Doe Manufacturing BV",
+  "customFields": {
+    "contract_tier": "gold",
+    "seats": 25,
+    "renewal_date": "2027-01-31"
+  }
+}
+```
+
+- **Slugs.** [List custom fields](#list-custom-fields) returns every slug with its type and, for select fields, its options.
+- **Values.** A value must suit its field: a number for `number`, `currency` and `rating` fields (`"25"` is accepted and stored as `25`), an ISO 8601 date for `date`, one of the field's option values for `single_select`, an array of option values for `multi_select`, `true`/`false` for `boolean`, and text for the rest. Responses return the stored value (`25`, `"2027-01-31T00:00:00.000Z"`).
+- **Checked before anything is written.** When a value doesn't suit its field, the request fails with `400` and nothing is saved. Every refused value is listed at once, so one corrected retry is enough:
+
+  ```json
+  {
+    "error": {
+      "code": "BAD_REQUEST",
+      "message": "Invalid custom field values: 'bronze' is not a valid option for 'contract_tier'; 'seats' must be a number",
+      "details": {
+        "field": "customFields",
+        "errors": {
+          "contract_tier": "'bronze' is not a valid option for 'contract_tier'",
+          "seats": "'seats' must be a number"
+        }
+      }
+    }
+  }
+  ```
+
+- **Clearing.** `null` (or `""`) clears a field.
+- **Updates merge.** On `PATCH`, only the slugs you send change; the company's other custom fields keep their values.
+- **Unknown keys.** A key that is not one of the workspace's slugs is kept on the record and returned by the API, but WeldCRM doesn't show it. Check the slug if a value doesn't appear in the app.
+- Required custom fields are not enforced on API writes.
 
 ---
 
@@ -131,10 +273,99 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
           "industry": "Manufacturing",
           "email": "info@smith.example",
           "isSupplier": true,
-          "status": "customer"
+          "status": "customer",
+          "customFields": { "contract_tier": "silver" }
         }
       ],
       "pagination": { "totalCount": 58, "hasMore": true, "cursor": "company_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## List custom fields {{ tag: 'GET', label: '/v1/companies/custom-fields', id: 'list-custom-fields' }}
+
+<Row>
+  <Col>
+
+    The workspace's company custom fields, in the order WeldCRM shows them. Use the `slug` of each as its key in `customFields`.
+
+    ### Fields
+
+    <Properties>
+      <Property name="slug" type="string">
+        The key to use in `customFields`.
+      </Property>
+      <Property name="name" type="string">
+        The label shown in WeldCRM.
+      </Property>
+      <Property name="fieldType" type="string">
+        One of `text`, `textarea`, `number`, `currency`, `rating`, `date`, `boolean`, `single_select`, `multi_select`, `url`, `email`, `phone`, `file`, `user_ref`, `entity_ref`.
+      </Property>
+      <Property name="options" type="array">
+        For select fields, the allowed values (`{ label, value }`). Send the `value`.
+      </Property>
+      <Property name="required" type="boolean">
+        Required in WeldCRM's forms (not enforced on API writes).
+      </Property>
+      <Property name="description" type="string">
+        Help text.
+      </Property>
+      <Property name="group" type="string">
+        The group the field is shown in.
+      </Property>
+      <Property name="config" type="object">
+        Type-specific settings (e.g. a currency field's currency).
+      </Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/companies/custom-fields">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/companies/custom-fields \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cfd_abc123",
+          "slug": "contract_tier",
+          "name": "Contract tier",
+          "description": null,
+          "fieldType": "single_select",
+          "options": [
+            { "label": "Gold", "value": "gold" },
+            { "label": "Silver", "value": "silver" }
+          ],
+          "config": null,
+          "required": false,
+          "group": "Contract",
+          "sortOrder": 1
+        },
+        {
+          "id": "cfd_def456",
+          "slug": "seats",
+          "name": "Seats",
+          "description": null,
+          "fieldType": "number",
+          "options": null,
+          "config": null,
+          "required": false,
+          "group": "Contract",
+          "sortOrder": 2
+        }
+      ],
+      "pagination": { "totalCount": 2, "hasMore": false, "cursor": null }
     }
     ```
 
@@ -148,7 +379,7 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
 <Row>
   <Col>
 
-    Create a company. `displayName` is derived automatically from `tradingName`/`name`.
+    Create a company with all its fields, custom fields included, in one request. `displayName` is derived automatically from `tradingName`/`name`. Custom field values are checked before anything is written: when one is refused, the request fails with `400` and no company is created.
 
     ### Required attributes
 
@@ -160,18 +391,25 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
 
     ### Optional attributes
 
+    Every other field of [the company model](#the-company-model) except `id`, `displayName`, `createdAt` and `updatedAt`, among them:
+
     <Properties>
       <Property name="tradingName" type="string">Trading name.</Property>
+      <Property name="registrationNumber" type="string">Registration number.</Property>
       <Property name="vatNumber" type="string">VAT number.</Property>
       <Property name="industry" type="string">Industry.</Property>
+      <Property name="employeeCount" type="string">Number or range.</Property>
+      <Property name="website" type="string">Website URL or domain.</Property>
       <Property name="email" type="string">Primary email.</Property>
-      <Property name="website" type="string">Website URL.</Property>
+      <Property name="phone" type="string">Primary phone.</Property>
       <Property name="primaryAddress" type="object">Primary address object.</Property>
       <Property name="ownerId" type="string">Owner user ID.</Property>
-      <Property name="status" type="string">Lifecycle status.</Property>
+      <Property name="status" type="string">Status. Defaults to `prospect`.</Property>
+      <Property name="lifecycleStage" type="string">Lifecycle stage.</Property>
       <Property name="isSupplier" type="boolean">Supplier flag.</Property>
       <Property name="isLead" type="boolean">Lead flag.</Property>
       <Property name="tags" type="array">Tags.</Property>
+      <Property name="customFields" type="object">Custom field values by slug. See [Custom fields](#custom-fields).</Property>
     </Properties>
 
   </Col>
@@ -186,9 +424,34 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
       -d '{
         "name": "Doe Manufacturing BV",
         "tradingName": "Doe Manufacturing",
+        "registrationNumber": "12345678",
+        "vatNumber": "NL123456789B01",
         "industry": "Welding",
+        "employeeCount": "51-200",
+        "website": "doe.example",
         "email": "info@doe.example",
-        "isSupplier": true
+        "phone": "+31 20 123 4567",
+        "primaryAddress": {
+          "line1": "Kade 1",
+          "postalCode": "1011 AB",
+          "city": "Amsterdam",
+          "country": "NL"
+        },
+        "status": "customer",
+        "lifecycleStage": "customer",
+        "segment": "mid-market",
+        "source": "erp-sync",
+        "isSupplier": true,
+        "preferredLanguage": "nl",
+        "timezone": "Europe/Amsterdam",
+        "tags": ["erp", "priority"],
+        "notes": "Imported from the ERP",
+        "customFields": {
+          "contract_tier": "gold",
+          "seats": 25,
+          "renewal_date": "2027-01-31",
+          "erp_id": "ERP-1001"
+        }
       }'
     ```
 
@@ -201,11 +464,20 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
         "name": "Doe Manufacturing BV",
         "tradingName": "Doe Manufacturing",
         "displayName": "Doe Manufacturing",
+        "vatNumber": "NL123456789B01",
         "industry": "Welding",
+        "website": "https://doe.example",
         "isSupplier": true,
-        "status": "prospect",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
+        "status": "customer",
+        "tags": ["erp", "priority"],
+        "customFields": {
+          "contract_tier": "gold",
+          "seats": 25,
+          "renewal_date": "2027-01-31T00:00:00.000Z",
+          "erp_id": "ERP-1001"
+        },
+        "createdAt": "2026-11-05T14:00:00Z",
+        "updatedAt": "2026-11-05T14:00:00Z"
       }
     }
     ```
@@ -220,7 +492,7 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
 <Row>
   <Col>
 
-    Retrieve a single company by ID.
+    Retrieve a single company by ID, with its custom fields.
 
   </Col>
   <Col sticky>
@@ -241,7 +513,8 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
         "name": "Smith Industries BV",
         "displayName": "Smith Industries",
         "industry": "Manufacturing",
-        "status": "customer"
+        "status": "customer",
+        "customFields": { "contract_tier": "silver", "seats": 10 }
       }
     }
     ```
@@ -256,7 +529,7 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
 <Row>
   <Col>
 
-    Partially update a company. Only the fields you send are changed.
+    Partially update a company. Only the fields you send are changed, and any number of them can go in one request. In `customFields`, only the slugs you send change; send `null` to clear one.
 
   </Col>
   <Col sticky>
@@ -267,7 +540,11 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
     curl -X PATCH https://api.weldsuite.org/v1/companies/company_abc123 \
       -H "Authorization: Bearer wsk_your_api_key" \
       -H "Content-Type: application/json" \
-      -d '{ "status": "customer", "industry": "Heavy Manufacturing" }'
+      -d '{
+        "status": "customer",
+        "industry": "Heavy Manufacturing",
+        "customFields": { "seats": 30, "erp_id": null }
+      }'
     ```
 
     </CodeGroup>
@@ -278,7 +555,8 @@ Companies are the organizations in your CRM, customers, suppliers, and prospects
         "id": "company_abc123",
         "status": "customer",
         "industry": "Heavy Manufacturing",
-        "updatedAt": "2024-12-01T15:00:00Z"
+        "customFields": { "contract_tier": "silver", "seats": 30 },
+        "updatedAt": "2026-11-05T15:00:00Z"
       }
     }
     ```

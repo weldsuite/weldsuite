@@ -56,7 +56,6 @@ import { createSocialAccountSchema, updateSocialAccountSchema } from '@weldsuite
 import { createSocialAnalyticsSchema, updateSocialAnalyticsSchema } from '@weldsuite/core-api-client/schemas/social-analytics';
 import { createSocialCampaignSchema, updateSocialCampaignSchema } from '@weldsuite/core-api-client/schemas/social-campaigns';
 import { createSocialPostSchema, updateSocialPostSchema } from '@weldsuite/core-api-client/schemas/social-posts';
-import { createWhiteboardSchema, updateWhiteboardSchema } from '@weldsuite/core-api-client/schemas/whiteboards';
 import { createWorkflowSchema, updateWorkflowSchema } from '@weldsuite/core-api-client/schemas/weldconnect';
 
 // WeldBooks / accounting schemas
@@ -225,6 +224,5 @@ export const CRUD_ENTITIES: CrudEntity[] = [
   e('tickets', createTicketSchema, updateTicketSchema),
   e('time-entries', null, null), // inline schema in the route
   e('webhooks', null, null), // inline schema in the route
-  e('whiteboards', createWhiteboardSchema, updateWhiteboardSchema),
   e('workflows', createWorkflowSchema, updateWorkflowSchema),
 ];

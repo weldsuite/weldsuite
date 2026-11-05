@@ -294,13 +294,19 @@ pub async fn list_files_in_folders(
     Ok(rows)
 }
 
-/// Delete a trashed folder's files (and the spreadsheet or document rows
-/// that reference them), then the folder (`purgeFolder`).
+/// Delete a trashed folder's files (and the spreadsheet, document or board
+/// rows that reference them), then the folder (`purgeFolder`).
 pub async fn purge_folder(db: &PgPool, folder_id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("delete from sheets where file_id in (select id from files where folder_id = $1)")
         .bind(folder_id)
         .execute(db)
         .await?;
+    sqlx::query(
+        "delete from whiteboards where file_id in (select id from files where folder_id = $1)",
+    )
+    .bind(folder_id)
+    .execute(db)
+    .await?;
     sqlx::query(
         "delete from document_versions where file_id in (select id from files where folder_id = $1)",
     )
@@ -333,6 +339,8 @@ pub async fn purge_trashed(
     if !file_ids.is_empty() || !folder_ids.is_empty() {
         for statement in [
             "delete from sheets where file_id in (select id from files
+              where (id = any($1) and deleted_at is not null) or folder_id = any($2))",
+            "delete from whiteboards where file_id in (select id from files
               where (id = any($1) and deleted_at is not null) or folder_id = any($2))",
             "delete from document_versions where file_id in (select id from files
               where (id = any($1) and deleted_at is not null) or folder_id = any($2))",

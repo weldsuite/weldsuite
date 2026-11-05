@@ -100,6 +100,7 @@ export function RecordPickerMenu<T extends RecordPickerOption>({
   createLabel,
   onCreate,
   search,
+  emptyLabel,
 }: Readonly<{
   options: readonly T[];
   kind?: RecordPickerKind;
@@ -114,6 +115,8 @@ export function RecordPickerMenu<T extends RecordPickerOption>({
   onCreate?: () => void;
   /** Renders the search field inside the menu. */
   search?: { value: string; onChange: (value: string) => void; placeholder: string };
+  /** Shown when the search found nothing and there is no "create new" row. */
+  emptyLabel?: string;
 }>) {
   return (
     <Command shouldFilter={false} className="h-auto">
@@ -138,6 +141,9 @@ export function RecordPickerMenu<T extends RecordPickerOption>({
                 checked={isChecked?.(option)}
               />
             ))}
+            {options.length === 0 && !onCreate && emptyLabel ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">{emptyLabel}</p>
+            ) : null}
             {onCreate && createLabel && <RecordPickerCreateItem label={createLabel} onSelect={onCreate} />}
           </>
         )}

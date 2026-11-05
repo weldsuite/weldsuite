@@ -18,6 +18,8 @@ export interface RaidAbilities {
   createTasks: boolean;
   /** Check linked tasks off (`update` and `tasks:update`). */
   updateTasks: boolean;
+  /** Change the workspace's risk categories (`portfolio:manage`; not tied to this project). */
+  manageCategories: boolean;
 }
 
 export interface RaidMember {
@@ -89,6 +91,7 @@ export function useRaidAbilities(): RaidAbilities {
     remove: canWrite && can('projects:delete'),
     createTasks: update && can('tasks:create'),
     updateTasks: update && can('tasks:update'),
+    manageCategories: can('portfolio:manage'),
   };
 }
 

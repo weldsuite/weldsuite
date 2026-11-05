@@ -161,6 +161,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Productivity',
     path: '/welddocs',
   },
+  weldboard: {
+    code: 'weldboard',
+    name: 'WeldBoard',
+    description: 'Online whiteboards with sticky notes, shapes, connectors, templates and live collaboration',
+    icon: 'StickyNote',
+    category: 'Productivity',
+    path: '/weldboard',
+  },
   weldreach: {
     code: 'weldreach',
     name: 'WeldReach',

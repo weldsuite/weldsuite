@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Tags } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ListToolbar, type FilterConfig } from '@weldsuite/ui/components/list-toolbar';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
@@ -19,6 +21,7 @@ import {
 } from '../_lib/raid';
 import { isOpenItem } from '../_lib/risk';
 import { useRaid } from './raid-context';
+import { RiskCategoriesDialog } from './risk-categories-dialog';
 
 /** Items a sub-tab counts: open risks, issues and dependencies; every assumption (validated and wrong ones stay listed). */
 function tabCount(items: readonly RaidItem[], kind: RaidKind): number {
@@ -69,6 +72,7 @@ export function RaidToolbar() {
   const { t, format } = useI18n();
   const copy = t.projects.raid;
   const { items, activeKind: kind, memberOf, abilities, openCreate, filters, setFilters, showClosed, toggleShowClosed } = useRaid();
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
 
   const all = itemsOfKind(items, kind);
   const closedCount = all.filter((item) => !isOpenItem(item)).length;
@@ -101,6 +105,21 @@ export function RaidToolbar() {
       : []),
   ];
 
+  // Workspace risk categories are managed from the Risks bar (`portfolio:manage`).
+  const categoriesButton =
+    kind === 'risk' && abilities.manageCategories ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setCategoriesOpen(true)}
+        className="h-8 px-3 text-sm text-muted-foreground shadow-none"
+      >
+        <Tags aria-hidden />
+        {copy.categoryManager.open}
+      </Button>
+    ) : null;
+
   const closedToggle =
     !SHOWS_CLOSED_ALWAYS[kind] && closedCount > 0 ? (
       <Button
@@ -125,7 +144,14 @@ export function RaidToolbar() {
         onSearchChange={(search) => setFilters({ ...filters, search })}
         searchPlaceholder={copy.toolbar.search[kind]}
         leftActionButtons={<RaidSubTabs />}
-        actionButtons={closedToggle}
+        actionButtons={
+          categoriesButton || closedToggle ? (
+            <>
+              {categoriesButton}
+              {closedToggle}
+            </>
+          ) : null
+        }
         createButton={abilities.create ? { label: copy.newItem[kind], onClick: () => openCreate(kind) } : undefined}
         className="shrink-0 pt-2 pb-2"
       />
@@ -133,6 +159,9 @@ export function RaidToolbar() {
       <div className="shrink-0 overflow-x-auto border-b border-border px-3 py-2 md:hidden">
         <RaidSubTabs />
       </div>
+      {kind === 'risk' && abilities.manageCategories ? (
+        <RiskCategoriesDialog open={categoriesOpen} onClose={() => setCategoriesOpen(false)} />
+      ) : null}
     </>
   );
 }

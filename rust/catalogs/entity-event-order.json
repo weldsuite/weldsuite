@@ -257,6 +257,8 @@
   "sheet",
   "sheet_version",
   "sheet_data_source",
+  "board",
+  "board_version",
   "sign_envelope",
   "sign_template",
   "panel_project"

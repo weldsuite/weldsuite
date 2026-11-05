@@ -29,6 +29,7 @@
     "./recurrence": "./src/recurrence.ts",
     "./report-mail": "./src/report-mail.ts",
     "./risk": "./src/risk.ts",
+    "./risk-categories": "./src/risk-categories.ts",
     "./schedule": "./src/schedule.ts",
     "./scope": "./src/scope.ts",
     "./stakeholders": "./src/stakeholders.ts",

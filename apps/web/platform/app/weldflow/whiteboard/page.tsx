@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Presentation } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -7,15 +6,13 @@ import { useRouter } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { formatMediumDateNow } from '@/lib/i18n/date-locale';
-import { whiteboardApi } from '@/app/weldflow/lib/api-client';
-import { projectKeys, useProjects } from '@/hooks/queries/use-projects-queries';
+import { useBoardList } from '@/app/weldboard/store/use-board-store';
+import { useProjects } from '@/hooks/queries/use-projects-queries';
 
 /**
- * Whiteboards across every project the user can access.
- *
- * A whiteboard always belongs to a project (`project_whiteboards.project_id`), so this
- * page used to render an editor on a made-up "global-whiteboard" project that failed to
- * save on every edit. It is now a read-only index that opens each board in its project.
+ * Whiteboards across every project the user can access: the WeldBoard boards
+ * that belong to a project (old WeldFlow whiteboards not opened since included),
+ * each opened in its project. Boards of no project live in WeldBoard.
  */
 export default function WhiteboardPage() {
   const st = useTranslations();
@@ -26,14 +23,7 @@ export default function WhiteboardPage() {
     { label: st('sweep.weldflow.whiteboardListPage.whiteboards') },
   ]);
 
-  const boards = useQuery({
-    queryKey: [...projectKeys.all, 'whiteboards', 'all'],
-    queryFn: async () => {
-      const result = await whiteboardApi.listAll();
-      if (!result.success || !result.data) throw new Error('Failed to load whiteboards');
-      return result.data;
-    },
-  });
+  const boards = useBoardList({ projects: true });
   const projects = useProjects({ pageSize: 100 });
 
   const projectNames = useMemo(() => {
@@ -89,7 +79,7 @@ export default function WhiteboardPage() {
                     {projectName}
                   </span>
                 )}
-                <span className="shrink-0 text-sm tabular-nums">{formatMediumDateNow(board.updatedAt)}</span>
+                <span className="shrink-0 text-sm tabular-nums">{formatMediumDateNow(new Date(board.updatedAt).toISOString())}</span>
               </button>
             </li>
           );

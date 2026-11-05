@@ -1,6 +1,6 @@
 /**
  * WeldFlow's objects through the public API beyond the contract matrix: the
- * groups that need a project (goals, milestones, sprints, whiteboards, the
+ * groups that need a project (goals, milestones, sprints, the
  * project-* objects) and a task (comments), round-tripped with their list
  * filters, updates, deletes and refusals; projects and time entries with the
  * values their routes derive.
@@ -134,7 +134,7 @@ describe('external-api · tasks', () => {
 });
 
 describe('external-api · project objects', () => {
-  it('round-trips goals, milestones, sprints and whiteboards', async () => {
+  it('round-trips goals, milestones and sprints', async () => {
     const goal = await data<{ id: string }>(await post('/v1/goals', { title: 'Ship it', projectId, progress: 10 }));
     expect(await listed(`/v1/goals?projectId=${projectId}`)).toContain(goal.id);
     expect((await patch(`/v1/goals/${goal.id}`, { progress: 50 })).status).toBe(200);
@@ -162,16 +162,6 @@ describe('external-api · project objects', () => {
     expect((await del(`/v1/sprints/${sp.id}`)).status).toBe(204);
     expect((await patch(`/v1/sprints/${sp.id}`, { goal: 'x' })).status).toBe(404);
     expect((await del(`/v1/sprints/${sp.id}`)).status).toBe(404);
-
-    const board = await post('/v1/whiteboards', { projectId });
-    expect(board.status, await board.clone().text()).toBe(201);
-    const wb = await data<{ id: string; name: string }>(board);
-    expect(wb.name).toBe('Main Whiteboard');
-    expect(await listed(`/v1/whiteboards?projectId=${projectId}&search=Main`)).toContain(wb.id);
-    expect((await patch(`/v1/whiteboards/${wb.id}`, { name: 'Ideas' })).status).toBe(200);
-    expect((await del(`/v1/whiteboards/${wb.id}`)).status).toBe(204);
-    expect((await patch(`/v1/whiteboards/${wb.id}`, { name: 'x' })).status).toBe(404);
-    expect((await del(`/v1/whiteboards/${wb.id}`)).status).toBe(404);
   });
 
   it('round-trips documents, files, labels, members and messages', async () => {

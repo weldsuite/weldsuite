@@ -38,6 +38,7 @@ mod commerce;
 mod connect;
 mod crm;
 mod crud;
+mod custom_fields;
 mod desk;
 mod drive;
 mod flow;

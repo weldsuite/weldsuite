@@ -487,7 +487,8 @@ function fontCandidates(font: FontSpec): [string, boolean, boolean][] {
   return out;
 }
 
-async function writeImage(pdf: PdfWriter, image: PdfImage): Promise<number> {
+/** Writes a decoded image as an XObject (with its alpha as a soft mask) and returns its object number. */
+export async function writeImage(pdf: PdfWriter, image: PdfImage): Promise<number> {
   if (image.kind === 'jpeg') {
     const { info } = image;
     const space = jpegColorSpace(info.components);

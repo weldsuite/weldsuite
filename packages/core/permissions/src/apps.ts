@@ -159,6 +159,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['docs'],
   },
   {
+    code: 'weldboard',
+    label: 'WeldBoard',
+    objects: ['boards'],
+  },
+  {
     code: 'weldsign',
     label: 'WeldSign',
     objects: ['sign_envelopes', 'sign_templates'],

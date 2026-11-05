@@ -7,7 +7,14 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+# Each entry names who pulls the crate in and when to drop it. Only
+# unmaintained notices belong here; a vulnerability gets fixed, not ignored.
+ignore = [
+  # pin-utils is archived (2026-10-01), not vulnerable. Its only user is
+  # async-imap 0.12.0 (crates/adapters-oss, the IMAP mail adapter), the newest
+  # release. Drop this once async-imap moves to core::pin::pin!.
+  { id = "RUSTSEC-2026-0441", reason = "unmaintained, no fix: async-imap 0.12.0 still depends on pin-utils" },
+]
 
 [licenses]
 version = 2

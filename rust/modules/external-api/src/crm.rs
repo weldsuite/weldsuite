@@ -17,6 +17,7 @@ use weldsuite_catalogs::entity_events::{
     PIPELINE_CREATED, PIPELINE_DELETED, PIPELINE_STAGE_CREATED, PIPELINE_STAGE_DELETED,
     PIPELINE_STAGE_UPDATED, PIPELINE_UPDATED,
 };
+use weldsuite_db::PgPool;
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::js_trim;
 
@@ -26,6 +27,7 @@ use crate::crud::{
     live_or_404, no_content, now, ok, page, pick, soft_delete, table_list_sql, text, to_date,
     with_id, with_updated,
 };
+use crate::custom_fields;
 use crate::schemas::{CREATE_QUOTE, LIST_QUOTES, UPDATE_QUOTE};
 use crate::schemas_gen::{
     CREATE_ACTIVITY, CREATE_COMPANY, CREATE_LEAD, CREATE_OPPORTUNITY, CREATE_PERSON,
@@ -54,6 +56,10 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
                 .merge(axum::routing::post(create_person).route_layer(scope!("people:write"))),
         )
         .route(
+            "/people/custom-fields",
+            get(list_person_fields).route_layer(scope!("people:read")),
+        )
+        .route(
             "/people/{id}",
             get(get_person).route_layer(scope!("people:read")).merge(
                 axum::routing::patch(update_person)
@@ -66,6 +72,10 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
             get(list_companies)
                 .route_layer(scope!("companies:read"))
                 .merge(axum::routing::post(create_company).route_layer(scope!("companies:write"))),
+        )
+        .route(
+            "/companies/custom-fields",
+            get(list_company_fields).route_layer(scope!("companies:read")),
         )
         .route(
             "/companies/{id}",
@@ -260,11 +270,18 @@ async fn list_people(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "companyId": text(&q, "companyId"),
         "listId": text(&q, "listId"),
     });
-    page(&caller.db, PEOPLE_LIST, &PEOPLE, &q, filters).await
+    // Custom fields are read from the typed values table, as WeldCRM reads them.
+    custom_fields::page(&caller.db, PEOPLE_LIST, &PEOPLE, &q, filters, "person").await
+}
+
+/// `GET /people/custom-fields`: the slugs a person's `customFields` takes.
+async fn list_person_fields(caller: Caller) -> Answer {
+    custom_fields::definitions_list(&caller.db, "person").await
 }
 
 async fn get_person(caller: Caller, Path(id): Path<String>) -> Answer {
-    get_live(&caller.db, &PEOPLE, "Person", &id).await
+    let row = live_or_404(&caller.db, &PEOPLE, "Person", &id).await?;
+    ok(custom_fields::hydrated(&caller.db, "person", row, None).await?)
 }
 
 /// The body without `companyIds`, `primaryCompanyId` and `dateOfBirth`.
@@ -278,9 +295,56 @@ fn person_fields(body: &Map<String, Value>) -> (Map<String, Value>, Option<Strin
     (rest, birth.filter(|s| !s.is_empty()))
 }
 
+/// The companies a create links the person to (`employerIds`): `companyIds`,
+/// then `primaryCompanyId` when set, each once, in that order.
+fn employer_ids(body: &Map<String, Value>) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    let listed = body
+        .get("companyIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    let primary = str_of(body.get("primaryCompanyId")).filter(|s| !s.is_empty());
+    for id in listed.chain(primary) {
+        if !ids.iter().any(|known| known == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    ids
+}
+
+/// `Unknown company: …` for the ids that name no live company.
+async fn check_employers(db: &PgPool, ids: &[String]) -> Result<(), Fail> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let found: Vec<String> =
+        sqlx::query_scalar("select id from companies where id = any($1) and deleted_at is null")
+            .bind(ids)
+            .fetch_all(db)
+            .await?;
+    let missing: Vec<&String> = ids.iter().filter(|id| !found.contains(id)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = missing.iter().map(|id| id.as_str()).collect();
+    Err(
+        bad_request(format!("Unknown company: {}", names.join(", ")))
+            .with_details(json!({ "field": "companyIds", "missing": missing }))
+            .into(),
+    )
+}
+
 async fn create_person(State(state): S, caller: Caller, headers: HeaderMap, body: Bytes) -> Answer {
     let parsed = zod::json(&CREATE_PERSON, &headers, &body)?;
+    let employers = employer_ids(&parsed.body);
+    let primary = str_of(parsed.body.get("primaryCompanyId")).map(str::to_owned);
     let (body, birth) = person_fields(&parsed.body);
+    // Everything the request names is checked before anything is written.
+    let definitions = custom_fields::definitions(&caller.db, "person").await?;
+    custom_fields::check(&definitions, custom_fields::sent(&body))?;
+    check_employers(&caller.db, &employers).await?;
     let stamp = now();
     let id = generate_id("person");
     let first = str_of(body.get("firstName"));
@@ -305,8 +369,29 @@ async fn create_person(State(state): S, caller: Caller, headers: HeaderMap, body
             &["createdAt", "updatedAt", "dateOfBirth"],
         )
         .await?;
+    custom_fields::write(
+        &caller.db,
+        "person",
+        &id,
+        custom_fields::sent(&body),
+        &definitions,
+    )
+    .await?;
+    for company_id in &employers {
+        sqlx::query(
+            "insert into person_companies (id, created_at, updated_at, person_id, company_id, is_primary)
+             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5)",
+        )
+        .bind(generate_id("pc"))
+        .bind(&stamp)
+        .bind(&id)
+        .bind(company_id)
+        .bind(primary.as_deref() == Some(company_id.as_str()))
+        .execute(&caller.db)
+        .await?;
+    }
     caller.publish(&state.events, PERSON_CREATED, &id, person_event(&id, &row));
-    created(row)
+    created(custom_fields::hydrated(&caller.db, "person", row, Some(&definitions)).await?)
 }
 
 async fn update_person(
@@ -317,11 +402,28 @@ async fn update_person(
     body: Bytes,
 ) -> Answer {
     let parsed = zod::json(&UPDATE_PERSON, &headers, &body)?;
-    let (body, birth) = person_fields(&parsed.body);
+    // Employments are set on create; an update leaves them alone.
+    let (mut body, birth) = person_fields(&parsed.body);
+    let sent = body.remove("customFields");
+    let sent = sent.as_ref().and_then(Value::as_object);
     let existing = live_or_404(&caller.db, &PEOPLE, "Person", &id).await?;
+    let definitions = match sent {
+        Some(_) => Some(custom_fields::definitions(&caller.db, "person").await?),
+        None => None,
+    };
+    if let Some(definitions) = &definitions {
+        custom_fields::check(definitions, sent)?;
+    }
     let mut update = with_updated(&body, &now());
     if let Some(birth) = &birth {
         update.insert("dateOfBirth".into(), to_date(birth)?);
+    }
+    // Custom fields merge: the keys sent change, the others stay.
+    if let Some(sent) = sent {
+        update.insert(
+            "customFields".into(),
+            custom_fields::merge(existing.get("customFields"), sent),
+        );
     }
     if ["firstName", "lastName", "fullName"]
         .iter()
@@ -370,6 +472,9 @@ async fn update_person(
         )
         .await?
         .ok_or_else(|| internal_with("Failed to update person"))?;
+    if let Some(definitions) = &definitions {
+        custom_fields::write(&caller.db, "person", &id, sent, definitions).await?;
+    }
     caller.publish_changes(
         &state.events,
         PERSON_UPDATED,
@@ -377,7 +482,7 @@ async fn update_person(
         person_event(&id, &row),
         changes(&existing, &update),
     );
-    ok(row)
+    ok(custom_fields::hydrated(&caller.db, "person", row, definitions.as_deref()).await?)
 }
 
 async fn delete_person(State(state): S, caller: Caller, Path(id): Path<String>) -> Answer {
@@ -434,11 +539,26 @@ async fn list_companies(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "isLead": flag(&q, "isLead"),
         "listId": text(&q, "listId"),
     });
-    page(&caller.db, COMPANIES_LIST, &COMPANIES, &q, filters).await
+    // Custom fields are read from the typed values table, as WeldCRM reads them.
+    custom_fields::page(
+        &caller.db,
+        COMPANIES_LIST,
+        &COMPANIES,
+        &q,
+        filters,
+        "company",
+    )
+    .await
+}
+
+/// `GET /companies/custom-fields`: the slugs a company's `customFields` takes.
+async fn list_company_fields(caller: Caller) -> Answer {
+    custom_fields::definitions_list(&caller.db, "company").await
 }
 
 async fn get_company(caller: Caller, Path(id): Path<String>) -> Answer {
-    get_live(&caller.db, &COMPANIES, "Company", &id).await
+    let row = live_or_404(&caller.db, &COMPANIES, "Company", &id).await?;
+    ok(custom_fields::hydrated(&caller.db, "company", row, None).await?)
 }
 
 async fn create_company(
@@ -448,6 +568,9 @@ async fn create_company(
     body: Bytes,
 ) -> Answer {
     let parsed = zod::json(&CREATE_COMPANY, &headers, &body)?;
+    // Every custom field value is checked before anything is written.
+    let definitions = custom_fields::definitions(&caller.db, "company").await?;
+    custom_fields::check(&definitions, custom_fields::sent(&parsed.body))?;
     let stamp = now();
     let id = generate_id("company");
     let display = company_display_name(
@@ -467,13 +590,21 @@ async fn create_company(
             &dates(&parsed, &["createdAt", "updatedAt"]),
         )
         .await?;
+    custom_fields::write(
+        &caller.db,
+        "company",
+        &id,
+        custom_fields::sent(&parsed.body),
+        &definitions,
+    )
+    .await?;
     caller.publish(
         &state.events,
         COMPANY_CREATED,
         &id,
         company_event(&id, &row),
     );
-    created(row)
+    created(custom_fields::hydrated(&caller.db, "company", row, Some(&definitions)).await?)
 }
 
 async fn update_company(
@@ -486,8 +617,24 @@ async fn update_company(
     let parsed = zod::json(&UPDATE_COMPANY, &headers, &body)?;
     let mut body = parsed.body.clone();
     body.remove("ifVersion");
+    let sent = body.remove("customFields");
+    let sent = sent.as_ref().and_then(Value::as_object);
     let existing = live_or_404(&caller.db, &COMPANIES, "Company", &id).await?;
+    let definitions = match sent {
+        Some(_) => Some(custom_fields::definitions(&caller.db, "company").await?),
+        None => None,
+    };
+    if let Some(definitions) = &definitions {
+        custom_fields::check(definitions, sent)?;
+    }
     let mut update = with_updated(&body, &now());
+    // Custom fields merge: the keys sent change, the others stay.
+    if let Some(sent) = sent {
+        update.insert(
+            "customFields".into(),
+            custom_fields::merge(existing.get("customFields"), sent),
+        );
+    }
     if body.contains_key("name") || body.contains_key("tradingName") {
         let coalesce = |key: &str| match body.get(key) {
             Some(Value::Null) | None => str_of(existing.get(key)),
@@ -511,6 +658,9 @@ async fn update_company(
         )
         .await?
         .ok_or_else(|| internal_with("Failed to update company"))?;
+    if let Some(definitions) = &definitions {
+        custom_fields::write(&caller.db, "company", &id, sent, definitions).await?;
+    }
     caller.publish_changes(
         &state.events,
         COMPANY_UPDATED,
@@ -518,7 +668,7 @@ async fn update_company(
         company_event(&id, &row),
         changes(&existing, &update),
     );
-    ok(row)
+    ok(custom_fields::hydrated(&caller.db, "company", row, definitions.as_deref()).await?)
 }
 
 async fn delete_company(State(state): S, caller: Caller, Path(id): Path<String>) -> Answer {

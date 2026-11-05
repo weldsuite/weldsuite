@@ -160,6 +160,19 @@ export async function errorOf(res: Response): Promise<{ code: string; message: s
 export const today = () => todayIso();
 export const daysFromToday = (days: number) => addDays(todayIso(), days);
 
+/**
+ * `daysFromToday(days)`, moved on to the next Monday to Friday when it falls
+ * on a weekend: a one-day leave request on a Saturday has no working days and
+ * is refused, so a test that books one must not depend on the weekday.
+ */
+export function workdayFromToday(days: number): string {
+  let date = daysFromToday(days);
+  for (let day = new Date(`${date}T00:00:00Z`).getUTCDay(); day === 0 || day === 6; day = (day + 1) % 7) {
+    date = addDays(date, 1);
+  }
+  return date;
+}
+
 /** An instant `minutes` from now, rounded down to the minute (shifts and requests ahead of now). */
 export function minutesFromNow(minutes: number): string {
   const at = new Date(Date.now() + minutes * 60_000);

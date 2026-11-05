@@ -327,6 +327,30 @@
       }
     },
     {
+      "name": "a move by due date alone onto a Saturday counts the duration back from the Friday",
+      "input": {
+        "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-02" }],
+        "links": []
+      },
+      "move": { "taskId": "A", "dueDate": "2026-11-07" },
+      "expected": {
+        "ok": true,
+        "task": { "startDate": "2026-11-06", "dueDate": "2026-11-07" }
+      }
+    },
+    {
+      "name": "a move by due date alone onto a Sunday keeps a three-day task three working days long",
+      "input": {
+        "tasks": [{ "id": "A", "status": "todo", "startDate": "2026-11-02", "dueDate": "2026-11-04" }],
+        "links": []
+      },
+      "move": { "taskId": "A", "dueDate": "2026-11-08" },
+      "expected": {
+        "ok": true,
+        "task": { "startDate": "2026-11-04", "dueDate": "2026-11-08" }
+      }
+    },
+    {
       "name": "a done task cannot be moved",
       "input": { "tasks": [{ "id": "A", "status": "done", "startDate": "2026-11-02", "dueDate": "2026-11-03" }], "links": [] },
       "move": { "taskId": "A", "startDate": "2026-11-09" },
