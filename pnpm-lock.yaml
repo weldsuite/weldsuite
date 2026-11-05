@@ -7456,6 +7456,25 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@26.2.0)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
+  packages/core/board-engine:
+    dependencies:
+      '@weldsuite/collab':
+        specifier: workspace:*
+        version: link:../collab
+      '@weldsuite/docs-engine':
+        specifier: workspace:*
+        version: link:../docs-engine
+    devDependencies:
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+
   packages/core/cloudflare-deploy:
     dependencies:
       '@weldsuite/text':

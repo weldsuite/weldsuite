@@ -577,11 +577,11 @@ jobs:
         run: pnpm test
       # Includes the module ownership test: every app-api mount must belong to
       # exactly one module in @weldsuite/api-modules, and API workers may not
-      # import from each other.
+      # import from each other. Also the WeldBoard engine (board-api runs it).
       - name: Run Vitest · worker packages
         run: |
           set -euo pipefail
-          pnpm --filter "./packages/core/api-modules" --filter "./packages/core/worker-*" --filter "./packages/domains/*" --workspace-concurrency=1 test
+          pnpm --filter "./packages/core/api-modules" --filter "./packages/core/worker-*" --filter "./packages/core/board-engine" --filter "./packages/domains/*" --workspace-concurrency=1 test
 
   unit-api:
     name: Unit · app-api
