@@ -32,20 +32,13 @@ import { zValidator } from '@hono/zod-validator';
 import {
   copySnapshot,
   convertLegacyWhiteboard,
-  boardDisplay,
-  displayToSvg,
   emptySnapshot,
   isNoop,
   isWellFormedSnapshot,
-  newId,
-  selectionBounds,
   snapshotFromImport,
   Board,
-  type BoardElement,
   type BoardSnapshot,
-  type Op,
 } from '@weldsuite/board-engine';
-import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
 import { z } from 'zod';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
@@ -94,6 +87,7 @@ import { RECORD_PERMISSION, resolveRecords } from '../../services/records';
 import { BoardAiError, runBoardAi } from '../../services/ai';
 import { InsufficientAiCreditsError, resolveAiMetering } from '@weldsuite/core-domain/ai-billing';
 import { colorFor } from '../../room/people';
+import { boardEngine } from '../../engine-ops';
 import {
   VIEW_ONLY,
   driveRole,
@@ -371,17 +365,6 @@ app.post('/records', requirePermission('boards:read'), zValidator('json', resolv
   return success(c, { views });
 });
 
-/** The first line of an element's text as a task title, the rest as its description. */
-function taskFields(el: BoardElement): { title: string; description?: string } | null {
-  const text = (el.text?.text ?? el.title ?? '').trim();
-  if (!text) return null;
-  const [first, ...rest] = text.split('\n');
-  const description = rest.join('\n').trim();
-  return { title: first!.trim().slice(0, 500) || text.slice(0, 500), ...(description ? { description: description.slice(0, 10_000) } : {}) };
-}
-
-const TASKABLE = new Set<BoardElement['type']>(['sticky', 'card', 'shape', 'text']);
-
 /**
  * Stickies (and cards, shapes, texts) made WeldFlow tasks in a project: one
  * task per element, from its text, and a task card where the element was, so
@@ -401,36 +384,20 @@ app.post('/:id/tasks', requirePermission('boards:update'), zValidator('json', bo
 
   const meta = roomMeta(board, clerkOrgId);
   const room = roomFor(c, clerkOrgId, board);
-  const content = Board.fromSnapshot(JSON.parse((await room.snapshot(meta)).json) as BoardSnapshot);
-  const picked = [...new Set(elementIds)]
-    .map((id) => content.get(id))
-    .filter((el): el is BoardElement => !!el && TASKABLE.has(el.type) && !el.locked && taskFields(el) !== null);
+  const live = (await room.snapshot(meta)).json;
+  // The same functions the Rust backend calls (engine-ops.ts).
+  const picked = boardEngine.taskPlan(live, elementIds);
   if (picked.length === 0) return error.badRequest(c, 'None of these elements has text to make a task of');
 
   const db = c.get('tenantDb');
   const created: BoardTasksResult['created'] = [];
-  const ops: Op[] = [];
   const now = Date.now();
-  for (const el of picked) {
-    const { row } = await createTask(db, taskFields(el)!, { projectId: project, userId });
+  for (const { elementId, ...fields } of picked) {
+    const { row } = await createTask(db, fields, { projectId: project, userId });
     publishEntityEvent({ c, entityType: 'task', entityId: row.id, action: 'created', data: { id: row.id, title: row.title, number: row.number, status: row.status, priority: row.priority, projectId: row.projectId, assigneeId: row.assigneeId } });
-    created.push({ elementId: el.id, taskId: row.id });
-    const card: BoardElement = {
-      id: newId(),
-      type: 'record',
-      order: el.order,
-      ...(el.parent ? { parent: el.parent } : {}),
-      x: el.x,
-      y: el.y,
-      w: Math.max(240, Math.min(el.w, 400)),
-      h: 96,
-      record: { kind: 'task', id: row.id },
-      createdBy: userId,
-      createdAt: now,
-    };
-    ops.push({ type: 'create', elements: [card] }, { type: 'delete', ids: [el.id] });
+    created.push({ elementId, taskId: row.id });
   }
-  const result = await room.applyOps(meta, { type: 'batch', ops }, userId);
+  const result = await room.applyOps(meta, boardEngine.taskCards(live, created, userId, now).op, userId);
   // The tasks stand even when the board changed meanwhile; the stickies then simply stay.
   if (!result.committed) console.warn('[board-api/tasks] the task cards could not be placed:', result.refused);
   return success(c, { created } satisfies BoardTasksResult, 201);
@@ -577,9 +544,6 @@ app.get('/:id/snapshot', requirePermission('boards:read'), async (c) => {
   });
 });
 
-/** Most elements the render draws: past this a phone shows the first ones, and says so. */
-const RENDER_ELEMENTS = 5000;
-const renderMeasurer = new CachedMeasurer(new MetricsMeasurer(), 50_000);
 const renderQuery = z.object({ width: z.coerce.number().int().min(256).max(4096).optional() });
 
 /**
@@ -593,13 +557,7 @@ app.get('/:id/render', requirePermission('boards:read'), zValidator('query', ren
   const found = await findLiveBoard(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const live = await roomFor(c, clerkOrgId, found.board).snapshot(roomMeta(found.board, clerkOrgId));
-  const board = Board.fromSnapshot(JSON.parse(live.json) as BoardSnapshot);
-  const paint = board.paintOrder();
-  const only = new Set(paint.slice(0, RENDER_ELEMENTS).map((e) => e.id));
-  const view = selectionBounds(board, only) ?? { x: 0, y: 0, w: 800, h: 600 };
-  const width = c.req.valid('query').width ?? 2048;
-  const svg = displayToSvg(boardDisplay(board, { measurer: renderMeasurer }, only), { view, width, padding: 48, background: '#ffffff' });
-  return success(c, { revision: live.revision, svg, elements: paint.length, drawn: only.size });
+  return success(c, { revision: live.revision, ...boardEngine.render(live.json, c.req.valid('query').width ?? 2048) });
 });
 
 app.get('/:id/thumbnail', requirePermission('boards:read'), async (c) => {

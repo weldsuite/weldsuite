@@ -9,7 +9,7 @@
  * hidden, since their API would answer 404. Its `unavailableFeatures` list
  * names what the backend lacks inside the modules it does serve (billing,
  * SSO connections, …). A module that cannot work without one of them counts
- * as not offered (`MODULE_FEATURES`: WeldDocs and WeldSheets without live
+ * as not offered (`MODULE_FEATURES`: WeldDocs, WeldSheets and WeldBoard without live
  * editing). Global serves neither list and offers everything, exactly as
  * before.
  *
