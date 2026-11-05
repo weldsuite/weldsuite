@@ -13,9 +13,9 @@ import {
   type MergeRepositoryRow,
 } from './db';
 import type { PendingEvent } from './events';
-import { getRepositoryById, listPullRequestsForBackfill, type GithubClient } from './github-client';
-import { upsertPullRequest } from './pr-sync';
-import { ISSUE_SYNC_MODES_BY_PROVIDER } from './providers/types';
+import { upsertMirror } from './pr-sync';
+import { adapterFor } from './providers/registry';
+import { ISSUE_SYNC_MODES_BY_PROVIDER, type AdapterContext, type RepositoryRef } from './providers/types';
 import { findTeam } from './teams';
 
 export async function openPullRequestCounts(db: Db, repositoryIds: string[]): Promise<Map<string, number>> {
@@ -51,6 +51,13 @@ export async function findRepository(db: Db, id: string): Promise<MergeRepositor
   return row ?? null;
 }
 
+export const repositoryRef = (repository: MergeRepositoryRow): RepositoryRef => ({
+  externalId: repository.externalId,
+  fullName: repository.fullName,
+  externalProject: repository.externalProject,
+  defaultBranch: repository.defaultBranch,
+});
+
 export interface SyncSummary {
   pullRequestsSynced: number;
   linksCreated: number;
@@ -62,11 +69,11 @@ export interface SyncSummary {
  * mirrors them, with their `auto` links. It never runs the automation rules: a
  * backfill must not move issues.
  */
-export async function syncRepository(db: Db, repository: MergeRepositoryRow, client: GithubClient): Promise<SyncSummary> {
-  const pulls = await listPullRequestsForBackfill(client, repository.fullName);
+export async function syncRepository(db: Db, repository: MergeRepositoryRow, ctx: AdapterContext): Promise<SyncSummary> {
+  const pulls = await adapterFor(repository.provider).listPullRequestsForBackfill(ctx, repositoryRef(repository));
   const summary: SyncSummary = { pullRequestsSynced: 0, linksCreated: 0, events: [] };
   for (const pull of pulls) {
-    const outcome = await upsertPullRequest(db, repository, pull, { automate: false, skipUnchanged: true });
+    const outcome = await upsertMirror(db, repository, pull, { automate: false, skipUnchanged: true });
     if (outcome.status !== 'stale') summary.pullRequestsSynced++;
     summary.linksCreated += outcome.linksCreated;
     summary.events.push(...outcome.events);
@@ -88,12 +95,19 @@ export type AddRepositoryResult =
   | { ok: true; repository: MergeRepositoryRow; sync: SyncSummary }
   | { ok: false; reason: 'connection_not_found' | 'repository_not_found' | 'already_added' | 'team_not_found' };
 
+/**
+ * Adds a repository the connection can see: looked up through the provider's
+ * adapter, stored, `afterInsert` (GitLab, Bitbucket and Azure DevOps register
+ * their webhook there; a throw removes the new row again), then its pull
+ * requests are loaded.
+ */
 export async function addRepository(
   db: Db,
   connection: MergeConnectionRow,
   input: AddMergeRepositoryInput,
   userId: string,
-  client: GithubClient,
+  ctx: AdapterContext,
+  afterInsert?: (repository: MergeRepositoryRow) => Promise<MergeRepositoryRow>,
 ): Promise<AddRepositoryResult> {
   const teamId = input.teamId ?? null;
   if (teamId && !(await findTeam(db, teamId))) return { ok: false, reason: 'team_not_found' };
@@ -111,8 +125,8 @@ export async function addRepository(
     .limit(1);
   if (dupe) return { ok: false, reason: 'already_added' };
 
-  const github = await getRepositoryById(client, input.externalId);
-  if (!github) return { ok: false, reason: 'repository_not_found' };
+  const remote = await adapterFor(connection.provider).getRepository(ctx, input.externalId, input.externalProject);
+  if (!remote) return { ok: false, reason: 'repository_not_found' };
 
   const now = new Date();
   let repository: MergeRepositoryRow;
@@ -123,11 +137,12 @@ export async function addRepository(
         id: generateId('mrp'),
         connectionId: connection.id,
         provider: connection.provider,
-        externalId: String(github.id),
-        fullName: github.full_name,
-        defaultBranch: github.default_branch ?? null,
-        private: github.private,
-        url: github.html_url ?? null,
+        externalId: remote.externalId,
+        fullName: remote.fullName,
+        defaultBranch: remote.defaultBranch,
+        private: remote.private,
+        url: remote.url,
+        externalProject: remote.externalProject ?? input.externalProject ?? null,
         teamId,
         issueSync: 'off',
         prSync: input.prSync ?? true,
@@ -142,7 +157,17 @@ export async function addRepository(
     throw err;
   }
 
-  const sync = await syncRepository(db, repository, client);
+  if (afterInsert) {
+    try {
+      repository = await afterInsert(repository);
+    } catch (err) {
+      // Nothing is tracked until its webhook is in place: take the new row back out.
+      await db.delete(mergeRepositories).where(eq(mergeRepositories.id, repository.id));
+      throw err;
+    }
+  }
+
+  const sync = await syncRepository(db, repository, ctx);
   repository = await touchSynced(db, repository.id);
   return { ok: true, repository, sync };
 }

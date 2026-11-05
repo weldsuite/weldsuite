@@ -52,6 +52,7 @@ import {
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
 import { VariableInput } from './localized-variable-input';
+import { MergeCommentForm, MergeCreateIssueForm, MergeUpdateIssueForm } from './merge-action-forms';
 import { FormFieldIdProvider, useTriggerRecordFields } from '../lib/editor-field-context';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { EntityTypeSelect } from '@weldsuite/ui/components/workflow-canvas/parts/entity-type-select';
@@ -4432,6 +4433,10 @@ const VARIABLE_STEP_FORMS = new Map<string, ComponentType<VariableStepFormProps>
   ['post_chat_message', PostChatMessageForm],
   ['slack.post_message', SlackPostMessageForm],
   ['create_conversation', CreateConversationForm],
+  // WeldMerge
+  ['merge.create_issue', MergeCreateIssueForm],
+  ['merge.update_issue', MergeUpdateIssueForm],
+  ['merge.comment_on_issue', MergeCommentForm],
   // Re-enabled AI action types (see apps/workers/workflow-worker/src/engine/actions/ai.ts).
   // Only these two — ai_extract/ai_summarize/ai_auto_reply/ai_agent stay unavailable.
   ['ai_generate', AiGenerateForm],

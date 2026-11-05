@@ -154,7 +154,8 @@ export type BuiltInTemplateKey =
   | 'companyToSheet'
   | 'workflowFailureAlert'
   | 'aiLeadTriage'
-  | 'welcomeEmail';
+  | 'welcomeEmail'
+  | 'weldmergeReleaseShipped';
 
 /** One template's strings in one language (`@weldsuite/i18n/locales/<locale>/weldconnect-templates`). */
 export interface BuiltInTemplateStrings {
@@ -533,6 +534,47 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: readonly BuiltInTemplateDefinition[] =
         },
       ]),
     }),
+  },
+  {
+    // The per-ticket reply is not expressible yet (no WeldDesk ticket-reply action to run inside a loop), so
+    // this announces the release and the linked ticket ids once, in chat and by email, for support to act on.
+    id: 'builtin_merge_release_shipped',
+    key: 'weldmergeReleaseShipped',
+    category: 'development',
+    icon: 'Rocket',
+    setup: [
+      { stepId: 'step_announce', field: 'channelId' },
+      { stepId: 'step_email', field: 'to' },
+    ],
+    build: ({ steps, text }) => {
+      const values = {
+        release: '{{trigger.record.name}}',
+        version: '{{trigger.record.version}}',
+        tickets: '{{trigger.record.deskTicketIds}}',
+      };
+      return {
+        triggers: [entityTrigger('merge_release', 'shipped')],
+        steps: ordered([
+          {
+            id: 'step_announce',
+            type: 'post_chat_message',
+            name: at(steps, 'announce'),
+            config: { channelId: '', message: fillPlaceholders(at(text, 'message'), values) },
+          },
+          {
+            id: 'step_email',
+            type: 'send_email',
+            name: at(steps, 'email'),
+            config: {
+              to: '',
+              subject: fillPlaceholders(at(text, 'subject'), values),
+              body: fillPlaceholders(at(text, 'body'), values),
+              isHtml: true,
+            },
+          },
+        ]),
+      };
+    },
   },
 ];
 

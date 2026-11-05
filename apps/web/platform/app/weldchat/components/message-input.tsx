@@ -15,6 +15,9 @@ import { useTypingPublisher } from '@/hooks/weldchat/use-weldchat-typing';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { MentionAutocomplete, type MentionSelection } from './mention-autocomplete';
 import { SlashCommandPalette } from './slash-command-palette';
+import { MergeAlsoPostToggle, MergeSharePicker, useWeldMergeComposer } from './weldmerge-composer';
+import type { MergeShareResult } from '@/hooks/queries/use-weldmerge-across-queries';
+import { parseMergeSearch, shareMessage } from '../lib/weldmerge-card';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { FOCUS_INPUT_EVENT, useChatContext, type FocusInputDetail, type ReplyTo } from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
@@ -158,6 +161,10 @@ export function MessageInput({
   const [content, setContent] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  // The search term of a "/merge <term>" being typed: its results are offered above the composer.
+  const [mergeQuery, setMergeQuery] = useState<string | null>(null);
+  const mergeComposer = useWeldMergeComposer({ channelId, parentId });
+  const mergeEnabled = mergeComposer.enabled;
   // Attachments shown in the strip above the text. Images pasted into the
   // text live in the editor as `<@file:id>` nodes instead (see knownFilesRef).
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
@@ -279,6 +286,7 @@ export function MessageInput({
     setReplyTo(null);
     setEditingMessage(null);
     setSlashQuery(null);
+    setMergeQuery(null);
     setMentionQuery(null);
     if (editorRef.current) {
       editorRef.current.innerHTML = '';
@@ -390,6 +398,10 @@ export function MessageInput({
       return;
     }
 
+    // WeldMerge slash commands are never posted as text. /issue creates an issue; /merge
+    // is completed from the picker, so a typed one that reaches here found nothing to share.
+    if (mergeComposer.runSlashCommand(trimmed, clearInput)) return;
+
     onTypingSend();
 
     if (editingMessage) {
@@ -424,8 +436,22 @@ export function MessageInput({
       attachments: outgoing.length > 0 ? outgoing : undefined,
       _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
+    mergeComposer.commentOnPullRequest(trimmed);
     clearInput();
-  }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
+  }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t, mergeComposer]);
+
+  // /merge <term>: share the picked issue or pull request as a card.
+  const handleMergePick = useCallback(
+    (result: MergeShareResult) => {
+      const { content: text, metadata } = shareMessage(result);
+      sendMessage(
+        { channelId, content: text, parentId, metadata, _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}` },
+        { onError: () => toast.error(t.weldmerge.across.chat.slash.shareFailed) },
+      );
+      clearInput();
+    },
+    [channelId, parentId, sendMessage, clearInput, t],
+  );
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     sendMessage({
@@ -584,6 +610,7 @@ export function MessageInput({
     setMentionQuery(getMentionQueryAtCaret(editorRef.current));
 
     const text = editorRef.current.innerText;
+    setMergeQuery(mergeEnabled ? parseMergeSearch(text) : null);
     if (text.startsWith('/')) {
       const firstSpace = text.indexOf(' ');
       // /invite stays open past the first space so we can show the agent picker
@@ -595,7 +622,7 @@ export function MessageInput({
     } else {
       setSlashQuery(null);
     }
-  }, [onKeystroke]);
+  }, [onKeystroke, mergeEnabled]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape' && (replyTo || editingMessage)) {
@@ -1160,10 +1187,19 @@ export function MessageInput({
               </div>
             )}
 
+            {mergeComposer.threadPullRequestId && (
+              <MergeAlsoPostToggle checked={mergeComposer.alsoPost} onCheckedChange={mergeComposer.setAlsoPost} />
+            )}
+
             {/* ContentEditable input area */}
             <div className="relative">
+              {mergeEnabled && mergeQuery !== null && (
+                <MergeSharePicker query={mergeQuery} onPick={handleMergePick} onDismiss={() => setMergeQuery(null)} />
+              )}
+
               {slashQuery !== null && (
                 <SlashCommandPalette
+                  mergeEnabled={mergeEnabled}
                   query={slashQuery}
                   onDismiss={() => setSlashQuery(null)}
                   onSelect={(cmd) => {

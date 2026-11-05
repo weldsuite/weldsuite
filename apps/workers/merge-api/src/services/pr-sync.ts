@@ -7,6 +7,7 @@
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import { findIssueKeyMentions } from '@weldsuite/merge-domain/keys';
 import {
   issueStatusForPullRequest,
@@ -222,13 +223,13 @@ export interface UpsertOutcome {
 }
 
 /** Member columns of a pull request, from the logins members entered. */
-async function matchMembers(db: Db, logins: string[]): Promise<Map<string, string>> {
+async function matchMembers(db: Db, provider: MergeProvider, logins: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(logins.filter(Boolean))];
   if (unique.length === 0) return new Map();
   const rows = await db
     .select({ login: mergeProviderAccounts.login, userId: mergeProviderAccounts.userId })
     .from(mergeProviderAccounts)
-    .where(and(eq(mergeProviderAccounts.provider, 'github'), inArray(mergeProviderAccounts.login, unique)));
+    .where(and(eq(mergeProviderAccounts.provider, provider), inArray(mergeProviderAccounts.login, unique)));
   return new Map(rows.map((r) => [r.login, r.userId]));
 }
 
@@ -327,7 +328,7 @@ async function writeMirror(
   fields: MirrorFields,
   existing: MergePullRequestRow | undefined,
 ): Promise<MergePullRequestRow> {
-  const members = await matchMembers(db, [
+  const members = await matchMembers(db, repository.provider, [
     fields.authorLogin ?? '',
     ...fields.requestedReviewers.filter((r) => r.kind === 'user').map((r) => r.login),
   ]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GitBranch, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Download, GitBranch, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -9,17 +9,15 @@ import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { ListTable, type ListTableAction, type ListTableColumn } from '@weldsuite/ui/components/list-table';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { Switch } from '@weldsuite/ui/components/switch';
-import type {
-  MergeConnectionDto,
-  MergeConnectionStatus,
-  MergeProvider,
-  MergeRepositoryDto,
+import {
+  MERGE_PROVIDERS,
+  type MergeConnectionDto,
+  type MergeIssueSyncMode,
+  type MergeProvider,
+  type MergeRepositoryDto,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
-import { useGetInstallUrl } from '@/hooks/queries/use-github-queries';
 import {
   useConnectMergeGithub,
   useMergeConnections,
@@ -30,68 +28,75 @@ import {
   useSyncMergeRepository,
   useUpdateMergeRepository,
 } from '@/hooks/queries/use-weldmerge-queries';
+import { useConnectMergeGitlab, useImportMergeIssues } from '@/hooks/queries/use-weldmerge-sync-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
+import { ProviderLogo } from '../components/provider-logo';
 import { fill, relativeTime } from '../lib/format';
+import { ISSUE_SYNC_MODES_BY_PROVIDER, repositoryProjectLabel, supportsIssueSync } from '../lib/issue-sync';
 import { AddRepositoriesDialog } from './add-repositories-dialog';
+import { GitlabTokenDialog } from '../components/gitlab-token-dialog';
+import { ProviderCard } from './provider-card';
+import { useProviderConnect } from './use-provider-connect';
 
 const NO_TEAM = '__none__';
-const COMING_SOON_PROVIDERS: readonly Exclude<MergeProvider, 'github'>[] = ['gitlab', 'bitbucket', 'azure_devops'];
 const SETTINGS_PATH = '/weldmerge/settings';
 
-function statusTone(status: MergeConnectionStatus): 'success' | 'warning' | 'danger' {
-  if (status === 'active') return 'success';
-  if (status === 'revoked') return 'danger';
-  return 'warning';
-}
-
 /**
- * Git providers: the GitHub card (connect by adopting the workspace's GitHub
- * App installation, installing it first when there is none), the repositories
- * being followed, and the providers that are still to come.
+ * Git providers: a card per provider (GitHub through the App, GitLab, Bitbucket
+ * and Azure DevOps through OAuth, self-managed GitLab with a token), their
+ * connection status, and the repositories being followed with their pull
+ * request and issue sync settings.
  *
  * Returning from the GitHub installation lands on `?installed=1`; the page then
- * retries the connection once.
+ * adopts the connection once (a no-op when the setup route already recorded it).
  */
 export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>) {
   const { t, language } = useI18n();
   const tm = t.weldmerge;
   const tg = tm.settings.providers;
   const tr = tm.settings.repositories;
+  const ts = tm.sync.providers;
+  const trs = tm.sync.repositories;
   const router = useRouter();
   const canManage = useCan('merge_connections:manage');
 
   const connections = useMergeConnections();
   const repositories = useMergeRepositories();
   const teams = useMergeTeams();
-  const connect = useConnectMergeGithub();
-  const installUrl = useGetInstallUrl();
+  const adoptGithub = useConnectMergeGithub();
+  const connectGitlab = useConnectMergeGitlab();
+  const { connect } = useProviderConnect();
   const removeConnection = useRemoveMergeConnection();
   const updateRepository = useUpdateMergeRepository();
   const syncRepository = useSyncMergeRepository();
+  const importIssues = useImportMergeIssues();
   const removeRepository = useRemoveMergeRepository();
 
-  const [adding, setAdding] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [starting, setStarting] = useState<MergeProvider | null>(null);
+  const [addingTo, setAddingTo] = useState<string | null>(null);
+  const [gitlabDialog, setGitlabDialog] = useState<{ open: boolean; host: string | null }>({ open: false, host: null });
+  const [disconnecting, setDisconnecting] = useState<MergeConnectionDto | null>(null);
   const [removing, setRemoving] = useState<MergeRepositoryDto | null>(null);
 
-  const github: MergeConnectionDto | undefined = (connections.data ?? []).find((c) => c.provider === 'github');
+  const all = connections.data ?? [];
+  const activeConnections = all.filter((connection) => connection.status === 'active');
 
-  const startConnect = async () => {
+  const start = async (provider: MergeProvider, options: { reconnect?: boolean } = {}) => {
+    setStarting(provider);
     try {
-      const result = await connect.mutateAsync();
-      if (result.status === 'connected') {
-        toast.success(tg.github.connected);
-        return;
-      }
-      // No GitHub App installation yet: install it, then come back here.
-      const returnTo = `${window.location.origin}${SETTINGS_PATH}?installed=1`;
-      const { data } = await installUrl.mutateAsync({ returnTo });
-      toast.message(tg.github.installing);
-      window.location.assign(data.url);
-    } catch {
-      toast.error(tg.github.connectFailed);
+      await connect(provider, options);
+    } finally {
+      setStarting(null);
     }
+  };
+
+  const reconnect = (connection: MergeConnectionDto) => {
+    if (connection.provider === 'gitlab' && connection.host) {
+      setGitlabDialog({ open: true, host: connection.host });
+      return;
+    }
+    void start(connection.provider, { reconnect: true });
   };
 
   // Back from GitHub: adopt the installation that now exists, once.
@@ -101,13 +106,13 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
     retried.current = true;
     void (async () => {
       try {
-        const result = await connect.mutateAsync();
-        if (result.status === 'connected') toast.success(tg.github.connected);
-        else toast.error(tg.github.connectFailed);
+        const result = await adoptGithub.mutateAsync();
+        if (result.status === 'connected') toast.success(fill(ts.connected, { provider: tm.provider.github }));
+        else toast.error(fill(ts.startFailed, { provider: tm.provider.github }));
       } catch {
-        toast.error(tg.github.connectFailed);
+        toast.error(fill(ts.startFailed, { provider: tm.provider.github }));
       } finally {
-        router.replace(SETTINGS_PATH);
+        router.replace(`${SETTINGS_PATH}?tab=providers`);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one retry per arrival
@@ -128,12 +133,12 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
   }
 
   const handleDisconnect = async () => {
-    if (!github) return;
+    if (!disconnecting) return;
     try {
-      await removeConnection.mutateAsync(github.id);
-      setDisconnecting(false);
+      await removeConnection.mutateAsync(disconnecting.id);
+      setDisconnecting(null);
     } catch {
-      toast.error(tg.github.removeFailed);
+      toast.error(fill(ts.disconnectFailed, { provider: tm.provider[disconnecting.provider] }));
     }
   };
 
@@ -147,7 +152,17 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
     }
   };
 
-  const patchRepository = (id: string, input: { teamId?: string | null; prSync?: boolean }) =>
+  const handleImport = async (repo: MergeRepositoryDto) => {
+    toast.message(trs.importing);
+    try {
+      const result = await importIssues.mutateAsync(repo.id);
+      toast.success(fill(trs.imported, { imported: result.imported, updated: result.updated, skipped: result.skipped }));
+    } catch {
+      toast.error(trs.importFailed);
+    }
+  };
+
+  const patchRepository = (id: string, input: { teamId?: string | null; prSync?: boolean; issueSync?: MergeIssueSyncMode }) =>
     updateRepository.mutate({ id, input }, { onError: () => toast.error(tr.updateFailed) });
 
   const confirmRemoveRepository = async () => {
@@ -165,19 +180,30 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
       id: 'repository',
       header: tr.columns.repository,
       className: 'flex-1 min-w-[12rem]',
-      cell: (repo) => (
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{repo.fullName}</p>
-          <p className="text-xs text-muted-foreground">{fill(tr.openCount, { count: repo.openPullRequestCount })}</p>
-        </div>
-      ),
+      cell: (repo) => {
+        const project = repositoryProjectLabel(repo);
+        return (
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{repo.fullName}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {project ? `${trs.project}: ${project} · ` : ''}
+              {fill(tr.openCount, { count: repo.openPullRequestCount })}
+            </p>
+          </div>
+        );
+      },
     },
     {
       id: 'provider',
       header: tr.columns.provider,
-      width: 'w-[6rem]',
+      width: 'w-[8rem]',
       className: 'hidden md:flex',
-      cell: (repo) => <span className="text-sm">{tm.provider[repo.provider]}</span>,
+      cell: (repo) => (
+        <span className="flex items-center gap-1.5 text-sm">
+          <ProviderLogo provider={repo.provider} />
+          {tm.provider[repo.provider]}
+        </span>
+      ),
     },
     {
       id: 'team',
@@ -206,9 +232,29 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
     {
       id: 'issueSync',
       header: tr.columns.issueSync,
-      width: 'w-[8rem]',
+      width: 'w-[9rem]',
       className: 'hidden lg:flex',
-      cell: () => <span className="text-sm text-muted-foreground">{tr.issueSyncOff}</span>,
+      cell: (repo) =>
+        supportsIssueSync(repo.provider) ? (
+          <Select
+            value={repo.issueSync}
+            disabled={!canManage}
+            onValueChange={(value) => patchRepository(repo.id, { issueSync: value as MergeIssueSyncMode })}
+          >
+            <SelectTrigger size="sm" className="w-full" aria-label={`${tr.columns.issueSync}: ${repo.fullName}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ISSUE_SYNC_MODES_BY_PROVIDER[repo.provider].map((mode) => (
+                <SelectItem key={mode} value={mode} title={trs.issueSyncHints[mode]}>
+                  {trs.issueSyncModes[mode]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-sm text-muted-foreground">{trs.issueSyncNotAvailable}</span>
+        ),
     },
     {
       id: 'prSync',
@@ -244,9 +290,18 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
           icon: RefreshCw,
           onClick: (repo) => void handleSync(repo),
         },
+        {
+          id: 'import',
+          label: trs.importIssues,
+          icon: Download,
+          hidden: (repo) => !supportsIssueSync(repo.provider),
+          onClick: (repo) => void handleImport(repo),
+        },
         { id: 'remove', label: t.common.actions.remove, icon: Trash2, variant: 'destructive', separatorAbove: true, onClick: setRemoving },
       ]
     : [];
+
+  const soleActive = activeConnections.length === 1 ? activeConnections[0] : undefined;
 
   return (
     <div className="space-y-8">
@@ -257,58 +312,19 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <SectionCard
-            title={
-              <span className="flex items-center gap-2">
-                <GitBranch className="size-4" />
-                {tm.provider.github}
-              </span>
-            }
-            action={github ? <SoftBadge tone={statusTone(github.status)}>{tg.status[github.status]}</SoftBadge> : undefined}
-          >
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {github
-                  ? fill(tg.github.accountLine, { account: github.accountLogin ?? tm.provider.github, count: github.repositoryCount })
-                  : tg.github.description}
-              </p>
-              {canManage && (
-                <div className="flex flex-wrap gap-2">
-                  {github ? (
-                    <>
-                      <Button size="sm" onClick={() => setAdding(true)}>
-                        <Plus />
-                        {tr.add}
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setDisconnecting(true)}>
-                        {tg.github.remove}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" onClick={() => void startConnect()} disabled={connect.isPending || installUrl.isPending}>
-                      {(connect.isPending || installUrl.isPending) && <Loader2 className="animate-spin" />}
-                      {connect.isPending ? tg.github.connecting : tg.github.connect}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </SectionCard>
-
-          {COMING_SOON_PROVIDERS.map((provider) => (
-            <SectionCard
+          {MERGE_PROVIDERS.map((provider) => (
+            <ProviderCard
               key={provider}
-              className="opacity-70"
-              title={
-                <span className="flex items-center gap-2">
-                  <GitBranch className="size-4" />
-                  {tm.provider[provider]}
-                </span>
-              }
-              action={<SoftBadge tone="neutral">{tg.comingSoon}</SoftBadge>}
-            >
-              <p className="text-sm text-muted-foreground">{tg.comingSoonDescription[provider]}</p>
-            </SectionCard>
+              provider={provider}
+              connections={all.filter((connection) => connection.provider === provider)}
+              canManage={canManage}
+              busy={starting === provider}
+              onConnect={(target) => void start(target)}
+              onConnectSelfManaged={() => setGitlabDialog({ open: true, host: null })}
+              onReconnect={reconnect}
+              onDisconnect={setDisconnecting}
+              onAddRepositories={(connection) => setAddingTo(connection.id)}
+            />
           ))}
         </div>
 
@@ -318,8 +334,8 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">{tr.title}</h2>
-          {canManage && github && (
-            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+          {canManage && soleActive && (
+            <Button size="sm" variant="outline" onClick={() => setAddingTo(soleActive.id)}>
               <Plus />
               {tr.add}
             </Button>
@@ -338,13 +354,25 @@ export function ProvidersSection({ installed }: Readonly<{ installed: boolean }>
         )}
       </div>
 
-      <AddRepositoriesDialog open={adding} onOpenChange={setAdding} connectionId={github?.id} teams={teams.data ?? []} />
+      <AddRepositoriesDialog
+        open={addingTo !== null}
+        onOpenChange={(open) => !open && setAddingTo(null)}
+        connectionId={addingTo ?? undefined}
+        teams={teams.data ?? []}
+      />
+      <GitlabTokenDialog
+        open={gitlabDialog.open}
+        onOpenChange={(open) => setGitlabDialog((current) => ({ ...current, open }))}
+        mode="connection"
+        defaultHost={gitlabDialog.host}
+        onSubmit={(input) => connectGitlab.mutateAsync(input)}
+      />
       <ConfirmDialog
-        open={disconnecting}
-        onOpenChange={setDisconnecting}
-        title={tg.github.removeTitle}
-        description={tg.github.removeDescription}
-        confirmLabel={tg.github.remove}
+        open={disconnecting !== null}
+        onOpenChange={(open) => !open && setDisconnecting(null)}
+        title={fill(ts.disconnectTitle, { provider: tm.provider[disconnecting?.provider ?? 'github'] })}
+        description={fill(ts.disconnectDescription, { provider: tm.provider[disconnecting?.provider ?? 'github'] })}
+        confirmLabel={ts.disconnect}
         variant="destructive"
         loading={removeConnection.isPending}
         onConfirm={handleDisconnect}

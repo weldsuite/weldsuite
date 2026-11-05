@@ -634,6 +634,8 @@ export const flowTimeEntryRowSchema = z
     id: z.string(),
     projectId: nullableString,
     taskId: nullableString,
+    /** The WeldMerge issue the time was logged against. */
+    mergeIssueId: nullableString,
     userId: z.string(),
     date: z.string(),
     startTime: nullableString,

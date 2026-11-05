@@ -219,11 +219,11 @@ async function loadLinkData(env: Env, workspaceId: string, projectLinkId: string
 
   const [conn] = await db
     .select()
-    .from(schema.githubConnections)
+    .from(schema.mergeConnections)
     .where(
       and(
-        eq(schema.githubConnections.id, link.connectionId),
-        isNull(schema.githubConnections.deletedAt),
+        eq(schema.mergeConnections.id, link.connectionId),
+        isNull(schema.mergeConnections.deletedAt),
       ),
     )
     .limit(1);
@@ -234,7 +234,7 @@ async function loadLinkData(env: Env, workspaceId: string, projectLinkId: string
   }
 
   return {
-    installationId: conn.installationId,
+    installationId: Number(conn.externalAccountId),
     projectV2NodeId: link.projectV2NodeId,
     projectId: link.projectId,
     syncDirection: link.syncDirection,

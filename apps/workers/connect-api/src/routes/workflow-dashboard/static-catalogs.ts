@@ -34,6 +34,10 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', category: 'data', icon: 'move' },
   { id: 'log_activity', name: 'Log Activity', description: 'Log a CRM activity (call, email, meeting, task, note)', category: 'data', icon: 'activity' },
   { id: 'create_task', name: 'Create Task', description: 'Create a WeldFlow project task', category: 'data', icon: 'clipboard-list' },
+  // WeldMerge
+  { id: 'merge.create_issue', name: 'Create Merge Issue', description: 'Create a WeldMerge issue in a team', category: 'data', icon: 'git-pull-request' },
+  { id: 'merge.update_issue', name: 'Update Merge Issue', description: 'Change the status, priority, assignee or text of a WeldMerge issue', category: 'data', icon: 'git-pull-request' },
+  { id: 'merge.comment_on_issue', name: 'Comment on Merge Issue', description: 'Add a comment to a WeldMerge issue', category: 'data', icon: 'message-square' },
   // Logic
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },
@@ -155,6 +159,9 @@ const BASIC_TRIGGER_OBJECTS: Array<{ entityType: EntityType; category: string; l
   { entityType: 'project_task', category: 'Projects', label: 'Task' },
   { entityType: 'ticket', category: 'Helpdesk', label: 'Ticket' },
   { entityType: 'invoice', category: 'Accounting', label: 'Invoice' },
+  { entityType: 'merge_issue', category: 'WeldMerge', label: 'Merge Issue' },
+  { entityType: 'merge_pull_request', category: 'WeldMerge', label: 'Merge Pull Request' },
+  { entityType: 'merge_release', category: 'WeldMerge', label: 'Merge Release' },
 ];
 
 function buildEntityEvents(): EntityEventCatalogEntry[] {

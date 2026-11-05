@@ -162,7 +162,16 @@ export interface ConnectionAdapter {
   listPullRequestsForBackfill(ctx: AdapterContext, repository: RepositoryRef, now?: Date): Promise<MirrorFields[]>;
   getPullRequest(ctx: AdapterContext, repository: RepositoryRef, number: number): Promise<MirrorFields | null>;
   reviewDecision(ctx: AdapterContext, repository: RepositoryRef, number: number): Promise<MergeReviewDecision | null>;
-  checksStatus(ctx: AdapterContext, repository: RepositoryRef, headSha: string): Promise<MergeChecksStatus | null>;
+  /**
+   * `pullRequestNumber`: Azure DevOps reports checks per pull request (statuses
+   * and policy evaluations); the other providers read them by commit.
+   */
+  checksStatus(
+    ctx: AdapterContext,
+    repository: RepositoryRef,
+    headSha: string,
+    pullRequestNumber?: number,
+  ): Promise<MergeChecksStatus | null>;
   /** GitLab, Bitbucket and Azure DevOps register a hook per repository; GitHub's App delivers events itself. */
   registerWebhook?(ctx: AdapterContext, repository: RepositoryRef, target: WebhookTarget): Promise<{ webhookId: string }>;
   deleteWebhook?(ctx: AdapterContext, repository: RepositoryRef, webhookId: string): Promise<void>;

@@ -1,43 +1,16 @@
 import { useState } from 'react';
 import { useCan } from '@weldsuite/permissions/react';
-import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
-import { useMyMergeAccounts } from '@/hooks/queries/use-weldmerge-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSearchParams } from '@/lib/router';
-import { GithubUsernameForm } from '../components/github-username-form';
+import { AccountsSection } from './accounts-section';
 import { LabelsSection } from './labels-section';
+import { NotificationsSection } from './notifications-section';
 import { ProvidersSection } from './providers-section';
 import { TeamsSection } from './teams-section';
 
-type SettingsTab = 'providers' | 'teams' | 'labels' | 'accounts';
-
-function AccountsSection() {
-  const { t } = useI18n();
-  const ta = t.weldmerge.settings.accounts;
-  const accounts = useMyMergeAccounts();
-
-  if (accounts.isLoading) return <PageLoader fullScreen={false} />;
-  if (accounts.isError) {
-    return <ErrorState message={t.weldmerge.loadFailed} retryLabel={t.weldmerge.retry} onRetry={() => void accounts.refetch()} />;
-  }
-
-  return (
-    <div className="max-w-xl space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">{ta.title}</h2>
-        <p className="text-sm text-muted-foreground">{ta.description}</p>
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">{ta.github}</label>
-        <GithubUsernameForm current={accounts.data?.github ?? null} />
-        <p className="text-xs text-muted-foreground">{ta.githubHint}</p>
-      </div>
-    </div>
-  );
-}
+type SettingsTab = 'providers' | 'teams' | 'labels' | 'accounts' | 'notifications';
 
 /**
  * WeldMerge settings: git providers and their repositories, teams, labels and
@@ -52,13 +25,19 @@ export default function WeldMergeSettingsPage() {
   const canManageTeams = useCan('merge_teams:manage');
   const canReadConnections = useCan('merge_connections:read');
   const canReadTeams = useCan('merge_teams:read');
-  const [tab, setTab] = useState<SettingsTab | null>(null);
+  const requestedTab = search.get('tab');
+  const [tab, setTab] = useState<SettingsTab | null>(
+    requestedTab === 'providers' || requestedTab === 'teams' || requestedTab === 'labels' || requestedTab === 'accounts' || requestedTab === 'notifications'
+      ? requestedTab
+      : null,
+  );
 
   const tabs: PageTab[] = [
     ...(canReadConnections ? [{ id: 'providers', label: tm.settings.sections.providers }] : []),
     ...(canReadTeams ? [{ id: 'teams', label: tm.settings.sections.teams }] : []),
     ...(canReadTeams ? [{ id: 'labels', label: tm.settings.sections.labels }] : []),
     { id: 'accounts', label: tm.settings.sections.accounts },
+    ...(canManageTeams ? [{ id: 'notifications', label: tm.across.notifications.tab }] : []),
   ];
   const active = (tab && tabs.some((item) => item.id === tab) ? tab : (tabs[0]?.id as SettingsTab)) ?? 'accounts';
   const readOnly = !canManageConnections && !canManageTeams;
@@ -79,6 +58,7 @@ export default function WeldMergeSettingsPage() {
           {active === 'teams' && <TeamsSection />}
           {active === 'labels' && <LabelsSection />}
           {active === 'accounts' && <AccountsSection />}
+          {active === 'notifications' && <NotificationsSection />}
         </div>
       </div>
     </div>

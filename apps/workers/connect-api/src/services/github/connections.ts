@@ -1,217 +1,163 @@
 /**
  * GitHub Connections Service
  *
- * Manages GitHub App installation records (one per workspace).
- * All queries are scoped by workspaceId, except getConnectionByInstallationId
- * which resolves workspace from the installationId (for webhook ingress).
+ * WeldFlow's and WeldConnect's view of the workspace's GitHub App installation.
+ * The installation is a WeldMerge connection: a `merge_connections` row with
+ * provider `github` (ADR MERGE-002), recorded by the install flow through
+ * `@weldsuite/merge-domain/installations`, the same code merge-api's setup route
+ * runs. This module reads those rows and maps them back to the shape this
+ * worker's routes have always answered (installationId as a number, owner
+ * type `user` / `org`, `createdBy`), so their paths and response shapes did not
+ * change with the move off `github_connections`.
+ *
+ * Reads take the newest active connection first. The tenant database is the
+ * workspace, so none of the queries needs a workspace filter.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { schema } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
-import { encryptField, decryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { getMasterDb, getWorkspaceForOrg, schema } from '@weldsuite/worker-kit/db';
+import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import {
+  recordGithubInstallation,
+  removeGithubInstallationIndex,
+  setGithubInstallationStatus,
+  type MergeConnectionRecord,
+  type RecordedGithubInstallation,
+} from '@weldsuite/merge-domain/installations';
+import type { Env } from '../../types';
 
-const { githubConnections } = schema;
+const { mergeConnections } = schema;
 
-// ============================================================================
-// Types
-// ============================================================================
+export type GithubConnectionStatus = 'active' | 'suspended' | 'revoked';
 
-export interface UpsertConnectionInput {
+/** A `merge_connections` GitHub row in the shape connect-api's routes answer. */
+export interface GithubConnectionView {
+  id: string;
+  workspaceId: string;
   installationId: number;
   appSlug: string;
   ownerType: 'user' | 'org';
   ownerLogin: string;
-  scopes?: string[];
-  status?: 'active' | 'suspended' | 'revoked';
-  createdBy?: string;
+  webhookSecret: string | null;
+  createdBy: string | null;
+  status: GithubConnectionStatus;
+  scopes: string[] | null;
+  installedAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 }
+
+/** `needs_attention` is not a GitHub App state; to this worker's callers the connection is unusable, like a suspended one. */
+function viewStatus(status: MergeConnectionRecord['status']): GithubConnectionStatus {
+  return status === 'needs_attention' ? 'suspended' : status;
+}
+
+export function toGithubConnection(row: MergeConnectionRecord, workspaceId = ''): GithubConnectionView {
+  return {
+    id: row.id,
+    workspaceId,
+    installationId: Number(row.externalAccountId),
+    appSlug: row.appSlug ?? '',
+    ownerType: row.accountType === 'organization' ? 'org' : 'user',
+    ownerLogin: row.accountLogin ?? '',
+    webhookSecret: row.webhookSecret,
+    createdBy: row.createdByUserId,
+    status: viewStatus(row.status),
+    scopes: row.scopes,
+    installedAt: row.installedAt,
+    revokedAt: row.revokedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    deletedAt: row.deletedAt,
+  };
+}
+
+const githubRows = and(eq(mergeConnections.provider, 'github'), isNull(mergeConnections.deletedAt));
+/** Active connections before the others, newest first. */
+const activeFirst = [sql`(${mergeConnections.status} = 'active') desc`, desc(mergeConnections.createdAt), desc(mergeConnections.id)] as const;
 
 // ============================================================================
 // Queries
 // ============================================================================
 
 /**
- * Get the active GitHub connection for a workspace.
+ * The workspace's GitHub connection: the newest active one, else the newest of
+ * any state (the settings page still shows a revoked one).
  */
-export async function getConnectionByWorkspace(
-  db: Database,
-  workspaceId: string,
-) {
+export async function getConnectionByWorkspace(db: Database, workspaceId = ''): Promise<GithubConnectionView | null> {
   const [row] = await db
     .select()
-    .from(githubConnections)
-    .where(
-      and(
-        eq(githubConnections.workspaceId, workspaceId),
-        isNull(githubConnections.deletedAt),
-      ),
-    )
+    .from(mergeConnections)
+    .where(githubRows)
+    .orderBy(...activeFirst)
     .limit(1);
-
-  return row ?? null;
+  return row ? toGithubConnection(row, workspaceId) : null;
 }
 
-/**
- * Look up a connection by GitHub installation ID.
- * NOT scoped by workspaceId — the installationId is the workspace resolver
- * used by the webhook ingress before the workspace is known.
- */
-export async function getConnectionByInstallationId(
-  db: Database,
-  installationId: number,
-) {
+/** The connection of a GitHub installation id (what the webhook receiver resolves). */
+export async function getConnectionByInstallationId(db: Database, installationId: number): Promise<GithubConnectionView | null> {
   const [row] = await db
     .select()
-    .from(githubConnections)
-    .where(
-      and(
-        eq(githubConnections.installationId, installationId),
-        isNull(githubConnections.deletedAt),
-      ),
-    )
+    .from(mergeConnections)
+    .where(and(githubRows, eq(mergeConnections.externalAccountId, String(installationId))))
+    .orderBy(...activeFirst)
     .limit(1);
+  return row ? toGithubConnection(row) : null;
+}
 
-  return row ?? null;
+// ============================================================================
+// Writes: the install flow
+// ============================================================================
+
+export interface RecordInstallationInput {
+  installationId: number;
+  appSlug: string;
+  accountLogin: string;
+  /** `Organization` or `User`, as GitHub says it. */
+  accountType: string;
+  userId: string;
+  keyring: EncryptionKeyring;
 }
 
 /**
- * Create or update a GitHub App installation record.
- * Generates a 32-byte random webhook secret, encrypts it, and stores it.
- * Returns the connection row including the plain-text secret (only at creation time).
+ * Records the installation as the workspace's connection: the `merge_connections`
+ * row and the master installation index, through the shared
+ * `recordGithubInstallation`. `workspaceRef` is the workspace's Clerk org id or
+ * `workspaces.id`; the index stores `workspaces.id`.
  */
-export async function upsertConnection(
+export async function recordInstallation(
+  env: Env,
   db: Database,
-  workspaceId: string,
-  input: UpsertConnectionInput,
-  encryptionKey: EncryptionKeyring,
-): Promise<{ connection: typeof githubConnections.$inferSelect; plaintextSecret: string | null }> {
-  const existing = await db
-    .select()
-    .from(githubConnections)
-    .where(
-      and(
-        eq(githubConnections.installationId, input.installationId),
-        isNull(githubConnections.deletedAt),
-      ),
-    )
-    .limit(1);
+  workspaceRef: string,
+  input: RecordInstallationInput,
+): Promise<RecordedGithubInstallation> {
+  const workspace = await getWorkspaceForOrg(env, workspaceRef);
+  return recordGithubInstallation(db, getMasterDb(env), { ...input, workspaceId: workspace.id });
+}
 
-  const now = new Date();
+/** Revokes the connection of an installation GitHub says was uninstalled, and drops it from the master index. */
+export async function revokeInstallation(env: Env, db: Database, installationId: number): Promise<void> {
+  await setGithubInstallationStatus(db, installationId, 'revoked');
+  await removeGithubInstallationIndex(getMasterDb(env), installationId);
+}
 
-  if (existing.length > 0) {
-    // Update existing — do NOT regenerate the webhook secret (keep existing encrypted value)
-    const [updated] = await db
-      .update(githubConnections)
-      .set({
-        workspaceId,
-        appSlug: input.appSlug,
-        ownerType: input.ownerType,
-        ownerLogin: input.ownerLogin,
-        scopes: input.scopes ?? null,
-        status: input.status ?? 'active',
-        installedAt: now,
-        revokedAt: null,
-        updatedAt: now,
-      })
-      .where(eq(githubConnections.id, existing[0].id))
-      .returning();
-
-    return { connection: updated, plaintextSecret: null };
-  }
-
-  // Generate a fresh webhook secret for new installations
-  const plaintextSecret = generateWebhookSecret();
-  const encryptedSecret = await encryptField(plaintextSecret, encryptionKey);
-
-  const id = generateId('ghc');
-  const [created] = await db
-    .insert(githubConnections)
-    .values({
-      id,
-      workspaceId,
-      installationId: input.installationId,
-      appSlug: input.appSlug,
-      ownerType: input.ownerType,
-      ownerLogin: input.ownerLogin,
-      webhookSecret: encryptedSecret,
-      createdBy: input.createdBy ?? null,
-      status: input.status ?? 'active',
-      scopes: input.scopes ?? null,
-      installedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
-
-  return { connection: created, plaintextSecret };
+/** Disconnects the workspace: every live GitHub connection is revoked and leaves the master index. */
+export async function revokeConnection(env: Env, db: Database): Promise<void> {
+  const rows = await db.select({ externalAccountId: mergeConnections.externalAccountId }).from(mergeConnections).where(githubRows);
+  for (const row of rows) await revokeInstallation(env, db, Number(row.externalAccountId));
 }
 
 /**
- * Mark a connection as revoked (soft-delete / status update).
- */
-export async function revokeConnection(
-  db: Database,
-  workspaceId: string,
-): Promise<void> {
-  await db
-    .update(githubConnections)
-    .set({
-      status: 'revoked',
-      revokedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(githubConnections.workspaceId, workspaceId),
-        isNull(githubConnections.deletedAt),
-      ),
-    );
-}
-
-/**
- * Update connection status (active / suspended / revoked) — used by webhook events.
- * Not scoped by workspaceId: called after installationId lookup resolves workspace.
+ * Update connection status (active / suspended / revoked), by installation id.
+ * Not scoped by workspace: called after the installation id resolved it.
  */
 export async function updateConnectionStatus(
   db: Database,
   installationId: number,
-  status: 'active' | 'suspended' | 'revoked',
+  status: GithubConnectionStatus,
 ): Promise<void> {
-  const now = new Date();
-  await db
-    .update(githubConnections)
-    .set({
-      status,
-      ...(status === 'revoked' ? { revokedAt: now } : {}),
-      updatedAt: now,
-    })
-    .where(eq(githubConnections.installationId, installationId));
-}
-
-/**
- * Decrypt and return the webhook secret for a connection.
- */
-export function getDecryptedWebhookSecret(
-  connection: typeof githubConnections.$inferSelect,
-  encryptionKey: EncryptionKeyring,
-): Promise<string | null> {
-  if (!connection.webhookSecret) return Promise.resolve(null);
-  return decryptField(connection.webhookSecret, encryptionKey);
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Generate a 32-byte random webhook secret as a 64-char hex string.
- * Uses Web Crypto — compatible with Cloudflare Workers.
- */
-function generateWebhookSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  await setGithubInstallationStatus(db, installationId, status);
 }

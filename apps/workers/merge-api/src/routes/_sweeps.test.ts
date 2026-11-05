@@ -21,6 +21,7 @@ import {
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
+import chatSubscriptionsRoutes from './chat-subscriptions';
 import commentsRoutes from './comments';
 import connectionsRoutes from './connections';
 import cyclesRoutes from './cycles';
@@ -28,6 +29,8 @@ import inboxRoutes from './inbox';
 import issuesRoutes from './issues';
 import labelsRoutes from './labels';
 import pullRequestsRoutes from './pull-requests';
+import recordLinksRoutes from './record-links';
+import releasesRoutes from './releases';
 import repositoriesRoutes from './repositories';
 import teamsRoutes from './teams';
 
@@ -38,6 +41,9 @@ const ROUTES_DIR = __dirname;
  * Every route directory has either core CRUD that publishes, or none: `accounts`
  * (the member's own login, not a catalogued entity), `pull-requests` and `inbox`
  * (read-only) and `internal` (the GitHub event intake) have nothing the sweep checks.
+ * `inbox/state.ts` (PATCH /items/:itemKey, POST /read-all) is per-member UI state with
+ * no entity: exempt from entity events by design; the sweep only reads each directory's
+ * index.ts, where the inbox has just the GET.
  */
 const EXEMPT_ROUTES = new Set<string>([]);
 
@@ -50,6 +56,10 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/merge/pull-requests', router: pullRequestsRoutes, prefix: 'merge_pull_requests', skipPost: true, skipPatch: true, skipDelete: true },
   { mount: '/api/merge/connections', router: connectionsRoutes, prefix: 'merge_connections', skipPost: true, skipPatch: true },
   { mount: '/api/merge/repositories', router: repositoriesRoutes, prefix: 'merge_connections' },
+  { mount: '/api/merge/releases', router: releasesRoutes, prefix: 'merge_releases' },
+  { mount: '/api/merge/chat-subscriptions', router: chatSubscriptionsRoutes, prefix: 'merge_teams' },
+  // GET needs ?recordType&recordId (a 400 without), so the standard list call does not fit; its own tests cover it.
+  { mount: '/api/merge/record-links', router: recordLinksRoutes, prefix: 'merge_issues', skipGet: true, skipPost: true, skipPatch: true, skipDelete: true },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
@@ -61,6 +71,8 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/merge/inbox', router: inboxRoutes, permission: 'merge_pull_requests:read' },
   { mount: '/api/merge/connections', router: connectionsRoutes, permission: 'merge_connections:read' },
   { mount: '/api/merge/repositories', router: repositoriesRoutes, permission: 'merge_connections:read' },
+  { mount: '/api/merge/releases', router: releasesRoutes, permission: 'merge_releases:read' },
+  { mount: '/api/merge/chat-subscriptions', router: chatSubscriptionsRoutes, permission: 'merge_teams:read' },
 ];
 
 describe('entity-event coverage', () => {

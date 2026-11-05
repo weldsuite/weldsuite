@@ -2,12 +2,13 @@ import { useState, type ReactNode } from 'react';
 import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import type { MergeCommentDto } from '@weldsuite/app-api-client/schemas/weldmerge';
+import type { MergeCommentDto, MergeProvider } from '@weldsuite/app-api-client/schemas/weldmerge';
 import {
   useCreateMergeComment,
   useDeleteMergeComment,
@@ -15,18 +16,31 @@ import {
   useUpdateMergeComment,
 } from '@/hooks/queries/use-weldmerge-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { relativeTime } from '../lib/format';
+import { fill, relativeTime } from '../lib/format';
 import { useMergeMembers } from '../lib/use-members';
 import { MarkdownBody, MemberAvatar, useMemberName } from './primitives';
+
+/** A provider comment from someone who is not a member: shown under their provider login. */
+function ExternalAvatar({ login, avatarUrl }: Readonly<{ login: string; avatarUrl: string | null }>) {
+  return (
+    <Avatar className="mt-0.5 size-5" title={login}>
+      {avatarUrl && <AvatarImage src={avatarUrl} alt={login} />}
+      <AvatarFallback className="text-[10px]">{login.slice(0, 2).toUpperCase()}</AvatarFallback>
+    </Avatar>
+  );
+}
 
 function CommentRow({
   comment,
   canEdit,
   canDelete,
+  providerName,
   onEdit,
   onDelete,
 }: Readonly<{
   comment: MergeCommentDto;
+  /** The provider the issue syncs with, to label comments that came from it. */
+  providerName: string | null;
   canEdit: boolean;
   canDelete: boolean;
   onEdit: (comment: MergeCommentDto, body: string) => Promise<void>;
@@ -34,7 +48,9 @@ function CommentRow({
 }>) {
   const { t, language } = useI18n();
   const ti = t.weldmerge.issue;
-  const name = useMemberName(comment.authorUserId) ?? ti.unknownMember;
+  const memberName = useMemberName(comment.authorUserId);
+  const external = comment.authorUserId === null && comment.externalAuthorLogin !== null;
+  const name = external ? (comment.externalAuthorLogin as string) : (memberName ?? ti.unknownMember);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
   const [saving, setSaving] = useState(false);
@@ -53,10 +69,19 @@ function CommentRow({
 
   return (
     <li className="flex gap-3">
-      <MemberAvatar userId={comment.authorUserId} className="mt-0.5" />
+      {external ? (
+        <ExternalAvatar login={name} avatarUrl={comment.externalAuthorAvatarUrl} />
+      ) : (
+        <MemberAvatar userId={comment.authorUserId} className="mt-0.5" />
+      )}
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium">{name}</span>
+          {comment.source === 'provider' && providerName && (
+            <span className="text-xs text-muted-foreground">
+              {fill(t.weldmerge.sync.externalSync.viaProvider, { provider: providerName })}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {relativeTime(comment.createdAt, language, t.weldmerge.justNow)}
             {edited && ` · ${ti.commentEdited}`}
@@ -106,7 +131,7 @@ function CommentRow({
  * The comments of an issue, newest last, with a composer. Members edit and
  * delete their own; deleting someone else's takes `merge_issues:delete`.
  */
-export function IssueComments({ issueId }: Readonly<{ issueId: string }>) {
+export function IssueComments({ issueId, provider }: Readonly<{ issueId: string; provider?: MergeProvider }>) {
   const { t } = useI18n();
   const ti = t.weldmerge.issue;
   const canWrite = useCan('merge_issues:update');
@@ -171,6 +196,7 @@ export function IssueComments({ issueId }: Readonly<{ issueId: string }>) {
               comment={comment}
               canEdit={own && canWrite}
               canDelete={own ? canWrite : canDeleteAny}
+              providerName={provider ? t.weldmerge.provider[provider] : null}
               onEdit={edit}
               onDelete={setDeleting}
             />

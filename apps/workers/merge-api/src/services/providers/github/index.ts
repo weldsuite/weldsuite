@@ -7,7 +7,13 @@
 
 import type { ProviderModule } from '../types';
 import { githubConnection } from './connection';
+import { githubIssues } from './issues';
+import { githubOAuth } from './oauth';
+import { githubReview } from './review';
 
 export const githubProvider: ProviderModule = {
   connection: githubConnection,
+  issues: githubIssues,
+  oauth: githubOAuth,
+  review: githubReview,
 };

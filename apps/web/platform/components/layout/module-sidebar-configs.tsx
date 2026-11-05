@@ -277,6 +277,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldmerge.pullRequests, href: '/weldmerge/pull-requests', icon: GitPullRequest, permission: 'merge_pull_requests:read' },
           { title: t.navigation.moduleSidebar.weldmerge.issues, href: '/weldmerge/issues', icon: CircleDot, permission: 'merge_issues:read' },
           { title: t.navigation.moduleSidebar.weldmerge.cycles, href: '/weldmerge/cycles', icon: Repeat, permission: 'merge_issues:read' },
+          { title: t.navigation.moduleSidebar.weldmerge.releases, href: '/weldmerge/releases', icon: Rocket, permission: 'merge_releases:read' },
         ],
       },
       {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import WeldMergeInboxPage from './page';
@@ -8,7 +8,10 @@ import { makeAssignedIssue, makeReviewRequest } from './test-fixtures';
 const state = vi.hoisted(() => ({
   locale: 'en' as 'en' | 'nl',
   can: true,
-  inbox: { isLoading: false, isError: false, data: [] as unknown[], refetch: vi.fn() },
+  inbox: { isLoading: false, isError: false, isSuccess: true, data: [] as unknown[], refetch: vi.fn() },
+  view: 'active',
+  updateItem: vi.fn(),
+  readAll: vi.fn(),
   connections: { isSuccess: true, data: [{ id: 'mcn_1' }] as unknown[] },
   accounts: { isSuccess: true, data: { github: 'octocat' as string | null } },
 }));
@@ -19,8 +22,15 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: state.locale === 'nl' ? dutch : english, language: state.locale }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.can, useCanAny: () => state.can }));
+vi.mock('@/hooks/queries/use-weldmerge-sync-queries', () => ({
+  useMergeInboxView: (view: string) => {
+    state.view = view;
+    return state.inbox;
+  },
+  useUpdateMergeInboxItem: () => ({ mutate: state.updateItem, isPending: false }),
+  useMarkAllMergeInboxRead: () => ({ mutateAsync: state.readAll, isPending: false }),
+}));
 vi.mock('@/hooks/queries/use-weldmerge-queries', () => ({
-  useMergeInbox: () => state.inbox,
   useMergeConnections: () => state.connections,
   useMyMergeAccounts: () => state.accounts,
   useUpdateMyMergeAccounts: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -40,7 +50,10 @@ describe('WeldMerge inbox', () => {
   beforeEach(() => {
     state.locale = 'en';
     state.can = true;
-    state.inbox = { isLoading: false, isError: false, data: [], refetch: vi.fn() };
+    state.inbox = { isLoading: false, isError: false, isSuccess: true, data: [], refetch: vi.fn() };
+    state.view = 'active';
+    state.updateItem = vi.fn();
+    state.readAll = vi.fn().mockResolvedValue({ updated: 2 });
     state.connections = { isSuccess: true, data: [{ id: 'mcn_1' }] };
     state.accounts = { isSuccess: true, data: { github: 'octocat' } };
   });
@@ -92,9 +105,48 @@ describe('WeldMerge inbox', () => {
   });
 
   it('shows an error with a retry when the inbox fails to load', () => {
-    state.inbox = { isLoading: false, isError: true, data: [], refetch: vi.fn() };
+    state.inbox = { isLoading: false, isError: true, isSuccess: false, data: [], refetch: vi.fn() };
     render(<WeldMergeInboxPage />);
     expect(screen.getByText(en.weldmerge.loadFailed)).toBeTruthy();
+  });
+
+  it('marks an unread item read when it is opened, and leaves a read one alone', () => {
+    state.inbox.data = [makeReviewRequest(), makeAssignedIssue({ read: true })];
+    render(<WeldMergeInboxPage />);
+    fireEvent.click(screen.getByText('Webhook retries drop events'));
+    expect(state.updateItem).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('feat(weldflow): tab visibility per project'));
+    expect(state.updateItem).toHaveBeenCalledWith(
+      { itemKey: 'review_requested:mpr_1', input: { read: true } },
+      expect.anything(),
+    );
+  });
+
+  it('shows unread items bold with a dot and read ones muted', () => {
+    state.inbox.data = [makeReviewRequest(), makeAssignedIssue({ read: true })];
+    render(<WeldMergeInboxPage />);
+    expect(screen.getAllByRole('img', { name: en.weldmerge.sync.inbox.unread })).toHaveLength(1);
+    expect(screen.getByText('feat(weldflow): tab visibility per project').className).toContain('font-semibold');
+    expect(screen.getByText('Webhook retries drop events').className).toContain('text-muted-foreground');
+  });
+
+  it('marks everything read, and disables the action when nothing is unread', async () => {
+    state.inbox.data = [makeReviewRequest()];
+    const { unmount } = render(<WeldMergeInboxPage />);
+    fireEvent.click(screen.getByRole('button', { name: en.weldmerge.sync.inbox.markAllRead }));
+    await waitFor(() => expect(state.readAll).toHaveBeenCalledTimes(1));
+    unmount();
+
+    state.inbox.data = [makeReviewRequest({ read: true })];
+    render(<WeldMergeInboxPage />);
+    expect((screen.getByRole('button', { name: en.weldmerge.sync.inbox.markAllRead }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows a snooze date on a snoozed row and has a menu per row', () => {
+    state.inbox.data = [makeReviewRequest({ snoozedUntil: '2026-11-12T08:00:00.000Z' })];
+    render(<WeldMergeInboxPage />);
+    expect(screen.getByText(/Snoozed until/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: en.weldmerge.sync.inbox.actions })).toHaveLength(1);
   });
 
   it('renders in Dutch', () => {

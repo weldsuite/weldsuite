@@ -11,6 +11,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -33,7 +34,7 @@ beforeEach(async () => {
 });
 
 async function runMigration() {
-  const statements = readFileSync(MIGRATION, 'utf8')
+  const statements = readFileSync(fileURLToPath(MIGRATION.href), 'utf8')
     .split('--> statement-breakpoint')
     .map((s) => s.trim())
     .filter(Boolean);

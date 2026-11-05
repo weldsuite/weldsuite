@@ -3,10 +3,13 @@
  *
  * Public route (no Clerk). Authenticated via HMAC-SHA256 (X-Hub-Signature-256)
  * against the App-level webhook secret. Resolves the workspace from the
- * installationId, then:
- *   - installation lifecycle  → updates connection status
+ * installationId (KV, else the master installation index, else a scan of the
+ * tenant databases that also writes the index row), then:
+ *   - installation lifecycle  → updates the WeldMerge connection's status
+ *     (`merge_connections`; a deleted installation also leaves the index)
  *   - projects_v2_item        → dispatches GithubProjectSyncWorkflow for the link
- *   - pull_request, pull_request_review, check_suite, installation_repositories
+ *   - pull_request, pull_request_review, check_suite, installation_repositories,
+ *     issues, issue_comment, installation
  *                             → forwarded to WeldMerge (MERGE_INTERNAL), fire-and-forget
  *
  * Hosted here (not core-api) as part of consolidating GitHub onto app-api +
@@ -16,12 +19,14 @@
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import type { Env } from '../index';
-import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema, type TenantDatabase } from '../db';
+import { getTenantDbForWorkspace, schema, type TenantDatabase } from '../db';
 import { forwardToMerge, isForwardedToMerge } from './merge-forward';
 import {
+  forgetInstallation,
   getConnectionByInstallationId,
   getDecryptedWebhookSecret,
   updateConnectionStatus,
+  workspaceOfInstallation,
 } from './connections';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -51,14 +56,14 @@ app.post('/github', async (c) => {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
   }
 
-  // Resolve workspace (clerkOrgId) from installationId — KV cache + master scan.
+  // Resolve workspace (clerkOrgId) from installationId — KV cache, then the master index, then a scan.
   let clerkOrgId: string | null = null;
   const cacheKey = `gh-install:${installationId}`;
   const cached = await c.env.WORKSPACE_CACHE.get(cacheKey);
   if (cached) {
     clerkOrgId = cached;
   } else {
-    clerkOrgId = await resolveWorkspaceForInstallation(c.env, installationId);
+    clerkOrgId = await workspaceOfInstallation(c.env, installationId);
     if (clerkOrgId) {
       await c.env.WORKSPACE_CACHE.put(cacheKey, clerkOrgId, { expirationTtl: 86400 });
     }
@@ -97,13 +102,13 @@ app.post('/github', async (c) => {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
   }
 
-  // WeldMerge mirrors pull requests; the forward never changes this answer.
+  // WeldMerge mirrors pull requests and syncs issues; the forward never changes this answer.
   if (eventType && isForwardedToMerge(eventType)) {
     c.executionCtx.waitUntil(forwardToMerge(c.env, { workspaceId: clerkOrgId, event: eventType, deliveryId, payload }));
   }
 
   c.executionCtx.waitUntil(
-    handleEvent(c.env, tenantDb, connection.workspaceId, eventType || '', deliveryId, payload, installationId).catch(
+    handleEvent(c.env, tenantDb, clerkOrgId, eventType || '', deliveryId, payload, installationId, cacheKey).catch(
       (err) => console.error(`[GitHub Webhook] Unhandled error (${deliveryId}):`, err),
     ),
   );
@@ -121,6 +126,7 @@ async function handleEvent(
   deliveryId: string,
   payload: Record<string, unknown>,
   installationId: number,
+  cacheKey: string,
 ): Promise<void> {
   try {
     switch (eventType) {
@@ -128,6 +134,9 @@ async function handleEvent(
         const action = String(payload.action);
         if (action === 'deleted') {
           await updateConnectionStatus(tenantDb, installationId, 'revoked');
+          // The installation is gone: nothing should resolve it any more.
+          await forgetInstallation(env, installationId);
+          await env.WORKSPACE_CACHE.delete(cacheKey);
         } else if (action === 'suspend') {
           await updateConnectionStatus(tenantDb, installationId, 'suspended');
         } else if (action === 'unsuspend' || action === 'created') {
@@ -286,40 +295,6 @@ async function handleIssuesEvent(
 function extractInstallationId(payload: Record<string, unknown>): number | null {
   const installation = payload.installation as { id?: number } | undefined;
   return installation?.id ?? null;
-}
-
-async function resolveWorkspaceForInstallation(env: Env, installationId: number): Promise<string | null> {
-  try {
-    const masterDb = getMasterDb(env);
-    const workspaces = await masterDb
-      .select({ clerkOrgId: masterSchema.workspaces.clerkOrgId })
-      .from(masterSchema.workspaces)
-      .limit(500);
-
-    for (const ws of workspaces) {
-      if (!ws.clerkOrgId) continue;
-      try {
-        const tenantDb = await getTenantDbForWorkspace(env, ws.clerkOrgId);
-        const [conn] = await tenantDb
-          .select({ id: schema.githubConnections.id })
-          .from(schema.githubConnections)
-          .where(
-            and(
-              eq(schema.githubConnections.installationId, installationId),
-              isNull(schema.githubConnections.deletedAt),
-            ),
-          )
-          .limit(1);
-        if (conn) return ws.clerkOrgId;
-      } catch {
-        // Skip workspaces whose DB fails to resolve.
-      }
-    }
-    return null;
-  } catch (err) {
-    console.error('[GitHub Webhook] Failed to resolve workspace for installation:', err);
-    return null;
-  }
 }
 
 async function verifyWebhookSignature(

@@ -383,7 +383,7 @@ export const weldmerge = {
       adding: 'Adding…',
       added: 'Added {count} repositories',
       addFailed: 'Could not add the repository',
-      connectFirst: 'Connect GitHub to add repositories.',
+      connectFirst: 'Connect a git provider to add repositories.',
     },
     teams: {
       title: 'Teams',

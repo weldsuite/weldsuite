@@ -7,17 +7,30 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { DetailHeader, DetailPage } from '@weldsuite/ui/components/page-layout';
 import type { MergeIssueLink } from '@weldsuite/app-api-client/schemas/weldmerge';
+import type { MergeMethod, MergeReviewEvent, MergeReviewThread } from '@weldsuite/app-api-client/schemas/weldmerge-review';
 import {
   useLinkMergePullRequest,
   useMergePullRequest,
   useUnlinkMergePullRequest,
 } from '@/hooks/queries/use-weldmerge-queries';
+import {
+  reviewErrorCode,
+  useCreateMergePullRequestComment,
+  useMergePullRequestOnProvider,
+  useSubmitMergeReview,
+} from '@/hooks/queries/use-weldmerge-review-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link, useParams, useRouter } from '@/lib/router';
+import type { DraftComment } from '../../components/diff/file-diff';
+import { FilesChanged } from '../../components/diff/files-changed';
 import { LinkIssuePopover } from '../../components/link-issue-popover';
+import { Conversation } from '../../components/review/conversation';
+import { MergeBox } from '../../components/review/merge-box';
+import { ReviewPopover } from '../../components/review/review-popover';
 import {
   ChecksIndicator,
   IssueStatusIcon,
@@ -31,11 +44,16 @@ import {
 import { fill, relativeTime } from '../../lib/format';
 
 /**
- * A pull request, read-only: description, state, branches, checks, review
- * decision, reviewers, labels and the issues it is linked to. Members who can
- * update issues can link and unlink them here; reviewing and merging happen on
- * the provider.
+ * A pull request: description, state, branches, checks, review decision,
+ * reviewers, labels and linked issues (Overview), the diff with inline review
+ * threads (Files changed) and the conversation. Members with
+ * `merge_pull_requests:review` review and comment as their own linked provider
+ * account, with `:merge` they merge; members who can update issues link and
+ * unlink them.
  */
+
+type PullRequestTab = 'overview' | 'files' | 'conversation';
+let draftSequence = 0;
 export default function WeldMergePullRequestPage() {
   const { t, language } = useI18n();
   const tm = t.weldmerge;
@@ -46,7 +64,15 @@ export default function WeldMergePullRequestPage() {
   const query = useMergePullRequest(pullRequestId);
   const link = useLinkMergePullRequest();
   const unlink = useUnlinkMergePullRequest();
+  const canReview = useCan('merge_pull_requests:review');
+  const canMerge = useCan('merge_pull_requests:merge');
+  const submitReview = useSubmitMergeReview(pullRequestId);
+  const createComment = useCreateMergePullRequestComment(pullRequestId);
+  const mergeOnProvider = useMergePullRequestOnProvider(pullRequestId);
   const [unlinking, setUnlinking] = useState<MergeIssueLink | null>(null);
+  const [tab, setTab] = useState<PullRequestTab>('overview');
+  const [drafts, setDrafts] = useState<DraftComment[]>([]);
+  const [notLinked, setNotLinked] = useState(false);
 
   if (query.isLoading) return <PageLoader fullScreen={false} />;
   if (query.isError || !query.data) {
@@ -79,6 +105,74 @@ export default function WeldMergePullRequestPage() {
     }
   };
 
+  const tr = tm.reviewing;
+
+  /** An unlinked account gets its notice; a provider refusal shows the provider's own words. */
+  const reportFailure = (error: unknown, fallback: string) => {
+    const code = reviewErrorCode(error);
+    if (code === 'account_not_linked') {
+      setNotLinked(true);
+      return;
+    }
+    const message = error instanceof Error && error.message ? error.message : '';
+    if (code === 'not_mergeable') toast.error(message || tr.errors.notMergeable);
+    else if (code === 'provider_error') toast.error(message || tr.errors.providerError);
+    else toast.error(message || fallback);
+  };
+
+  const addDraft = (draft: Omit<DraftComment, 'id'>) => setDrafts((current) => [...current, { ...draft, id: `draft_${++draftSequence}` }]);
+  const removeDraft = (id: string) => setDrafts((current) => current.filter((draft) => draft.id !== id));
+
+  /** Posts one comment (line comment, reply or general) and reports a failure; rethrows so the caller keeps its text. */
+  const postComment = async (input: Parameters<typeof createComment.mutateAsync>[0], announce: boolean) => {
+    try {
+      await createComment.mutateAsync(input);
+      setNotLinked(false);
+      if (announce) toast.success(tr.conversation.sent);
+    } catch (error) {
+      reportFailure(error, tr.errors.commentFailed);
+      throw error;
+    }
+  };
+
+  const commentNow = (draft: Omit<DraftComment, 'id'>) =>
+    postComment({ body: draft.body, path: draft.path, line: draft.line, side: draft.side }, true);
+  const reply = (thread: MergeReviewThread, body: string) => postComment({ body, inReplyToId: thread.id }, false);
+  const generalComment = (body: string) => postComment({ body }, true);
+
+  const review = async (event: MergeReviewEvent, body: string) => {
+    try {
+      await submitReview.mutateAsync({
+        event,
+        ...(body ? { body } : {}),
+        ...(drafts.length > 0 ? { comments: drafts.map(({ path, line, side, body: text }) => ({ path, line, side, body: text })) } : {}),
+      });
+      setDrafts([]);
+      setNotLinked(false);
+      toast.success(tr.review.submitted);
+    } catch (error) {
+      reportFailure(error, tr.review.failed);
+      throw error;
+    }
+  };
+
+  const merge = async (input: { method: MergeMethod; commitTitle?: string; commitMessage?: string }) => {
+    try {
+      await mergeOnProvider.mutateAsync(input);
+      setNotLinked(false);
+      toast.success(tr.merge.merged);
+    } catch (error) {
+      reportFailure(error, tr.merge.failed);
+      throw error;
+    }
+  };
+
+  const tabs: PageTab[] = [
+    { id: 'overview', label: tr.tabs.overview },
+    { id: 'files', label: tr.tabs.files },
+    { id: 'conversation', label: tr.tabs.conversation },
+  ];
+
   return (
     <DetailPage>
       <DetailHeader
@@ -97,19 +191,53 @@ export default function WeldMergePullRequestPage() {
           </span>
         }
         actions={
-          <Button variant="outline" asChild>
-            <a href={pr.url} target="_blank" rel="noreferrer">
-              <ExternalLink />
-              {fill(tm.openOnProvider, { provider })}
-            </a>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" asChild>
+              <a href={pr.url} target="_blank" rel="noreferrer">
+                <ExternalLink />
+                {fill(tm.openOnProvider, { provider })}
+              </a>
+            </Button>
+            {canReview && pr.state === 'open' && (
+              <ReviewPopover pendingCount={drafts.length} submitting={submitReview.isPending} onSubmit={review} />
+            )}
+          </div>
         }
       />
 
-      <InfoBanner variant="neutral">{tp.readOnlyNote}</InfoBanner>
+      {!canReview && !canMerge && <InfoBanner variant="neutral">{tp.readOnlyNote}</InfoBanner>}
 
+      {notLinked && (
+        <InfoBanner variant="warning">
+          {fill(tr.errors.accountNotLinked, { provider })}{' '}
+          <Link href="/weldmerge/settings?tab=accounts" className="font-medium underline">
+            {tr.errors.linkAccount}
+          </Link>
+        </InfoBanner>
+      )}
+
+      <PageTabs tabs={tabs} activeTab={tab} onTabChange={(id) => setTab(id as PullRequestTab)} />
+
+      {tab === 'files' && (
+        <FilesChanged
+          pullRequestId={pr.id}
+          canReview={canReview && pr.state === 'open'}
+          drafts={drafts}
+          onAddDraft={addDraft}
+          onCommentNow={commentNow}
+          onRemoveDraft={removeDraft}
+          onReply={reply}
+        />
+      )}
+
+      {tab === 'conversation' && (
+        <Conversation pullRequestId={pr.id} canReview={canReview} onReply={reply} onComment={generalComment} />
+      )}
+
+      {tab === 'overview' && (
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-6">
+          {canMerge && <MergeBox pullRequest={pr} merging={mergeOnProvider.isPending} onMerge={merge} />}
           <SectionCard title={tp.descriptionHeading}>
             {pr.body ? <MarkdownBody>{pr.body}</MarkdownBody> : <p className="text-sm text-muted-foreground">{tm.noDescription}</p>}
           </SectionCard>
@@ -210,6 +338,7 @@ export default function WeldMergePullRequestPage() {
           <p className="text-xs text-muted-foreground">{fill(tp.syncedAt, { time: relativeTime(pr.syncedAt, language, tm.justNow) })}</p>
         </aside>
       </div>
+      )}
 
       <ConfirmDialog
         open={unlinking !== null}

@@ -1,5 +1,6 @@
 /**
- * Forwards GitHub pull request events to WeldMerge (merge-api's `MergeInternal`
+ * Forwards GitHub App events to WeldMerge (pull requests, reviews, checks, issues,
+ * issue comments and the installation lifecycle) (merge-api's `MergeInternal`
  * entrypoint, bound as MERGE_INTERNAL). Called after the App's HMAC is verified
  * and the workspace is resolved; fire-and-forget, so a missing binding or a
  * failing merge-api never changes the webhook's answer, and the WeldFlow
@@ -27,6 +28,9 @@ const FORWARDED: ReadonlySet<string> = new Set<MergeGithubForwardedEvent>([
   'pull_request_review',
   'check_suite',
   'installation_repositories',
+  'issues',
+  'issue_comment',
+  'installation',
 ]);
 
 export function isForwardedToMerge(event: string): event is MergeGithubForwardedEvent {

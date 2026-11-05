@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { verifyInstallStateJwt, fetchInstallationMeta } from '../services/github/auth';
-import { upsertConnection, revokeConnection } from '../services/github/connections';
+import { recordInstallation, revokeInstallation } from '../services/github/connections';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
@@ -60,25 +60,21 @@ app.get('/callback', async (c) => {
     const db = await getTenantDbForWorkspace(c.env, workspaceId);
 
     if (setupAction === 'delete') {
-      await revokeConnection(db, workspaceId);
+      await revokeInstallation(c.env, db, installationId);
       return c.redirect(settingsPath('?disconnected=1', workspaceId));
     }
 
     const meta = await fetchInstallationMeta(appId, privateKey, installationId);
 
-    await upsertConnection(
-      db,
-      workspaceId,
-      {
-        installationId,
-        appSlug: meta.appSlug,
-        ownerType: meta.accountType === 'Organization' ? 'org' : 'user',
-        ownerLogin: meta.accountLogin,
-        status: 'active',
-        createdBy: claims.userId,
-      },
-      encryptionKey,
-    );
+    // The installation becomes the workspace's WeldMerge connection (merge_connections + the master index).
+    await recordInstallation(c.env, db, workspaceId, {
+      installationId,
+      appSlug: meta.appSlug,
+      accountLogin: meta.accountLogin,
+      accountType: meta.accountType,
+      userId: claims.userId,
+      keyring: encryptionKey,
+    });
 
     console.log(`[GitHub] Installation ${installationId} persisted for workspace ${workspaceId}`);
     return c.redirect(successRedirect);

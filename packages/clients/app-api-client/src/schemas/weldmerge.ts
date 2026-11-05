@@ -462,13 +462,14 @@ export const mergeConnectionDtoSchema = z.object({
 export type MergeConnectionDto = z.infer<typeof mergeConnectionDtoSchema>;
 
 /**
- * `POST /connections/github`: the adopted connection, or `needs_install` when
- * the workspace has no active GitHub App installation yet. The platform then
- * starts connect-api's install flow (`/api/workflow-github/install-url`).
+ * `POST /connections/github`: the workspace's live GitHub connection, or
+ * `needs_install` when it has no active GitHub App installation yet. The
+ * platform then starts the install flow (`GET /connections/github/install-url`).
  */
 export const connectMergeGithubResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('connected'), connection: mergeConnectionDtoSchema }),
-  z.object({ status: z.literal('needs_install') }),
+  /** `url`: the GitHub App's install page (no state), when the worker knows the App's slug. */
+  z.object({ status: z.literal('needs_install'), url: z.string().optional() }),
 ]);
 export type ConnectMergeGithubResult = z.infer<typeof connectMergeGithubResultSchema>;
 

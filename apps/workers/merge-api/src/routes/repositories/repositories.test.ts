@@ -3,9 +3,9 @@
  * real tenant schema (pglite), with GitHub's REST API stubbed by URL and method
  * (installation tokens are minted for real against the stub's token exchange).
  * Run on both backends by the `merge` conformance suite. What must not regress:
- *   1. Connecting GitHub adopts the workspace's active installation, once, and
- *      says `needs_install` when there is none. Removing a connection never
- *      calls GitHub.
+ *   1. Connecting GitHub answers with the workspace's newest active connection (the
+ *      install flow writes it), and `needs_install` when there is none. Removing a
+ *      connection never calls GitHub.
  *   2. Adding a repository loads open pull requests and those closed or merged
  *      in the last 30 days, links them to issues by key, and moves NO issue.
  *   3. issue_sync accepts off, import and two_way on GitHub and GitLab, only off elsewhere (422).
@@ -45,7 +45,6 @@ import {
 } from '../../test/helpers';
 import {
   seedConnection,
-  seedGithubInstallation,
   seedIssue,
   seedPullRequest,
   seedRepository,
@@ -74,49 +73,49 @@ const REPO_900 = { id: 900, full_name: 'acme/web', private: true, default_branch
 const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
 describe('connect GitHub', () => {
-  it('says needs_install while the workspace has no active installation', async () => {
+  it('says needs_install while the workspace has no active GitHub connection, with the install page when the App is known', async () => {
     const res = await connections().request('/api/merge/connections/github', jsonInit({}));
     expect(await ok<ConnectMergeGithubResult>(res)).toEqual({ status: 'needs_install' });
-    await seedGithubInstallation(db);
-    await db.update(schema.githubConnections).set({ status: 'suspended' });
+    await seedConnection(db, { status: 'suspended' });
+    await seedConnection(db, { externalAccountId: '77', status: 'revoked' });
+    await seedConnection(db, { externalAccountId: '78', deletedAt: new Date() });
     expect(await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})))).toEqual({
       status: 'needs_install',
     });
-    expect(await db.select().from(schema.mergeConnections)).toEqual([]);
+    const withSlug = await connections(ADMIN, { GITHUB_APP_SLUG: 'weldsuite' }).request('/api/merge/connections/github', jsonInit({}));
+    expect(await ok<ConnectMergeGithubResult>(withSlug)).toEqual({
+      status: 'needs_install',
+      url: 'https://github.com/apps/weldsuite/installations/new',
+    });
     expect(events).toEqual([]);
   });
 
-  it('adopts the installation, publishes merge_connection:created without credentials, and is idempotent', async () => {
-    await seedGithubInstallation(db, 4242);
-    const created = await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})), 201);
-    expect(created.status).toBe('connected');
-    if (created.status !== 'connected') throw new Error('unreachable');
-    expect(created.connection).toMatchObject({
+  it('answers connected with the newest active connection, writing and publishing nothing', async () => {
+    const older = await seedConnection(db, { externalAccountId: '1', createdAt: new Date('2026-10-01T00:00:00Z') });
+    const newer = await seedConnection(db, { externalAccountId: '2', accountLogin: 'acme-two', createdAt: new Date('2026-11-01T00:00:00Z') });
+    const result = await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})));
+    expect(result.status).toBe('connected');
+    if (result.status !== 'connected') throw new Error('unreachable');
+    expect(result.connection).toMatchObject({
+      id: newer.id,
       provider: 'github',
-      externalAccountId: '4242',
-      accountLogin: 'acme',
+      externalAccountId: '2',
+      accountLogin: 'acme-two',
       accountType: 'organization',
       host: null,
       status: 'active',
       repositoryCount: 0,
     });
-    expect(created.connection.id).toMatch(/^mcn_/);
-    expect(eventTypes()).toEqual(['merge_connection:created']);
-    expect(events[0]!.data).toEqual({ id: newId(created.connection.id), provider: 'github', accountLogin: 'acme', status: 'active' });
-    expect(created.connection).not.toHaveProperty('credentials');
-
-    clearEvents();
-    const again = await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})));
-    expect(again).toEqual(created);
-    expect(await db.select().from(schema.mergeConnections)).toHaveLength(1);
+    expect(result.connection.id).not.toBe(older.id);
+    expect(result.connection).not.toHaveProperty('credentials');
     expect(events).toEqual([]);
+    expect(await db.select().from(schema.mergeConnections)).toHaveLength(2);
   });
 
   it('needs merge_connections:manage', async () => {
-    await seedGithubInstallation(db);
+    await seedConnection(db);
     expect((await connections(MEMBER).request('/api/merge/connections/github', jsonInit({}))).status).toBe(403);
     expect((await connections(VIEWER).request('/api/merge/connections/github', jsonInit({}))).status).toBe(403);
-    expect(await db.select().from(schema.mergeConnections)).toEqual([]);
   });
 });
 
@@ -153,9 +152,10 @@ describe('connections list, delete and available repositories', () => {
     expect(row!.deletedAt).not.toBeNull();
     expect(await ok<MergeConnectionDto[]>(await connections().request('/api/merge/connections'))).toEqual([]);
     expect(await ok<MergeRepositoryDto[]>(await repositories().request('/api/merge/repositories'))).toEqual([]);
-    // Connecting again starts a fresh connection.
-    await seedGithubInstallation(db, 4242);
-    expect((await connections().request('/api/merge/connections/github', jsonInit({}))).status).toBe(201);
+    // The removed connection is gone: connecting says the App has to be installed again.
+    expect(await ok<ConnectMergeGithubResult>(await connections().request('/api/merge/connections/github', jsonInit({})))).toEqual({
+      status: 'needs_install',
+    });
   });
 
   it('lists what the installation can see, marking the repositories already tracked', async () => {
@@ -168,8 +168,8 @@ describe('connections list, delete and available repositories', () => {
       await connections().request(`/api/merge/connections/${connection.id}/available-repositories`),
     );
     expect(rows).toEqual([
-      { externalId: '900', fullName: 'acme/web', private: true, defaultBranch: 'main', url: 'https://github.com/acme/web', added: true },
-      { externalId: '901', fullName: 'acme/api', private: false, defaultBranch: null, url: null, added: false },
+      { externalId: '900', fullName: 'acme/web', private: true, defaultBranch: 'main', url: 'https://github.com/acme/web', externalProject: null, added: true },
+      { externalId: '901', fullName: 'acme/api', private: false, defaultBranch: null, url: null, externalProject: null, added: false },
     ]);
     expect(calls).toEqual(perRun([{ method: 'GET', url: '/installation/repositories?per_page=100&page=1' }]));
   });

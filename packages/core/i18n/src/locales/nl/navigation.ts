@@ -61,6 +61,7 @@ export const navigation = {
       campaigns: 'Campagnes',
       companies: 'Bedrijven',
       cycles: 'Cycli',
+      releases: 'Releases',
       connect: 'Verbinden',
       dashboard: 'Dashboard',
       declarations: 'Declaraties',
@@ -170,6 +171,7 @@ export const navigation = {
         pullRequests: 'Pull requests',
         issues: 'Issues',
         cycles: 'Cycli',
+        releases: 'Releases',
         settings: 'Instellingen',
       },
       welddocs: {

@@ -11,7 +11,6 @@ import {
   type MergeIssueStatus,
   type UpdateMergeIssueInput,
 } from '@weldsuite/app-api-client/schemas/weldmerge';
-import { MemberSelect } from '@/components/team/member-select';
 import {
   useMergeCycles,
   useMergeIssues,
@@ -20,6 +19,7 @@ import {
 } from '@/hooks/queries/use-weldmerge-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { fill, formatDateRange } from '../lib/format';
+import { IssueAssigneeSelect } from './issue-assignee-select';
 import { IssueStatusIcon, PriorityBars } from './primitives';
 
 const NONE = '__none__';
@@ -104,13 +104,7 @@ export function IssueProperties({ issue, canEdit }: Readonly<{ issue: MergeIssue
       </Row>
 
       <Row label={ti.assignee}>
-        <MemberSelect
-          variant="assignee"
-          value={issue.assigneeUserId ?? undefined}
-          disabled={!canEdit}
-          placeholder={tm.unassigned}
-          onChange={(userId) => save({ assigneeUserId: userId === '' ? null : userId })}
-        />
+        <IssueAssigneeSelect issue={issue} disabled={!canEdit} onChange={save} />
       </Row>
 
       <Row label={ti.labels}>

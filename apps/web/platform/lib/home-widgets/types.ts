@@ -15,6 +15,7 @@ export const WIDGET_MODULES = [
   'weldcall',
   'welddrive',
   'weldhost',
+  'weldmerge',
 ] as const;
 export type WidgetModule = (typeof WIDGET_MODULES)[number];
 
@@ -42,6 +43,7 @@ export const WIDGET_IDS = [
   'weldcall-history',
   'welddrive-recent',
   'weldhost-domains',
+  'weldmerge-inbox',
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 

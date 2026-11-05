@@ -8,6 +8,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // @weldsuite/mail-domain (release emails) and @weldsuite/chat-domain pull in
+    // @weldsuite/notifications, which re-exports types from @weldsuite/emails
+    // (.tsx source, no build step), so a jsx mode is needed to resolve them.
+    "jsx": "react-jsx",
     "noEmit": true,
     "lib": [
       "ESNext"

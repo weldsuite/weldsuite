@@ -1,8 +1,10 @@
 /**
  * `POST /webhooks/github` end to end, through the worker's own `fetch`: the
- * App's HMAC, the installation's workspace (KV, else a scan of the master
- * workspaces' tenant databases), the connection status on installation
- * events and the `GITHUB_PROJECT_SYNC` runs a board or issue change starts.
+ * App's HMAC, the installation's workspace (KV, else the master installation
+ * index, else a scan of the tenant databases that writes the index row), the
+ * WeldMerge connection's status on installation events (`merge_connections`;
+ * a deleted installation also leaves the index) and the `GITHUB_PROJECT_SYNC`
+ * runs a board or issue change starts.
  * Run on both backends by the `integrations: github` conformance suite.
  */
 
@@ -15,12 +17,15 @@ import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/test
 import { conformanceMasterDb, conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { createWebhookTestApp } from './harness';
 
-const holder = vi.hoisted(() => ({ masterDb: null as unknown, tenantDb: null as unknown }));
+const holder = vi.hoisted(() => ({ masterDb: null as unknown, tenantDb: null as unknown, tenantLookups: 0 }));
 
 vi.mock('../db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../db')>()),
   getMasterDb: () => conformanceMasterDb(holder.masterDb),
-  getTenantDbForWorkspace: async () => conformanceTenantDb(holder.tenantDb),
+  getTenantDbForWorkspace: async () => {
+    holder.tenantLookups++;
+    return conformanceTenantDb(holder.tenantDb);
+  },
 }));
 
 type Db = Awaited<ReturnType<typeof createPgliteDb>>['db'];
@@ -61,17 +66,20 @@ beforeAll(async () => {
 beforeEach(async () => {
   await tenantDb.delete(schema.githubIssueSyncMap);
   await tenantDb.delete(schema.githubProjectLinks);
-  await tenantDb.delete(schema.githubConnections);
+  await tenantDb.delete(schema.mergeConnections);
+  await masterDb.delete(masterSchema.mergeProviderIndex);
   await masterDb.delete(masterSchema.workspaces).where(eq(masterSchema.workspaces.id, 'ws_github'));
+  holder.tenantLookups = 0;
   const now = new Date('2026-10-01T09:00:00.000Z');
-  await tenantDb.insert(schema.githubConnections).values({
+  await tenantDb.insert(schema.mergeConnections).values({
     id: 'ghc_1',
-    workspaceId: ORG,
-    installationId: INSTALLATION,
+    provider: 'github',
+    externalAccountId: String(INSTALLATION),
     appSlug: 'weldsuite',
-    ownerType: 'org',
-    ownerLogin: 'acme',
+    accountType: 'organization',
+    accountLogin: 'acme',
     status: 'active',
+    createdByUserId: 'user_installer',
     createdAt: now,
     updatedAt: now,
   });
@@ -181,28 +189,76 @@ describe('POST /webhooks/github', () => {
     expect(await res.json()).toEqual({ received: true });
   });
 
-  it('finds the workspace of an uncached installation by scanning, caches it, and keeps the connection status', async () => {
+  async function addWorkspace() {
     await masterDb
       .insert(masterSchema.workspaces)
       .values({ id: 'ws_github', clerkOrgId: ORG, name: 'GitHub', slug: 'github' } as typeof masterSchema.workspaces.$inferInsert);
+  }
+  const indexRows = () => masterDb.select().from(masterSchema.mergeProviderIndex);
+
+  it('finds the workspace of an uncached installation by scanning, caches it, writes the index row and keeps the connection status', async () => {
+    await addWorkspace();
     const kv = memoryKv();
 
     const suspend = await deliver(app({ kv }), 'installation', { action: 'suspend', installation: { id: INSTALLATION } });
     expect(suspend.status).toBe(202);
     expect(await kv.get(`gh-install:${INSTALLATION}`)).toBe(ORG);
-    const [suspended] = await tenantDb.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, 'ghc_1'));
+    expect(await indexRows()).toMatchObject([{ provider: 'github', kind: 'installation', externalKey: String(INSTALLATION), workspaceId: 'ws_github' }]);
+    const [suspended] = await tenantDb.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, 'ghc_1'));
     expect(suspended?.status).toBe('suspended');
 
     const deleted = await deliver(app({ kv }), 'installation', { action: 'deleted', installation: { id: INSTALLATION } });
     expect(deleted.status).toBe(202);
-    const [revoked] = await tenantDb.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, 'ghc_1'));
+    const [revoked] = await tenantDb.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, 'ghc_1'));
     expect(revoked?.status).toBe('revoked');
     expect(revoked?.revokedAt).not.toBeNull();
+    // An uninstalled installation resolves nowhere any more.
+    expect(await indexRows()).toEqual([]);
+    expect(await kv.get(`gh-install:${INSTALLATION}`)).toBeNull();
 
     const back = await deliver(app({ kv }), 'installation', { action: 'unsuspend', installation: { id: INSTALLATION } });
     expect(back.status).toBe(202);
-    const [active] = await tenantDb.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, 'ghc_1'));
-    expect(active?.status).toBe('active');
+  });
+
+  it('resolves an uncached installation from the master index, without scanning the tenant databases', async () => {
+    await addWorkspace();
+    await masterDb.insert(masterSchema.mergeProviderIndex).values({
+      id: 'mpi_1',
+      provider: 'github',
+      kind: 'installation',
+      externalKey: String(INSTALLATION),
+      workspaceId: 'ws_github',
+    });
+    const kv = memoryKv();
+    const res = await deliver(app({ kv }), 'installation', { action: 'suspend', installation: { id: INSTALLATION } });
+    expect(res.status).toBe(202);
+    expect(await kv.get(`gh-install:${INSTALLATION}`)).toBe(ORG);
+    // One lookup, for the delivery itself: a scan would have opened the tenant database once more.
+    expect(holder.tenantLookups).toBe(1);
+    const [row] = await tenantDb.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, 'ghc_1'));
+    expect(row?.status).toBe('suspended');
+    expect(await indexRows()).toHaveLength(1);
+  });
+
+  it('prefers the cached workspace over the index, and scans only when neither knows the installation', async () => {
+    const hit = await deliver(app(), 'installation', { action: 'suspend', installation: { id: INSTALLATION } });
+    expect(hit.status).toBe(202);
+    expect(holder.tenantLookups).toBe(1);
+    expect(await indexRows()).toEqual([]);
+
+    // An index row for a workspace that no longer exists falls through to the scan.
+    await masterDb.insert(masterSchema.mergeProviderIndex).values({
+      id: 'mpi_gone',
+      provider: 'github',
+      kind: 'installation',
+      externalKey: String(INSTALLATION),
+      workspaceId: 'ws_gone',
+    });
+    await addWorkspace();
+    holder.tenantLookups = 0;
+    const scanned = await deliver(app({ kv: memoryKv() }), 'installation', { action: 'unsuspend', installation: { id: INSTALLATION } });
+    expect(scanned.status).toBe(202);
+    expect(await indexRows()).toMatchObject([{ externalKey: String(INSTALLATION), workspaceId: 'ws_github' }]);
   });
 
   it('starts one inbound project sync for a board change on a linked project', async () => {
@@ -272,7 +328,7 @@ describe('POST /webhooks/github', () => {
   });
 
   it('acknowledges an installation whose connection the workspace no longer has', async () => {
-    await tenantDb.update(schema.githubConnections).set({ deletedAt: new Date() }).where(eq(schema.githubConnections.id, 'ghc_1'));
+    await tenantDb.update(schema.mergeConnections).set({ deletedAt: new Date() }).where(eq(schema.mergeConnections.id, 'ghc_1'));
     const res = await deliver(app(), 'installation', { action: 'created', installation: { id: INSTALLATION } });
     expect(res.status).toBe(202);
   });

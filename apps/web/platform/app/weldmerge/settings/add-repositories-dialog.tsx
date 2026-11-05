@@ -62,7 +62,9 @@ export function AddRepositoriesDialog({
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (available.data ?? []).filter((repo) => !term || repo.fullName.toLowerCase().includes(term));
+    return (available.data ?? []).filter(
+      (repo) => !term || repo.fullName.toLowerCase().includes(term) || (repo.externalProject ?? '').toLowerCase().includes(term),
+    );
   }, [available.data, search]);
 
   const toggle = (externalId: string) =>
@@ -77,6 +79,7 @@ export function AddRepositoriesDialog({
         await add.mutateAsync({
           connectionId,
           externalId,
+          externalProject: available.data?.find((repo) => repo.externalId === externalId)?.externalProject ?? null,
           teamId: teamId === NO_TEAM ? null : teamId,
           prSync,
         });
@@ -118,7 +121,12 @@ export function AddRepositoriesDialog({
                   disabled={repo.added}
                   onCheckedChange={() => toggle(repo.externalId)}
                 />
-                <span className="min-w-0 flex-1 truncate">{repo.fullName}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {repo.fullName}
+                  {repo.externalProject && repo.externalProject !== repo.fullName && (
+                    <span className="ml-2 text-xs text-muted-foreground">{repo.externalProject}</span>
+                  )}
+                </span>
                 {repo.private && <Lock className="size-3.5 text-muted-foreground" aria-label={ta.private} />}
                 {repo.added && <span className="text-xs text-muted-foreground">{ta.alreadyAdded}</span>}
               </label>

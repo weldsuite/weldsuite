@@ -2,9 +2,10 @@
  * Repository routes: /api/merge/repositories/*.
  *
  *   GET    /           -> tracked repositories (merge_connections:read)
- *   POST   /           -> add one: look it up through the installation, then load its open and recently merged pull requests
+ *   POST   /           -> add one: look it up through the connection's provider (GitLab, Bitbucket and Azure DevOps also register
+ *                         their webhook and index its key), then load its open and recently merged pull requests
  *   PATCH  /:id        -> team, prSync; issueSync accepts off|import|two_way on GitHub and GitLab, only off elsewhere (422)
- *   DELETE /:id        -> stop tracking (soft delete)
+ *   DELETE /:id        -> stop tracking (soft delete); a provider hook and its index row are deleted first
  *   POST   /:id/sync   -> read the pull requests again (Refresh)
  *
  * Changing repositories needs merge_connections:manage. Loading history never
@@ -17,11 +18,13 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { addMergeRepositorySchema, updateMergeRepositorySchema } from '@weldsuite/app-api-client/schemas/weldmerge';
 import type { Env, Variables } from '../../types';
-import { githubClientFor, githubFailure, unprocessable, type Ctx } from '../shared';
+import { providerFailure, unprocessable, type Ctx } from '../shared';
 import { diffFields, publishEntityEvents } from '../../services/events';
 import { repositoryDto } from '../../services/mappers';
 import type { MergeRepositoryRow } from '../../services/db';
 import { findConnection } from '../../services/connections';
+import { adapterContextFor } from '../../services/providers/context';
+import { registerRepositoryWebhook, unregisterRepositoryWebhook, usesRepositoryWebhooks } from '../../services/webhook-registration';
 import {
   addRepository,
   deleteRepository,
@@ -61,11 +64,15 @@ app.post('/', requirePermission('merge_connections:manage'), zValidator('json', 
   const db = c.get('tenantDb');
   const input = c.req.valid('json');
   const connection = await findConnection(db, input.connectionId);
-  if (!connection || connection.provider !== 'github' || connection.status !== 'active') {
+  if (!connection || connection.status !== 'active') {
     return error.notFound(c, 'Connection', input.connectionId);
   }
   try {
-    const result = await addRepository(db, connection, input, c.get('userId'), githubClientFor(c)(connection.externalAccountId));
+    const ctx = await adapterContextFor(db, c.env, connection);
+    const afterInsert = usesRepositoryWebhooks(connection)
+      ? (row: MergeRepositoryRow) => registerRepositoryWebhook(db, ctx, c.get('workspaceId'), row)
+      : undefined;
+    const result = await addRepository(db, connection, input, c.get('userId'), ctx, afterInsert);
     if (!result.ok) {
       switch (result.reason) {
         case 'team_not_found':
@@ -92,7 +99,7 @@ app.post('/', requirePermission('merge_connections:manage'), zValidator('json', 
       201,
     );
   } catch (err) {
-    const response = githubFailure(c, err);
+    const response = providerFailure(c, err);
     if (response) return response;
     throw err;
   }
@@ -126,7 +133,16 @@ app.patch('/:id', requirePermission('merge_connections:manage'), zValidator('jso
 
 app.delete('/:id', requirePermission('merge_connections:manage'), async (c) => {
   const id = c.req.param('id');
-  const repository = await deleteRepository(c.get('tenantDb'), id);
+  const db = c.get('tenantDb');
+  const existing = await findRepository(db, id);
+  if (!existing) return error.notFound(c, 'Repository', id);
+  // GitLab, Bitbucket and Azure DevOps: take the provider's hook and the index row down first.
+  if (existing.webhookKey) {
+    const connection = await findConnection(db, existing.connectionId);
+    const ctx = connection ? await adapterContextFor(db, c.env, connection).catch(() => null) : null;
+    await unregisterRepositoryWebhook(c.env, ctx, existing);
+  }
+  const repository = await deleteRepository(db, id);
   if (!repository) return error.notFound(c, 'Repository', id);
   publishRepositoryEvent(c, repository, 'deleted');
   return noContent(c);
@@ -140,7 +156,7 @@ app.post('/:id/sync', requirePermission('merge_connections:manage'), async (c) =
   const connection = await findConnection(db, repository.connectionId);
   if (!connection || connection.status !== 'active') return error.notFound(c, 'Connection', repository.connectionId);
   try {
-    const sync = await syncRepository(db, repository, githubClientFor(c)(connection.externalAccountId));
+    const sync = await syncRepository(db, repository, await adapterContextFor(db, c.env, connection));
     const synced = await touchSynced(db, id);
     publishEntityEvents(c, sync.events);
     return success(c, {
@@ -149,7 +165,7 @@ app.post('/:id/sync', requirePermission('merge_connections:manage'), async (c) =
       linksCreated: sync.linksCreated,
     });
   } catch (err) {
-    const response = githubFailure(c, err);
+    const response = providerFailure(c, err);
     if (response) return response;
     throw err;
   }

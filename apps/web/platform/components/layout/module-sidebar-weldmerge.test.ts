@@ -14,26 +14,27 @@ describe('WeldMerge module registration', () => {
     expect(getModuleKey('/weldmerge/issues/PLAT-209')).toBe('weldmerge');
   });
 
-  it('lists inbox, pull requests, issues, cycles and settings, each gated on its permission', () => {
+  it('lists inbox, pull requests, issues, cycles, releases and settings, each gated on its permission', () => {
     const items = config.getMenuItems(en).flatMap((group) => group.items);
     expect(items.map((item) => [item.href, item.permission])).toEqual([
       ['/weldmerge', 'merge_pull_requests:read'],
       ['/weldmerge/pull-requests', 'merge_pull_requests:read'],
       ['/weldmerge/issues', 'merge_issues:read'],
       ['/weldmerge/cycles', 'merge_issues:read'],
+      ['/weldmerge/releases', 'merge_releases:read'],
       ['/weldmerge/settings', 'merge_connections:read'],
     ]);
   });
 
   it('translates the section names', () => {
     const titles = (language: typeof en) => config.getMenuItems(language).flatMap((group) => group.items.map((item) => item.title));
-    expect(titles(en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycles', 'Settings']);
-    expect(titles(nl as unknown as typeof en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycli', 'Instellingen']);
+    expect(titles(en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycles', 'Releases', 'Settings']);
+    expect(titles(nl as unknown as typeof en)).toEqual(['Inbox', 'Pull requests', 'Issues', 'Cycli', 'Releases', 'Instellingen']);
   });
 
   it('has an icon and its permission objects', () => {
     expect(getAppLucideIcon('weldmerge')).toBeDefined();
     expect(isHiddenFromOnboarding('weldmerge')).toBe(false);
-    expect(getAppPermissionObjects('weldmerge')).toEqual(['merge_issues', 'merge_pull_requests', 'merge_teams', 'merge_connections']);
+    expect(getAppPermissionObjects('weldmerge')).toEqual(['merge_issues', 'merge_pull_requests', 'merge_releases', 'merge_teams', 'merge_connections']);
   });
 });

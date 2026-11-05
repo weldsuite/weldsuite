@@ -17,7 +17,8 @@
     "./connectors/stripe-auth": "./src/connectors/stripe-auth.ts",
     "./connectors/sync": "./src/connectors/sync.ts",
     "./connectors/webhooks": "./src/connectors/webhooks.ts",
-    "./github/app-auth": "./src/github/app-auth.ts"
+    "./github/app-auth": "./src/github/app-auth.ts",
+    "./github/install-state": "./src/github/install-state.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

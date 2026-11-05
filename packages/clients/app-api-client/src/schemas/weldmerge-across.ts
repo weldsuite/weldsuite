@@ -274,6 +274,8 @@ export const mergeWorkflowActionEnvelopeSchema = z.object({
   userId: z.string().min(1),
   action: z.enum(MERGE_WORKFLOW_ACTIONS),
   input: z.record(z.unknown()),
+  /** Chain depth of the WeldConnect run, so the entity events the action causes cannot retrigger workflows forever. */
+  chainDepth: z.number().int().min(0).optional(),
 });
 export type MergeWorkflowActionEnvelope = z.infer<typeof mergeWorkflowActionEnvelopeSchema>;
 

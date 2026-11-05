@@ -122,6 +122,7 @@ import { Route as WeldpassPasswordsIndexRouteImport } from './routes/weldpass/pa
 import { Route as WeldpassProjectIdIndexRouteImport } from './routes/weldpass/$projectId/index'
 import { Route as WeldpanelProjectsIndexRouteImport } from './routes/weldpanel/projects/index'
 import { Route as WeldmergeSettingsIndexRouteImport } from './routes/weldmerge/settings/index'
+import { Route as WeldmergeReleasesIndexRouteImport } from './routes/weldmerge/releases/index'
 import { Route as WeldmergePullRequestsIndexRouteImport } from './routes/weldmerge/pull-requests/index'
 import { Route as WeldmergeIssuesIndexRouteImport } from './routes/weldmerge/issues/index'
 import { Route as WeldmergeCyclesIndexRouteImport } from './routes/weldmerge/cycles/index'
@@ -285,7 +286,9 @@ import { Route as AppstoreCodeIndexRouteImport } from './routes/appstore/$code/i
 import { Route as AppsManageIndexRouteImport } from './routes/apps/manage/index'
 import { Route as AppsAppCodeIndexRouteImport } from './routes/apps/$appCode/index'
 import { Route as AgentsIdIndexRouteImport } from './routes/agents/$id/index'
+import { Route as WeldmergeReleasesReleaseIdRouteImport } from './routes/weldmerge/releases/$releaseId'
 import { Route as WeldmergePullRequestsPullRequestIdRouteImport } from './routes/weldmerge/pull-requests/$pullRequestId'
+import { Route as WeldmergeOauthCallbackRouteImport } from './routes/weldmerge/oauth/callback'
 import { Route as WeldmergeIssuesIssueKeyRouteImport } from './routes/weldmerge/issues/$issueKey'
 import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join/$joinCode'
 import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
@@ -1139,6 +1142,11 @@ const WeldmergeSettingsIndexRoute = WeldmergeSettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => WeldmergeRouteRoute,
 } as any)
+const WeldmergeReleasesIndexRoute = WeldmergeReleasesIndexRouteImport.update({
+  id: '/releases/',
+  path: '/releases/',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
 const WeldmergePullRequestsIndexRoute =
   WeldmergePullRequestsIndexRouteImport.update({
     id: '/pull-requests/',
@@ -1984,12 +1992,23 @@ const AgentsIdIndexRoute = AgentsIdIndexRouteImport.update({
   path: '/$id/',
   getParentRoute: () => AgentsRouteRoute,
 } as any)
+const WeldmergeReleasesReleaseIdRoute =
+  WeldmergeReleasesReleaseIdRouteImport.update({
+    id: '/releases/$releaseId',
+    path: '/releases/$releaseId',
+    getParentRoute: () => WeldmergeRouteRoute,
+  } as any)
 const WeldmergePullRequestsPullRequestIdRoute =
   WeldmergePullRequestsPullRequestIdRouteImport.update({
     id: '/pull-requests/$pullRequestId',
     path: '/pull-requests/$pullRequestId',
     getParentRoute: () => WeldmergeRouteRoute,
   } as any)
+const WeldmergeOauthCallbackRoute = WeldmergeOauthCallbackRouteImport.update({
+  id: '/oauth/callback',
+  path: '/oauth/callback',
+  getParentRoute: () => WeldmergeRouteRoute,
+} as any)
 const WeldmergeIssuesIssueKeyRoute = WeldmergeIssuesIssueKeyRouteImport.update({
   id: '/issues/$issueKey',
   path: '/issues/$issueKey',
@@ -3780,7 +3799,9 @@ export interface FileRoutesByFullPath {
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
   '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id/': typeof AgentsIdIndexRoute
   '/apps/$appCode/': typeof AppsAppCodeIndexRoute
   '/apps/manage/': typeof AppsManageIndexRoute
@@ -3944,6 +3965,7 @@ export interface FileRoutesByFullPath {
   '/weldmerge/cycles/': typeof WeldmergeCyclesIndexRoute
   '/weldmerge/issues/': typeof WeldmergeIssuesIndexRoute
   '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
@@ -4295,7 +4317,9 @@ export interface FileRoutesByTo {
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
   '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id': typeof AgentsIdIndexRoute
   '/apps/$appCode': typeof AppsAppCodeIndexRoute
   '/apps/manage': typeof AppsManageIndexRoute
@@ -4459,6 +4483,7 @@ export interface FileRoutesByTo {
   '/weldmerge/cycles': typeof WeldmergeCyclesIndexRoute
   '/weldmerge/issues': typeof WeldmergeIssuesIndexRoute
   '/weldmerge/pull-requests': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId': typeof WeldpassProjectIdIndexRoute
@@ -4853,7 +4878,9 @@ export interface FileRoutesById {
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
   '/weldmerge/issues/$issueKey': typeof WeldmergeIssuesIssueKeyRoute
+  '/weldmerge/oauth/callback': typeof WeldmergeOauthCallbackRoute
   '/weldmerge/pull-requests/$pullRequestId': typeof WeldmergePullRequestsPullRequestIdRoute
+  '/weldmerge/releases/$releaseId': typeof WeldmergeReleasesReleaseIdRoute
   '/agents/$id/': typeof AgentsIdIndexRoute
   '/apps/$appCode/': typeof AppsAppCodeIndexRoute
   '/apps/manage/': typeof AppsManageIndexRoute
@@ -5017,6 +5044,7 @@ export interface FileRoutesById {
   '/weldmerge/cycles/': typeof WeldmergeCyclesIndexRoute
   '/weldmerge/issues/': typeof WeldmergeIssuesIndexRoute
   '/weldmerge/pull-requests/': typeof WeldmergePullRequestsIndexRoute
+  '/weldmerge/releases/': typeof WeldmergeReleasesIndexRoute
   '/weldmerge/settings/': typeof WeldmergeSettingsIndexRoute
   '/weldpanel/projects/': typeof WeldpanelProjectsIndexRoute
   '/weldpass/$projectId/': typeof WeldpassProjectIdIndexRoute
@@ -5419,7 +5447,9 @@ export interface FileRouteTypes {
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
     | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id/'
     | '/apps/$appCode/'
     | '/apps/manage/'
@@ -5583,6 +5613,7 @@ export interface FileRouteTypes {
     | '/weldmerge/cycles/'
     | '/weldmerge/issues/'
     | '/weldmerge/pull-requests/'
+    | '/weldmerge/releases/'
     | '/weldmerge/settings/'
     | '/weldpanel/projects/'
     | '/weldpass/$projectId/'
@@ -5934,7 +5965,9 @@ export interface FileRouteTypes {
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
     | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id'
     | '/apps/$appCode'
     | '/apps/manage'
@@ -6098,6 +6131,7 @@ export interface FileRouteTypes {
     | '/weldmerge/cycles'
     | '/weldmerge/issues'
     | '/weldmerge/pull-requests'
+    | '/weldmerge/releases'
     | '/weldmerge/settings'
     | '/weldpanel/projects'
     | '/weldpass/$projectId'
@@ -6491,7 +6525,9 @@ export interface FileRouteTypes {
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
     | '/weldmerge/issues/$issueKey'
+    | '/weldmerge/oauth/callback'
     | '/weldmerge/pull-requests/$pullRequestId'
+    | '/weldmerge/releases/$releaseId'
     | '/agents/$id/'
     | '/apps/$appCode/'
     | '/apps/manage/'
@@ -6655,6 +6691,7 @@ export interface FileRouteTypes {
     | '/weldmerge/cycles/'
     | '/weldmerge/issues/'
     | '/weldmerge/pull-requests/'
+    | '/weldmerge/releases/'
     | '/weldmerge/settings/'
     | '/weldpanel/projects/'
     | '/weldpass/$projectId/'
@@ -7793,6 +7830,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/weldmerge/settings/'
       preLoaderRoute: typeof WeldmergeSettingsIndexRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/releases/': {
+      id: '/weldmerge/releases/'
+      path: '/releases'
+      fullPath: '/weldmerge/releases/'
+      preLoaderRoute: typeof WeldmergeReleasesIndexRouteImport
       parentRoute: typeof WeldmergeRouteRoute
     }
     '/weldmerge/pull-requests/': {
@@ -8936,11 +8980,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsIdIndexRouteImport
       parentRoute: typeof AgentsRouteRoute
     }
+    '/weldmerge/releases/$releaseId': {
+      id: '/weldmerge/releases/$releaseId'
+      path: '/releases/$releaseId'
+      fullPath: '/weldmerge/releases/$releaseId'
+      preLoaderRoute: typeof WeldmergeReleasesReleaseIdRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
     '/weldmerge/pull-requests/$pullRequestId': {
       id: '/weldmerge/pull-requests/$pullRequestId'
       path: '/pull-requests/$pullRequestId'
       fullPath: '/weldmerge/pull-requests/$pullRequestId'
       preLoaderRoute: typeof WeldmergePullRequestsPullRequestIdRouteImport
+      parentRoute: typeof WeldmergeRouteRoute
+    }
+    '/weldmerge/oauth/callback': {
+      id: '/weldmerge/oauth/callback'
+      path: '/oauth/callback'
+      fullPath: '/weldmerge/oauth/callback'
+      preLoaderRoute: typeof WeldmergeOauthCallbackRouteImport
       parentRoute: typeof WeldmergeRouteRoute
     }
     '/weldmerge/issues/$issueKey': {
@@ -12308,21 +12366,27 @@ const WeldmeetRouteRouteWithChildren = WeldmeetRouteRoute._addFileChildren(
 interface WeldmergeRouteRouteChildren {
   WeldmergeIndexRoute: typeof WeldmergeIndexRoute
   WeldmergeIssuesIssueKeyRoute: typeof WeldmergeIssuesIssueKeyRoute
+  WeldmergeOauthCallbackRoute: typeof WeldmergeOauthCallbackRoute
   WeldmergePullRequestsPullRequestIdRoute: typeof WeldmergePullRequestsPullRequestIdRoute
+  WeldmergeReleasesReleaseIdRoute: typeof WeldmergeReleasesReleaseIdRoute
   WeldmergeCyclesIndexRoute: typeof WeldmergeCyclesIndexRoute
   WeldmergeIssuesIndexRoute: typeof WeldmergeIssuesIndexRoute
   WeldmergePullRequestsIndexRoute: typeof WeldmergePullRequestsIndexRoute
+  WeldmergeReleasesIndexRoute: typeof WeldmergeReleasesIndexRoute
   WeldmergeSettingsIndexRoute: typeof WeldmergeSettingsIndexRoute
 }
 
 const WeldmergeRouteRouteChildren: WeldmergeRouteRouteChildren = {
   WeldmergeIndexRoute: WeldmergeIndexRoute,
   WeldmergeIssuesIssueKeyRoute: WeldmergeIssuesIssueKeyRoute,
+  WeldmergeOauthCallbackRoute: WeldmergeOauthCallbackRoute,
   WeldmergePullRequestsPullRequestIdRoute:
     WeldmergePullRequestsPullRequestIdRoute,
+  WeldmergeReleasesReleaseIdRoute: WeldmergeReleasesReleaseIdRoute,
   WeldmergeCyclesIndexRoute: WeldmergeCyclesIndexRoute,
   WeldmergeIssuesIndexRoute: WeldmergeIssuesIndexRoute,
   WeldmergePullRequestsIndexRoute: WeldmergePullRequestsIndexRoute,
+  WeldmergeReleasesIndexRoute: WeldmergeReleasesIndexRoute,
   WeldmergeSettingsIndexRoute: WeldmergeSettingsIndexRoute,
 }
 

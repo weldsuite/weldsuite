@@ -2,20 +2,28 @@
  * `GET /api/weldconnect/github/callback`, GitHub's post-install redirect,
  * through the test app with the tenant on pglite (so the conformance
  * harness runs it against both backends): the state check, the uninstall
- * action, the connection it stores, and where it sends the browser.
+ * action, the connection it stores (a WeldMerge connection in
+ * `merge_connections`, and the installation in the master index), and where it
+ * sends the browser.
  */
 
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import * as masterSchema from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
-const holder = vi.hoisted(() => ({ tenant: null as unknown }));
+const holder = vi.hoisted(() => ({ tenant: null as unknown, master: null as unknown }));
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getTenantDbForWorkspace: async () => conformanceTenantDb(holder.tenant) };
+  return {
+    ...actual,
+    getTenantDbForWorkspace: async () => conformanceTenantDb(holder.tenant),
+    getMasterDb: () => conformanceMasterDb(holder.master),
+    getWorkspaceForOrg: async (_env: unknown, ref: string) => ({ id: 'ws_test_default', clerkOrgId: ref }),
+  };
 });
 
 import { githubCallbackRoutes } from './public-github-callback';
@@ -71,10 +79,14 @@ afterEach(() => {
 });
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
   holder.tenant = db;
+  holder.master = master;
 }, 60_000);
 
 function callback(query: string, env: Record<string, unknown> = ENV) {
@@ -106,13 +118,24 @@ describe('GET /callback', () => {
 
   it('stores the installation and lands on the workspace’s GitHub settings', async () => {
     stubGithub();
-    await db.delete(schema.githubConnections);
+    await db.delete(schema.mergeConnections);
     const res = await callback(`?installation_id=8101&setup_action=install&state=${await state()}`);
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(`${WORKSPACE_SETTINGS}?installed=1`);
-    const [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.installationId, 8101));
-    expect(row).toMatchObject({ workspaceId: ORG, ownerType: 'org', ownerLogin: 'acme-corp', status: 'active', createdBy: 'user_installer' });
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.externalAccountId, '8101'));
+    expect(row).toMatchObject({
+      provider: 'github',
+      appSlug: 'weldsuite-test',
+      accountType: 'organization',
+      accountLogin: 'acme-corp',
+      status: 'active',
+      createdByUserId: 'user_installer',
+    });
+    expect(row.id).toMatch(/^mcn_/);
     expect(row.webhookSecret).toBeTruthy();
+    expect(await master.select().from(masterSchema.mergeProviderIndex)).toMatchObject([
+      { provider: 'github', kind: 'installation', externalKey: '8101', workspaceId: 'ws_test_default' },
+    ]);
   });
 
   it('goes to returnTo when the state carries one', async () => {
@@ -122,20 +145,31 @@ describe('GET /callback', () => {
   });
 
   it('revokes the workspace’s connection on an uninstall', async () => {
-    await db.delete(schema.githubConnections);
-    await db.insert(schema.githubConnections).values({
+    await db.delete(schema.mergeConnections);
+    await db.insert(schema.mergeConnections).values({
       id: 'ghc_cb_1',
-      workspaceId: ORG,
-      installationId: 8103,
+      provider: 'github',
+      externalAccountId: '8103',
       appSlug: 'weldsuite-test',
-      ownerType: 'org',
-      ownerLogin: 'acme-corp',
+      accountType: 'organization',
+      accountLogin: 'acme-corp',
       status: 'active',
+      createdByUserId: 'user_installer',
+    });
+    await master.delete(masterSchema.mergeProviderIndex);
+    await master.insert(masterSchema.mergeProviderIndex).values({
+      id: 'mpi_cb_1',
+      provider: 'github',
+      kind: 'installation',
+      externalKey: '8103',
+      workspaceId: 'ws_test_default',
     });
     const res = await callback(`?installation_id=8103&setup_action=delete&state=${await state()}`);
     expect(res.headers.get('location')).toBe(`${WORKSPACE_SETTINGS}?disconnected=1`);
-    const [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, 'ghc_cb_1'));
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, 'ghc_cb_1'));
     expect(row.status).toBe('revoked');
+    expect(row.revokedAt).not.toBeNull();
+    expect(await master.select().from(masterSchema.mergeProviderIndex)).toEqual([]);
   });
 
   it('reports a configuration error without the keys, and an internal one when GitHub refuses', async () => {

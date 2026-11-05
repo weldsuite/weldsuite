@@ -19,7 +19,11 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { Link, useParams, useRouter } from '@/lib/router';
 import { IssueComments } from '../../components/issue-comments';
+import { IssueCustomersPanel } from '../../components/issue-customers-panel';
+import { IssueExternalSync } from '../../components/issue-external-sync';
+import { IssueLinksPanel } from '../../components/issue-links-panel';
 import { IssueProperties } from '../../components/issue-properties';
+import { IssueTimePanel } from '../../components/issue-time-panel';
 import {
   ChecksIndicator,
   IssueStatusIcon,
@@ -52,6 +56,7 @@ export default function WeldMergeIssuePage() {
   const canUpdate = useCan('merge_issues:update');
   const canCreate = useCan('merge_issues:create');
   const canDelete = useCan('merge_issues:delete');
+  const canReadTime = useCan('time:read');
 
   const query = useMergeIssue(issueKey);
   const update = useUpdateMergeIssue();
@@ -288,14 +293,26 @@ export default function WeldMergeIssuePage() {
           </SectionCard>
 
           <SectionCard title={ti.comments}>
-            <IssueComments issueId={issue.id} />
+            <IssueComments issueId={issue.id} provider={issue.external?.provider} />
           </SectionCard>
         </div>
 
-        <aside>
+        <aside className="space-y-6">
           <SectionCard title={ti.properties}>
             <IssueProperties issue={issue} canEdit={canUpdate} />
           </SectionCard>
+          <IssueExternalSync issue={issue} />
+          <SectionCard title={tm.across.issue.links.title}>
+            <IssueLinksPanel issue={issue} canEdit={canUpdate} />
+          </SectionCard>
+          <SectionCard title={tm.across.issue.customers.title}>
+            <IssueCustomersPanel issue={issue} />
+          </SectionCard>
+          {canReadTime && (
+            <SectionCard title={tm.across.issue.time.title}>
+              <IssueTimePanel issueId={issue.id} />
+            </SectionCard>
+          )}
         </aside>
       </div>
 

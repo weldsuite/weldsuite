@@ -76,6 +76,19 @@ vi.mock('./chat-context', async (importOriginal) => ({
   }),
 }));
 vi.mock('./clip-recorder', () => ({ ClipRecorder: () => null }));
+vi.mock('./weldmerge-composer', () => ({
+  useWeldMergeComposer: () => ({
+    enabled: false,
+    threadPullRequestId: null,
+    alsoPost: false,
+    setAlsoPost: vi.fn(),
+    runIssueCommand: vi.fn(),
+    runSlashCommand: () => false,
+    commentOnPullRequest: vi.fn(),
+  }),
+  MergeAlsoPostToggle: () => null,
+  MergeSharePicker: () => null,
+}));
 vi.mock('./typing-indicator', () => ({ TypingIndicator: () => null }));
 vi.mock('./emoji-picker', () => ({ EmojiPicker: () => null }));
 vi.mock('@/lib/search/result-types', () => ({ RESULT_TYPE_ICON: {}, RESULT_TYPE_LABEL: {} }));

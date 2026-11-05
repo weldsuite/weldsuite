@@ -24,8 +24,10 @@ import {
 import { signInstallStateJwt, mintAppJwt, fetchInstallationMeta } from '../../services/github/auth';
 import {
   getConnectionByWorkspace,
+  recordInstallation,
   revokeConnection,
-  upsertConnection,
+  toGithubConnection,
+  type GithubConnectionView,
 } from '../../services/github/connections';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
@@ -115,7 +117,7 @@ app.delete(
 
     try {
       const db = c.get('tenantDb');
-      await revokeConnection(db, clerkOrgId);
+      await revokeConnection(c.env, db);
       return new Response(null, { status: 204 });
     } catch (err) {
       console.error('[GitHub] Failed to disconnect:', err);
@@ -223,21 +225,16 @@ app.post(
       const meta = await fetchInstallationMeta(appId, privateKey, installationId);
 
       const db = c.get('tenantDb');
-      const { connection } = await upsertConnection(
-        db,
-        clerkOrgId,
-        {
-          installationId,
-          appSlug: meta.appSlug,
-          ownerType: meta.accountType === 'Organization' ? 'org' : 'user',
-          ownerLogin: meta.accountLogin,
-          status: 'active',
-          createdBy: userId,
-        },
-        encryptionKey,
-      );
+      const { connection } = await recordInstallation(c.env, db, clerkOrgId, {
+        installationId,
+        appSlug: meta.appSlug,
+        accountLogin: meta.accountLogin,
+        accountType: meta.accountType,
+        userId,
+        keyring: encryptionKey,
+      });
 
-      return success(c, formatConnection(connection));
+      return success(c, formatConnection(toGithubConnection(connection, clerkOrgId)));
     } catch (err) {
       console.error('[GitHub] Failed to recover installation:', err);
       return error.internal(c, 'Failed to recover GitHub installation');
@@ -257,18 +254,10 @@ function generateNonce(): string {
 }
 
 /**
- * Serialise a githubConnections row for API responses.
+ * Serialise a connection (`toGithubConnection`) for API responses.
  * Strips the encrypted webhookSecret and ISO-stringifies all Date fields.
  */
-function formatConnection(conn: {
-  webhookSecret?: string | null;
-  installedAt?: Date | null;
-  revokedAt?: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
-  [key: string]: unknown;
-}) {
+function formatConnection(conn: GithubConnectionView) {
   const { webhookSecret: _secret, ...safeConn } = conn;
   return {
     ...safeConn,

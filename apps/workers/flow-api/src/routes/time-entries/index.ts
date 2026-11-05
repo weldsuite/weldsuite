@@ -29,6 +29,9 @@
  *   - POST / PATCH / timer start+stop check the caller can write to the project
  *                       (and task) the hours are logged against.
  *   - /timer/*        — the caller's own running timer; one per user.
+ *   - mergeIssueId    — time logged against a WeldMerge issue: sent on create / update
+ *                       (null detaches), narrows GET / (`?mergeIssueId=`). The issue
+ *                       must exist and the caller must hold `merge_issues:read`.
  *
  * Permissions: time:read | time:create | time:update | time:delete.
  */
@@ -37,7 +40,7 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, getTableColumns, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -61,6 +64,8 @@ const queryBoolean = z.enum(['true', 'false', '1', '0']).transform((v) => v === 
 const listFiltersSchema = z.object({
   projectId: z.string().optional(),
   taskId: z.string().optional(),
+  /** Only time logged against this WeldMerge issue. */
+  mergeIssueId: z.string().optional(),
   userId: z.string().optional(),
   status: z.string().optional(),
   billable: queryBoolean.optional(),
@@ -90,6 +95,8 @@ const createTimeEntrySchema = z
   .object({
     projectId: z.string().optional(),
     taskId: z.string().optional(),
+    /** A WeldMerge issue (id) the time is logged against. */
+    mergeIssueId: z.string().min(1).max(30).optional(),
     date: z.string(),
     // Minutes — accept string (api-worker shape) or number.
     duration: z.union([z.string(), z.number()]),
@@ -106,7 +113,22 @@ const createTimeEntrySchema = z
 /** `taskId: null` detaches the entry from its task (and moves it off a project's task). */
 const updateTimeEntrySchema = createTimeEntrySchema.partial().extend({
   taskId: z.string().nullable().optional(),
+  /** `null` detaches the entry from its WeldMerge issue. */
+  mergeIssueId: z.string().min(1).max(30).nullable().optional(),
 });
+
+/** 404 unless the WeldMerge issue exists and the caller may read issues (so an id cannot be probed without access). */
+async function checkMergeIssue(c: Ctx, mergeIssueId: string | null | undefined): Promise<Response | null> {
+  if (!mergeIssueId) return null;
+  const [issue] = await c
+    .get('tenantDb')
+    .select({ id: schema.mergeIssues.id })
+    .from(schema.mergeIssues)
+    .where(and(eq(schema.mergeIssues.id, mergeIssueId), isNull(schema.mergeIssues.deletedAt)))
+    .limit(1);
+  if (!issue || !(await hasContextPermission(c, 'merge_issues:read'))) return error.notFound(c, 'Merge issue', mergeIssueId);
+  return null;
+}
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -283,6 +305,7 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
   else if (f.userId) conditions.push(eq(t.userId, f.userId));
   if (f.projectId) conditions.push(eq(t.projectId, f.projectId));
   if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
+  if (f.mergeIssueId) conditions.push(eq(t.mergeIssueId, f.mergeIssueId));
   if (f.status) conditions.push(eq(t.status, f.status));
   if (f.billable !== undefined) conditions.push(eq(t.billable, f.billable));
   if (f.fromDate) conditions.push(sql`${t.date} >= ${f.fromDate}`);
@@ -834,11 +857,14 @@ app.post(
 
       const target = await resolveEntryTarget(c, data);
       if (target instanceof Response) return target;
+      const mergeDenied = await checkMergeIssue(c, data.mergeIssueId);
+      if (mergeDenied) return mergeDenied;
 
       await db.insert(t).values({
         id,
         projectId: target.projectId,
         taskId: data.taskId ?? null,
+        mergeIssueId: data.mergeIssueId ?? null,
         userId,
         date: data.date,
         duration: String(data.duration),
@@ -895,6 +921,7 @@ const COPIED_PATCH_FIELDS = [
   'location',
   'isRemote',
   'taskId',
+  'mergeIssueId',
 ] as const;
 
 /** Only the fields the caller sent; recomputes `cost` when rate or duration changes. */
@@ -986,6 +1013,8 @@ app.patch(
       const resolved = await resolvePatchProject(c, data, existing);
       if (resolved instanceof Response) return resolved;
       const resolvedProjectId = resolved.projectId;
+      const mergeDenied = await checkMergeIssue(c, data.mergeIssueId);
+      if (mergeDenied) return mergeDenied;
 
       const violation = await patchDailyLimitViolation(db, data, existing);
       if (violation) return error.badRequest(c, violation);

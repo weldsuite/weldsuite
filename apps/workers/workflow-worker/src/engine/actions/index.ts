@@ -27,6 +27,7 @@ import {
 } from './crm';
 import { handlePostChatMessage } from './chat';
 import { handleCreateTask } from './task';
+import { handleMergeCommentOnIssue, handleMergeCreateIssue, handleMergeUpdateIssue } from './merge';
 import { handleHttpRequest, handleWebhook } from './http';
 import { handleSetVariable, handleLog, handleCondition, handleLoop, handleDelay } from './control';
 import { handleAiGenerate, handleAiClassify } from './ai';
@@ -81,6 +82,10 @@ export const actionHandlers: Record<string, ActionHandler> = {
   post_chat_message: handlePostChatMessage,
   // WeldFlow
   create_task: handleCreateTask,
+  // WeldMerge
+  'merge.create_issue': handleMergeCreateIssue,
+  'merge.update_issue': handleMergeUpdateIssue,
+  'merge.comment_on_issue': handleMergeCommentOnIssue,
   // Integration / HTTP
   http_request: handleHttpRequest,
   webhook: handleWebhook,

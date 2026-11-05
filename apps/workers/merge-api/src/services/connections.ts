@@ -1,15 +1,13 @@
 /**
- * Git-provider connections (ADR MERGE-002). For GitHub a connection adopts the
- * workspace's existing GitHub App installation (`github_connections`, written by
- * connect-api's install flow); there is no second consent and nothing secret is
- * stored: installation tokens are minted per call.
+ * Git-provider connections (ADR MERGE-002). A GitHub connection is the
+ * workspace's GitHub App installation, recorded by the install flow (merge-api's
+ * setup route or connect-api's callback, both through
+ * `@weldsuite/merge-domain/installations`); nothing secret is stored for the
+ * App itself: installation tokens are minted per call.
  */
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { generateId } from '@weldsuite/worker-kit/id';
-import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import {
-  githubConnections,
   mergeConnections,
   mergeRepositories,
   type Db,
@@ -60,69 +58,28 @@ export async function repositoryCount(db: Db, connectionId: string): Promise<num
 
 export type ConnectGithubResult =
   | { status: 'needs_install' }
-  | { status: 'connected'; connection: MergeConnectionRow; created: boolean };
+  | { status: 'connected'; connection: MergeConnectionRow };
 
-/** Adopts the workspace's active GitHub App installation; idempotent. */
-export async function connectGithub(db: Db, userId: string): Promise<ConnectGithubResult> {
-  const [installation] = await db
+/**
+ * The workspace's live GitHub connection, newest active first: the answer of
+ * `POST /connections/github`. Installing the App goes through the install
+ * flow (`@weldsuite/merge-domain/installations`), which writes the row; with
+ * none (or only revoked or suspended ones) the member has to install first.
+ */
+export async function connectGithub(db: Db): Promise<ConnectGithubResult> {
+  const [connection] = await db
     .select()
-    .from(githubConnections)
-    .where(and(eq(githubConnections.status, 'active'), isNull(githubConnections.deletedAt)))
-    .orderBy(desc(githubConnections.createdAt), desc(githubConnections.id))
+    .from(mergeConnections)
+    .where(
+      and(
+        eq(mergeConnections.provider, 'github'),
+        eq(mergeConnections.status, 'active'),
+        isNull(mergeConnections.deletedAt),
+      ),
+    )
+    .orderBy(desc(mergeConnections.createdAt), desc(mergeConnections.id))
     .limit(1);
-  if (!installation) return { status: 'needs_install' };
-
-  const externalAccountId = String(installation.installationId);
-  const find = async () => {
-    const [row] = await db
-      .select()
-      .from(mergeConnections)
-      .where(
-        and(
-          eq(mergeConnections.provider, 'github'),
-          eq(mergeConnections.externalAccountId, externalAccountId),
-          isNull(mergeConnections.deletedAt),
-        ),
-      )
-      .limit(1);
-    return row ?? null;
-  };
-
-  const existing = await find();
-  if (existing) {
-    if (existing.status === 'active') return { status: 'connected', connection: existing, created: false };
-    const [revived] = await db
-      .update(mergeConnections)
-      .set({ status: 'active', updatedAt: new Date() })
-      .where(eq(mergeConnections.id, existing.id))
-      .returning();
-    return { status: 'connected', connection: revived!, created: false };
-  }
-
-  const now = new Date();
-  try {
-    const [row] = await db
-      .insert(mergeConnections)
-      .values({
-        id: generateId('mcn'),
-        provider: 'github',
-        externalAccountId,
-        accountLogin: installation.ownerLogin,
-        accountType: installation.ownerType === 'org' ? 'organization' : 'user',
-        status: 'active',
-        createdByUserId: userId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return { status: 'connected', connection: row!, created: true };
-  } catch (err) {
-    // Two members connected at once: the other insert won.
-    if (!isUniqueViolation(err)) throw err;
-    const winner = await find();
-    if (!winner) throw err;
-    return { status: 'connected', connection: winner, created: false };
-  }
+  return connection ? { status: 'connected', connection } : { status: 'needs_install' };
 }
 
 /** Soft-deletes the connection and its repositories. Never uninstalls the GitHub App. */

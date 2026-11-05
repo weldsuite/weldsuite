@@ -1,9 +1,15 @@
 /**
- * Azure DevOps provider (phase 3, area B). Fill in `connection` (client.ts, connection.ts,
- * webhooks.ts), `oauth` (oauth.ts); `review` comes with
- * phase 4 (review.ts). Until then the registry reports the provider as unsupported.
+ * Azure DevOps provider: connection (connection.ts, webhooks.ts), OAuth through
+ * Entra ID (oauth.ts) and review (review.ts). Azure DevOps has no issue sync.
  */
 
 import type { ProviderModule } from '../types';
+import { azureConnection } from './connection';
+import { azureOAuth } from './oauth';
+import { azureDevopsReview } from './review';
 
-export const azureDevopsProvider: ProviderModule = {};
+export const azureDevopsProvider: ProviderModule = {
+  connection: azureConnection,
+  oauth: azureOAuth,
+  review: azureDevopsReview,
+};

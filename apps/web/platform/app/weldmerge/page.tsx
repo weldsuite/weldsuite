@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ExternalLink, GitPullRequest, Inbox as InboxIcon } from 'lucide-react';
+import { CheckCheck, ExternalLink, GitPullRequest, Inbox as InboxIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
@@ -7,16 +8,21 @@ import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { ListDetailLayout } from '@weldsuite/ui/components/list-detail-layout';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { cn } from '@weldsuite/ui/lib/utils';
 import type { MergeInboxItem } from '@weldsuite/app-api-client/schemas/weldmerge';
+import type { UpdateMergeInboxItemInput } from '@weldsuite/app-api-client/schemas/weldmerge-sync';
+import { useMergeConnections, useMyMergeAccounts } from '@/hooks/queries/use-weldmerge-queries';
 import {
-  useMergeConnections,
-  useMergeInbox,
-  useMyMergeAccounts,
-} from '@/hooks/queries/use-weldmerge-queries';
+  useMarkAllMergeInboxRead,
+  useMergeInboxView,
+  useUpdateMergeInboxItem,
+  type MergeInboxView,
+} from '@/hooks/queries/use-weldmerge-sync-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { GithubUsernameForm } from './components/github-username-form';
+import { InboxItemMenu } from './components/inbox-item-menu';
 import {
   ChecksIndicator,
   IssueStatusIcon,
@@ -51,16 +57,39 @@ export default function WeldMergeInboxPage() {
   const { t, language } = useI18n();
   const tm = t.weldmerge;
   const canReadConnections = useCan('merge_connections:read');
-  const inbox = useMergeInbox();
+  const [view, setView] = useState<MergeInboxView>('active');
+  const inbox = useMergeInboxView(view);
+  const updateItem = useUpdateMergeInboxItem();
+  const readAll = useMarkAllMergeInboxRead();
   const connections = useMergeConnections(canReadConnections);
   const accounts = useMyMergeAccounts();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const items = useMemo(() => inbox.data ?? [], [inbox.data]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const unreadCount = items.filter((item) => !item.read).length;
 
-  if (inbox.isLoading) return <PageLoader fullScreen={false} />;
-  if (inbox.isError) {
+  const change = (item: MergeInboxItem, input: UpdateMergeInboxItemInput) =>
+    updateItem.mutate({ itemKey: item.id, input }, { onError: () => toast.error(tm.sync.inbox.updateFailed) });
+
+  // Opening an item reads it.
+  const open = (item: MergeInboxItem) => {
+    setSelectedId(item.id);
+    if (!item.read) change(item, { read: true });
+  };
+
+  const markAllRead = async () => {
+    try {
+      const result = await readAll.mutateAsync();
+      toast.success(fill(tm.sync.inbox.markedAllRead, { count: result.updated }));
+    } catch {
+      toast.error(tm.sync.inbox.readAllFailed);
+    }
+  };
+
+  // The inbox itself fills the page; the snoozed and archived views load inside it, under the filter.
+  if (inbox.isLoading && view === 'active') return <PageLoader fullScreen={false} />;
+  if (inbox.isError && view === 'active') {
     return <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void inbox.refetch()} />;
   }
 
@@ -69,9 +98,31 @@ export default function WeldMergeInboxPage() {
 
   const header = (
     <div className="space-y-3 border-b px-4 py-3">
-      <div>
-        <h1 className="text-lg font-semibold">{tm.inbox.title}</h1>
-        <p className="text-sm text-muted-foreground">{tm.inbox.description}</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-semibold">{tm.inbox.title}</h1>
+          <p className="text-sm text-muted-foreground">{tm.inbox.description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={view} onValueChange={(value) => setView(value as MergeInboxView)}>
+            <SelectTrigger size="sm" className="w-[8.5rem]" aria-label={tm.sync.inbox.filterLabel}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(['active', 'snoozed', 'archived'] as const).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {tm.sync.inbox.filters[option]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {view === 'active' && (
+            <Button size="sm" variant="outline" disabled={unreadCount === 0 || readAll.isPending} onClick={() => void markAllRead()}>
+              <CheckCheck />
+              {tm.sync.inbox.markAllRead}
+            </Button>
+          )}
+        </div>
       </div>
       {needsUsername && (
         <InfoBanner variant="tip" title={tm.inbox.usernameTitle}>
@@ -82,7 +133,7 @@ export default function WeldMergeInboxPage() {
     </div>
   );
 
-  if (noConnection && items.length === 0) {
+  if (noConnection && items.length === 0 && view === 'active') {
     return (
       <div className="flex h-full flex-col">
         {header}
@@ -102,44 +153,63 @@ export default function WeldMergeInboxPage() {
     );
   }
 
+  const emptyTitles: Record<MergeInboxView, string> = {
+    active: tm.inbox.emptyTitle,
+    snoozed: tm.sync.inbox.emptySnoozed,
+    archived: tm.sync.inbox.emptyArchived,
+  };
+  const emptyTitle = emptyTitles[view];
+
   const list = (
     <div className="flex h-full flex-col">
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {items.length === 0 ? (
+        {inbox.isLoading && <PageLoader fullScreen={false} className="min-h-40" />}
+        {inbox.isError && (
+          <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void inbox.refetch()} className="m-4" />
+        )}
+        {inbox.isSuccess && items.length === 0 && (
           <div className="p-4">
-            <EmptyState icon={InboxIcon} title={tm.inbox.emptyTitle} description={tm.inbox.emptyDescription} />
+            <EmptyState icon={InboxIcon} title={emptyTitle} description={view === 'active' ? tm.inbox.emptyDescription : undefined} />
           </div>
-        ) : (
+        )}
+        {items.length > 0 && (
           <ul>
             {items.map((item) => (
-              <li key={item.id}>
+              <li key={item.id} className={cn('flex items-start border-b', item.id === selectedId && 'bg-muted')}>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => open(item)}
                   aria-current={item.id === selectedId}
-                  className={cn(
-                    'flex w-full items-start gap-3 border-b px-4 py-3 text-left hover:bg-muted/50',
-                    item.id === selectedId && 'bg-muted',
-                  )}
+                  className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left hover:bg-muted/50"
                 >
                   <span className="mt-0.5">
                     <InboxItemIcon item={item} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{itemTitle(item)}</span>
+                    <span className={cn('block truncate text-sm', item.read ? 'text-muted-foreground' : 'font-semibold')}>
+                      {itemTitle(item)}
+                    </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {tm.inbox.kinds[item.kind]}
                       {' · '}
                       {item.pullRequest
                         ? `${item.pullRequest.repositoryFullName} #${item.pullRequest.number}`
                         : item.issue?.key}
+                      {item.snoozedUntil &&
+                        ` · ${fill(tm.sync.inbox.snoozedUntil, { date: new Date(item.snoozedUntil).toLocaleDateString(language) })}`}
                     </span>
                   </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                    {!item.read && (
+                      <span className="size-2 rounded-full bg-primary" role="img" aria-label={tm.sync.inbox.unread} />
+                    )}
                     {relativeTime(item.at, language, tm.justNow)}
                   </span>
                 </button>
+                <span className="px-2 py-2.5">
+                  <InboxItemMenu item={item} view={view} onChange={change} />
+                </span>
               </li>
             ))}
           </ul>

@@ -1,5 +1,5 @@
 /**
- * `POST /webhooks/github` forwards the pull request events to WeldMerge
+ * `POST /webhooks/github` forwards the pull request, issue and installation events to WeldMerge
  * (MERGE_INTERNAL, merge-api's MergeInternal entrypoint) after the App's HMAC
  * and the workspace lookup, and never lets that change the answer. TypeScript
  * only: the Rust server's own GitHub webhook calls WeldMerge in process
@@ -38,16 +38,17 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
-  await tenantDb.delete(schema.githubConnections);
+  await tenantDb.delete(schema.mergeConnections);
   const now = new Date('2026-10-01T09:00:00.000Z');
-  await tenantDb.insert(schema.githubConnections).values({
-    id: 'ghc_1',
-    workspaceId: ORG,
-    installationId: INSTALLATION,
+  await tenantDb.insert(schema.mergeConnections).values({
+    id: 'mcn_1',
+    provider: 'github',
+    externalAccountId: String(INSTALLATION),
     appSlug: 'weldsuite',
-    ownerType: 'org',
-    ownerLogin: 'acme',
+    accountType: 'organization',
+    accountLogin: 'acme',
     status: 'active',
+    createdByUserId: 'user_installer',
     createdAt: now,
     updatedAt: now,
   });
@@ -91,7 +92,15 @@ function deliver(event: string, payload: Record<string, unknown>, options: { mer
 const binding = () => ({ githubEvent: vi.fn(async () => ({ outcome: 'applied' })) });
 
 describe('forward to WeldMerge', () => {
-  it.each(['pull_request', 'pull_request_review', 'check_suite', 'installation_repositories'])(
+  it.each([
+    'pull_request',
+    'pull_request_review',
+    'check_suite',
+    'installation_repositories',
+    'issues',
+    'issue_comment',
+    'installation',
+  ])(
     'forwards %s with the workspace, the delivery id and the verified body',
     async (event) => {
       const merge = binding();
@@ -109,7 +118,7 @@ describe('forward to WeldMerge', () => {
     },
   );
 
-  it.each(['issues', 'projects_v2_item', 'installation', 'push', 'ping'])('does not forward %s', async (event) => {
+  it.each(['projects_v2_item', 'projects_v2', 'push', 'ping'])('does not forward %s', async (event) => {
     const merge = binding();
     const res = await deliver(event, { action: 'created' }, { merge });
     expect(res.status).toBe(202);
@@ -124,7 +133,7 @@ describe('forward to WeldMerge', () => {
   });
 
   it('does not forward for an installation no workspace has a connection for', async () => {
-    await tenantDb.delete(schema.githubConnections);
+    await tenantDb.delete(schema.mergeConnections);
     const merge = binding();
     const res = await deliver('pull_request', { action: 'opened' }, { merge });
     expect(res.status).toBe(202);
@@ -148,12 +157,12 @@ describe('forward to WeldMerge', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('MERGE_INTERNAL binding missing'));
   });
 
-  it('leaves the WeldFlow handling alone: an installation event still updates the connection', async () => {
+  it('leaves the connection handling alone: an installation event still updates the connection, and WeldMerge hears of it', async () => {
     const merge = binding();
     expect((await deliver('installation', { action: 'suspend' }, { merge })).status).toBe(202);
-    const [row] = await tenantDb.select().from(schema.githubConnections);
+    const [row] = await tenantDb.select().from(schema.mergeConnections);
     expect(row!.status).toBe('suspended');
-    expect(merge.githubEvent).not.toHaveBeenCalled();
+    expect(merge.githubEvent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -168,8 +177,9 @@ describe('forwardToMerge', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('knows the four forwarded events', () => {
-    expect(['pull_request', 'pull_request_review', 'check_suite', 'installation_repositories'].every(isForwardedToMerge)).toBe(true);
-    expect(isForwardedToMerge('issues')).toBe(false);
+  it('knows the seven forwarded events', () => {
+    const forwarded = ['pull_request', 'pull_request_review', 'check_suite', 'installation_repositories', 'issues', 'issue_comment', 'installation'];
+    expect(forwarded.every(isForwardedToMerge)).toBe(true);
+    expect(['projects_v2_item', 'push', 'ping'].some(isForwardedToMerge)).toBe(false);
   });
 });

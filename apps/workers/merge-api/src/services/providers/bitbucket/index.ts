@@ -1,9 +1,15 @@
 /**
- * Bitbucket Cloud provider (phase 3, area B). Fill in `connection` (client.ts, connection.ts,
- * webhooks.ts), `oauth` (oauth.ts); `review` comes with
- * phase 4 (review.ts). Until then the registry reports the provider as unsupported.
+ * Bitbucket Cloud provider: connection (connection.ts, webhooks.ts), OAuth
+ * (oauth.ts) and review (review.ts). Bitbucket has no issue sync.
  */
 
 import type { ProviderModule } from '../types';
+import { bitbucketConnection } from './connection';
+import { bitbucketOAuth } from './oauth';
+import { bitbucketReview } from './review';
 
-export const bitbucketProvider: ProviderModule = {};
+export const bitbucketProvider: ProviderModule = {
+  connection: bitbucketConnection,
+  oauth: bitbucketOAuth,
+  review: bitbucketReview,
+};

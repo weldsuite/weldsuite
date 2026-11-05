@@ -2,7 +2,8 @@
  * `/api/workflow-github` on pglite, through the test app (so the conformance
  * harness runs it against both backends): the install link and its signed
  * state, the workspace's connection (read, revoke, recover from a known
- * installation, the installations the App can see), the repositories the
+ * installation, the installations the App can see; a WeldMerge connection,
+ * `merge_connections`, with the installation also in the master index), the repositories the
  * installation reaches and the ones linked to WeldFlow, and GitHub Projects
  * (available ones, a Project's Status field).
  *
@@ -14,10 +15,23 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { workflowGithubRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import * as masterSchema from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+
+// The installation index lives in the master database; the workspace resolves to the harness's default one.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return {
+    ...actual,
+    getMasterDb: () => conformanceMasterDb(holder.master),
+    getWorkspaceForOrg: async (_env: unknown, ref: string) => ({ id: 'ws_test_default', clerkOrgId: ref }),
+  };
+});
+
+import { workflowGithubRoutes } from './index';
 import { verifyInstallStateJwt } from '../../services/github/auth';
 import type { Env, Variables } from '../../types';
 
@@ -66,8 +80,13 @@ afterEach(() => {
 
 let db: Database;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
 }, 60_000);
 
 function app(env: Record<string, unknown> = ENV, granted = permissions('integrations:github:manage')) {
@@ -79,17 +98,29 @@ function app(env: Record<string, unknown> = ENV, granted = permissions('integrat
 
 let seq = 0;
 
-async function seedConnection(over: Partial<typeof schema.githubConnections.$inferInsert> = {}) {
+/** A WeldMerge GitHub connection, described with the fields these routes answer. */
+async function seedConnection(
+  over: {
+    installationId?: number;
+    ownerType?: 'org' | 'user';
+    ownerLogin?: string;
+    webhookSecret?: string;
+    scopes?: string[];
+    status?: 'active' | 'suspended' | 'revoked';
+  } = {},
+) {
   const id = `ghc_wg_${++seq}`;
-  await db.insert(schema.githubConnections).values({
+  await db.insert(schema.mergeConnections).values({
     id,
-    workspaceId: ORG,
-    installationId: 900_000 + seq,
+    provider: 'github',
+    externalAccountId: String(over.installationId ?? 900_000 + seq),
     appSlug: 'weldsuite-test',
-    ownerType: 'org',
-    ownerLogin: 'acme-corp',
-    status: 'active',
-    ...over,
+    accountType: over.ownerType === 'user' ? 'user' : 'organization',
+    accountLogin: over.ownerLogin ?? 'acme-corp',
+    webhookSecret: over.webhookSecret,
+    scopes: over.scopes,
+    status: over.status ?? 'active',
+    createdByUserId: 'user_seed',
   });
   return id;
 }
@@ -97,7 +128,8 @@ async function seedConnection(over: Partial<typeof schema.githubConnections.$inf
 async function clearConnections() {
   await db.delete(schema.githubRepoLinks);
   await db.delete(schema.githubProjectLinks);
-  await db.delete(schema.githubConnections);
+  await db.delete(schema.mergeConnections);
+  await master.delete(masterSchema.mergeProviderIndex);
 }
 
 describe('GET /install-url', () => {
@@ -145,7 +177,7 @@ describe('the connection', () => {
 
     res = await app()(`${BASE}/connection`, { method: 'DELETE' });
     expect(res.status).toBe(204);
-    const [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.id, id));
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, id));
     expect(row.status).toBe('revoked');
     expect(row.revokedAt).not.toBeNull();
   });
@@ -201,14 +233,19 @@ describe('POST /recover', () => {
     const { data } = (await res.json()) as { data: Record<string, unknown> };
     expect(data).toMatchObject({ installationId: 4242, ownerType: 'org', ownerLogin: 'acme-corp', status: 'active', workspaceId: ORG });
     expect(data).not.toHaveProperty('webhookSecret');
-    const [row] = await db.select().from(schema.githubConnections).where(eq(schema.githubConnections.installationId, 4242));
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.externalAccountId, '4242'));
+    expect(row).toMatchObject({ provider: 'github', appSlug: 'weldsuite-test', accountType: 'organization', createdByUserId: 'user_test_default' });
+    expect(row.id).toMatch(/^mcn_/);
     expect(row.webhookSecret).toBeTruthy();
-    expect(row.createdBy).toBe('user_test_default');
+    // The installation is also in the master index, for the webhook receiver.
+    expect(await master.select().from(masterSchema.mergeProviderIndex)).toMatchObject([
+      { provider: 'github', kind: 'installation', externalKey: '4242', workspaceId: 'ws_test_default' },
+    ]);
   });
 
-  it('re-points an existing installation at this workspace', async () => {
+  it('revives an existing installation, keeping its connection', async () => {
     await clearConnections();
-    const id = await seedConnection({ installationId: 4343, workspaceId: 'org_elsewhere', status: 'revoked' });
+    const id = await seedConnection({ installationId: 4343, status: 'revoked', ownerLogin: 'old-name' });
     stubGithub((url) => (url === 'https://api.github.com/app/installations/4343' ? installation(4343, 'jane', 'User') : json({}, 404)));
     const res = await app()(`${BASE}/recover`, {
       method: 'POST',
@@ -218,6 +255,7 @@ describe('POST /recover', () => {
     expect(res.status).toBe(200);
     const { data } = (await res.json()) as { data: Record<string, unknown> };
     expect(data).toMatchObject({ id, workspaceId: ORG, ownerType: 'user', ownerLogin: 'jane', status: 'active', revokedAt: null });
+    expect(await db.select().from(schema.mergeConnections)).toHaveLength(1);
   });
 
   it('refuses an installation id that is not a positive integer', async () => {

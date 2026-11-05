@@ -60,6 +60,8 @@ export interface SendMessageRequest {
     transcript?: { status: 'pending' | 'processing' | 'completed' | 'failed' };
   }>;
   mentions?: string[];
+  /** Structured data a client attaches to a message, e.g. `{ weldmerge: { kind, issueId } }` for a card shared with /merge. */
+  metadata?: Record<string, unknown>;
   /**
    * Discord-style inline reply: the message this one answers. Unlike
    * `parentId` it doesn't open a thread — the reply stays where it was written
