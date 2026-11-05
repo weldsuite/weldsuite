@@ -93,18 +93,28 @@ export async function createTeam(db: Db, input: CreateMergeTeamInput, userId: st
   }
 }
 
+/** A key change is refused once issues carry the key, or when another team has it; an unchanged key needs no write. */
+async function resolveKeyChange(
+  db: Db,
+  existing: MergeTeamRow,
+  rawKey: string,
+): Promise<{ key: string | null } | { reason: 'key_locked' | 'key_taken' }> {
+  const key = rawKey.trim().toUpperCase();
+  if (key === existing.key) return { key: null };
+  if (existing.issueCounter > 0) return { reason: 'key_locked' };
+  if (await keyTaken(db, key, existing.id)) return { reason: 'key_taken' };
+  return { key };
+}
+
 export async function updateTeam(db: Db, id: string, input: UpdateMergeTeamInput): Promise<TeamWriteResult> {
   const existing = await findTeam(db, id);
   if (!existing) return { ok: false, reason: 'not_found' };
 
   const patch: Partial<typeof mergeTeams.$inferInsert> = { updatedAt: new Date() };
   if (input.key !== undefined) {
-    const key = input.key.trim().toUpperCase();
-    if (key !== existing.key) {
-      if (existing.issueCounter > 0) return { ok: false, reason: 'key_locked' };
-      if (await keyTaken(db, key, id)) return { ok: false, reason: 'key_taken' };
-      patch.key = key;
-    }
+    const change = await resolveKeyChange(db, existing, input.key);
+    if ('reason' in change) return { ok: false, reason: change.reason };
+    if (change.key !== null) patch.key = change.key;
   }
   if (input.name !== undefined) patch.name = input.name.trim();
   if (input.description !== undefined) patch.description = input.description;

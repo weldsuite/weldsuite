@@ -12,6 +12,7 @@ import {
   Loader2,
   Minus,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -44,13 +45,15 @@ export function IssueStatusIcon({ status, className }: Readonly<{ status: MergeI
   return <Icon className={cn('size-4 shrink-0', tone, className)} aria-label={t.weldmerge.status[status]} role="img" />;
 }
 
+const PRIORITY_BARS: Partial<Record<MergeIssuePriority, number>> = { 2: 3, 3: 2 };
+
 /** Three bars filled by priority (urgent shows an alert), or a dash for none. */
 export function PriorityBars({ priority, className }: Readonly<{ priority: MergeIssuePriority; className?: string }>) {
   const { t } = useI18n();
   const label = t.weldmerge.priority[priority];
   if (priority === 0) return <Minus className={cn('size-4 shrink-0 text-muted-foreground', className)} aria-label={label} role="img" />;
   if (priority === 1) return <AlertTriangle className={cn('size-4 shrink-0 text-orange-500', className)} aria-label={label} role="img" />;
-  const filled = priority === 2 ? 3 : priority === 3 ? 2 : 1;
+  const filled = PRIORITY_BARS[priority] ?? 1;
   return (
     <span className={cn('inline-flex h-4 shrink-0 items-end gap-0.5', className)} role="img" aria-label={label}>
       {[1, 2, 3].map((bar) => (
@@ -83,16 +86,29 @@ export function PullRequestStateIcon({
   return <GitPullRequest className={cn('size-4 shrink-0 text-emerald-600', className)} aria-label={t.weldmerge.prState.open} role="img" />;
 }
 
+const PR_STATE_TONE: Record<MergePullRequestState, 'success' | 'danger' | 'neutral'> = {
+  open: 'success',
+  closed: 'danger',
+  merged: 'neutral',
+};
+
 export function PullRequestStateBadge({ state, draft }: Readonly<{ state: MergePullRequestState; draft?: boolean }>) {
   const { t } = useI18n();
   if (state === 'open' && draft) return <SoftBadge tone="neutral">{t.weldmerge.prState.draft}</SoftBadge>;
-  const tone = state === 'open' ? 'success' : state === 'closed' ? 'danger' : 'neutral';
+  const tone = PR_STATE_TONE[state];
   return (
     <SoftBadge tone={tone} className={state === 'merged' ? 'border-transparent bg-violet-500/10 text-violet-600 dark:text-violet-400' : undefined}>
       {t.weldmerge.prState[state]}
     </SoftBadge>
   );
 }
+
+const CHECKS_ICON: Record<MergeChecksStatus | 'neutral', ReactNode> = {
+  success: <CircleCheck className="size-4 text-emerald-600" />,
+  failure: <CircleX className="size-4 text-red-500" />,
+  pending: <Loader2 className="size-4 animate-spin text-amber-500" />,
+  neutral: <Minus className="size-4 text-muted-foreground" />,
+};
 
 /** Whether the checks of a pull request passed, as an icon with the status in its label. */
 export function ChecksIndicator({
@@ -102,16 +118,7 @@ export function ChecksIndicator({
   const { t } = useI18n();
   const key = status ?? 'neutral';
   const label = t.weldmerge.checks[key];
-  const icon =
-    key === 'success' ? (
-      <CircleCheck className="size-4 text-emerald-600" />
-    ) : key === 'failure' ? (
-      <CircleX className="size-4 text-red-500" />
-    ) : key === 'pending' ? (
-      <Loader2 className="size-4 animate-spin text-amber-500" />
-    ) : (
-      <Minus className="size-4 text-muted-foreground" />
-    );
+  const icon = CHECKS_ICON[key];
   return (
     <span className="inline-flex items-center gap-1.5" role="img" aria-label={label} title={label}>
       {icon}
@@ -120,10 +127,16 @@ export function ChecksIndicator({
   );
 }
 
+const REVIEW_TONE: Record<MergeReviewDecision, 'success' | 'danger' | 'warning'> = {
+  approved: 'success',
+  changes_requested: 'danger',
+  review_required: 'warning',
+};
+
 export function ReviewDecisionBadge({ decision }: Readonly<{ decision: MergeReviewDecision | null }>) {
   const { t } = useI18n();
   if (!decision) return <span className="text-sm text-muted-foreground">{t.weldmerge.none}</span>;
-  const tone = decision === 'approved' ? 'success' : decision === 'changes_requested' ? 'danger' : 'warning';
+  const tone = REVIEW_TONE[decision];
   return <SoftBadge tone={tone}>{t.weldmerge.review[decision]}</SoftBadge>;
 }
 

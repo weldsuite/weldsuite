@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pencil, Plus, Repeat, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -41,7 +41,7 @@ export default function WeldMergeCyclesPage() {
   const today = todayIso();
 
   const sorted = useMemo(
-    () => [...(cycles.data ?? [])].sort((a, b) => (a.startsAt < b.startsAt ? 1 : a.startsAt > b.startsAt ? -1 : 0)),
+    () => [...(cycles.data ?? [])].sort((a, b) => b.startsAt.localeCompare(a.startsAt)),
     [cycles.data],
   );
 
@@ -75,6 +75,77 @@ export default function WeldMergeCyclesPage() {
     }
   };
 
+  let content: ReactNode;
+  if (cycles.isLoading) {
+    content = <PageLoader fullScreen={false} />;
+  } else if (cycles.isError) {
+    content = <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void cycles.refetch()} />;
+  } else if (sorted.length === 0) {
+    content = (
+      <EmptyState
+        icon={Repeat}
+        title={tc.emptyTitle}
+        description={tc.emptyDescription}
+        action={
+          canManage ? (
+            <Button onClick={() => setCreating(true)}>
+              <Plus />
+              {tc.newCycle}
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  } else {
+    content = (
+      <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {sorted.map((cycle) => {
+          const state = cycleState(cycle.startsAt, cycle.endsAt, today);
+          const percent = cycle.issueCount === 0 ? 0 : Math.round((cycle.completedIssueCount / cycle.issueCount) * 100);
+          const team = teamById.get(cycle.teamId);
+          return (
+            <li key={cycle.id}>
+              <SectionCard
+                title={
+                  <span className="flex flex-wrap items-center gap-2">
+                    {cycle.name?.trim() || fill(tc.cycleName, { number: cycle.number })}
+                    <Badge variant={state === 'current' ? 'default' : 'secondary'}>{tc.state[state]}</Badge>
+                  </span>
+                }
+                action={
+                  canManage ? (
+                    <span className="flex">
+                      <Button variant="ghost" size="icon" className="size-8" aria-label={t.common.actions.edit} onClick={() => setEditing(cycle)}>
+                        <Pencil />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="size-8" aria-label={t.common.actions.delete} onClick={() => setDeleting(cycle)}>
+                        <Trash2 />
+                      </Button>
+                    </span>
+                  ) : undefined
+                }
+              >
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    {team ? `${team.name} · ` : ''}
+                    {formatDateRange(cycle.startsAt, cycle.endsAt, language)}
+                  </p>
+                  <Progress value={percent} aria-label={tc.progress} />
+                  <p className="text-sm">
+                    {cycle.issueCount === 0
+                      ? tc.noIssues
+                      : fill(tc.progress, { done: cycle.completedIssueCount, total: cycle.issueCount })}
+                    {cycle.issueCount > 0 && <span className="text-muted-foreground"> · {percent}%</span>}
+                  </p>
+                </div>
+              </SectionCard>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -100,71 +171,7 @@ export default function WeldMergeCyclesPage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {cycles.isLoading ? (
-          <PageLoader fullScreen={false} />
-        ) : cycles.isError ? (
-          <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void cycles.refetch()} />
-        ) : sorted.length === 0 ? (
-          <EmptyState
-            icon={Repeat}
-            title={tc.emptyTitle}
-            description={tc.emptyDescription}
-            action={
-              canManage ? (
-                <Button onClick={() => setCreating(true)}>
-                  <Plus />
-                  {tc.newCycle}
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {sorted.map((cycle) => {
-              const state = cycleState(cycle.startsAt, cycle.endsAt, today);
-              const percent = cycle.issueCount === 0 ? 0 : Math.round((cycle.completedIssueCount / cycle.issueCount) * 100);
-              const team = teamById.get(cycle.teamId);
-              return (
-                <li key={cycle.id}>
-                  <SectionCard
-                    title={
-                      <span className="flex flex-wrap items-center gap-2">
-                        {cycle.name?.trim() || fill(tc.cycleName, { number: cycle.number })}
-                        <Badge variant={state === 'current' ? 'default' : 'secondary'}>{tc.state[state]}</Badge>
-                      </span>
-                    }
-                    action={
-                      canManage ? (
-                        <span className="flex">
-                          <Button variant="ghost" size="icon" className="size-8" aria-label={t.common.actions.edit} onClick={() => setEditing(cycle)}>
-                            <Pencil />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="size-8" aria-label={t.common.actions.delete} onClick={() => setDeleting(cycle)}>
-                            <Trash2 />
-                          </Button>
-                        </span>
-                      ) : undefined
-                    }
-                  >
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground">
-                        {team ? `${team.name} · ` : ''}
-                        {formatDateRange(cycle.startsAt, cycle.endsAt, language)}
-                      </p>
-                      <Progress value={percent} aria-label={tc.progress} />
-                      <p className="text-sm">
-                        {cycle.issueCount === 0
-                          ? tc.noIssues
-                          : fill(tc.progress, { done: cycle.completedIssueCount, total: cycle.issueCount })}
-                        {cycle.issueCount > 0 && <span className="text-muted-foreground"> · {percent}%</span>}
-                      </p>
-                    </div>
-                  </SectionCard>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {content}
       </div>
 
       <CycleFormDialog open={creating} onOpenChange={setCreating} teams={teams.data ?? []} defaultTeamId={teamId} />

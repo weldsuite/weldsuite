@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -151,31 +151,38 @@ export function IssueComments({ issueId }: Readonly<{ issueId: string }>) {
 
   const sorted = [...(comments.data ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
+  let content: ReactNode;
+  if (comments.isLoading) {
+    content = <InlineSpinner />;
+  } else if (comments.isError) {
+    content = (
+      <ErrorState message={t.weldmerge.loadFailed} retryLabel={t.weldmerge.retry} onRetry={() => void comments.refetch()} />
+    );
+  } else if (sorted.length === 0) {
+    content = <p className="text-sm text-muted-foreground">{ti.noComments}</p>;
+  } else {
+    content = (
+      <ul className="space-y-4">
+        {sorted.map((comment) => {
+          const own = comment.authorUserId === currentUserId;
+          return (
+            <CommentRow
+              key={comment.id}
+              comment={comment}
+              canEdit={own && canWrite}
+              canDelete={own ? canWrite : canDeleteAny}
+              onEdit={edit}
+              onDelete={setDeleting}
+            />
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {comments.isLoading ? (
-        <InlineSpinner />
-      ) : comments.isError ? (
-        <ErrorState message={t.weldmerge.loadFailed} retryLabel={t.weldmerge.retry} onRetry={() => void comments.refetch()} />
-      ) : sorted.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{ti.noComments}</p>
-      ) : (
-        <ul className="space-y-4">
-          {sorted.map((comment) => {
-            const own = comment.authorUserId === currentUserId;
-            return (
-              <CommentRow
-                key={comment.id}
-                comment={comment}
-                canEdit={own && canWrite}
-                canDelete={own ? canWrite : canDeleteAny}
-                onEdit={edit}
-                onDelete={setDeleting}
-              />
-            );
-          })}
-        </ul>
-      )}
+      {content}
 
       {canWrite && (
         <div className="space-y-2">

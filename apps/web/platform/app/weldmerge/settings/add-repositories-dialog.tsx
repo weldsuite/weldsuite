@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -92,6 +92,66 @@ export function AddRepositoriesDialog({
     }
   };
 
+  let body: ReactNode;
+  if (!connectionId) {
+    body = <p className="text-sm text-muted-foreground">{ta.connectFirst}</p>;
+  } else if (available.isLoading) {
+    body = <PageLoader fullScreen={false} className="min-h-40" />;
+  } else if (available.isError) {
+    body = <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void available.refetch()} />;
+  } else {
+    body = (
+      <div className="space-y-4">
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={ta.search}
+          aria-label={ta.search}
+        />
+        <ul className="max-h-64 divide-y overflow-y-auto rounded-md border">
+          {rows.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">{ta.empty}</li>}
+          {rows.map((repo) => (
+            <li key={repo.externalId}>
+              <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/50">
+                <Checkbox
+                  checked={repo.added || selected.includes(repo.externalId)}
+                  disabled={repo.added}
+                  onCheckedChange={() => toggle(repo.externalId)}
+                />
+                <span className="min-w-0 flex-1 truncate">{repo.fullName}</span>
+                {repo.private && <Lock className="size-3.5 text-muted-foreground" aria-label={ta.private} />}
+                {repo.added && <span className="text-xs text-muted-foreground">{ta.alreadyAdded}</span>}
+              </label>
+            </li>
+          ))}
+        </ul>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{ta.team}</Label>
+            <Select value={teamId} onValueChange={setTeamId}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_TEAM}>{tm.settings.repositories.noTeam}</SelectItem>
+                {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name} ({team.key})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-end gap-2 pb-2">
+            <Switch id="merge-add-pr-sync" checked={prSync} onCheckedChange={setPrSync} />
+            <Label htmlFor="merge-add-pr-sync">{ta.prSync}</Label>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -100,62 +160,7 @@ export function AddRepositoriesDialog({
           <DialogDescription>{ta.description}</DialogDescription>
         </DialogHeader>
 
-        {!connectionId ? (
-          <p className="text-sm text-muted-foreground">{ta.connectFirst}</p>
-        ) : available.isLoading ? (
-          <PageLoader fullScreen={false} className="min-h-40" />
-        ) : available.isError ? (
-          <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void available.refetch()} />
-        ) : (
-          <div className="space-y-4">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={ta.search}
-              aria-label={ta.search}
-            />
-            <ul className="max-h-64 divide-y overflow-y-auto rounded-md border">
-              {rows.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">{ta.empty}</li>}
-              {rows.map((repo) => (
-                <li key={repo.externalId}>
-                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/50">
-                    <Checkbox
-                      checked={repo.added || selected.includes(repo.externalId)}
-                      disabled={repo.added}
-                      onCheckedChange={() => toggle(repo.externalId)}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{repo.fullName}</span>
-                    {repo.private && <Lock className="size-3.5 text-muted-foreground" aria-label={ta.private} />}
-                    {repo.added && <span className="text-xs text-muted-foreground">{ta.alreadyAdded}</span>}
-                  </label>
-                </li>
-              ))}
-            </ul>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{ta.team}</Label>
-                <Select value={teamId} onValueChange={setTeamId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_TEAM}>{tm.settings.repositories.noTeam}</SelectItem>
-                    {teams.map((team) => (
-                      <SelectItem key={team.id} value={team.id}>
-                        {team.name} ({team.key})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end gap-2 pb-2">
-                <Switch id="merge-add-pr-sync" checked={prSync} onCheckedChange={setPrSync} />
-                <Label htmlFor="merge-add-pr-sync">{ta.prSync}</Label>
-              </div>
-            </div>
-          </div>
-        )}
+        {body}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

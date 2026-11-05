@@ -134,37 +134,44 @@ export interface IssueListResult {
 }
 
 /** Newest first (by id, which leads with the creation time); the cursor is the last id of the page. */
+function assigneeFilter(assignee: string, userId: string): SQL {
+  if (assignee === 'none') return isNull(mergeIssues.assigneeUserId);
+  if (assignee === 'me') return eq(mergeIssues.assigneeUserId, userId);
+  return eq(mergeIssues.assigneeUserId, assignee);
+}
+
+/** The structural filters of the list: everything but the free-text search and the cursor. */
+function issueFilters(query: ListIssuesQuery, userId: string): Array<SQL | undefined> {
+  const where: Array<SQL | undefined> = [isNull(mergeIssues.deletedAt)];
+  if (query.teamId) where.push(eq(mergeIssues.teamId, query.teamId));
+  if (query.status && query.status.length > 0) where.push(inArray(mergeIssues.status, query.status as MergeIssueRow['status'][]));
+  if (query.assignee) where.push(assigneeFilter(query.assignee, userId));
+  if (query.cycleId) where.push(eq(mergeIssues.cycleId, query.cycleId));
+  if (query.labelId) where.push(sql`${mergeIssues.labelIds} @> ${JSON.stringify([query.labelId])}::jsonb`);
+  if (query.parentIssueId) where.push(eq(mergeIssues.parentIssueId, query.parentIssueId));
+  return where;
+}
+
+/** Free-text search: the title, or a team key + number such as `ENG-12`. */
+async function searchFilter(db: Db, q: string): Promise<SQL | undefined> {
+  const titleMatch = sql`${mergeIssues.title} ilike ${likePattern(q)} escape '\\'`;
+  const key = parseIssueKey(q);
+  if (!key) return titleMatch;
+  const [team] = await db
+    .select({ id: mergeTeams.id })
+    .from(mergeTeams)
+    .where(and(eq(mergeTeams.key, key.teamKey), isNull(mergeTeams.deletedAt)))
+    .limit(1);
+  return team ? or(titleMatch, and(eq(mergeIssues.teamId, team.id), eq(mergeIssues.number, key.number))) : titleMatch;
+}
+
 export async function listIssues(
   db: Db,
   query: ListIssuesQuery,
   userId: string,
 ): Promise<IssueListResult> {
-  const where: Array<SQL | undefined> = [isNull(mergeIssues.deletedAt)];
-  if (query.teamId) where.push(eq(mergeIssues.teamId, query.teamId));
-  if (query.status && query.status.length > 0) where.push(inArray(mergeIssues.status, query.status as MergeIssueRow['status'][]));
-  if (query.assignee === 'none') where.push(isNull(mergeIssues.assigneeUserId));
-  else if (query.assignee === 'me') where.push(eq(mergeIssues.assigneeUserId, userId));
-  else if (query.assignee) where.push(eq(mergeIssues.assigneeUserId, query.assignee));
-  if (query.cycleId) where.push(eq(mergeIssues.cycleId, query.cycleId));
-  if (query.labelId) where.push(sql`${mergeIssues.labelIds} @> ${JSON.stringify([query.labelId])}::jsonb`);
-  if (query.parentIssueId) where.push(eq(mergeIssues.parentIssueId, query.parentIssueId));
-
-  if (query.q) {
-    const titleMatch = sql`${mergeIssues.title} ilike ${likePattern(query.q)} escape '\\'`;
-    const key = parseIssueKey(query.q);
-    if (key) {
-      const [team] = await db
-        .select({ id: mergeTeams.id })
-        .from(mergeTeams)
-        .where(and(eq(mergeTeams.key, key.teamKey), isNull(mergeTeams.deletedAt)))
-        .limit(1);
-      where.push(
-        team ? or(titleMatch, and(eq(mergeIssues.teamId, team.id), eq(mergeIssues.number, key.number))) : titleMatch,
-      );
-    } else {
-      where.push(titleMatch);
-    }
-  }
+  const where = issueFilters(query, userId);
+  if (query.q) where.push(await searchFilter(db, query.q));
   if (query.cursor) where.push(lt(mergeIssues.id, query.cursor));
 
   const rows = await db
@@ -182,6 +189,46 @@ export async function listIssues(
 // Validation of references
 // ---------------------------------------------------------------------------
 
+async function validateCycle(db: Db, teamId: string, cycleId: string): Promise<IssueRefFailure | null> {
+  const [cycle] = await db
+    .select({ id: mergeCycles.id })
+    .from(mergeCycles)
+    .where(and(eq(mergeCycles.id, cycleId), eq(mergeCycles.teamId, teamId), isNull(mergeCycles.deletedAt)))
+    .limit(1);
+  return cycle ? null : 'cycle_invalid';
+}
+
+async function validateParent(db: Db, teamId: string, parentIssueId: string, selfId?: string): Promise<IssueRefFailure | null> {
+  if (selfId && parentIssueId === selfId) return 'parent_invalid';
+  const parent = await findIssue(db, parentIssueId);
+  if (!parent || parent.teamId !== teamId) return 'parent_invalid';
+  // Walk up: the issue must not be one of its own ancestors.
+  if (selfId) {
+    let cursor: string | null = parent.parentIssueId;
+    for (let depth = 0; cursor && depth < 50; depth++) {
+      if (cursor === selfId) return 'parent_invalid';
+      const next = await findIssue(db, cursor);
+      cursor = next?.parentIssueId ?? null;
+    }
+  }
+  return null;
+}
+
+async function validateLabels(db: Db, teamId: string, labelIds: string[]): Promise<IssueRefFailure | null> {
+  const unique = [...new Set(labelIds)];
+  const found = await db
+    .select({ id: mergeLabels.id })
+    .from(mergeLabels)
+    .where(
+      and(
+        inArray(mergeLabels.id, unique),
+        isNull(mergeLabels.deletedAt),
+        or(eq(mergeLabels.teamId, teamId), isNull(mergeLabels.teamId)),
+      ),
+    );
+  return found.length === unique.length ? null : 'labels_invalid';
+}
+
 /** Cycle, parent and labels must belong to the issue's team (labels may also be workspace-wide). */
 async function validateRefs(
   db: Db,
@@ -189,41 +236,14 @@ async function validateRefs(
   refs: { cycleId?: string | null; parentIssueId?: string | null; labelIds?: string[]; selfId?: string },
 ): Promise<IssueRefFailure | null> {
   if (refs.cycleId) {
-    const [cycle] = await db
-      .select({ id: mergeCycles.id })
-      .from(mergeCycles)
-      .where(and(eq(mergeCycles.id, refs.cycleId), eq(mergeCycles.teamId, teamId), isNull(mergeCycles.deletedAt)))
-      .limit(1);
-    if (!cycle) return 'cycle_invalid';
+    const failure = await validateCycle(db, teamId, refs.cycleId);
+    if (failure) return failure;
   }
   if (refs.parentIssueId) {
-    if (refs.selfId && refs.parentIssueId === refs.selfId) return 'parent_invalid';
-    const parent = await findIssue(db, refs.parentIssueId);
-    if (!parent || parent.teamId !== teamId) return 'parent_invalid';
-    // Walk up: the issue must not be one of its own ancestors.
-    if (refs.selfId) {
-      let cursor: string | null = parent.parentIssueId;
-      for (let depth = 0; cursor && depth < 50; depth++) {
-        if (cursor === refs.selfId) return 'parent_invalid';
-        const next = await findIssue(db, cursor);
-        cursor = next?.parentIssueId ?? null;
-      }
-    }
+    const failure = await validateParent(db, teamId, refs.parentIssueId, refs.selfId);
+    if (failure) return failure;
   }
-  if (refs.labelIds && refs.labelIds.length > 0) {
-    const unique = [...new Set(refs.labelIds)];
-    const found = await db
-      .select({ id: mergeLabels.id })
-      .from(mergeLabels)
-      .where(
-        and(
-          inArray(mergeLabels.id, unique),
-          isNull(mergeLabels.deletedAt),
-          or(eq(mergeLabels.teamId, teamId), isNull(mergeLabels.teamId)),
-        ),
-      );
-    if (found.length !== unique.length) return 'labels_invalid';
-  }
+  if (refs.labelIds && refs.labelIds.length > 0) return validateLabels(db, teamId, refs.labelIds);
   return null;
 }
 
@@ -292,20 +312,12 @@ export type IssueUpdateResult =
   | { ok: true; before: MergeIssueRow; issue: MergeIssueRow; teamKey: string }
   | { ok: false; reason: 'not_found' | IssueRefFailure };
 
-export async function updateIssue(db: Db, id: string, input: UpdateMergeIssueInput): Promise<IssueUpdateResult> {
-  const before = await findIssue(db, id);
-  if (!before) return { ok: false, reason: 'not_found' };
-
-  const labelIds = input.labelIds ? [...new Set(input.labelIds)] : undefined;
-  const refFailure = await validateRefs(db, before.teamId, {
-    cycleId: input.cycleId,
-    parentIssueId: input.parentIssueId,
-    labelIds,
-    selfId: id,
-  });
-  if (refFailure) return { ok: false, reason: refFailure };
-
-  const now = new Date();
+function buildIssuePatch(
+  input: UpdateMergeIssueInput,
+  labelIds: string[] | undefined,
+  before: MergeIssueRow,
+  now: Date,
+): Partial<typeof mergeIssues.$inferInsert> {
   const patch: Partial<typeof mergeIssues.$inferInsert> = { updatedAt: now };
   if (input.title !== undefined) patch.title = input.title.trim();
   if (input.description !== undefined) patch.description = input.description;
@@ -322,6 +334,24 @@ export async function updateIssue(db: Db, id: string, input: UpdateMergeIssueInp
     patch.status = input.status;
     Object.assign(patch, statusTimestamps(input.status, before, now));
   }
+  return patch;
+}
+
+export async function updateIssue(db: Db, id: string, input: UpdateMergeIssueInput): Promise<IssueUpdateResult> {
+  const before = await findIssue(db, id);
+  if (!before) return { ok: false, reason: 'not_found' };
+
+  const labelIds = input.labelIds ? [...new Set(input.labelIds)] : undefined;
+  const refFailure = await validateRefs(db, before.teamId, {
+    cycleId: input.cycleId,
+    parentIssueId: input.parentIssueId,
+    labelIds,
+    selfId: id,
+  });
+  if (refFailure) return { ok: false, reason: refFailure };
+
+  const now = new Date();
+  const patch = buildIssuePatch(input, labelIds, before, now);
 
   const [issue] = await db.update(mergeIssues).set(patch).where(eq(mergeIssues.id, id)).returning();
   const [team] = await db.select({ key: mergeTeams.key }).from(mergeTeams).where(eq(mergeTeams.id, before.teamId)).limit(1);

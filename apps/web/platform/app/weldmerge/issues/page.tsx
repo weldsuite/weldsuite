@@ -9,7 +9,13 @@ import { Input } from '@weldsuite/ui/components/input';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
-import type { ListMergeIssuesQuery, MergeLabelDto } from '@weldsuite/app-api-client/schemas/weldmerge';
+import type {
+  ListMergeIssuesQuery,
+  MergeCycleDto,
+  MergeIssueDto,
+  MergeIssueStatus,
+  MergeLabelDto,
+} from '@weldsuite/app-api-client/schemas/weldmerge';
 import { useDebounce } from '@/hooks/use-debounce';
 import {
   useMergeCycles,
@@ -30,13 +36,145 @@ type IssuesView = 'list' | 'board';
 const ASSIGNEE_ME = 'me';
 const ASSIGNEE_NONE = 'none';
 
+type IssuesQuery = ReturnType<typeof useMergeIssues>;
+
+/** The loading, error, empty, board or list state of the issues area. */
+function IssuesResults({
+  issues,
+  rows,
+  view,
+  statuses,
+  labelById,
+  filtered,
+  canCreate,
+  canUpdate,
+  onCreate,
+}: Readonly<{
+  issues: IssuesQuery;
+  rows: MergeIssueDto[];
+  view: IssuesView;
+  statuses: readonly MergeIssueStatus[];
+  labelById: Map<string, MergeLabelDto>;
+  filtered: boolean;
+  canCreate: boolean;
+  canUpdate: boolean;
+  onCreate: () => void;
+}>) {
+  const { t } = useI18n();
+  const tm = t.weldmerge;
+  if (issues.isLoading) return <PageLoader fullScreen={false} />;
+  if (issues.isError) {
+    return <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void issues.refetch()} />;
+  }
+  if (rows.length === 0) {
+    return (
+    <div className="p-6">
+      <EmptyState
+        icon={CircleDot}
+        title={filtered ? tm.issues.noResultsTitle : tm.issues.emptyTitle}
+        description={filtered ? undefined : tm.issues.emptyDescription}
+        action={
+          canCreate && !filtered ? (
+            <Button onClick={onCreate}>
+              <Plus />
+              {tm.issues.newIssue}
+            </Button>
+          ) : undefined
+        }
+      />
+    </div>
+    );
+  }
+  if (view === 'board') return <IssueBoard issues={rows} statuses={statuses} labels={labelById} canMove={canUpdate} />;
+  return <IssueList issues={rows} statuses={statuses} labels={labelById} />;
+}
+
+/** Search box, assignee, label and cycle filters and the canceled switch. */
+function IssuesFilterBar({
+  search,
+  onSearch,
+  assignee,
+  onAssignee,
+  labelId,
+  onLabel,
+  cycleId,
+  onCycle,
+  labels,
+  cycles,
+  showCanceled,
+  onShowCanceled,
+  canceledCount,
+}: Readonly<{
+  search: string;
+  onSearch: (value: string) => void;
+  assignee: string | undefined;
+  onAssignee: (value: string | undefined) => void;
+  labelId: string | undefined;
+  onLabel: (value: string | undefined) => void;
+  cycleId: string | undefined;
+  onCycle: (value: string | undefined) => void;
+  labels: MergeLabelDto[];
+  cycles: MergeCycleDto[];
+  showCanceled: boolean;
+  onShowCanceled: (value: boolean) => void;
+  canceledCount: number;
+}>) {
+  const { t, language } = useI18n();
+  const tm = t.weldmerge;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder={tm.issues.searchPlaceholder}
+          aria-label={tm.issues.searchPlaceholder}
+          className="h-8 w-52 pl-8"
+        />
+      </div>
+      <FilterSelect
+        value={assignee}
+        onChange={onAssignee}
+        ariaLabel={tm.issues.assignee}
+        allLabel={tm.issues.allAssignees}
+        options={[
+          { value: ASSIGNEE_ME, label: tm.issues.assignedToMe },
+          { value: ASSIGNEE_NONE, label: tm.issues.unassignedFilter },
+        ]}
+      />
+      <FilterSelect
+        value={labelId}
+        onChange={onLabel}
+        ariaLabel={tm.issues.label}
+        allLabel={tm.issues.allLabels}
+        options={labels.map((label) => ({ value: label.id, label: label.name }))}
+      />
+      <FilterSelect
+        value={cycleId}
+        onChange={onCycle}
+        ariaLabel={tm.issues.cycle}
+        allLabel={tm.issues.allCycles}
+        options={cycles.map((cycle) => ({
+          value: cycle.id,
+          label: `${cycle.name?.trim() || fill(tm.cycles.cycleName, { number: cycle.number })} · ${formatDateRange(cycle.startsAt, cycle.endsAt, language)}`,
+        }))}
+      />
+      <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <Switch checked={showCanceled} onCheckedChange={onShowCanceled} aria-label={tm.issues.showCanceled} />
+        {fill(tm.issues.canceledCount, { count: canceledCount })}
+      </label>
+    </div>
+  );
+}
+
 /**
  * Issues of one team (or all teams) as a board or a list, with filters for
  * assignee, label, cycle and a search box. Canceled issues stay hidden until
  * asked for.
  */
 export default function WeldMergeIssuesPage() {
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const tm = t.weldmerge;
   const canCreate = useCan('merge_issues:create');
   const canUpdate = useCan('merge_issues:update');
@@ -134,76 +272,34 @@ export default function WeldMergeIssuesPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={tm.issues.searchPlaceholder}
-            aria-label={tm.issues.searchPlaceholder}
-            className="h-8 w-52 pl-8"
-          />
-        </div>
-        <FilterSelect
-          value={assignee}
-          onChange={setAssignee}
-          ariaLabel={tm.issues.assignee}
-          allLabel={tm.issues.allAssignees}
-          options={[
-            { value: ASSIGNEE_ME, label: tm.issues.assignedToMe },
-            { value: ASSIGNEE_NONE, label: tm.issues.unassignedFilter },
-          ]}
-        />
-        <FilterSelect
-          value={labelId}
-          onChange={setLabelId}
-          ariaLabel={tm.issues.label}
-          allLabel={tm.issues.allLabels}
-          options={(labels.data ?? []).map((label) => ({ value: label.id, label: label.name }))}
-        />
-        <FilterSelect
-          value={cycleId}
-          onChange={setCycleId}
-          ariaLabel={tm.issues.cycle}
-          allLabel={tm.issues.allCycles}
-          options={(cycles.data ?? []).map((cycle) => ({
-            value: cycle.id,
-            label: `${cycle.name?.trim() || fill(tm.cycles.cycleName, { number: cycle.number })} · ${formatDateRange(cycle.startsAt, cycle.endsAt, language)}`,
-          }))}
-        />
-        <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          <Switch checked={showCanceled} onCheckedChange={setShowCanceled} aria-label={tm.issues.showCanceled} />
-          {fill(tm.issues.canceledCount, { count: canceledCount })}
-        </label>
-      </div>
+      <IssuesFilterBar
+        search={search}
+        onSearch={setSearch}
+        assignee={assignee}
+        onAssignee={setAssignee}
+        labelId={labelId}
+        onLabel={setLabelId}
+        cycleId={cycleId}
+        onCycle={setCycleId}
+        labels={labels.data ?? []}
+        cycles={cycles.data ?? []}
+        showCanceled={showCanceled}
+        onShowCanceled={setShowCanceled}
+        canceledCount={canceledCount}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {issues.isLoading ? (
-          <PageLoader fullScreen={false} />
-        ) : issues.isError ? (
-          <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void issues.refetch()} />
-        ) : issueRows.length === 0 ? (
-          <div className="p-6">
-            <EmptyState
-              icon={CircleDot}
-              title={filtered ? tm.issues.noResultsTitle : tm.issues.emptyTitle}
-              description={filtered ? undefined : tm.issues.emptyDescription}
-              action={
-                canCreate && !filtered ? (
-                  <Button onClick={() => setCreating(true)}>
-                    <Plus />
-                    {tm.issues.newIssue}
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-        ) : view === 'board' ? (
-          <IssueBoard issues={issueRows} statuses={statuses} labels={labelById} canMove={canUpdate} />
-        ) : (
-          <IssueList issues={issueRows} statuses={statuses} labels={labelById} />
-        )}
+        <IssuesResults
+          issues={issues}
+          rows={issueRows}
+          view={view}
+          statuses={statuses}
+          labelById={labelById}
+          filtered={filtered}
+          canCreate={canCreate}
+          canUpdate={canUpdate}
+          onCreate={() => setCreating(true)}
+        />
       </div>
 
       <IssueFormDialog open={creating} onOpenChange={setCreating} defaultTeamId={teamId} />

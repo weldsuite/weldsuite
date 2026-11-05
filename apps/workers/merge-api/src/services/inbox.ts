@@ -27,6 +27,12 @@ export interface InboxOptions {
   now?: Date;
 }
 
+/** Descending by time, then by id. */
+function newestFirst(a: MergeInboxItem, b: MergeInboxItem): number {
+  const [left, right] = a.at === b.at ? [a.id, b.id] : [a.at, b.at];
+  return left < right ? 1 : -1;
+}
+
 export async function buildInbox(db: Db, options: InboxOptions): Promise<MergeInboxItem[]> {
   const { userId, canReadIssues } = options;
   const now = options.now ?? new Date();
@@ -91,5 +97,5 @@ export async function buildInbox(db: Db, options: InboxOptions): Promise<MergeIn
   }
 
   // Newest first; the id breaks ties so the order is stable.
-  return items.sort((a, b) => (a.at === b.at ? (a.id < b.id ? 1 : -1) : a.at < b.at ? 1 : -1));
+  return items.sort(newestFirst);
 }

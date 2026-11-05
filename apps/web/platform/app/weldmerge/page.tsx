@@ -35,6 +35,13 @@ function itemTitle(item: MergeInboxItem): string {
   return item.pullRequest?.title ?? item.issue?.title ?? '';
 }
 
+/** The state icon of the pull request or issue an inbox row points at. */
+function InboxItemIcon({ item }: Readonly<{ item: MergeInboxItem }>) {
+  if (item.pullRequest) return <PullRequestStateIcon state={item.pullRequest.state} draft={item.pullRequest.draft} />;
+  if (item.issue) return <IssueStatusIcon status={item.issue.status} />;
+  return null;
+}
+
 /**
  * WeldMerge inbox: what needs the member (review requests, failed checks,
  * requested changes, assigned issues), newest first, with a preview of the
@@ -117,11 +124,7 @@ export default function WeldMergeInboxPage() {
                   )}
                 >
                   <span className="mt-0.5">
-                    {item.pullRequest ? (
-                      <PullRequestStateIcon state={item.pullRequest.state} draft={item.pullRequest.draft} />
-                    ) : item.issue ? (
-                      <IssueStatusIcon status={item.issue.status} />
-                    ) : null}
+                    <InboxItemIcon item={item} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{itemTitle(item)}</span>

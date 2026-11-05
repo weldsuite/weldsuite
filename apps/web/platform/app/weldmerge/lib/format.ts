@@ -33,7 +33,9 @@ export function relativeTime(iso: string, locale: string, justNow: string, now: 
 /** `Nov 3 – Nov 16` for two `YYYY-MM-DD` dates. */
 export function formatDateRange(startsAt: string, endsAt: string, locale: string): string {
   const format = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return `${format.format(new Date(`${startsAt}T00:00:00Z`))} – ${format.format(new Date(`${endsAt}T00:00:00Z`))}`;
+  const start = format.format(new Date(`${startsAt}T00:00:00Z`));
+  const end = format.format(new Date(`${endsAt}T00:00:00Z`));
+  return `${start} – ${end}`;
 }
 
 export type CycleState = 'upcoming' | 'current' | 'past';

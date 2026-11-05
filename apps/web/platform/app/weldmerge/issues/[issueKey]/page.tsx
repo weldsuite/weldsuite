@@ -32,6 +32,12 @@ import {
 } from '../../components/primitives';
 import { fill, relativeTime } from '../../lib/format';
 
+/** The rendered description, or a hint when there is none. */
+function IssueDescription({ description, emptyLabel }: Readonly<{ description: string | null; emptyLabel: string }>) {
+  if (description) return <MarkdownBody>{description}</MarkdownBody>;
+  return <p className="text-sm text-muted-foreground">{emptyLabel}</p>;
+}
+
 /**
  * An issue by key: editable title and Markdown description, property sidebar,
  * sub-issues, the pull requests linked to it and comments. Phase 1 has no
@@ -192,10 +198,8 @@ export default function WeldMergeIssuePage() {
                   </Button>
                 </div>
               </div>
-            ) : issue.description ? (
-              <MarkdownBody>{issue.description}</MarkdownBody>
             ) : (
-              <p className="text-sm text-muted-foreground">{tm.noDescription}</p>
+              <IssueDescription description={issue.description} emptyLabel={tm.noDescription} />
             )}
           </SectionCard>
 

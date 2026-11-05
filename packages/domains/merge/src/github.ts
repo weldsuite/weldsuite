@@ -72,9 +72,11 @@ export interface MirrorFields {
 
 const date = (v: string | null | undefined): Date | null => (v ? new Date(v) : null);
 
+const unmergedState = (pr: GithubPullRequest): MergePullRequestState => (pr.state === 'closed' ? 'closed' : 'open');
+
 export function mapGithubPullRequest(pr: GithubPullRequest): MirrorFields {
   const merged = pr.merged === true || Boolean(pr.merged_at);
-  const state: MergePullRequestState = merged ? 'merged' : pr.state === 'closed' ? 'closed' : 'open';
+  const state: MergePullRequestState = merged ? 'merged' : unmergedState(pr);
   const reviewers: MergeRequestedReviewer[] = [
     ...(pr.requested_reviewers ?? []).map((u) => ({
       kind: 'user' as const,

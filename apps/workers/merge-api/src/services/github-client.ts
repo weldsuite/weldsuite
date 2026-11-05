@@ -89,26 +89,36 @@ const BACKFILL_DAYS = 30;
 const BACKFILL_CAP = 300;
 
 /**
+ * Adds one page of rows to `out`; true when the walk of this state is over
+ * (the cap is reached, or a closed pull request older than the window turns up).
+ */
+function collectBackfillPage(rows: GithubPullRequest[], state: 'open' | 'closed', since: number, out: GithubPullRequest[]): boolean {
+  for (const pr of rows) {
+    if (state === 'closed' && new Date(pr.updated_at).getTime() < since) return true;
+    out.push(pr);
+    if (out.length >= BACKFILL_CAP) return true;
+  }
+  return false;
+}
+
+/**
  * Open pull requests, and those closed or merged in the last 30 days, newest
  * update first, at most ~300 in all. (The list leaves out additions,
  * deletions and changed files; `mergeMirrorUpdate` keeps what is stored.)
  */
+
 export async function listPullRequestsForBackfill(client: GithubClient, fullName: string, now = new Date()): Promise<GithubPullRequest[]> {
   const since = now.getTime() - BACKFILL_DAYS * 24 * 60 * 60 * 1000;
   const out: GithubPullRequest[] = [];
-  let taken = 0;
 
   for (const state of ['open', 'closed'] as const) {
-    pages: for (let page = 1; taken < BACKFILL_CAP; page++) {
+    for (let page = 1; ; page++) {
+      if (out.length >= BACKFILL_CAP) break;
       const rows =
         (await client.get<GithubPullRequest[]>(
           `/repos/${fullName}/pulls?state=${state}&sort=updated&direction=desc&per_page=${PAGE}&page=${page}`,
         )) ?? [];
-      for (const pr of rows) {
-        if (state === 'closed' && new Date(pr.updated_at).getTime() < since) break pages;
-        out.push(pr);
-        if (++taken >= BACKFILL_CAP) break pages;
-      }
+      if (collectBackfillPage(rows, state, since, out)) break;
       if (rows.length < PAGE) break;
     }
   }

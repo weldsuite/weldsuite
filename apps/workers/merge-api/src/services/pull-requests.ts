@@ -126,42 +126,47 @@ export interface PullRequestListResult {
   cursor: string | null;
 }
 
+/** The conditions of a list view; null when the view is empty by definition (needs review, without a linked GitHub login). */
+async function viewConditions(
+  db: Db,
+  view: NonNullable<ListMergePullRequestsQuery['view']>,
+  userId: string,
+): Promise<Array<SQL | undefined> | null> {
+  if (view === 'needs_review' || view === 'mine') {
+    const login = await memberGithubLogin(db, userId);
+    if (view === 'needs_review') {
+      if (!login) return null;
+      return [eq(mergePullRequests.state, 'open'), eq(mergePullRequests.draft, false), reviewRequestedFrom(login)];
+    }
+    return [eq(mergePullRequests.state, 'open'), authoredBy(userId, login)];
+  }
+  if (view === 'open') return [eq(mergePullRequests.state, 'open')];
+  return [eq(mergePullRequests.state, view)];
+}
+
+/** Free-text search over title, branch and repository, plus the pull request number for `#123` or `123`. */
+function searchCondition(q: string): SQL | undefined {
+  const pattern = likePattern(q);
+  const number = /^#?(\d{1,9})$/.exec(q.trim());
+  return or(
+    sql`${mergePullRequests.title} ilike ${pattern} escape '\\'`,
+    sql`${mergePullRequests.headRef} ilike ${pattern} escape '\\'`,
+    sql`${mergeRepositories.fullName} ilike ${pattern} escape '\\'`,
+    number ? eq(mergePullRequests.number, Number(number[1])) : undefined,
+  );
+}
+
 export async function listPullRequests(
   db: Db,
   query: ListMergePullRequestsQuery & { limit: number },
   userId: string,
 ): Promise<PullRequestListResult> {
-  const view = query.view ?? 'open';
-  const where: Array<SQL | undefined> = [];
-
-  if (view === 'needs_review' || view === 'mine') {
-    const login = await memberGithubLogin(db, userId);
-    if (view === 'needs_review') {
-      if (!login) return { items: [], hasMore: false, cursor: null };
-      where.push(eq(mergePullRequests.state, 'open'), eq(mergePullRequests.draft, false), reviewRequestedFrom(login));
-    } else {
-      where.push(eq(mergePullRequests.state, 'open'), authoredBy(userId, login));
-    }
-  } else if (view === 'open') {
-    where.push(eq(mergePullRequests.state, 'open'));
-  } else {
-    where.push(eq(mergePullRequests.state, view));
-  }
+  const where = await viewConditions(db, query.view ?? 'open', userId);
+  if (!where) return { items: [], hasMore: false, cursor: null };
 
   if (query.repositoryId) where.push(eq(mergePullRequests.repositoryId, query.repositoryId));
   if (query.teamId) where.push(eq(mergeRepositories.teamId, query.teamId));
-  if (query.q) {
-    const pattern = likePattern(query.q);
-    const number = /^#?(\d{1,9})$/.exec(query.q.trim());
-    where.push(
-      or(
-        sql`${mergePullRequests.title} ilike ${pattern} escape '\\'`,
-        sql`${mergePullRequests.headRef} ilike ${pattern} escape '\\'`,
-        sql`${mergeRepositories.fullName} ilike ${pattern} escape '\\'`,
-        number ? eq(mergePullRequests.number, Number(number[1])) : undefined,
-      ),
-    );
-  }
+  if (query.q) where.push(searchCondition(query.q));
   const cursor = parseCursor(query.cursor);
   if (cursor) {
     where.push(

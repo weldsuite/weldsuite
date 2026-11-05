@@ -209,6 +209,120 @@ async function matchMembers(db: Db, logins: string[]): Promise<Map<string, strin
   return new Map(rows.map((r) => [r.login, r.userId]));
 }
 
+type MirrorFields = ReturnType<typeof mapGithubPullRequest>;
+type Reviewers = MergePullRequestRow['requestedReviewers'];
+
+async function updateMirror(
+  db: Db,
+  existing: MergePullRequestRow,
+  fields: MirrorFields,
+  authorUserId: string | null,
+  reviewers: Reviewers,
+  now: Date,
+): Promise<MergePullRequestRow> {
+  const merged = mergeMirrorUpdate(fields, existing);
+  const [updated] = await db
+    .update(mergePullRequests)
+    .set({
+      title: merged.title,
+      body: merged.body,
+      state: merged.state,
+      draft: merged.draft,
+      url: merged.url,
+      authorLogin: merged.authorLogin,
+      authorAvatarUrl: merged.authorAvatarUrl,
+      authorUserId,
+      headRef: merged.headRef,
+      baseRef: merged.baseRef,
+      headSha: merged.headSha,
+      additions: merged.additions,
+      deletions: merged.deletions,
+      changedFiles: merged.changedFiles,
+      // A new head commit starts new checks; reviews carry over until the next review event.
+      checksStatus: merged.headSha !== existing.headSha ? null : existing.checksStatus,
+      requestedReviewers: reviewers,
+      labels: merged.labels,
+      providerCreatedAt: merged.providerCreatedAt,
+      providerUpdatedAt: merged.providerUpdatedAt,
+      mergedAt: merged.mergedAt,
+      closedAt: merged.closedAt,
+      syncedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(mergePullRequests.id, existing.id))
+    .returning();
+  return updated!;
+}
+
+async function insertMirror(
+  db: Db,
+  repository: MergeRepositoryRow,
+  fields: MirrorFields,
+  authorUserId: string | null,
+  reviewers: Reviewers,
+  now: Date,
+): Promise<MergePullRequestRow> {
+  const [inserted] = await db
+    .insert(mergePullRequests)
+    .values({
+      id: generateId('mpr'),
+      repositoryId: repository.id,
+      provider: 'github',
+      externalId: fields.externalId,
+      number: fields.number,
+      title: fields.title,
+      body: fields.body,
+      state: fields.state,
+      draft: fields.draft,
+      url: fields.url,
+      authorLogin: fields.authorLogin,
+      authorAvatarUrl: fields.authorAvatarUrl,
+      authorUserId,
+      headRef: fields.headRef,
+      baseRef: fields.baseRef,
+      headSha: fields.headSha,
+      additions: fields.additions,
+      deletions: fields.deletions,
+      changedFiles: fields.changedFiles,
+      requestedReviewers: reviewers,
+      labels: fields.labels,
+      providerCreatedAt: fields.providerCreatedAt,
+      providerUpdatedAt: fields.providerUpdatedAt,
+      mergedAt: fields.mergedAt,
+      closedAt: fields.closedAt,
+      syncedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  return inserted!;
+}
+
+/** Matches the author and reviewers to members, then updates the stored mirror or inserts a new one. */
+async function writeMirror(
+  db: Db,
+  repository: MergeRepositoryRow,
+  fields: MirrorFields,
+  existing: MergePullRequestRow | undefined,
+): Promise<MergePullRequestRow> {
+  const members = await matchMembers(db, [
+    fields.authorLogin ?? '',
+    ...fields.requestedReviewers.filter((r) => r.kind === 'user').map((r) => r.login),
+  ]);
+  const reviewers = fields.requestedReviewers.map((r) =>
+    r.kind === 'user' ? { ...r, userId: members.get(r.login) ?? null } : r,
+  );
+  const authorUserId = fields.authorLogin ? (members.get(fields.authorLogin) ?? null) : null;
+  const now = new Date();
+  if (existing) return updateMirror(db, existing, fields, authorUserId, reviewers, now);
+  return insertMirror(db, repository, fields, authorUserId, reviewers, now);
+}
+
+function upsertStatus(unchanged: boolean, existing: MergePullRequestRow | undefined): UpsertOutcome['status'] {
+  if (unchanged) return 'unchanged';
+  return existing ? 'updated' : 'created';
+}
+
 export async function upsertPullRequest(
   db: Db,
   repository: MergeRepositoryRow,
@@ -237,84 +351,7 @@ export async function upsertPullRequest(
   if (unchanged) {
     row = existing!;
   } else {
-    const members = await matchMembers(db, [
-      fields.authorLogin ?? '',
-      ...fields.requestedReviewers.filter((r) => r.kind === 'user').map((r) => r.login),
-    ]);
-    const reviewers = fields.requestedReviewers.map((r) =>
-      r.kind === 'user' ? { ...r, userId: members.get(r.login) ?? null } : r,
-    );
-    const authorUserId = fields.authorLogin ? (members.get(fields.authorLogin) ?? null) : null;
-    const now = new Date();
-    if (existing) {
-      const merged = mergeMirrorUpdate(fields, existing);
-      const [updated] = await db
-        .update(mergePullRequests)
-        .set({
-          title: merged.title,
-          body: merged.body,
-          state: merged.state,
-          draft: merged.draft,
-          url: merged.url,
-          authorLogin: merged.authorLogin,
-          authorAvatarUrl: merged.authorAvatarUrl,
-          authorUserId,
-          headRef: merged.headRef,
-          baseRef: merged.baseRef,
-          headSha: merged.headSha,
-          additions: merged.additions,
-          deletions: merged.deletions,
-          changedFiles: merged.changedFiles,
-          // A new head commit starts new checks; reviews carry over until the next review event.
-          checksStatus: merged.headSha !== existing.headSha ? null : existing.checksStatus,
-          requestedReviewers: reviewers,
-          labels: merged.labels,
-          providerCreatedAt: merged.providerCreatedAt,
-          providerUpdatedAt: merged.providerUpdatedAt,
-          mergedAt: merged.mergedAt,
-          closedAt: merged.closedAt,
-          syncedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(mergePullRequests.id, existing.id))
-        .returning();
-      row = updated!;
-    } else {
-      const [inserted] = await db
-        .insert(mergePullRequests)
-        .values({
-          id: generateId('mpr'),
-          repositoryId: repository.id,
-          provider: 'github',
-          externalId: fields.externalId,
-          number: fields.number,
-          title: fields.title,
-          body: fields.body,
-          state: fields.state,
-          draft: fields.draft,
-          url: fields.url,
-          authorLogin: fields.authorLogin,
-          authorAvatarUrl: fields.authorAvatarUrl,
-          authorUserId,
-          headRef: fields.headRef,
-          baseRef: fields.baseRef,
-          headSha: fields.headSha,
-          additions: fields.additions,
-          deletions: fields.deletions,
-          changedFiles: fields.changedFiles,
-          requestedReviewers: reviewers,
-          labels: fields.labels,
-          providerCreatedAt: fields.providerCreatedAt,
-          providerUpdatedAt: fields.providerUpdatedAt,
-          mergedAt: fields.mergedAt,
-          closedAt: fields.closedAt,
-          syncedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      row = inserted!;
-    }
+    row = await writeMirror(db, repository, fields, existing);
   }
 
   const { links, created } = await syncAutoLinks(db, row);
@@ -332,7 +369,7 @@ export async function upsertPullRequest(
     );
   }
   return {
-    status: unchanged ? 'unchanged' : existing ? 'updated' : 'created',
+    status: upsertStatus(unchanged, existing),
     pullRequest: row,
     linksCreated: created,
     events,

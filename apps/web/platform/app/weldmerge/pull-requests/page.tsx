@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { GitPullRequest, Loader2, Search } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -150,6 +150,53 @@ export default function WeldMergePullRequestsPage() {
   const noRepositories = canReadConnections && repositories.isSuccess && repositories.data.length === 0;
   const filtered = !!(repositoryId || teamId || q);
 
+  let content: ReactNode;
+  if (pullRequests.isLoading) {
+    content = <PageLoader fullScreen={false} />;
+  } else if (pullRequests.isError) {
+    content = <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void pullRequests.refetch()} />;
+  } else if (noRepositories && rows.length === 0) {
+    content = (
+      <div className="p-6">
+        <EmptyState
+          icon={GitPullRequest}
+          title={tm.pullRequests.noRepositoriesTitle}
+          description={tm.pullRequests.noRepositoriesDescription}
+          action={
+            <Button asChild>
+              <Link href="/weldmerge/settings">{tm.pullRequests.openProviders}</Link>
+            </Button>
+          }
+        />
+      </div>
+    );
+  } else {
+    content = (
+      <>
+        <ListTable
+          columns={columns}
+          data={rows}
+          rowKey={(pr) => pr.id}
+          rowLabel={(pr) => pr.title}
+          onRowClick={(pr) => router.push(`/weldmerge/pull-requests/${pr.id}`)}
+          emptyState={{
+            icon: <GitPullRequest className="size-8 text-muted-foreground/60" />,
+            title: filtered ? tm.pullRequests.noResultsTitle : tm.pullRequests.emptyTitle,
+            description: tm.pullRequests.emptyDescription,
+          }}
+        />
+        {pullRequests.hasNextPage && (
+          <div className="flex justify-center p-4">
+            <Button variant="outline" onClick={() => void pullRequests.fetchNextPage()} disabled={pullRequests.isFetchingNextPage}>
+              {pullRequests.isFetchingNextPage && <Loader2 className="animate-spin" />}
+              {tm.loadMore}
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="space-y-3 px-4 pt-3">
@@ -189,47 +236,7 @@ export default function WeldMergePullRequestsPage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {pullRequests.isLoading ? (
-          <PageLoader fullScreen={false} />
-        ) : pullRequests.isError ? (
-          <ErrorState message={tm.loadFailed} retryLabel={tm.retry} onRetry={() => void pullRequests.refetch()} />
-        ) : noRepositories && rows.length === 0 ? (
-          <div className="p-6">
-            <EmptyState
-              icon={GitPullRequest}
-              title={tm.pullRequests.noRepositoriesTitle}
-              description={tm.pullRequests.noRepositoriesDescription}
-              action={
-                <Button asChild>
-                  <Link href="/weldmerge/settings">{tm.pullRequests.openProviders}</Link>
-                </Button>
-              }
-            />
-          </div>
-        ) : (
-          <>
-            <ListTable
-              columns={columns}
-              data={rows}
-              rowKey={(pr) => pr.id}
-              rowLabel={(pr) => pr.title}
-              onRowClick={(pr) => router.push(`/weldmerge/pull-requests/${pr.id}`)}
-              emptyState={{
-                icon: <GitPullRequest className="size-8 text-muted-foreground/60" />,
-                title: filtered ? tm.pullRequests.noResultsTitle : tm.pullRequests.emptyTitle,
-                description: tm.pullRequests.emptyDescription,
-              }}
-            />
-            {pullRequests.hasNextPage && (
-              <div className="flex justify-center p-4">
-                <Button variant="outline" onClick={() => void pullRequests.fetchNextPage()} disabled={pullRequests.isFetchingNextPage}>
-                  {pullRequests.isFetchingNextPage && <Loader2 className="animate-spin" />}
-                  {tm.loadMore}
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+        {content}
       </div>
     </div>
   );
