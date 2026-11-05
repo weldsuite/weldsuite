@@ -1,13 +1,28 @@
-import type { ReactNode } from 'react';
+import type { DragEvent, ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { cn } from '@/lib/utils';
+import { TOOL_DRAG_TYPE, type ToolKind } from './model/tools';
 
 // Toolbar building blocks for the board editor. Buttons keep focus on the
-// board (mousedown is prevented), so a click acts on the selection.
+// board (mousedown is prevented), so a click acts on the selection. A tool
+// that drags onto the board lets mousedown through (a drag needs it); picking
+// a tool changes the board, which takes focus back.
+
+/** Props that let a toolbar button be dragged onto the board as `tool`. */
+function toolDrag(tool: ToolKind | undefined) {
+  if (!tool) return { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() };
+  return {
+    draggable: true,
+    onDragStart: (e: DragEvent<HTMLButtonElement>) => {
+      e.dataTransfer.setData(TOOL_DRAG_TYPE, tool);
+      e.dataTransfer.effectAllowed = 'copy';
+    },
+  };
+}
 
 export const TOOL_BUTTON =
-  'inline-flex size-9 shrink-0 items-center justify-center rounded-md text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-[18px]';
+  'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-[18px]';
 export const BAR_BUTTON =
   'inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-sm text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-4';
 
@@ -32,6 +47,7 @@ export function BarButton({
   side,
   children,
   onDoubleClick,
+  dragTool,
 }: {
   label: string;
   onClick: () => void;
@@ -41,6 +57,8 @@ export function BarButton({
   side?: TooltipSide;
   children: ReactNode;
   onDoubleClick?: () => void;
+  /** Can be dragged onto the board to place this tool there. */
+  dragTool?: ToolKind;
 }) {
   return (
     <WithTooltip label={label} side={side}>
@@ -52,7 +70,7 @@ export function BarButton({
         disabled={disabled}
         aria-label={label}
         aria-pressed={active}
-        onMouseDown={(e) => e.preventDefault()}
+        {...toolDrag(dragTool)}
       >
         {children}
       </button>
@@ -98,6 +116,7 @@ export function BarPopover({
   className,
   open,
   onOpenChange,
+  dragTool,
 }: {
   label: string;
   trigger: ReactNode;
@@ -107,6 +126,8 @@ export function BarPopover({
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Can be dragged onto the board to place this tool there. */
+  dragTool?: ToolKind;
 }) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -115,8 +136,9 @@ export function BarPopover({
           <button
             type="button"
             aria-label={label}
-            className={cn(className ?? BAR_BUTTON, active && 'bg-primary/10 text-primary')}
-            onMouseDown={(e) => e.preventDefault()}
+            // Stays highlighted while its menu is open (`data-state` is the tooltip's here, so `aria-expanded`).
+            className={cn(className ?? BAR_BUTTON, 'aria-expanded:bg-accent', active && 'bg-primary/10 text-primary aria-expanded:bg-primary/15')}
+            {...toolDrag(dragTool)}
           >
             {trigger}
           </button>

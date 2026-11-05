@@ -3,10 +3,11 @@ import { toast } from 'sonner';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCan } from '@weldsuite/permissions/react';
-import { Plus, StickyNote, Upload } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { Board, applyOp, newId, placeFragment, type BuiltInTemplate } from '@weldsuite/board-engine';
-import { Button } from '@weldsuite/ui/components/button';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import type { GroupConfig } from '@/components/entity-list';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
 import { useAppApi } from '@/lib/api/use-app-api';
@@ -100,15 +101,24 @@ export default function WeldBoardHome() {
     }
   };
 
+  // Project boards come after the workspace's own, under their own heading.
+  const boards = useMemo(() => [...(recent.data ?? []), ...(projectBoards.data ?? [])], [recent.data, projectBoards.data]);
+  const groups: GroupConfig<BoardMeta>[] = useMemo(
+    () => [
+      { id: 'boards', label: th.recent, filter: (b) => !b.projectId, sortOrder: 0 },
+      { id: 'projects', label: th.projectBoards, filter: (b) => !!b.projectId, sortOrder: 1 },
+    ],
+    [th],
+  );
+
   if (recent.isLoading) return <PageLoader fullScreen={false} />;
   const failed = recent.isError && !recent.data;
-  const boards = recent.data ?? [];
 
   return (
     <div className="flex w-full flex-col">
       {canCreate && (
         <section className="border-b bg-muted/40">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-6 py-6">
+          <div className="flex w-full flex-col gap-3 px-4 py-6">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-muted-foreground">{th.startNew}</h2>
               <Link to={preview ? '/preview/weldboard/templates' : '/weldboard/templates'} className="text-sm text-primary hover:underline">
@@ -116,12 +126,6 @@ export default function WeldBoardHome() {
               </Link>
             </div>
             <div className="flex gap-4 overflow-x-auto pb-1">
-              <button type="button" onClick={() => void createBoard()} disabled={create.isPending} className="group flex w-44 shrink-0 flex-col items-stretch gap-1.5 text-left">
-                <span className="flex aspect-[4/3] items-center justify-center rounded-lg border bg-background transition group-hover:border-primary">
-                  <Plus className="size-10 text-primary" />
-                </span>
-                <span className="text-sm font-medium">{th.blank}</span>
-              </button>
               <button type="button" onClick={() => fileInput.current?.click()} className="group flex w-44 shrink-0 flex-col items-stretch gap-1.5 text-left">
                 <span className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-background transition group-hover:border-primary">
                   <Upload className="size-8 text-muted-foreground group-hover:text-primary" />
@@ -145,51 +149,30 @@ export default function WeldBoardHome() {
         </section>
       )}
 
-      <section className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">{th.recent}</h2>
-          {canCreate && (
-            <Button size="sm" onClick={() => void createBoard()} disabled={create.isPending}>
-              <Plus />
-              {th.newBoard}
-            </Button>
-          )}
-        </div>
-        {preview && <p className="text-xs text-muted-foreground">{th.localNotice}</p>}
-        {failed && (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <p className="font-medium">{th.loadFailed}</p>
-            <Button size="sm" variant="outline" disabled={recent.isFetching} onClick={() => void recent.refetch()}>
-              {th.retry}
-            </Button>
-          </div>
-        )}
-        {!failed && boards.length === 0 && (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
-            <StickyNote className="size-8 text-muted-foreground" />
-            <p className="font-medium">{th.emptyTitle}</p>
-            <p className="max-w-sm text-sm text-muted-foreground">{th.emptyDescription}</p>
-          </div>
-        )}
-        {boards.length > 0 && (
-          <BoardList
-            boards={boards}
-            onOpen={open}
-            onRename={canUpdate ? (board, name) => rename.mutate({ id: board.id, name }) : undefined}
-            onDuplicate={canCreate ? (board) => void create.mutateAsync({ name: format(th.copyOf, { name: board.name }), fromBoardId: board.id }).then(open, () => undefined) : undefined}
-            onDelete={canDelete ? (board) => remove.mutate(board.id) : undefined}
-            onToggleTemplate={!preview && canUpdate ? (board) => void toggleTemplate(board) : undefined}
-            deletePermanently={!!preview}
-          />
-        )}
-
-        {!preview && (projectBoards.data?.length ?? 0) > 0 && (
-          <>
-            <h2 className="pt-4 text-sm font-medium text-muted-foreground">{th.projectBoards}</h2>
-            <BoardList boards={projectBoards.data!} onOpen={open} caption={(b) => (b.projectId && projectNames.get(b.projectId) ? format(th.inProject, { name: projectNames.get(b.projectId)! }) : null)} />
-          </>
-        )}
-      </section>
+      {failed ? (
+        <ErrorState message={th.loadFailed} onRetry={() => void recent.refetch()} retryLabel={th.retry} className="py-16" />
+      ) : (
+        <BoardList
+          boards={boards}
+          onOpen={open}
+          onRename={canUpdate ? (board, name) => rename.mutate({ id: board.id, name }) : undefined}
+          onDuplicate={canCreate ? (board) => void create.mutateAsync({ name: format(th.copyOf, { name: board.name }), fromBoardId: board.id }).then(open, () => undefined) : undefined}
+          onDelete={canDelete ? (board) => remove.mutate(board.id) : undefined}
+          onToggleTemplate={!preview && canUpdate ? (board) => void toggleTemplate(board) : undefined}
+          projectName={projectBoards.data?.length ? (b) => (b.projectId ? (projectNames.get(b.projectId) ?? null) : null) : undefined}
+          groups={projectBoards.data?.length ? groups : undefined}
+          onCreate={
+            canCreate
+              ? () => {
+                  if (!create.isPending) void createBoard();
+                }
+              : undefined
+          }
+          notice={preview ? <span className="text-xs text-muted-foreground">{th.localNotice}</span> : undefined}
+          emptyStateClassName="min-h-[360px] py-12"
+          deletePermanently={!!preview}
+        />
+      )}
     </div>
   );
 }

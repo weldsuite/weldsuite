@@ -6,6 +6,7 @@ import { cutSelection, encodeClipboard, fragmentFromHtml, pasteFragment, pasteTe
 import type { Interactions, PointerInfo } from '../model/interactions';
 import { handleKey, type KeyActions } from '../model/keyboard';
 import { insertText } from '../model/text-editing';
+import { TOOL_DRAG_TYPE, type ToolKind } from '../model/tools';
 import { drawOverlay } from './overlay';
 import { BoardRenderer } from './renderer';
 import { BoardA11y } from './board-a11y';
@@ -295,10 +296,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     if (c.readOnly) return;
-    const files = [...e.dataTransfer.files];
-    if (!files.length) return;
     const r = rect();
-    props.onFiles?.(files, toBoard(c.camera, { x: e.clientX - r.left, y: e.clientY - r.top }));
+    const at = toBoard(c.camera, { x: e.clientX - r.left, y: e.clientY - r.top });
+    // A tool dragged from the toolbar.
+    const tool = e.dataTransfer.getData(TOOL_DRAG_TYPE);
+    if (tool) {
+      ia.dropTool(tool as ToolKind, at);
+      input.current?.focus({ preventScroll: true });
+      return;
+    }
+    const files = [...e.dataTransfer.files];
+    if (files.length) props.onFiles?.(files, at);
   };
 
   return (

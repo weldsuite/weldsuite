@@ -44,6 +44,7 @@ import {
 } from '@weldsuite/board-engine';
 import type { BoardController } from './board-controller';
 import { toBoard, toScreen, zoomAt } from './camera';
+import { DROPPABLE_TOOLS, type ToolKind } from './tools';
 
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 export type Handle =
@@ -795,6 +796,16 @@ export class Interactions {
     const frame = this.frameUnder({ x: p.x, y: p.y, w: 0, h: 0 }, new Set());
     const parent = frame ?? null;
     return { ...(parent ? { parent } : {}), order: keyBetween(c.board.topOrder(parent), null), createdBy: c.options.userId, now: Date.now() };
+  }
+
+  /** A tool dragged from the toolbar and dropped at `p`: makes what a click with it there makes. */
+  dropTool(tool: ToolKind, p: Point): void {
+    const c = this.c;
+    if (c.readOnly || !DROPPABLE_TOOLS.has(tool)) return;
+    c.setTool(tool);
+    if (tool === 'sticky') this.placeSticky(p);
+    else if (tool === 'mindmap') this.placeMindMap(p);
+    else this.finishCreate(p, p, false);
   }
 
   private placeSticky(p: Point): void {

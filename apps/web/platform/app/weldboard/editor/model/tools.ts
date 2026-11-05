@@ -37,6 +37,12 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   shapeFill: '#ffffff',
 };
 
+/** Tools that can be dragged from the toolbar onto the board; a drop makes what a click there makes. */
+export const DROPPABLE_TOOLS: ReadonlySet<ToolKind> = new Set<ToolKind>(['sticky', 'shape', 'text', 'frame', 'card', 'mindmap']);
+
+/** The drag data type of a tool dragged from the toolbar. */
+export const TOOL_DRAG_TYPE = 'application/x-weldboard-tool';
+
 /** Single-key shortcuts for tools (Miro's where they exist). */
 export const TOOL_KEYS: Record<string, ToolKind> = {
   v: 'select',
