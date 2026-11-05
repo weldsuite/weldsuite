@@ -1721,8 +1721,6 @@ pub(crate) fn sign_portal(state: &AppState) -> Router<AppState> {
     router
 }
 
-/// The private bucket and the legacy public one, when object storage is
-/// configured.
 /// WeldBoard's link previews: public addresses only, each redirect checked
 /// by the route (`weldsuite_board::PublicLinks`). Without one, a link card
 /// shows just its address.
@@ -1736,6 +1734,8 @@ fn board_links() -> Option<weldsuite_ports::OutboundHttp> {
     }
 }
 
+/// The private bucket and the legacy public one, when object storage is
+/// configured.
 fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
     state
         .infra
