@@ -7,7 +7,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { View, FlatList, RefreshControl, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { CheckSquare, Plus } from 'lucide-react-native';
+import { CheckSquare, Plus, Presentation } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
@@ -89,14 +89,21 @@ export default function ProjectDetailScreen() {
       subtitle={project.code || undefined}
       showBack
       actions={
-        <IconButton
-          icon={<Plus size={22} color={colors.text} />}
-          accessibilityLabel={t.projects.newTask}
-          onPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push(`/task/new/${projectId}`);
-          }}
-        />
+        <View style={styles.actions}>
+          <IconButton
+            icon={<Presentation size={22} color={colors.text} />}
+            accessibilityLabel={t.boards.open}
+            onPress={() => router.push(`/boards/${projectId}`)}
+          />
+          <IconButton
+            icon={<Plus size={22} color={colors.text} />}
+            accessibilityLabel={t.projects.newTask}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push(`/task/new/${projectId}`);
+            }}
+          />
+        </View>
       }
       below={
         <View style={styles.below}>
@@ -208,6 +215,7 @@ function Stat({ label, value }: Readonly<{ label: string; value: string }>) {
 
 const styles = StyleSheet.create({
   below: { gap: 12 },
+  actions: { flexDirection: 'row', gap: 4 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   description: { fontSize: 14, lineHeight: 20 },

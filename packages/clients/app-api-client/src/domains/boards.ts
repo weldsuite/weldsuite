@@ -11,6 +11,7 @@ import { buildQueryString } from '../types';
 import type {
   BoardAiInput,
   BoardAiResult,
+  BoardRender,
   BoardRestoreResult,
   BoardSession,
   BoardSnapshotLike,
@@ -69,6 +70,10 @@ export function createBoardsApi(api: ClientApi) {
     },
     unfurl(input: UnfurlInput): Promise<DataResponse<UnfurlResult>> {
       return api.post(`${base}/unfurl`, input);
+    },
+    /** The live board as SVG (`width` in px, default 2048). */
+    render(id: string, width?: number): Promise<DataResponse<BoardRender>> {
+      return api.get(`${base}/${encodeURIComponent(id)}/render${width ? `?width=${width}` : ''}`);
     },
     ai(id: string, input: BoardAiInput): Promise<DataResponse<BoardAiResult>> {
       return api.post(`${base}/${encodeURIComponent(id)}/ai`, input);

@@ -20,6 +20,8 @@
  *   listLabels/createLabel           → /api/project-labels
  *   timer / time entries             → /api/time-entries (+ /timer, /timer/start,
  *                                       /timer/stop)
+ *   project whiteboards (read only)  → /api/boards?projectId=, /api/boards/convert,
+ *                                       /api/boards/:id/render (WeldBoard's board-api)
  *
  * The raw `@weldsuite/app-api-client` projects/tasks domain clients are not
  * used here because their row/query types are narrower than what the WeldFlow
@@ -34,6 +36,7 @@ import { createClientApi, buildQueryString } from '@weldsuite/api-client/client'
 import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
+import type { BoardRender, BoardSummary } from '@weldsuite/app-api-client/schemas/boards';
 import type {
   DataResponse,
   ListResponse,
@@ -89,6 +92,21 @@ const client = createClientApi({
 });
 
 const weldflow = {
+  /** A project's whiteboards (WeldBoard boards), old WeldFlow ones not opened since included. */
+  listProjectBoards(projectId: string): Promise<{ data: BoardSummary[] }> {
+    return client.get<{ data: BoardSummary[] }>(`/boards?projectId=${encodeURIComponent(projectId)}&limit=100`);
+  },
+
+  /** Makes an old WeldFlow whiteboard a board, in place, as the web app does on first open. */
+  convertBoard(whiteboardId: string): Promise<DataResponse<BoardSummary>> {
+    return client.post<DataResponse<BoardSummary>>('/boards/convert', { whiteboardId });
+  },
+
+  /** The board as it is now, drawn as one SVG. */
+  renderBoard(id: string, width = 2048): Promise<DataResponse<BoardRender>> {
+    return client.get<DataResponse<BoardRender>>(`/boards/${encodeURIComponent(id)}/render?width=${width}`);
+  },
+
   listProjects(params: ListProjectsQuery = LIMIT_25): Promise<ListResponse<Project>> {
     return client.get<ListResponse<Project>>(
       `/projects${buildQueryString(params as Record<string, unknown>)}`,

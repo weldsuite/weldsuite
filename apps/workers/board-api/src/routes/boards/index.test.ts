@@ -195,6 +195,19 @@ describe('/api/boards', () => {
     expect(((await viewer.json()) as { data: BoardSession }).data.mode).toBe('view');
   });
 
+  it('renders the live board as SVG for viewers, and only for people who may see it', async () => {
+    const board = await create({ name: 'Wall', snapshot: withSticky('Hello <phone>') });
+    const res = await app().request(`/api/boards/${board.id}/render?width=1024`);
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { svg: string; elements: number; drawn: number; revision: number } };
+    expect(data).toMatchObject({ elements: 1, drawn: 1, revision: 0 });
+    expect(data.svg).toMatch(/^<svg[^>]* width="1024"/);
+    expect(data.svg).toContain('&lt;phone&gt;');
+    expect((await app().request(`/api/boards/${board.id}/render?width=99999`)).status).toBe(400);
+    await db.update(files).set({ generalAccess: 'restricted' }).where(eq(files.id, board.fileId!));
+    expect((await app({ userId: BOB }).request(`/api/boards/${board.id}/render`)).status).toBe(404);
+  });
+
   it('imports Excalidraw scenes and text, and refuses what it cannot read', async () => {
     const scene = JSON.stringify({
       type: 'excalidraw',

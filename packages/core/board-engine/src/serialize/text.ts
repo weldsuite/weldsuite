@@ -6,7 +6,8 @@
 import type { Board } from '../model/board';
 import type { BoardElement } from '../model/types';
 
-function elementText(el: BoardElement): string {
+/** An element's text: what it says, a frame's title, a card's description, a link's title, a file's name. */
+export function elementText(el: BoardElement): string {
   const parts: string[] = [];
   if (el.text?.text) parts.push(el.text.text);
   if (el.type === 'frame' && el.name) parts.push(el.name);
@@ -45,6 +46,25 @@ export function boardToPlainText(board: Board, maxLength = 200_000): string {
   visit(null, 0);
   const out = lines.join('\n\n');
   return out.length > maxLength ? out.slice(0, maxLength) : out;
+}
+
+/**
+ * Every element's id in reading order: frames before what they hold, then
+ * rows top to bottom, left to right. Groups are walked, not listed. Keyboard
+ * focus and the screen-reader outline follow it.
+ */
+export function readingOrderIds(board: Board): string[] {
+  const map = board.childrenMap();
+  const out: string[] = [];
+  const visit = (parent: string | null) => {
+    const kids = [...(map.get(parent) ?? [])].map((e) => board.get(e.id)!).filter(Boolean).sort(readingOrder);
+    for (const el of kids) {
+      if (el.type !== 'group' && el.type !== 'comment') out.push(el.id);
+      if (el.type === 'frame' || el.type === 'group') visit(el.id);
+    }
+  };
+  visit(null);
+  return out;
 }
 
 /** Element-by-element text with ids, for agents that need to point at things. */

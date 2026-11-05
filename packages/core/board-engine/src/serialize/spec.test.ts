@@ -7,6 +7,7 @@ import { isElement } from '../model/schema';
 import { applyOp } from '../ops/apply';
 import { isWellFormedOp } from '../ops/shape';
 import { validateOp } from '../ops/validate';
+import { readingOrderIds } from './text';
 import { clusterOps, editOps, fragmentFromSpec, normalizeSpec, placeSpec, SPEC_LIMITS, specSize, type BoardSpec } from './spec';
 
 let seq = 0;
@@ -228,5 +229,24 @@ describe('editing elements by id', () => {
     expect(board.get('a')!.y).toBe(130);
     expect(board.get('b')).toBeUndefined();
     expect(board.get('l')!.text?.text).toBe('Locked');
+  });
+});
+
+describe('reading order', () => {
+  it('lists frames before what they hold, then rows top to bottom, and skips groups and comment pins', () => {
+    const board = Board.create();
+    const keys = keysBetween(null, null, 5);
+    applyOp(board, {
+      type: 'create',
+      elements: [
+        makeSticky(600, 0, { order: keys[0]! }, { id: 'right' }),
+        makeFrame(0, 0, 500, 500, 'F', { order: keys[1]! }, { id: 'f' }),
+        makeSticky(20, 300, { order: keys[0]!, parent: 'f' }, { id: 'low' }),
+        makeSticky(20, 40, { order: keys[1]!, parent: 'f' }, { id: 'high' }),
+        makeSticky(0, 900, { order: keys[2]! }, { id: 'bottom' }),
+        { id: 'pin', type: 'comment', order: keys[3]!, x: 10, y: 10, w: 24, h: 24, target: 'high' },
+      ],
+    });
+    expect(readingOrderIds(board)).toEqual(['f', 'high', 'low', 'right', 'bottom']);
   });
 });

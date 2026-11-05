@@ -8,6 +8,7 @@ import type { BoardController } from './board-controller';
 import { nextZoom } from './camera';
 import { duplicateSelection } from './clipboard';
 import { copyStyle, pasteStyle } from './style';
+import { focusStep } from './focus';
 import type { Interactions } from './interactions';
 import { deleteBackward, deleteForward, insertText, moveCaret, selectAllText, toggleMark } from './text-editing';
 import { TOOL_KEYS } from './tools';
@@ -224,7 +225,9 @@ export function handleKey(c: BoardController, ia: Interactions, k: KeyInfo, acti
       }
       return false;
     case 'Tab':
-      return ia.addMindMapNode('child');
+      // A mind-map node grows a child; otherwise Tab walks the board's elements.
+      if (!k.shift && ia.addMindMapNode('child')) return true;
+      return focusStep(c, k.shift ? -1 : 1);
     case 'ArrowLeft':
     case 'ArrowRight':
     case 'ArrowUp':

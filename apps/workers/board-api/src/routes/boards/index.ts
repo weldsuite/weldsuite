@@ -20,6 +20,7 @@
  *   POST   /api/boards/:id/session    → ticket for the board's room socket
  *   GET    /api/boards/:id/snapshot   → the board as the room holds it now
  *   GET    /api/boards/:id/thumbnail  → a small SVG of the board (as of its last checkpoint)
+ *   GET    /api/boards/:id/render     → the board as it is now, as SVG (the mobile viewer)
  *   /api/boards/:id/versions/*        → version history (./versions.ts)
  *
  * The board is otherwise edited over the room socket (`/api/boards/connect`,
@@ -28,7 +29,24 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { copySnapshot, convertLegacyWhiteboard, emptySnapshot, isNoop, isWellFormedSnapshot, newId, snapshotFromImport, Board, type BoardElement, type BoardSnapshot, type Op } from '@weldsuite/board-engine';
+import {
+  copySnapshot,
+  convertLegacyWhiteboard,
+  boardDisplay,
+  displayToSvg,
+  emptySnapshot,
+  isNoop,
+  isWellFormedSnapshot,
+  newId,
+  selectionBounds,
+  snapshotFromImport,
+  Board,
+  type BoardElement,
+  type BoardSnapshot,
+  type Op,
+} from '@weldsuite/board-engine';
+import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
+import { z } from 'zod';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -557,6 +575,31 @@ app.get('/:id/snapshot', requirePermission('boards:read'), async (c) => {
   return new Response(`{"data":{"revision":${live.revision},"snapshot":${live.json}}}`, {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' },
   });
+});
+
+/** Most elements the render draws: past this a phone shows the first ones, and says so. */
+const RENDER_ELEMENTS = 5000;
+const renderMeasurer = new CachedMeasurer(new MetricsMeasurer(), 50_000);
+const renderQuery = z.object({ width: z.coerce.number().int().min(256).max(4096).optional() });
+
+/**
+ * The live board as one SVG, for viewers that do not run the editor (the
+ * WeldFlow mobile app). Images and files show as their frames only: their
+ * drive addresses are the platform's to resolve.
+ */
+app.get('/:id/render', requirePermission('boards:read'), zValidator('query', renderQuery), async (c) => {
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
+  const found = await findLiveBoard(c, c.req.param('id'));
+  if (found instanceof Response) return found;
+  const live = await roomFor(c, clerkOrgId, found.board).snapshot(roomMeta(found.board, clerkOrgId));
+  const board = Board.fromSnapshot(JSON.parse(live.json) as BoardSnapshot);
+  const paint = board.paintOrder();
+  const only = new Set(paint.slice(0, RENDER_ELEMENTS).map((e) => e.id));
+  const view = selectionBounds(board, only) ?? { x: 0, y: 0, w: 800, h: 600 };
+  const width = c.req.valid('query').width ?? 2048;
+  const svg = displayToSvg(boardDisplay(board, { measurer: renderMeasurer }, only), { view, width, padding: 48, background: '#ffffff' });
+  return success(c, { revision: live.revision, svg, elements: paint.length, drawn: only.size });
 });
 
 app.get('/:id/thumbnail', requirePermission('boards:read'), async (c) => {

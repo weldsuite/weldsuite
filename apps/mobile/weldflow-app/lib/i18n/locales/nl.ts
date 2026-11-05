@@ -116,6 +116,21 @@ export const nl: Translations = {
     newTask: 'Nieuwe taak',
   },
 
+  boards: {
+    title: 'Whiteboards',
+    open: 'Whiteboards',
+    loadError: 'De whiteboards konden niet worden geladen.',
+    emptyTitle: 'Geen whiteboards',
+    emptyDescription: 'Whiteboards die op het web in dit project zijn gemaakt, staan hier.',
+    boardError: 'Dit whiteboard kon niet worden geopend. Is het nieuw in WeldBoard, open het dan eerst op het web.',
+    viewOnly: 'Alleen bekijken. Bewerk dit whiteboard in WeldSuite op het web.',
+    partial: 'De eerste {drawn} van {count} onderdelen worden getoond.',
+    zoomIn: 'Inzoomen',
+    zoomOut: 'Uitzoomen',
+    fit: 'Passend maken',
+    updated: 'Bijgewerkt op {date}',
+  },
+
   myTasks: {
     title: 'Mijn taken',
     searchPlaceholder: 'Zoek taken',

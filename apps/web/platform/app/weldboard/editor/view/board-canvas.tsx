@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Point, RecordRef, RecordView } from '@weldsuite/board-engine';
 import type { BoardController } from '../model/board-controller';
 import { toBoard, toScreen } from '../model/camera';
@@ -8,6 +8,7 @@ import { handleKey, type KeyActions } from '../model/keyboard';
 import { insertText } from '../model/text-editing';
 import { drawOverlay } from './overlay';
 import { BoardRenderer } from './renderer';
+import { BoardA11y } from './board-a11y';
 
 export interface BoardCanvasProps {
   controller: BoardController;
@@ -79,6 +80,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const content = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const focusBoard = useCallback(() => input.current?.focus({ preventScroll: true }), []);
   const [cursor, setCursor] = useState('default');
   const composing = useRef(false);
   const caretOn = useRef(true);
@@ -381,6 +383,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }}
         onPaste={onPaste}
       />
+      <BoardA11y controller={c} onFocusBoard={focusBoard} />
       {props.renaming && <FrameRename key={props.renaming} controller={c} id={props.renaming} inputRef={renameRef} onDone={props.onRenamed} label={props.labels.renameFrame} />}
     </div>
   );

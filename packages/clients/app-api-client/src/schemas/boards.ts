@@ -179,6 +179,15 @@ export interface BoardRestoreResult {
   autoVersion: BoardVersion;
 }
 
+/** `GET /api/boards/:id/render`: the live board as SVG. */
+export interface BoardRender {
+  revision: number;
+  svg: string;
+  /** Elements on the board, and how many the SVG draws (the first ones in paint order). */
+  elements: number;
+  drawn: number;
+}
+
 // ---------------------------------------------------------------- AI
 
 export const BOARD_AI_ACTIONS = ['mindmap', 'diagram', 'stickies', 'cluster', 'summarize', 'ideas'] as const;
