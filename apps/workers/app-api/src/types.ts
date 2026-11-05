@@ -98,6 +98,8 @@ export interface Env {
   SHEETS_INTERNAL?: Fetcher;
   /** docs-api (WeldDocs). Target of the forwarder for /api/docs. */
   DOCS_API?: Fetcher;
+  /** board-api (WeldBoard). Target of the forwarder for /api/boards. */
+  BOARD_API?: Fetcher;
   /** sign-api (WeldSign). Target of the forwarder for /api/sign. */
   SIGN_API?: Fetcher;
   /** panel-api (WeldPanel). Target of the forwarder for /api/panel. */

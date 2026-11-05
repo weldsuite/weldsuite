@@ -53,6 +53,7 @@ export * from './docs';
 export * from './doc-versions';
 export * from './document-versions';
 export * from './whiteboards';
+export * from './board-versions';
 
 // Unified Credits System — moved to master.ts (centralized in master DB)
 

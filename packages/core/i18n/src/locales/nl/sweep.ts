@@ -516,6 +516,7 @@ export const sweep = {
       "following": "Gevolgd",
       "groupHidden": "{group} is verborgen in je zijbalk",
       "groups": {
+        "board": "Borden",
         "company": "Bedrijven",
         "doc": "Documenten",
         "domain": "Domeinen",
@@ -527,6 +528,7 @@ export const sweep = {
       "hideGroup": "Deze groep verbergen",
       "muteAllFailed": "Deze chats konden niet worden bijgewerkt",
       "open": {
+        "board": "Bord openen",
         "company": "Bedrijf openen",
         "doc": "Document openen",
         "domain": "Domein openen",
@@ -580,6 +582,7 @@ export const sweep = {
       "showAll": "Alles tonen ({count})",
       "title": "Recordchats",
       "types": {
+        "board": "Bord",
         "company": "Bedrijf",
         "doc": "Document",
         "domain": "Domein",
@@ -2957,14 +2960,6 @@ export const sweep = {
     "permissionContext": {
       "loadFailed": "Laden van machtigingen mislukt"
     },
-    "presenceIndicator": {
-      "beingEditedBy": "Wordt bewerkt door {name}",
-      "editingElements": "{count} element(en) bewerken",
-      "using": "Gebruikt: {tool}"
-    },
-    "remoteCursors": {
-      "defaultUserName": "Gebruiker"
-    },
     "settingsPage": {
       "accountManager": "Accountmanager",
       "active": "Actief",
@@ -3340,58 +3335,8 @@ export const sweep = {
       "thisWeek": "Deze week",
       "today": "Vandaag",
       "untitled": "Naamloos",
-      "whiteboardDefaultName": "Whiteboard",
       "whiteboards": "Whiteboards",
       "yesterday": "Gisteren"
-    },
-    "whiteboardView": {
-      "addLink": "Link toevoegen",
-      "addTextPlaceholder": "Tekst toevoegen...",
-      "alignCenter": "Centreren",
-      "alignLeft": "Links uitlijnen",
-      "alignRight": "Rechts uitlijnen",
-      "apply": "Toepassen",
-      "arrow": "Pijl",
-      "arrowTool": "Pijl (A)",
-      "arrowType": "Pijltype",
-      "both": "Beide",
-      "bringForward": "Naar voren halen",
-      "bringToFront": "Naar voorgrond",
-      "circleTool": "Cirkel (O)",
-      "copy": "Kopiëren",
-      "duplicate": "Dupliceren",
-      "elbowArrow": "Haakse pijl",
-      "eraserTool": "Gum (E)",
-      "exitPresent": "Presentatie afsluiten",
-      "fill": "Vulling",
-      "fillColor": "Vulkleur",
-      "fontLabel": "Lettertype:",
-      "insertLink": "Link invoegen",
-      "line": "Lijn",
-      "panTool": "Verslepen (H)",
-      "paste": "Plakken",
-      "penTool": "Pen (P)",
-      "present": "Presenteren",
-      "rectangleTool": "Rechthoek (R)",
-      "redoShortcut": "Opnieuw (Ctrl+Y)",
-      "remove": "Verwijderen",
-      "saveFailed": "Opslaan van whiteboard mislukt",
-      "selectTool": "Selecteren (V)",
-      "sendBackward": "Naar achteren",
-      "sendToBack": "Naar achtergrond",
-      "sizeLabel": "Grootte:",
-      "stickyNoteTool": "Plaknotitie (S)",
-      "statusError": "Niet opgeslagen",
-      "statusSaved": "Opgeslagen",
-      "statusSaving": "Opslaan...",
-      "statusUnsaved": "Niet-opgeslagen wijzigingen",
-      "stroke": "Lijn",
-      "strokeColor": "Lijnkleur",
-      "strokeWidth": "Lijndikte",
-      "textTool": "Tekst (T)",
-      "typeSomethingPlaceholder": "Typ iets...",
-      "undoShortcut": "Ongedaan maken (Ctrl+Z)",
-      "urlPlaceholder": "https://voorbeeld.nl"
     },
     "workloadView": {
       "tooltipOverloaded": "Overbelast",

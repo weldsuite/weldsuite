@@ -284,6 +284,13 @@
       ]
     },
     {
+      "code": "weldboard",
+      "label": "WeldBoard",
+      "objects": [
+        "boards"
+      ]
+    },
+    {
       "code": "weldsign",
       "label": "WeldSign",
       "objects": [
@@ -1448,6 +1455,43 @@
           "description": "See every document in the workspace and change who it is shared with.",
           "key": "docs:manage",
           "label": "Administer documents"
+        }
+      ]
+    },
+    {
+      "key": "boards",
+      "label": "Whiteboards (WeldBoard)",
+      "permissions": [
+        {
+          "description": "Whiteboards this person owns or that are shared with them.",
+          "key": "boards:read",
+          "label": "Open whiteboards"
+        },
+        {
+          "key": "boards:create",
+          "label": "Create whiteboards"
+        },
+        {
+          "key": "boards:update",
+          "label": "Edit whiteboards"
+        },
+        {
+          "description": "Comment on whiteboards shared with them to view, without editing them.",
+          "key": "boards:comment",
+          "label": "Comment on whiteboards"
+        },
+        {
+          "key": "boards:delete",
+          "label": "Delete whiteboards"
+        },
+        {
+          "key": "boards:share",
+          "label": "Share whiteboards"
+        },
+        {
+          "description": "See every whiteboard in the workspace and change who it is shared with.",
+          "key": "boards:manage",
+          "label": "Administer whiteboards"
         }
       ]
     },
@@ -3313,6 +3357,13 @@
         "docs:delete",
         "docs:share",
         "docs:manage",
+        "boards:read",
+        "boards:create",
+        "boards:update",
+        "boards:comment",
+        "boards:delete",
+        "boards:share",
+        "boards:manage",
         "sign_envelopes:read",
         "sign_envelopes:create",
         "sign_envelopes:update",
@@ -3538,6 +3589,12 @@
         "docs:comment",
         "docs:delete",
         "docs:share",
+        "boards:read",
+        "boards:create",
+        "boards:update",
+        "boards:comment",
+        "boards:delete",
+        "boards:share",
         "sign_envelopes:read",
         "sign_envelopes:create",
         "sign_envelopes:update",
@@ -3656,6 +3713,7 @@
         "knowledge:read",
         "sheets:read",
         "docs:read",
+        "boards:read",
         "sign_envelopes:read",
         "sign_templates:read",
         "panel_projects:read",

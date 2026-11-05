@@ -2,7 +2,7 @@
  * WeldSuite flow-api — the WeldFlow (projects, project members, labels,
  * messages, files, documents, sheets, pipeline stages and analytics, tasks,
  * task comments / tags / projects, my tasks, sprints, milestones, goals,
- * whiteboards, documents, time entries, task digest settings and the project-
+ * documents, time entries, task digest settings and the project-
  * control RAID log and links) module's API
  * worker, plus the SendDigest and ImportTasks workflows and the hourly task
  * digest cron.
@@ -60,7 +60,6 @@ import { taskProjectsRoutes } from './routes/task-projects';
 import { taskTagsRoutes } from './routes/task-tags';
 import { tasksRoutes } from './routes/tasks';
 import { timeEntriesRoutes } from './routes/time-entries';
-import { whiteboardsRoutes } from './routes/whiteboards';
 import type { Env, Variables } from './types';
 
 const app = createModuleApi<Env, Variables>({ service: 'flow-api' });
@@ -91,7 +90,6 @@ app.route('/api/tasks', tasksRoutes);
 app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/my-tasks', myTasksRoutes);
 app.route('/api/time-entries', timeEntriesRoutes);
-app.route('/api/whiteboards', whiteboardsRoutes);
 
 // WeldFlow project control and delivery (design: weldflow-project-control.md and
 // weldflow-delivery-and-portfolio.md). Stubs until their slices fill them in.

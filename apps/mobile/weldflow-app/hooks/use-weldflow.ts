@@ -42,6 +42,8 @@ export const qk = {
   myTasksInfinite: (params?: InfiniteMyTasksParams) =>
     ['weldflow', 'my-tasks', 'infinite', params ?? {}] as const,
   projectMembers: (projectId: string) => ['weldflow', 'project-members', projectId] as const,
+  projectBoards: (projectId: string) => ['weldflow', 'project-boards', projectId] as const,
+  boardRender: (boardId: string) => ['weldflow', 'board-render', boardId] as const,
   labels: () => ['weldflow', 'labels'] as const,
   timer: () => ['weldflow', 'timer'] as const,
   timeEntries: (params?: ListTimeEntriesQuery) =>
@@ -71,6 +73,31 @@ export function useProject(projectId: string) {
     queryKey: qk.project(projectId),
     queryFn: () => api.weldflow.getProject(projectId),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectBoards(projectId: string) {
+  return useQuery({
+    queryKey: qk.projectBoards(projectId),
+    queryFn: () => api.weldflow.listProjectBoards(projectId),
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * A board drawn as SVG. An old WeldFlow whiteboard nobody opened since
+ * WeldBoard is made a board first, as the web app does; someone who may only
+ * view it cannot do that, and gets the error.
+ */
+export function useBoardRender(boardId: string, legacy: boolean) {
+  return useQuery({
+    queryKey: qk.boardRender(boardId),
+    queryFn: async () => {
+      if (legacy) await api.weldflow.convertBoard(boardId);
+      return (await api.weldflow.renderBoard(boardId)).data;
+    },
+    enabled: !!boardId,
+    staleTime: 15_000,
   });
 }
 

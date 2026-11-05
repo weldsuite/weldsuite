@@ -27,7 +27,6 @@ import { projectMembersRoutes } from './project-members';
 import { documentsRoutes } from './documents';
 import { projectDocumentsRoutes } from './project-documents';
 import { projectMessagesRoutes } from './project-messages';
-import { whiteboardsRoutes } from './whiteboards';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
@@ -46,7 +45,6 @@ router.route('/project-members', projectMembersRoutes);
 router.route('/documents', documentsRoutes);
 router.route('/project-documents', projectDocumentsRoutes);
 router.route('/project-messages', projectMessagesRoutes);
-router.route('/whiteboards', whiteboardsRoutes);
 
 // Feature-level grants of a plain workspace member (no scope:all). Deliberately
 // without projects:delete, which MEMBER does not hold by default.
@@ -807,18 +805,6 @@ describe('All Projects list filters and sorting (TASK-799, TASK-789)', () => {
   });
 });
 
-describe('whiteboards of a deleted project are hidden from scope:all lists', () => {
-  it('listing without a projectId skips deleted projects', async () => {
-    await seedProject('prj_wb_dead', MANAGER, { deletedAt: new Date() });
-    await db
-      .insert(schema.projectWhiteboards)
-      .values({ id: 'pwb_dead', projectId: 'prj_wb_dead', name: 'Dead board', elements: [], createdAt: new Date(), updatedAt: new Date() })
-      .onConflictDoNothing();
-    const list = await json<{ data: Array<{ id: string }> }>(await asScopeAll()('GET', '/whiteboards'));
-    expect(list.data.some((b) => b.id === 'pwb_dead')).toBe(false);
-  });
-});
-
 describe('project member reads', () => {
   it('lists the users who could join, reads a member by row id and the stats placeholder', async () => {
     const send = as(OWNER);
@@ -895,12 +881,6 @@ describe('a tour of the project resources', () => {
     await ok('GET', `/project-messages?projectId=${P1}`);
     await ok('GET', `/project-messages/${message}`);
     await ok('POST', `/project-messages/${message}/reactions`, { emoji: '👍' });
-
-    const board = await idOf(await send('POST', '/whiteboards', { projectId: P1, name: 'Tour board' }));
-    await ok('GET', `/whiteboards/${board}`);
-    await ok('PATCH', `/whiteboards/${board}`, { name: 'Tour board, renamed' });
-    expect((await send('DELETE', `/whiteboards/${board}`)).status).toBe(403);
-    expect((await asScopeAll()('DELETE', `/whiteboards/${board}`)).status).toBe(204);
 
     const started = await withImports(OWNER)('POST', `/projects/${P1}/tasks/import-jobs`, {
       tasks: [{ title: 'Imported' }],

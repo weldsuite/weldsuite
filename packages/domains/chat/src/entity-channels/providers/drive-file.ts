@@ -12,12 +12,12 @@ import {
 import { projectEntityProvider } from './project';
 
 /**
- * Spreadsheet and document chats (WeldSheets, WeldDocs).
+ * Spreadsheet, document and board chats (WeldSheets, WeldDocs, WeldBoard).
  *
- * The chat of a sheet or a document holds its comment threads: each thread
- * on a cell or a stretch of text is a WeldChat thread whose messages carry
- * the thread's id in `metadata.anchor`, and the file keeps only where it is
- * (ADR CHAT-007).
+ * The chat of a sheet, a document or a board holds its comment threads: each
+ * thread on a cell, a stretch of text or a board's comment pin is a WeldChat
+ * thread whose messages carry the thread's id in `metadata.anchor`, and the
+ * file keeps only where it is (ADR CHAT-007).
  *
  * The record is a WeldDrive file, so who may see its chat is who may open
  * the file: a Drive role on it, and for a WeldFlow project's file the
@@ -87,6 +87,18 @@ const loadDocs: Loader = async (db, ids) => {
     .from(docs)
     .innerJoin(files, eq(files.id, docs.fileId))
     .where(and(inArray(docs.id, ids), isNotNull(docs.snapshotKey), isNull(files.deletedAt)));
+  return rows.map((r) => toRecord(r.id, r));
+};
+
+/** Live boards (their file not in the trash). A WeldFlow whiteboard not converted yet has no chat until it is opened. */
+const loadBoards: Loader = async (db, ids) => {
+  if (ids.length === 0) return [];
+  const { files, whiteboards } = schema;
+  const rows = await db
+    .select({ id: whiteboards.id, ...fileColumns() })
+    .from(whiteboards)
+    .innerJoin(files, eq(files.id, whiteboards.fileId))
+    .where(and(inArray(whiteboards.id, ids), isNull(files.deletedAt)));
   return rows.map((r) => toRecord(r.id, r));
 };
 
@@ -162,6 +174,8 @@ function driveFileProvider(type: string, label: string, requiredPermission: stri
 
 export const sheetEntityProvider = driveFileProvider('sheet', 'Sheets', 'sheets:read', { comment: 'sheets:comment', update: 'sheets:update' }, loadSheets);
 export const docEntityProvider = driveFileProvider('doc', 'Documents', 'docs:read', { comment: 'docs:comment', update: 'docs:update' }, loadDocs);
+export const boardEntityProvider = driveFileProvider('board', 'Boards', 'boards:read', { comment: 'boards:comment', update: 'boards:update' }, loadBoards);
 
 registerEntityProvider(sheetEntityProvider);
 registerEntityProvider(docEntityProvider);
+registerEntityProvider(boardEntityProvider);

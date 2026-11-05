@@ -359,7 +359,7 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'search_whiteboards',
     scope: 'whiteboards:read',
-    description: 'List/search project whiteboards. Cursor-paginated; filter by project.',
+    description: 'List/search project whiteboards (WeldBoard boards that belong to a project). Cursor-paginated; filter by project.',
     inputSchema: {
       search: z.string().optional().describe('Match against whiteboard name'),
       projectId: z.string().optional().describe('Filter by project ID'),
@@ -373,7 +373,7 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_whiteboard',
     scope: 'whiteboards:read',
-    description: 'Get full details of a project whiteboard.',
+    description: 'Get a project whiteboard with its elements (sticky notes, shapes, text, drawings and connectors; frames, cards and mind maps are not included).',
     inputSchema: {
       id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
     },
@@ -385,7 +385,7 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'create_whiteboard',
     scope: 'whiteboards:write',
-    description: 'Create a new project whiteboard.',
+    description: 'Create a new project whiteboard (a WeldBoard board in the project), optionally with elements.',
     inputSchema: createWhiteboardSchema.shape,
     method: 'POST',
     path: '/v1/whiteboards',
@@ -394,7 +394,7 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_whiteboard',
     scope: 'whiteboards:write',
-    description: 'Update an existing project whiteboard.',
+    description: 'Rename a project whiteboard, or replace its elements (elements this format cannot show are left alone). People with it open see the change live.',
     inputSchema: {
       id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
       ...updateWhiteboardSchema.shape,
@@ -407,7 +407,7 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_whiteboard',
     scope: 'whiteboards:write',
-    description: 'Delete a project whiteboard.',
+    description: 'Move a project whiteboard to the trash.',
     inputSchema: {
       id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
     },

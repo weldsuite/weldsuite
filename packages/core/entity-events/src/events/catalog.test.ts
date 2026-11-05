@@ -30,6 +30,7 @@ import { ADS_ENTITY_EVENTS } from './ads';
 import { HR_ENTITY_EVENTS } from './hr';
 import { REACH_ENTITY_EVENTS } from './reach';
 import { SHEETS_ENTITY_EVENTS } from './sheets';
+import { BOARDS_ENTITY_EVENTS } from './boards';
 import { SIGN_ENTITY_EVENTS } from './sign';
 import { PANEL_ENTITY_EVENTS } from './panel';
 
@@ -55,6 +56,7 @@ const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['hr', HR_ENTITY_EVENTS],
   ['reach', REACH_ENTITY_EVENTS],
   ['sheets', SHEETS_ENTITY_EVENTS],
+  ['boards', BOARDS_ENTITY_EVENTS],
   ['sign', SIGN_ENTITY_EVENTS],
   ['panel', PANEL_ENTITY_EVENTS],
 ];

@@ -221,7 +221,6 @@
       "/api/task-tags",
       "/api/tasks",
       "/api/time-entries",
-      "/api/whiteboards",
       "/public/project-portal"
     ],
     "rust": true,
@@ -658,5 +657,19 @@
     ],
     "rust": true,
     "worker": "panel-api"
+  },
+  {
+    "apps": [
+      "weldboard",
+      "weldflow"
+    ],
+    "binding": "BOARD_API",
+    "devPort": 8826,
+    "id": "board",
+    "prefixes": [
+      "/api/boards"
+    ],
+    "rust": false,
+    "worker": "board-api"
   }
 ]

@@ -114,6 +114,21 @@ export const en = {
     newTask: 'New task',
   },
 
+  boards: {
+    title: 'Whiteboards',
+    open: 'Whiteboards',
+    loadError: 'Couldn\'t load the whiteboards.',
+    emptyTitle: 'No whiteboards',
+    emptyDescription: 'Whiteboards made in this project on the web show here.',
+    boardError: 'Couldn\'t open this whiteboard. If it is new to WeldBoard, open it on the web first.',
+    viewOnly: 'View only. Edit this whiteboard in WeldSuite on the web.',
+    partial: 'Showing the first {drawn} of {count} items.',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    fit: 'Fit to screen',
+    updated: 'Updated {date}',
+  },
+
   myTasks: {
     title: 'My tasks',
     searchPlaceholder: 'Search tasks',

@@ -95,6 +95,15 @@
     "rejected",
     "paid"
   ],
+  "board": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "board_version": [
+    "created",
+    "updated"
+  ],
   "calendar": [
     "created",
     "updated",

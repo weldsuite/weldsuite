@@ -38,6 +38,7 @@ import {
 import { canOpenInWeldSheets, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile, fetchDriveFileContent } from './drive-file-card';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
 import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
+import { canOpenInWeldBoard, useOpenInWeldBoard } from '@/app/weldboard/use-board-open';
 import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { driveSourceKey, driveSourceLabel, fileKindLabel, isTextPreviewable } from './drive-utils';
 import { cn } from '@/lib/utils';
@@ -181,6 +182,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
   const { t } = useI18n();
   const openInSheets = useOpenInWeldSheets();
   const openInDocs = useOpenInWeldDocs();
+  const openInBoard = useOpenInWeldBoard();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [skipTransition, setSkipTransition] = useState(false);
@@ -276,6 +278,12 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
           <Button size="sm" variant="secondary" onClick={() => void openInDocs(file)}>
             <FileText className="h-4 w-4 mr-1.5" />
             {t.welddrive.page.actions.openInWeldDocs}
+          </Button>
+        )}
+        {openInBoard && canOpenInWeldBoard(file) && (
+          <Button size="sm" variant="secondary" onClick={() => void openInBoard(file)}>
+            <FileText className="h-4 w-4 mr-1.5" />
+            {t.welddrive.page.actions.openInWeldBoard}
           </Button>
         )}
         {(file.source === 'drive' || file.url) && (
@@ -423,6 +431,12 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                   <DropdownMenuItem onClick={() => void openInDocs(file)}>
                     <FileText className="h-4 w-4 mr-0.5" />
                     {t.welddrive.page.actions.openInWeldDocs}
+                  </DropdownMenuItem>
+                )}
+                {openInBoard && canOpenInWeldBoard(file) && (
+                  <DropdownMenuItem onClick={() => void openInBoard(file)}>
+                    <FileText className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.page.actions.openInWeldBoard}
                   </DropdownMenuItem>
                 )}
                 {(file.source === 'drive' || file.url) && (

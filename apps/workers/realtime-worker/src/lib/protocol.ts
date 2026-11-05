@@ -7,7 +7,6 @@ export interface Env {
   WORKSPACE_HUB: DurableObjectNamespace;
   CONVERSATION_ROOM: DurableObjectNamespace;
   CHAT_ROOM: DurableObjectNamespace;
-  WHITEBOARD_ROOM: DurableObjectNamespace;
   DOCUMENT_ROOM: DurableObjectNamespace;
   SUPPORT_ROOM: DurableObjectNamespace;
   CLERK_JWT_KEY: string;

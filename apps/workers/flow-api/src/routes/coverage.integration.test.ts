@@ -1,6 +1,6 @@
 /**
  * The project sub-resource routes the other test files reach only partly:
- * sprints, milestones, goals, whiteboards, project files and folders,
+ * sprints, milestones, goals, project files and folders,
  * project messages, project documents and sheets, document versions and
  * pipeline stages, each read, write and refusal. Runs against the TypeScript
  * worker and, in conformance mode, the Rust backend
@@ -16,7 +16,6 @@ import type { Env, Variables } from '../types';
 import { sprintsRoutes } from './sprints';
 import { milestonesRoutes } from './milestones';
 import { goalsRoutes } from './goals';
-import { whiteboardsRoutes } from './whiteboards';
 import { projectFilesRoutes } from './project-files';
 import { projectMessagesRoutes } from './project-messages';
 import { projectDocumentsRoutes } from './project-documents';
@@ -28,7 +27,6 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 router.route('/sprints', sprintsRoutes);
 router.route('/milestones', milestonesRoutes);
 router.route('/goals', goalsRoutes);
-router.route('/whiteboards', whiteboardsRoutes);
 router.route('/project-files', projectFilesRoutes);
 router.route('/project-messages', projectMessagesRoutes);
 router.route('/project-documents', projectDocumentsRoutes);
@@ -167,28 +165,6 @@ describe('goals', () => {
     expect((await owner('POST', '/goals', { projectId: PROJECT, status: 'sideways' })).status).toBe(400);
     expect((await owner('DELETE', `/goals/${id}`)).status).toBe(204);
     expect((await owner('DELETE', `/goals/${id}`)).status).toBe(404);
-  });
-});
-
-describe('whiteboards', () => {
-  it('creates, lists, reads, edits and deletes a whiteboard', async () => {
-    const owner = as(OWNER);
-    const created = await owner('POST', '/whiteboards', { projectId: PROJECT, name: 'Board', elements: [{ id: 'e1' }] });
-    expect(created.status).toBe(201);
-    const { id } = await data<{ id: string }>(created);
-    await owner('POST', '/whiteboards', { projectId: PROJECT });
-
-    const page = await owner('GET', `/whiteboards?projectId=${PROJECT}&limit=1`);
-    const body = (await page.json()) as { pagination: { cursor: string | null } };
-    expect((await owner('GET', `/whiteboards?projectId=${PROJECT}&limit=1&cursor=${body.pagination.cursor}`)).status).toBe(200);
-    expect((await owner('GET', '/whiteboards?search=board&cursor=pwb_unknown')).status).toBe(200);
-    expect((await owner('GET', `/whiteboards/${id}`)).status).toBe(200);
-    expect((await as(OUTSIDER)('GET', `/whiteboards/${id}`)).status).toBe(403);
-    expect((await owner('GET', '/whiteboards/pwb_missing')).status).toBe(404);
-    expect((await owner('PATCH', `/whiteboards/${id}`, { name: 'Renamed', elements: [] })).status).toBe(200);
-    expect((await as(MEMBER)('PATCH', `/whiteboards/${id}`, { name: 'By a member' })).status).toBe(200);
-    expect((await owner('DELETE', `/whiteboards/${id}`)).status).toBe(204);
-    expect((await owner('DELETE', `/whiteboards/${id}`)).status).toBe(404);
   });
 });
 

@@ -144,7 +144,7 @@ describe('POST /api/search', () => {
     expect(res.understanding.source).toBe('lexical');
     expect(res.data.map((g) => g.type)).toEqual([
       'contact', 'customer', 'lead', 'opportunity', 'ticket', 'article', 'knowledge_page', 'product',
-      'order', 'invoice', 'bill', 'project', 'task', 'sheet', 'domain',
+      'order', 'invoice', 'bill', 'project', 'task', 'sheet', 'board', 'domain',
     ]);
     const byType = new Map(res.data.map((g) => [g.type, g]));
     expect(byType.get('knowledge_page')?.items.map((i) => i.id)).toEqual(['kpg_acme']);
