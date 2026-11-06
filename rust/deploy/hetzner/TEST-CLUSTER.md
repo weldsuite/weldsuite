@@ -20,6 +20,15 @@ and no tag to bump. (Until November 2026 the cluster followed a
 `deploy/eu-test` branch; "Switching to develop" below moves a cluster built
 that way.)
 
+The marketing site runs here too, at `www.test.weldsuite.eu` (English) and
+`nl.test.weldsuite.eu` (Dutch), and follows the `main` branch of the private
+`weldsuite/weldsuite-eu-marketing` repository the same way: its "EU test
+image" workflow builds `ghcr.io/weldsuite/weldsuite-marketing:test-sha-<commit>`
+with those two URLs compiled in and publishes its chart as
+`oci://ghcr.io/weldsuite/charts/weldsuite-marketing`, version
+`<chart>-main.<run>`; the `marketing` layer (`flux/apps/marketing`) takes the
+newest.
+
 Size: **six CX23** (2 vCPU / 4 GB each) in nbg1, one control plane and five
 workers, plus the two load balancers (still in fsn1, where the cluster started
 on one CPX32; see "Moving the cluster"), so the paths match production. About
@@ -42,6 +51,7 @@ the launch topology) and use the `eu` Flux cluster.
 | Backups | a second EU provider | Hetzner Object Storage in nbg1, which since the move is the nodes' own location |
 | OpenTofu state | S3 backend, encrypted | local `terraform.tfstate` in this checkout |
 | Metrics | metrics-server (the autoscaler's) | metrics-server, plus a small Prometheus for Lens (`infrastructure/monitoring`) |
+| Marketing site | not yet (it needs a build with production's URLs) | `www.` and `nl.test.weldsuite.eu`, the newest `weldsuite-eu-marketing` main build (`flux/apps/marketing`) |
 
 **The state is local:** it holds the Talos secrets and is the only easy way to
 tear the cluster down. Don't delete this checkout while the cluster exists (if
@@ -94,7 +104,9 @@ like any other change.
    `auth.`, `sign.`, `livekit.`, `turn.` under `test.weldsuite.eu`, A and AAAA
    to the ingress load balancer) go in the `weldsuite.eu` zone in Hetzner DNS,
    in the same project: the Cloud API's `/zones/weldsuite.eu/rrsets`, with the
-   same token.
+   same token. Add `www.` and `nl.` (the marketing site) to the same load
+   balancer; the output leaves them out because production doesn't run the
+   site yet.
 
 7. **Secrets.**
 
@@ -120,7 +132,11 @@ like any other change.
    settings on GitHub (the repository is public). Otherwise keep the
    `registry` Secret from step 7 for the images, and give
    `clusters/test/weldsuite-develop.yaml` a `secretRef` to a docker-registry
-   Secret in `flux-system` for the chart.
+   Secret in `flux-system` for the chart. The same for the marketing site:
+   the first "EU test image" run in `weldsuite-eu-marketing` creates
+   `weldsuite-marketing` and `charts/weldsuite-marketing`, private like that
+   repository; make both public (the site is public anyway; nothing secret is
+   compiled in).
 
 9. **Commit** the settings and the encrypted secrets and get them into
    `develop` (a pull request).
@@ -150,8 +166,29 @@ like any other change.
 
 12. **Look:** `https://auth.test.weldsuite.eu/ui/console`,
     `https://api.test.weldsuite.eu/health` and `/config.json`,
-    `https://app.test.weldsuite.eu`, and
-    `kubectl -n weldsuite logs deploy/weldsuite`.
+    `https://app.test.weldsuite.eu`,
+    `kubectl -n weldsuite logs deploy/weldsuite`, and the marketing site at
+    `https://www.test.weldsuite.eu` and `https://nl.test.weldsuite.eu`.
+
+## The marketing site
+
+`flux/apps/marketing`: a HelmRelease of the site's chart in the `marketing`
+namespace, one pod, behind Traefik with a Let's Encrypt certificate for both
+hosts. It shares nothing with the platform. Two things work differently from
+Global:
+
+- **Prices** are the site's fallback prices (`lib/pricing.ts` there): the site
+  reads plans over Neon's HTTP driver, which the cluster's Postgres doesn't
+  speak, so it gets no `MASTER_DATABASE_URL`.
+- **The contact and support forms** are not delivered: no `RESEND_API_KEY`.
+  Either goes in a Secret named by `existingSecret` in
+  `flux/apps/marketing/values/marketing.yaml`.
+
+The site is built with noindex and without analytics. To add it to a cluster
+built before it: the `www.` and `nl.` records (step 6), a first run of the
+"EU test image" workflow in `weldsuite-eu-marketing` (a push to its `main`, or
+Run workflow) and its two packages made public (step 8), then this change in
+`develop`. `flux get helmreleases -n marketing` shows the build it runs.
 
 ## Metrics in Lens
 
@@ -215,7 +252,8 @@ minutes of it; the migration Job runs first. Configuration changes reach the
 cluster when they reach `develop`. To hold the cluster at one build, set
 `WELDSUITE_IMAGE_TAG` in `clusters/test/cluster-settings.yaml` to its tag and
 the HelmRelease's chart version (the `apps` patch in `clusters/test/layers.yaml`)
-to its chart version.
+to its chart version. The marketing site follows its repository's `main` the
+same way; to hold it, set the chart version in `flux/apps/marketing/marketing.yaml`.
 
 `flux get helmreleases -A` shows the chart version each release runs;
 `kubectl -n weldsuite get deploy weldsuite -o jsonpath='{..image}'` the image.

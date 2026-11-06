@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - marketing.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: marketing-values
+    namespace: marketing
+    files: [values.yaml=values/marketing.yaml]

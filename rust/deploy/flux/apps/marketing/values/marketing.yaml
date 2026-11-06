@@ -1,0 +1,32 @@
+# The chart's defaults: weldsuite-eu-marketing, deploy/helm/weldsuite-marketing.
+# The image follows the chart's appVersion (the build it was published with).
+
+replicaCount: 1
+
+# No MASTER_DATABASE_URL: the site reads plan prices over Neon's HTTP driver,
+# which the cluster's Postgres doesn't speak, so the pricing pages show the
+# site's fallback prices. No RESEND_API_KEY: the contact and support forms
+# are not delivered.
+existingSecret: ""
+
+# English on www.${DOMAIN}, Dutch on nl.${DOMAIN}: the hosts the image was
+# built for (its workflow's SITE_URL and NL_SITE_URL).
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: www.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: nl.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: marketing-tls
+      hosts:
+        - www.${DOMAIN}
+        - nl.${DOMAIN}

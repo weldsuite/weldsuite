@@ -49,6 +49,7 @@ for dir in \
   flux/infrastructure/video \
   flux/infrastructure/monitoring \
   flux/apps/eu \
+  flux/apps/marketing \
   flux/secrets/eu \
   flux/secrets/drill \
   flux/secrets/test; do
