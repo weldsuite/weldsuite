@@ -11,15 +11,21 @@ export const weldboard = {
 
   home: {
     startNew: 'Een nieuw bord beginnen',
-    blank: 'Leeg bord',
     newBoard: 'Nieuw bord',
     recent: 'Recente borden',
     projectBoards: 'Whiteboards in projecten',
     emptyTitle: 'Nog geen borden',
-    emptyDescription: 'Maak een bord om te brainstormen, een proces uit te tekenen of samen te plannen.',
+    emptyDescription: 'Maak je eerste bord om te beginnen',
+    search: 'Borden zoeken',
+    noResultsTitle: 'Geen borden gevonden',
+    noResultsDescription: 'Probeer een andere zoekterm',
+    columns: {
+      name: 'Naam',
+      project: 'Project',
+      updated: 'Laatst bijgewerkt',
+      created: 'Aangemaakt',
+    },
     untitled: 'Naamloos bord',
-    edited: 'Bewerkt {time}',
-    open: 'Openen',
     rename: 'Naam wijzigen',
     renamePrompt: 'Naam van het bord',
     duplicate: 'Kopie maken',
@@ -41,8 +47,6 @@ export const weldboard = {
     loadFailed: 'Je borden konden niet worden geladen.',
     retry: 'Opnieuw proberen',
     allTemplates: 'Alle sjablonen',
-    inProject: 'In {name}',
-    legacy: 'Opent als WeldBoard-bord',
     saveAsTemplate: 'Opslaan als sjabloon',
     removeTemplate: 'Uit de sjablonen halen',
     templateSaved: 'Opgeslagen als sjabloon',
@@ -160,13 +164,10 @@ export const weldboard = {
   editor: {
     canvas: 'Bord',
     status: {
-      saved: 'Alle wijzigingen opgeslagen',
-      saving: 'Opslaan…',
       reconnecting: 'Opnieuw verbinden…',
       offlinePending: 'Offline: wijzigingen worden opgeslagen zodra je weer verbonden bent',
       viewOnly: 'Alleen bekijken',
       commentOnly: 'Je kunt reageren',
-      local: 'Opgeslagen in deze browser',
     },
     share: 'Delen',
     rename: 'Naam van het bord wijzigen',
@@ -634,7 +635,6 @@ export const weldboard = {
     },
     minimap: 'Kaart van het bord',
     showAuthors: 'Tonen wie elke sticky note schreef',
-    emptyBoard: 'Dubbelklik ergens om een sticky note toe te voegen, of kies links een gereedschap.',
   },
 
   files: {

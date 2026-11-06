@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Download, Frame, Keyboard, MoreHorizontal, Presentation, Users } from 'lucide-react';
+import { Frame, Keyboard, MoreHorizontal, Users } from 'lucide-react';
 import { canVoteOn, castVoteOp, keyAllowed, keyBetween, newId, type BoardElement, type BuiltInTemplate, type Point, type RecordRef, type RecordView } from '@weldsuite/board-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -26,6 +26,7 @@ import { FramesPanel, Minimap, ShortcutsDialog, ZoomControls } from './navigatio
 import { PresentControls, usePresentation } from './present';
 import { buildTemplate, TemplatesDialog } from './templates-dialog';
 import { Toolbar, UndoRedo } from './toolbar';
+import { Divider } from './ui';
 import { BoardCanvas } from './view/board-canvas';
 
 export type BoardStatus = 'saved' | 'saving' | 'reconnecting' | 'offline-pending' | 'view-only' | 'comment-only' | 'local';
@@ -284,14 +285,12 @@ export function BoardEditor(props: BoardEditorProps) {
     if (!presentation.start(frameId)) toast.info(te.present.noFrames);
   };
 
-  const statusText: Record<BoardStatus, string> = {
-    saved: te.status.saved,
-    saving: te.status.saving,
+  // Only what needs attention; a board that saved fine says nothing.
+  const statusText: Partial<Record<BoardStatus, string>> = {
     reconnecting: te.status.reconnecting,
     'offline-pending': te.status.offlinePending,
     'view-only': te.status.viewOnly,
     'comment-only': te.status.commentOnly,
-    local: te.status.local,
   };
 
   const context: ContextActions = {
@@ -309,31 +308,10 @@ export function BoardEditor(props: BoardEditorProps) {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#f7f8fa]">
-        <BoardCanvas
-          controller={c}
-          interactions={ia}
-          loadImage={props.loadImage}
-          record={props.record}
-          recordVersion={props.recordVersion}
-          onFiles={(files, at) => void insertImages(files, at)}
-          onPasteUrl={(url, at) => void pasteUrl(url, at)}
-          keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
-          votes={props.votes ?? voting.votes}
-          commentCounts={props.commentCounts}
-          activeComment={props.activeComment}
-          faded={props.faded ?? voting.faded}
-          renaming={renaming}
-          onRenamed={(id, name) => {
-            setRenaming(null);
-            if (name !== null && name !== c.board.get(id)?.name) c.apply({ type: 'set', id, patch: { name: name.slice(0, 200) } });
-          }}
-          labels={{ renameFrame: te.renameFrame, board: te.canvas }}
-        />
-
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
         {/* Header */}
-        <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex items-start justify-between gap-3">
-          <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-xl border bg-background px-2 py-1 shadow-md">
+        <div className="flex h-[53px] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 md:px-4">
+          <div className="flex min-w-0 items-center gap-1">
             {props.back}
             {nameDraft !== null ? (
               <input
@@ -350,26 +328,31 @@ export function BoardEditor(props: BoardEditorProps) {
                   if (e.key === 'Enter') e.currentTarget.blur();
                   if (e.key === 'Escape') setNameDraft(null);
                 }}
-                className="h-7 w-56 rounded border border-primary px-1.5 text-sm font-semibold outline-none"
+                className="h-7 w-56 rounded border border-primary px-1 text-[15px] font-medium leading-6 outline-none"
               />
             ) : (
-              <button type="button" disabled={!props.canRename} onClick={() => setNameDraft(props.name)} className="max-w-[28ch] truncate rounded px-1.5 py-0.5 text-sm font-semibold hover:bg-muted disabled:hover:bg-transparent" title={props.canRename ? te.rename : props.name}>
+              <button type="button" disabled={!props.canRename} onClick={() => setNameDraft(props.name)} className="max-w-[28ch] truncate rounded px-1 text-[15px] font-medium leading-6 text-foreground hover:bg-muted disabled:hover:bg-transparent" title={props.canRename ? te.rename : props.name}>
                 {props.name}
               </button>
             )}
-            <span className="hidden truncate text-xs text-muted-foreground sm:inline">{statusText[props.status]}</span>
+            {statusText[props.status] && <span className="ml-2 hidden truncate text-xs text-muted-foreground sm:inline">{statusText[props.status]}</span>}
           </div>
-          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border bg-background px-2 py-1 shadow-md">
+          <div className="flex shrink-0 items-center gap-2">
+            {!presentation.presenting && (!c.readOnly || c.canComment) && (
+              <>
+                <FacilitationBar controller={c} />
+                <Divider />
+              </>
+            )}
+            {props.facilitation}
             {props.headerExtra}
-            <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => (presentation.presenting ? presentation.stop() : present())}>
-              <Presentation className="size-4" />
-              <span className="hidden md:inline">{presentation.presenting ? te.present.stop : te.present.start}</span>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => (presentation.presenting ? presentation.stop() : present())}>
+              {presentation.presenting ? te.present.stop : te.present.start}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-8 gap-1.5" aria-label={te.export.title}>
-                  <Download className="size-4" />
-                  <span className="hidden md:inline">{te.export.title}</span>
+                <Button size="sm" variant="outline" className="h-8">
+                  {te.export.title}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -396,7 +379,7 @@ export function BoardEditor(props: BoardEditorProps) {
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="size-8" aria-label={te.actions.more}>
+                <Button size="icon" variant="outline" className="size-8" aria-label={te.actions.more}>
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -425,16 +408,11 @@ export function BoardEditor(props: BoardEditorProps) {
           </div>
         </div>
 
-        {props.banner && <div className="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center">{props.banner}</div>}
-        {finding && (
-          <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
-            <FindBar controller={c} onClose={() => setFinding(false)} />
-          </div>
-        )}
-
-        {/* Left: tools */}
+        {/* Tools */}
         {!presentation.presenting && (
-          <div className="pointer-events-none absolute left-3 top-1/2 z-20 -translate-y-1/2">
+          <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2">
+            <UndoRedo controller={c} />
+            <Divider />
             <Toolbar controller={c} onImage={() => {
               imageAt.current = c.center();
               imagePicker.current?.click();
@@ -444,70 +422,86 @@ export function BoardEditor(props: BoardEditorProps) {
             } : undefined} onTemplates={() => setTemplates(true)} onRecords={props.onRecords} onAi={props.onAi} />
           </div>
         )}
-        <input
-          ref={imagePicker}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
-            e.target.value = '';
-            if (files.length) void insertImages(files, imageAt.current ?? c.center());
-          }}
-        />
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-[#f7f8fa]">
+          <BoardCanvas
+            controller={c}
+            interactions={ia}
+            loadImage={props.loadImage}
+            record={props.record}
+            recordVersion={props.recordVersion}
+            onFiles={(files, at) => void insertImages(files, at)}
+            onPasteUrl={(url, at) => void pasteUrl(url, at)}
+            keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
+            votes={props.votes ?? voting.votes}
+            commentCounts={props.commentCounts}
+            activeComment={props.activeComment}
+            faded={props.faded ?? voting.faded}
+            renaming={renaming}
+            onRenamed={(id, name) => {
+              setRenaming(null);
+              if (name !== null && name !== c.board.get(id)?.name) c.apply({ type: 'set', id, patch: { name: name.slice(0, 200) } });
+            }}
+            labels={{ renameFrame: te.renameFrame, board: te.canvas }}
+          />
 
-        <input
-          ref={filePicker}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
-            e.target.value = '';
-            if (files.length) void insertImages(files, imageAt.current ?? c.center());
-          }}
-        />
+          {props.banner && <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">{props.banner}</div>}
+          {finding && (
+            <div className="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center">
+              <FindBar controller={c} onClose={() => setFinding(false)} />
+            </div>
+          )}
 
-        {/* Context toolbar over the selection */}
-        {!presentation.presenting && <ContextToolbar controller={c} actions={context} />}
+          <input
+            ref={imagePicker}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = '';
+              if (files.length) void insertImages(files, imageAt.current ?? c.center());
+            }}
+          />
 
-        {/* Bottom left: undo/redo */}
-        {!presentation.presenting && (
-          <div className="pointer-events-none absolute bottom-3 left-3 z-20">
-            <UndoRedo controller={c} />
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = '';
+              if (files.length) void insertImages(files, imageAt.current ?? c.center());
+            }}
+          />
+
+          {/* Context toolbar over the selection */}
+          {!presentation.presenting && <ContextToolbar controller={c} actions={context} />}
+
+          {/* Bottom centre: presenting controls */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
+            <PresentControls presentation={presentation} />
           </div>
-        )}
 
-        {/* Bottom centre: presenting controls, facilitation */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
-          <PresentControls presentation={presentation} />
-          {!presentation.presenting && (!c.readOnly || c.canComment) && <FacilitationBar controller={c} />}
-          {props.facilitation}
-        </div>
-
-        {/* Bottom right: zoom, map */}
-        <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex flex-col items-end gap-2">
-          {minimap && <Minimap controller={c} />}
-          <ZoomControls controller={c} minimap={minimap} onToggleMinimap={() => setMinimap((v) => !v)} />
-        </div>
-
-        {/* Right panels */}
-        <div className="pointer-events-none absolute bottom-16 right-3 top-16 z-20 flex flex-col items-end gap-2">
-          {frames && <FramesPanel controller={c} onPresent={present} onClose={() => setFrames(false)} />}
-          {props.panel}
-        </div>
-
-        {c.board.size === 0 && !c.readOnly && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <p className="rounded-lg bg-background/80 px-4 py-2 text-sm text-muted-foreground shadow-sm">{te.emptyBoard}</p>
+          {/* Bottom right: zoom, map */}
+          <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex items-end gap-2">
+            {minimap && <Minimap controller={c} />}
+            <ZoomControls controller={c} minimap={minimap} onToggleMinimap={() => setMinimap((v) => !v)} />
           </div>
-        )}
-        {c.readOnly && !c.canComment && (
-          <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center">
-            <p className="rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">{te.readOnly}</p>
+
+          {/* Right panels */}
+          <div className="pointer-events-none absolute bottom-16 right-3 top-3 z-20 flex flex-col items-end gap-2">
+            {frames && <FramesPanel controller={c} onPresent={present} onClose={() => setFrames(false)} />}
+            {props.panel}
           </div>
-        )}
+
+          {c.readOnly && !c.canComment && (
+            <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+              <p className="rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">{te.readOnly}</p>
+            </div>
+          )}
+        </div>
       </div>
       <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
       <TemplatesDialog open={templates} onOpenChange={setTemplates} onPick={pickTemplate} />

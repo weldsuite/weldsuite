@@ -22,11 +22,12 @@ import {
   Database,
 } from 'lucide-react';
 import { pathToSvg, shapeOutline, STICKY_COLORS, PALETTE, type ConnectorRoute, type ShapeKind } from '@weldsuite/board-engine';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
-import type { ToolKind } from './model/tools';
-import { BarButton, BarPopover, Divider, Swatches, TOOL_BUTTON } from './ui';
+import { DROPPABLE_TOOLS, type ToolKind } from './model/tools';
+import { BarButton, BarPopover, Divider, Swatches, TOOL_BUTTON, WithTooltip } from './ui';
 
 const BASIC: ShapeKind[] = ['rectangle', 'rounded', 'ellipse', 'triangle', 'diamond', 'pentagon', 'hexagon', 'octagon', 'star', 'cross', 'parallelogram', 'trapezoid', 'cloud', 'callout', 'arrow-right', 'arrow-left', 'chevron', 'cylinder'];
 const FLOW: ShapeKind[] = ['terminator', 'rectangle', 'diamond', 'data', 'document', 'predefined', 'delay', 'manual-input', 'cylinder'];
@@ -66,19 +67,19 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
   const pick = (next: ToolKind) => () => c.setTool(next);
   const lock = (next: ToolKind) => () => c.setTool(next, true);
   const button = (kind: ToolKind, label: string, icon: ReactNode, disabled = false) => (
-    <BarButton key={kind} label={label} side="right" className={TOOL_BUTTON} active={tool === kind} disabled={disabled} onClick={pick(kind)} onDoubleClick={lock(kind)}>
+    <BarButton key={kind} label={label} side="bottom" className={TOOL_BUTTON} active={tool === kind} disabled={disabled} onClick={pick(kind)} onDoubleClick={lock(kind)} dragTool={DROPPABLE_TOOLS.has(kind) ? kind : undefined}>
       {icon}
     </BarButton>
   );
 
   return (
-    <div className="pointer-events-auto flex flex-col items-center gap-0.5 rounded-xl border bg-background p-1 shadow-md" role="toolbar" aria-orientation="vertical">
+    <div className="flex items-center gap-0.5" role="toolbar" aria-orientation="horizontal">
       {button('select', tt.select, <MousePointer2 />)}
       {button('hand', tt.hand, <Hand />)}
       {!ro && (
         <>
-          <Divider vertical={false} />
-          <BarPopover label={tt.sticky} side="right" className={TOOL_BUTTON} active={tool === 'sticky'} trigger={<StickyNote style={{ color: tool === 'sticky' ? undefined : '#ca8a04' }} />}>
+          <Divider />
+          <BarPopover label={tt.sticky} side="bottom" className={TOOL_BUTTON} active={tool === 'sticky'} dragTool="sticky" trigger={<StickyNote style={{ color: tool === 'sticky' ? undefined : '#ca8a04' }} />}>
             <div className="flex w-64 flex-col gap-2">
               <button type="button" className="rounded-md bg-primary px-2 py-1.5 text-sm text-primary-foreground" onClick={pick('sticky')}>
                 {tt.sticky}
@@ -93,7 +94,7 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
               />
             </div>
           </BarPopover>
-          <BarPopover label={tt.shape} side="right" className={TOOL_BUTTON} active={tool === 'shape'} trigger={<Shapes />}>
+          <BarPopover label={tt.shape} side="bottom" className={TOOL_BUTTON} active={tool === 'shape'} dragTool="shape" trigger={<Shapes />}>
             <div className="flex w-72 flex-col gap-2">
               <p className="text-xs font-medium text-muted-foreground">{ts.basic}</p>
               <ShapeGrid kinds={BASIC} value={tool === 'shape' ? c.toolOptions.shape : undefined} labels={ts} onPick={(kind) => {
@@ -108,10 +109,8 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
             </div>
           </BarPopover>
           {button('text', tt.text, <Type />)}
-          <BarPopover label={tt.connector} side="right" className={TOOL_BUTTON} active={tool === 'connector'} trigger={<Spline />}>
-            <ConnectorOptions controller={c} />
-          </BarPopover>
-          <BarPopover label={tt.drawing} side="right" className={TOOL_BUTTON} active={tool === 'pen' || tool === 'highlighter' || tool === 'eraser'} trigger={drawingIcon(tool)}>
+          <ConnectorMenu controller={c} label={tt.connector} />
+          <BarPopover label={tt.drawing} side="bottom" className={TOOL_BUTTON} active={tool === 'pen' || tool === 'highlighter' || tool === 'eraser'} trigger={drawingIcon(tool)}>
             <div className="flex w-64 flex-col gap-2">
               <div className="flex gap-1">
                 <BarButton label={tt.pen} active={tool === 'pen'} onClick={pick('pen')}>
@@ -156,25 +155,25 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
           {button('frame', tt.frame, <Frame />)}
           {button('card', tt.card, <SquareKanban />)}
           {button('mindmap', tt.mindmap, <Network />)}
-          <BarButton label={tt.image} side="right" className={TOOL_BUTTON} onClick={onImage}>
+          <BarButton label={tt.image} side="bottom" className={TOOL_BUTTON} onClick={onImage}>
             <ImagePlus />
           </BarButton>
           {onFile && (
-            <BarButton label={tt.file} side="right" className={TOOL_BUTTON} onClick={onFile}>
+            <BarButton label={tt.file} side="bottom" className={TOOL_BUTTON} onClick={onFile}>
               <Paperclip />
             </BarButton>
           )}
-          <Divider vertical={false} />
-          <BarButton label={tt.templates} side="right" className={TOOL_BUTTON} onClick={onTemplates}>
+          <Divider />
+          <BarButton label={tt.templates} side="bottom" className={TOOL_BUTTON} onClick={onTemplates}>
             <LayoutTemplate />
           </BarButton>
           {onRecords && (
-            <BarButton label={tt.records} side="right" className={TOOL_BUTTON} onClick={onRecords}>
+            <BarButton label={tt.records} side="bottom" className={TOOL_BUTTON} onClick={onRecords}>
               <Database />
             </BarButton>
           )}
           {onAi && (
-            <BarButton label={tt.ai} side="right" className={TOOL_BUTTON} onClick={onAi}>
+            <BarButton label={tt.ai} side="bottom" className={TOOL_BUTTON} onClick={onAi}>
               <Sparkles className="text-violet-600" />
             </BarButton>
           )}
@@ -182,7 +181,7 @@ export function Toolbar({ controller: c, onImage, onFile, onTemplates, onRecords
       )}
       {(!ro || c.canComment) && (
         <>
-          <Divider vertical={false} />
+          <Divider />
           {button('comment', tt.comment, <MessageSquarePlus />)}
         </>
       )}
@@ -210,7 +209,25 @@ function ShapeGrid({ kinds, value, onPick, labels }: { kinds: ShapeKind[]; value
   );
 }
 
-function ConnectorOptions({ controller: c }: { controller: BoardController }) {
+/** How each connector route runs, drawn from corner to corner. */
+const ROUTE_PATHS: Record<ConnectorRoute, string> = {
+  straight: 'M5 19 L19 5',
+  elbow: 'M5 19 H12 V5 H19',
+  curved: 'M5 19 C5 9 19 15 19 5',
+};
+
+function RouteIcon({ route }: { route: ConnectorRoute }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={ROUTE_PATHS[route]} />
+      <circle cx="5" cy="19" r="1.5" fill="currentColor" />
+      <circle cx="19" cy="5" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** The connector tool: picks how connectors run, as a stock shadcn menu. */
+function ConnectorMenu({ controller: c, label }: { controller: BoardController; label: string }) {
   const { t } = useI18n();
   const tc = t.weldboard.editor.connector;
   const routes: [ConnectorRoute, string][] = [
@@ -218,22 +235,41 @@ function ConnectorOptions({ controller: c }: { controller: BoardController }) {
     ['elbow', tc.elbow],
     ['curved', tc.curved],
   ];
+  const active = c.tool === 'connector';
   return (
-    <div className="flex w-48 flex-col gap-1">
-      {routes.map(([route, label]) => (
-        <button
-          key={route}
-          type="button"
-          className={cn('rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent', c.tool === 'connector' && c.toolOptions.connectorRoute === route && 'bg-accent')}
-          onClick={() => {
-            c.setToolOptions({ connectorRoute: route });
-            c.setTool('connector');
-          }}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <DropdownMenu>
+      <WithTooltip label={label} side="bottom">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            className={cn(TOOL_BUTTON, 'aria-expanded:bg-accent', active && 'bg-primary/10 text-primary aria-expanded:bg-primary/15')}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <Spline />
+          </button>
+        </DropdownMenuTrigger>
+      </WithTooltip>
+      <DropdownMenuContent align="start" className="min-w-0" onCloseAutoFocus={(e) => e.preventDefault()}>
+        {/* Stock items side by side, icons only; the current route keeps the item highlight. */}
+        <DropdownMenuGroup className="flex">
+          {routes.map(([route, name]) => (
+            <DropdownMenuItem
+              key={route}
+              aria-label={name}
+              title={name}
+              className={cn(c.toolOptions.connectorRoute === route && 'bg-accent text-accent-foreground')}
+              onSelect={() => {
+                c.setToolOptions({ connectorRoute: route });
+                c.setTool('connector');
+              }}
+            >
+              <RouteIcon route={route} />
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -241,7 +277,7 @@ export function UndoRedo({ controller: c }: { controller: BoardController }) {
   const { t } = useI18n();
   const te = t.weldboard.editor;
   return (
-    <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border bg-background p-1 shadow-md">
+    <div className="flex items-center gap-0.5">
       <BarButton label={te.undo} onClick={() => c.undo()} disabled={c.readOnly || !c.history.canUndo}>
         <Undo2 />
       </BarButton>

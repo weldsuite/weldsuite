@@ -11,15 +11,21 @@ export const weldboard = {
 
   home: {
     startNew: 'Start a new board',
-    blank: 'Blank board',
     newBoard: 'New board',
     recent: 'Recent boards',
     projectBoards: 'Project whiteboards',
     emptyTitle: 'No boards yet',
-    emptyDescription: 'Create a board to brainstorm, map out a process or plan with your team.',
+    emptyDescription: 'Create your first board to get started',
+    search: 'Search boards',
+    noResultsTitle: 'No boards found',
+    noResultsDescription: 'Try a different search',
+    columns: {
+      name: 'Name',
+      project: 'Project',
+      updated: 'Last updated',
+      created: 'Created',
+    },
     untitled: 'Untitled board',
-    edited: 'Edited {time}',
-    open: 'Open',
     rename: 'Rename',
     renamePrompt: 'Board name',
     duplicate: 'Make a copy',
@@ -41,8 +47,6 @@ export const weldboard = {
     loadFailed: 'Your boards could not be loaded.',
     retry: 'Try again',
     allTemplates: 'All templates',
-    inProject: 'In {name}',
-    legacy: 'Opens as a WeldBoard board',
     saveAsTemplate: 'Save as template',
     removeTemplate: 'Remove from templates',
     templateSaved: 'Saved as a template',
@@ -160,13 +164,10 @@ export const weldboard = {
   editor: {
     canvas: 'Board',
     status: {
-      saved: 'All changes saved',
-      saving: 'Saving…',
       reconnecting: 'Reconnecting…',
       offlinePending: 'Offline: changes will be saved when you reconnect',
       viewOnly: 'View only',
       commentOnly: 'You can comment',
-      local: 'Saved in this browser',
     },
     share: 'Share',
     rename: 'Rename board',
@@ -634,7 +635,6 @@ export const weldboard = {
     },
     minimap: 'Board map',
     showAuthors: 'Show who wrote each sticky note',
-    emptyBoard: 'Double-click anywhere to add a sticky note, or pick a tool on the left.',
   },
 
   files: {

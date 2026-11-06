@@ -154,7 +154,7 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
   };
 
   return (
-    <div className="pointer-events-auto flex items-center gap-1 rounded-xl border bg-background px-1.5 py-1 shadow-md">
+    <div className="flex items-center gap-1">
       {/* Timer */}
       {timer ? (
         <div className="flex items-center gap-0.5" role="timer" aria-label={tt.title}>
@@ -188,7 +188,7 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
                 <span className="hidden sm:inline">{tt.title}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent side="top" className="w-56">
+            <PopoverContent side="bottom" className="w-56">
               <p className="mb-2 text-sm font-medium">{tt.startFor}</p>
               <div className="grid grid-cols-5 gap-1">
                 {TIMER_PRESETS.map((m) => (
@@ -234,7 +234,7 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
                 <span className="hidden sm:inline">{tv.title}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent side="top" className="w-64 space-y-3">
+            <PopoverContent side="bottom" className="w-64 space-y-3">
               <p className="text-sm font-medium">{tv.start}</p>
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="wb-votes-each">{tv.votesPerPerson}</Label>
@@ -272,7 +272,7 @@ export function FacilitationBar({ controller: c }: { controller: BoardController
               <SmilePlus className="size-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" className="flex w-auto gap-1 p-1.5">
+          <PopoverContent side="bottom" className="flex w-auto gap-1 p-1.5">
             {REACTIONS.map((emoji) => (
               <button key={emoji} type="button" className="rounded-md px-1.5 py-1 text-xl hover:bg-muted" onClick={() => react(emoji)} aria-label={emoji}>
                 {emoji}
