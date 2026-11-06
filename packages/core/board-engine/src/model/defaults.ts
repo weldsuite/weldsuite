@@ -32,6 +32,7 @@ export const STICKY_COLORS = [
   '#f16c7f', // red
   '#e6e6e6', // grey
   '#ffffff', // white
+  '#d9c8f5', // lavender
 ] as const;
 
 /** Fill and stroke colours offered for shapes, text and lines. */

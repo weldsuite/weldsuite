@@ -51,7 +51,8 @@ import { duplicateSelection } from './model/clipboard';
 import { copyStyle, pasteStyle } from './model/style';
 import { hasMark, setMark, toggleMark } from './model/text-editing';
 import { ShapeIcon } from './toolbar';
-import { BarButton, BarPopover, Divider, Swatches } from './ui';
+import { Swatches } from './swatches';
+import { BarButton, BarPopover, Divider } from './ui';
 
 export interface ContextActions {
   onLink: () => void;
@@ -180,7 +181,7 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
           {(only === 'shape' || only === 'card' || only === 'frame' || only === 'text') && (
             <BarPopover label={ts.fill} trigger={fillSwatch(els[0]!.fill)}>
               <div className="flex flex-col gap-2">
-                <Swatches colors={['transparent', ...SHAPE_FILLS]} value={els[0]!.fill} onPick={(color) => color && setAll(c, els, { fill: color })} />
+                <Swatches colors={['transparent', ...SHAPE_FILLS]} custom={false} noneLabel={ts.noFill} value={els[0]!.fill} onPick={(color) => color && setAll(c, els, { fill: color })} />
                 <Swatches colors={PALETTE} value={els[0]!.fill} onPick={(color) => color && setAll(c, els, { fill: color })} />
               </div>
             </BarPopover>
@@ -381,7 +382,7 @@ function StrokeControls({ c, els }: { c: BoardController; els: BoardElement[] })
   return (
     <BarPopover label={ts.stroke} trigger={<span className="size-5 rounded-sm border-[3px]" style={{ borderColor: el.stroke ?? '#1f2937' }} />}>
       <div className="flex w-64 flex-col gap-2">
-        <Swatches colors={el.type === 'pen' ? PALETTE : ['transparent', ...PALETTE]} value={el.stroke} onPick={(color) => color && setAll(c, els, { stroke: color })} />
+        <Swatches colors={el.type === 'pen' ? PALETTE : ['transparent', ...PALETTE]} noneLabel={ts.noStroke} value={el.stroke} onPick={(color) => color && setAll(c, els, { stroke: color })} />
         <div className="flex items-center gap-1">
           <span className="w-20 text-xs text-muted-foreground">{ts.strokeWidth}</span>
           {[1, 2, 4, 6, 10].map((w) => (

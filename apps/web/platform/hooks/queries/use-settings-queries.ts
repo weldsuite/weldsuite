@@ -968,6 +968,8 @@ export interface UserPreferences {
     weldchatLastPath?: string | null;
     /** WeldChat: the user's drag-and-drop order of each sidebar group (group key → channel ids). */
     weldchatSidebarOrder?: Record<string, string[]>;
+    /** WeldBoard: the colours the user saved in the board's colour pickers (hex, newest first). */
+    weldboardColors?: string[];
     /** WeldFlow: place its tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
     autoScheduleFlowTasks?: boolean;
     /** WeldCRM: place CRM-linked tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
