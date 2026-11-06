@@ -199,8 +199,8 @@ describe('the connection', () => {
     await db.update(schema.mergeConnections).set({ createdAt: new Date('2026-01-01T00:00:00Z') }).where(eq(schema.mergeConnections.id, other));
     const shown = await seedConnection({ installationId: 5252, ownerLogin: 'acme-corp' });
     await master.insert(masterSchema.mergeProviderIndex).values([
-      { id: 'mpi_wg_other', provider: 'github', kind: 'installation', externalKey: '5151', workspaceId: 'ws_alpha' },
-      { id: 'mpi_wg_shown', provider: 'github', kind: 'installation', externalKey: '5252', workspaceId: 'ws_alpha' },
+      { id: 'mpi_wg_other', provider: 'github', kind: 'installation', externalKey: '5151', workspaceId: 'ws_test_default' },
+      { id: 'mpi_wg_shown', provider: 'github', kind: 'installation', externalKey: '5252', workspaceId: 'ws_test_default' },
     ]);
     expect((((await (await app()(`${BASE}/connection`)).json()) as { data: { id: string } }).data).id).toBe(shown);
 
@@ -209,6 +209,22 @@ describe('the connection', () => {
     expect(Object.fromEntries(statuses.map((r) => [r.id, r.status]))).toEqual({ [other]: 'active', [shown]: 'revoked' });
     const index = await master.select({ key: masterSchema.mergeProviderIndex.externalKey }).from(masterSchema.mergeProviderIndex);
     expect(index.map((r: { key: string }) => r.key)).toEqual(['5151']);
+  });
+
+  it('never drops the index row of an installation another workspace holds', async () => {
+    await clearConnections();
+    const shown = await seedConnection({ installationId: 5353, ownerLogin: 'acme-corp' });
+    await master
+      .insert(masterSchema.mergeProviderIndex)
+      .values({ id: 'mpi_wg_elsewhere', provider: 'github', kind: 'installation', externalKey: '5353', workspaceId: 'ws_someone_else' });
+
+    expect((await app()(`${BASE}/connection`, { method: 'DELETE' })).status).toBe(204);
+    const [row] = await db.select().from(schema.mergeConnections).where(eq(schema.mergeConnections.id, shown));
+    expect(row.status).toBe('revoked');
+    const index = await master
+      .select({ key: masterSchema.mergeProviderIndex.externalKey, workspaceId: masterSchema.mergeProviderIndex.workspaceId })
+      .from(masterSchema.mergeProviderIndex);
+    expect(index).toEqual([{ key: '5353', workspaceId: 'ws_someone_else' }]);
   });
 });
 

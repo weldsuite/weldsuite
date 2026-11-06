@@ -20,7 +20,7 @@ import { getMasterDb, getWorkspaceForOrg, schema } from '@weldsuite/worker-kit/d
 import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import {
   recordGithubInstallation,
-  removeGithubInstallationIndex,
+  releaseGithubInstallationIndex,
   setGithubInstallationStatus,
   type MergeConnectionRecord,
   type RecordedGithubInstallation,
@@ -138,20 +138,18 @@ export async function recordInstallation(
   return recordGithubInstallation(db, getMasterDb(env), { ...input, workspaceId: workspace.id });
 }
 
-/** Revokes the connection of an installation GitHub says was uninstalled, and drops it from the master index. */
-export async function revokeInstallation(env: Env, db: Database, installationId: number): Promise<void> {
-  await setGithubInstallationStatus(db, installationId, 'revoked');
-  await removeGithubInstallationIndex(getMasterDb(env), installationId);
-}
-
 /**
  * Disconnects the connection the settings page shows (`getConnectionByWorkspace`):
- * it is revoked and leaves the master index. The workspace's other GitHub
- * organisations, connected in WeldMerge, keep syncing.
+ * it is revoked and leaves the master index, but only when the index row names
+ * this workspace (`workspaceId` is `workspaces.id`), so a member never unroutes
+ * another workspace's installation. The workspace's other GitHub organisations,
+ * connected in WeldMerge, keep syncing.
  */
-export async function revokeConnection(env: Env, db: Database): Promise<void> {
+export async function revokeConnection(env: Env, db: Database, workspaceId: string): Promise<void> {
   const connection = await getConnectionByWorkspace(db);
-  if (connection) await revokeInstallation(env, db, connection.installationId);
+  if (!connection) return;
+  await setGithubInstallationStatus(db, connection.installationId, 'revoked');
+  await releaseGithubInstallationIndex(getMasterDb(env), connection.installationId, workspaceId);
 }
 
 /**

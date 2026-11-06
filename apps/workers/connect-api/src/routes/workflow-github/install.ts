@@ -129,7 +129,7 @@ app.delete(
 
     try {
       const db = c.get('tenantDb');
-      await revokeConnection(c.env, db);
+      await revokeConnection(c.env, db, c.get('workspaceId'));
       return new Response(null, { status: 204 });
     } catch (err) {
       console.error('[GitHub] Failed to disconnect:', err);

@@ -31,7 +31,7 @@ use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_merge_domain::installations::{
     GithubInstallation, RecordError, record_github_installation, release_github_installation_index,
-    remove_github_installation_index, set_github_installation_status,
+    set_github_installation_status,
 };
 use weldsuite_merge_domain::member_token::stored_member_github_token;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -235,28 +235,17 @@ fn installation_key(number: f64) -> String {
     number.to_string()
 }
 
-/// `revokeInstallation(env, db, installationId)`: the connection of an
-/// installation GitHub says was uninstalled is revoked and leaves the master
-/// index (WeldMerge's installation recorder).
-async fn revoke_installation(
+/// `revokeConnection(env, db, workspaceId)`: the connection the settings page
+/// shows (`getConnectionByWorkspace`: the newest active one, else the newest)
+/// is revoked and leaves the master index, but only when the index row names
+/// this workspace (`workspace_id` is `workspaces.id`), so a member never
+/// unroutes another workspace's installation. The workspace's other GitHub
+/// organisations, connected in WeldMerge, keep syncing.
+async fn revoke_connection(
     db: &PgPool,
     master: Option<&PgPool>,
-    installation_id: &str,
+    workspace_id: &str,
 ) -> Result<(), String> {
-    set_github_installation_status(db, installation_id, "revoked")
-        .await
-        .map_err(|error| error.to_string())?;
-    let master = master.ok_or("no master database")?;
-    remove_github_installation_index(master, installation_id)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-/// `revokeConnection(env, db)`: the connection the settings page shows
-/// (`getConnectionByWorkspace`: the newest active one, else the newest) is
-/// revoked and leaves the master index. The workspace's other GitHub
-/// organisations, connected in WeldMerge, keep syncing.
-async fn revoke_connection(db: &PgPool, master: Option<&PgPool>) -> Result<(), String> {
     let installation: Option<String> = sqlx::query_scalar(
         "select external_account_id from merge_connections
          where provider = 'github' and deleted_at is null
@@ -267,14 +256,29 @@ async fn revoke_connection(db: &PgPool, master: Option<&PgPool>) -> Result<(), S
     .map_err(|error| error.to_string())?;
     if let Some(installation) = installation {
         let key = installation_key(weldsuite_kit::validation::js_number(&installation));
-        revoke_installation(db, master, &key).await?;
+        set_github_installation_status(db, &key, "revoked")
+            .await
+            .map_err(|error| error.to_string())?;
+        let master = master.ok_or("no master database")?;
+        release_github_installation_index(master, &key, workspace_id)
+            .await
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
 async fn disconnect(State(state): State<ConnectState>, caller: Caller) -> Response {
     let master = caller.overrides.master(&state);
-    match revoke_connection(&caller.db, master.as_ref()).await {
+    // `c.get('workspaceId')`: the session's own workspace.
+    let workspace_id = if caller.workspace_id.is_empty() {
+        match workspace_id_for(master.as_ref(), &caller.clerk_org_id).await {
+            Ok(id) => id,
+            Err(error) => return internal(&error, "Failed to disconnect GitHub"),
+        }
+    } else {
+        caller.workspace_id.clone()
+    };
+    match revoke_connection(&caller.db, master.as_ref(), &workspace_id).await {
         Ok(()) => NoContent.into_response(),
         Err(error) => internal(&error, "Failed to disconnect GitHub"),
     }
