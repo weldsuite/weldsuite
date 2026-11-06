@@ -9,7 +9,8 @@
 #     release's values).
 # In order: chart sources, operators and the ingress, the encrypted secrets,
 # Postgres and the issuer, the services, the weldsuite server with video
-# (LiveKit) beside it, and Prometheus for Lens's charts (test only, so far).
+# (LiveKit) beside it, Prometheus for Lens's charts, and the marketing site
+# (the last two test only, so far).
 # `flux create kustomization ... --path=./rust/deploy/flux/clusters/test`
 # applies this directory (runbook step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -296,3 +297,27 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
+---
+# The marketing site at www.${DOMAIN} (English) and nl.${DOMAIN} (Dutch), the
+# newest build of weldsuite-eu-marketing's main (apps/marketing). It needs the
+# ingress and the issuer, nothing of the platform's.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: marketing
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: configs
+  interval: 10m
+  path: ./rust/deploy/flux/apps/marketing
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

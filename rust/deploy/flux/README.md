@@ -18,13 +18,16 @@ infrastructure/
   video/        LiveKit (WeldMeet and WeldChat calls), its signalling host and TURN over TLS through Traefik
   monitoring/   Prometheus for Lens (test only, so far)
 apps/eu/        the weldsuite HelmRelease
+apps/marketing/ the marketing site (test only, so far: its image is built for the test cluster's
+                hosts in weldsuite-eu-marketing, which publishes its chart too)
 secrets/        eu/, drill/ and test/: SOPS-encrypted Secrets; examples/: every Secret the layers expect
 scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values
 ```
 
 Order: `sources` → `controllers` → `secrets` → `configs` → `services` →
 `apps`, and `video` after `services`, beside `apps` (eu and test; the drill
-leaves it out). Each HelmRelease's values are in a `values/` file next to it
+leaves it out). On test, `marketing` follows `configs` (the ingress and the
+issuer are all it needs). Each HelmRelease's values are in a `values/` file next to it
 (a generated ConfigMap), which `../validate.sh` renders with the chart at the
 pinned version.
 

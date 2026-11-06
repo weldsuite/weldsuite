@@ -1,0 +1,8 @@
+# The marketing site has its own namespace: it shares nothing with the
+# weldsuite server (no database, no secrets of the platform).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marketing
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
