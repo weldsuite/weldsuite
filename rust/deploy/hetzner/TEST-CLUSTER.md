@@ -264,9 +264,7 @@ For the cluster built while it followed `deploy/eu-test` (on its images of
 `0aeda04f9`, from before wave 3). Once this is in `develop`:
 
 1. **Secrets the newer server reads.** The test cluster's
-   `secrets/test/secrets.sops.yaml` predates them. Add them with
-   `sops secrets/test/secrets.sops.yaml` (the age key from step 7), each a new
-   random value unless noted, then commit them through a pull request:
+   `secrets/test/secrets.sops.yaml` predates them:
    - `weldsuite-env`: `WIDGET_TOKEN_SECRET`, `COLLAB_ROOMS_SECRET`,
      `INTERNAL_API_SECRET`, `WELDREACH_WARMUP_KEY` (64 hex characters),
      `LIVEKIT_API_KEY: weldsuite`, `LIVEKIT_API_SECRET` (48 hex characters);
@@ -274,8 +272,19 @@ For the cluster built while it followed `deploy/eu-test` (on its images of
      `LIVEKIT_KEYS: "weldsuite: <the LIVEKIT_API_SECRET above>"` and
      `REDIS_PASSWORD`, the value of `valkey-users`' `default`.
 
-   The collab-rooms pods need `COLLAB_ROOMS_SECRET` to start, so this comes
-   before the switch.
+   `fill-secrets.mjs --update` adds exactly those (and whatever the examples
+   gain later), with the age key from step 7. It decrypts in memory, keeps
+   every value the file has, takes `REDIS_PASSWORD` from it, and prints names
+   only:
+
+   ```bash
+   SOPS_AGE_KEY_FILE=~/weldsuite-eu-test.agekey \
+     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/test/secrets.sops.yaml
+   ```
+
+   Then commit the file through a pull request (`git diff` shows only
+   `ENC[…]` values). The collab-rooms pods need `COLLAB_ROOMS_SECRET` to
+   start, so this comes before the switch.
 2. **Packages.** Make `weldsuite-collab-rooms` and `charts/weldsuite` public
    after the first develop build (step 8).
 3. **Servers.** From the checkout that holds the local state, `tofu apply`
