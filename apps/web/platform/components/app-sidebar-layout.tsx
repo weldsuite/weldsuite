@@ -79,6 +79,7 @@ import { ResourceUsage } from "@/components/resource-usage"
 import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-group"
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
 import { BetaBadge } from "@/components/layout/beta-badge"
+import { CountBadge } from "@weldsuite/ui/components/count-badge"
 import type { MenuPermission } from "@/components/layout/menu-permission"
 import { useI18n } from "@/lib/i18n/provider"
 import type { TranslationsType } from "@/lib/i18n/types"
@@ -467,12 +468,11 @@ function GroupLabelText({ group }: Readonly<{ group: MenuGroupProps }>) {
         </span>
       )}
       {mentions > 0 && (
-        <span
-          className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-[5px] border border-red-600 bg-red-500 px-1 font-mono text-[10px] font-medium leading-none text-white"
+        <CountBadge
+          count={mentions}
           title={format(t.common.sidebarItemMenu.mentionsInGroup, { count: mentions })}
-        >
-          {mentions}
-        </span>
+          className="ml-0.5"
+        />
       )}
     </>
   );
@@ -649,7 +649,7 @@ function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: 
           <Link href={item.href} aria-current={pathname === item.href ? 'page' : undefined} className="flex items-center flex-1 min-w-0">
             <Icon className="h-4 w-4 ml-2 shrink-0" />
             <span className={cn("ml-2 truncate", item.bold || isActive ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
-            {item.badge && <span role={item.badgeLabel ? 'img' : undefined} aria-label={item.badgeLabel} title={item.badgeLabel} className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+            {item.badge && <CountBadge count={item.badge} label={item.badgeLabel} title={item.badgeLabel} className="ml-auto" />}
           </Link>
           <div className="flex items-center gap-0">
             {item.actions && item.actions.length > 0 && (
@@ -846,7 +846,7 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
               <TooltipContent side="top" sideOffset={4}>{t.common.sidebarItemMenu.joinCall}</TooltipContent>
             </Tooltip>
           )}
-          {item.badge && <span role={item.badgeLabel ? 'img' : undefined} aria-label={item.badgeLabel} title={item.badgeLabel} className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+          {item.badge && <CountBadge count={item.badge} label={item.badgeLabel} title={item.badgeLabel} className={cn(!item.activeCall && "ml-auto")} />}
         </Link>
       </SidebarMenuButton>
       {item.actions && item.actions.length > 0 && !item.activeCall && (
