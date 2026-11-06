@@ -31,6 +31,9 @@ spec:
   # the Valkey password come in as environment variables instead (LIVEKIT_KEYS,
   # REDIS_PASSWORD, which override the config), from the livekit-env Secret
   # (secrets/examples/secrets.example.yaml).
+  # No service links: the chart's Service is called livekit, so Kubernetes
+  # would set LIVEKIT_PORT=tcp://<service ip>:7880 in the pod, which
+  # livekit-server reads as its --port flag and exits on.
   postRenderers:
     - kustomize:
         patches:
@@ -43,3 +46,6 @@ spec:
                 value:
                   - secretRef:
                       name: livekit-env
+              - op: add
+                path: /spec/template/spec/enableServiceLinks
+                value: false
