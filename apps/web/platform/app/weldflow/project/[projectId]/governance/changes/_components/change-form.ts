@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ChangeRequestDetail, CreateChangeRequestInput } from '@weldsuite/app-api-client/domains/flow-approvals';
+import type { ChangeRequest, CreateChangeRequestInput } from '@weldsuite/app-api-client/domains/flow-approvals';
 
 export interface ChangeFormCopy {
   titleRequired: string;
@@ -35,7 +35,7 @@ export function emptyChangeForm(): ChangeFormValues {
 }
 
 /** The form's starting values for an existing change. */
-export function changeFormFrom(change: ChangeRequestDetail): ChangeFormValues {
+export function changeFormFrom(change: ChangeRequest): ChangeFormValues {
   const plan = (change.planChanges ?? {}) as { goLive?: string | null; milestones?: Array<{ milestoneId: string; to: string }> };
   const scope = (change.scopeChanges ?? {}) as { add?: Array<{ title: string }> };
   return {
@@ -54,7 +54,7 @@ export function changeFormFrom(change: ChangeRequestDetail): ChangeFormValues {
  * control for (made through the API) are kept from `existing`, so an edit does
  * not drop them.
  */
-export function changeBodyFrom(values: ChangeFormValues, existing?: Pick<ChangeRequestDetail, 'planChanges' | 'scopeChanges'>): Omit<CreateChangeRequestInput, 'projectId'> {
+export function changeBodyFrom(values: ChangeFormValues, existing?: Pick<ChangeRequest, 'planChanges' | 'scopeChanges'>): Omit<CreateChangeRequestInput, 'projectId'> {
   const kept = (existing?.planChanges ?? {}) as { deliverables?: unknown[] };
   const keptScope = (existing?.scopeChanges ?? {}) as { remove?: string[]; add?: Array<Record<string, unknown>> };
   const milestones = values.milestoneMoves.map((move) => ({ milestoneId: move.milestoneId, to: dayIso(move.to) }));

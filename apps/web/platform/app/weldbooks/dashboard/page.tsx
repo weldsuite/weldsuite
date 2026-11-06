@@ -1,4 +1,5 @@
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PageColumn } from '@weldsuite/ui/components/page-layout';
 import { useAccountingDashboard } from '@/hooks/queries/use-accounting-queries';
 import { UndepositedFundsCallout } from '@/app/weldbooks/banking/components/undeposited-funds-callout';
 import { useI18n } from '@/lib/i18n/provider';
@@ -20,17 +21,17 @@ export default function AccountingDashboardPage() {
   const dashboard = data?.data;
   if (!dashboard)
     return (
-      <div className="mx-auto w-full max-w-7xl p-6 text-muted-foreground">
+      <PageColumn className="py-6 text-muted-foreground">
         {td.loadingMessage}
-      </div>
+      </PageColumn>
     );
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-14 px-6 pt-16 pb-6">
+    <PageColumn className="space-y-14 pt-16 pb-6">
       <UndepositedFundsCallout />
       <TodaySection dashboard={dashboard} />
       <OverviewSection dashboard={dashboard} />
       <ActivityLists dashboard={dashboard} />
-    </div>
+    </PageColumn>
   );
 }

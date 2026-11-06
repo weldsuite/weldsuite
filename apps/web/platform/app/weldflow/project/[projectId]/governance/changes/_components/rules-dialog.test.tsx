@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
 import { interpolate } from '@weldsuite/i18n/provider';
 import type { ChangeControlResponse } from '@weldsuite/app-api-client/domains/flow-approvals';
@@ -13,7 +13,7 @@ vi.mock('@/hooks/queries/use-flow-approvals-queries', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { RulesCard } from './rules-card';
+import { RulesDialog, RulesForm } from './rules-dialog';
 import { changeBodyFrom, changeFormSchema, emptyChangeForm } from './change-form';
 import { changeActions } from './change-detail';
 
@@ -30,22 +30,54 @@ const control = (overrides: Partial<ChangeControlResponse> = {}): ChangeControlR
 
 const members = [{ userId: 'u1', name: 'Ann' }, { userId: 'u2', name: 'Bob' }];
 
-describe('RulesCard gating', () => {
+describe('Approval rules gating', () => {
   it('lets a manager edit the limits and save', () => {
-    render(<RulesCard projectId="p1" control={control()} members={members} canEdit />);
+    render(<RulesForm projectId="p1" control={control()} members={members} canEdit onClose={vi.fn()} />);
     expect((screen.getByLabelText('Cost limit (EUR)') as HTMLInputElement).disabled).toBe(false);
     expect(screen.getByRole('button', { name: 'Save rules' })).toBeTruthy();
     expect(screen.getAllByText('No change board').length).toBeGreaterThan(0);
   });
 
   it('shows everybody else the rules read-only, without a save button', () => {
-    render(<RulesCard projectId="p1" control={control({ changeControl: { costLimit: 1000, scheduleLimitDays: 2, boardMemberIds: ['u2'] }, warnings: [] })} members={members} canEdit={false} />);
+    render(<RulesForm projectId="p1" control={control({ changeControl: { costLimit: 1000, scheduleLimitDays: 2, boardMemberIds: ['u2'] }, warnings: [] })} members={members} canEdit={false} onClose={vi.fn()} />);
     expect((screen.getByLabelText('Cost limit (EUR)') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Cost limit (EUR)') as HTMLInputElement).value).toBe('1000');
     expect(screen.queryByRole('button', { name: 'Save rules' })).toBeNull();
     expect(screen.getAllByText('Bob').length).toBeGreaterThan(0);
     expect(screen.getByText(en.flowApprovals.changes.rules.managerOnly)).toBeTruthy();
     expect(screen.queryByText('No change board')).toBeNull();
+    expect(screen.queryByText(en.flowApprovals.changes.rules.noBoardWarning)).toBeNull();
+  });
+
+  it('warns when no board is set', () => {
+    render(<RulesForm projectId="p1" control={control()} members={members} canEdit onClose={vi.fn()} />);
+    expect(screen.getByText(en.flowApprovals.changes.rules.noBoardWarning)).toBeTruthy();
+  });
+
+  it('lets a manager cancel and a reader close', () => {
+    const onClose = vi.fn();
+    const { unmount } = render(<RulesForm projectId="p1" control={control()} members={members} canEdit onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
+    render(<RulesForm projectId="p1" control={control()} members={members} canEdit={false} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('RulesDialog', () => {
+  it('shows the rules in a dialog under their title and description', () => {
+    render(<RulesDialog open onOpenChange={vi.fn()} projectId="p1" control={control()} members={members} canEdit />);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText(en.flowApprovals.changes.rules.title)).toBeTruthy();
+    expect(within(dialog).getByText(en.flowApprovals.changes.rules.description)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Save rules' })).toBeTruthy();
+  });
+
+  it('renders nothing while closed', () => {
+    render(<RulesDialog open={false} onOpenChange={vi.fn()} projectId="p1" control={control()} members={members} canEdit />);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

@@ -5,6 +5,7 @@
  */
 
 import { differenceInCalendarDays } from 'date-fns';
+import type { ActiveFilter } from '@weldsuite/ui/components/filter-pills';
 import { RAID_STATUSES } from '@weldsuite/app-api-client/schemas/project-control';
 import type {
   LinkedObject,
@@ -12,7 +13,7 @@ import type {
   RaidItemDetail,
   RaidKind,
 } from '@weldsuite/app-api-client/domains/project-control';
-import { isOpenItem, isOverdue } from './risk';
+import { isOpenItem } from './risk';
 
 export const RAID_KINDS: readonly RaidKind[] = ['risk', 'assumption', 'issue', 'dependency'];
 
@@ -46,21 +47,51 @@ export const ISSUE_SEVERITY_RANK: Readonly<Record<string, number>> = { critical:
 
 // ── Filtering ───────────────────────────────────────────────────────────────
 
+/** Assumptions stay in the list once validated or proved wrong; the other kinds hide closed items on request. */
+export const SHOWS_CLOSED_ALWAYS: Readonly<Record<RaidKind, boolean>> = {
+  risk: false,
+  assumption: true,
+  issue: false,
+  dependency: false,
+};
+
 /** The owner filter value for items with no owner. */
 export const NO_OWNER = '__none__';
-export const ALL = 'all';
 
+/** The fields the toolbar's Filter button offers. */
+export const FILTER_FIELDS = { status: 'status', owner: 'owner', category: 'category' } as const;
+
+/** The toolbar state of one register: the search text and the Filter button's filters. */
 export interface RegisterFilters {
   search: string;
-  status: string;
-  ownerId: string;
-  category: string;
+  filters: ActiveFilter[];
 }
 
-export const EMPTY_FILTERS: RegisterFilters = { search: '', status: ALL, ownerId: ALL, category: ALL };
+export const EMPTY_FILTERS: RegisterFilters = { search: '', filters: [] };
+
+/** A filter the Filter button is still building (no operator or value yet) narrows nothing. */
+function isComplete(filter: ActiveFilter): boolean {
+  return filter.operator !== '' && filter.value !== '';
+}
 
 export function hasActiveFilters(filters: RegisterFilters): boolean {
-  return filters.search.trim() !== '' || filters.status !== ALL || filters.ownerId !== ALL || filters.category !== ALL;
+  return filters.search.trim() !== '' || filters.filters.some(isComplete);
+}
+
+/** The value of an item a filter field compares: owner-less items match `NO_OWNER`, categories ignore case. */
+function filterValue(item: RaidItem, field: string): string | null {
+  if (field === FILTER_FIELDS.status) return item.status;
+  if (field === FILTER_FIELDS.owner) return item.ownerId ?? NO_OWNER;
+  if (field === FILTER_FIELDS.category) return (item.category ?? '').toLowerCase();
+  return null;
+}
+
+/** Each filter narrows the list in turn, as in My tasks: `is` keeps the matches, `is not` drops them. */
+function matchesFilter(item: RaidItem, filter: ActiveFilter): boolean {
+  const value = filterValue(item, filter.field);
+  if (value === null) return true;
+  const target = filter.field === FILTER_FIELDS.category ? filter.value.toLowerCase() : filter.value;
+  return filter.operator === 'is not' ? value !== target : value === target;
 }
 
 function searchText(item: RaidItem): string {
@@ -73,13 +104,10 @@ function searchText(item: RaidItem): string {
 /** The items that pass the toolbar filters. */
 export function applyRegisterFilters<T extends RaidItem>(items: readonly T[], filters: RegisterFilters): T[] {
   const query = filters.search.trim().toLowerCase();
+  const active = filters.filters.filter(isComplete);
   return items.filter((item) => {
     if (query && !searchText(item).includes(query)) return false;
-    if (filters.status !== ALL && item.status !== filters.status) return false;
-    if (filters.ownerId === NO_OWNER && item.ownerId) return false;
-    if (filters.ownerId !== ALL && filters.ownerId !== NO_OWNER && item.ownerId !== filters.ownerId) return false;
-    if (filters.category !== ALL && (item.category ?? '').toLowerCase() !== filters.category.toLowerCase()) return false;
-    return true;
+    return active.every((filter) => matchesFilter(item, filter));
   });
 }
 
@@ -131,65 +159,6 @@ export function sortRegister(kind: Exclude<RaidKind, 'risk'>, items: readonly Ra
     }
     return byDueThenNumber(a, b);
   });
-}
-
-// ── Summary tiles ───────────────────────────────────────────────────────────
-
-/** How many days ahead "due soon" looks. */
-export const DUE_SOON_DAYS = 7;
-
-export interface AssumptionStats {
-  total: number;
-  toValidate: number;
-  /** Open assumptions due within a week, overdue ones included. */
-  dueSoon: number;
-  provedWrong: number;
-}
-
-export function assumptionStats(assumptions: readonly RaidItem[], now: Date): AssumptionStats {
-  const open = assumptions.filter(isOpenItem);
-  return {
-    total: assumptions.length,
-    toValidate: open.length,
-    dueSoon: open.filter((item) => item.dueAt !== null && differenceInCalendarDays(new Date(item.dueAt), now) <= DUE_SOON_DAYS).length,
-    provedWrong: assumptions.filter((item) => item.status === 'invalid').length,
-  };
-}
-
-export interface IssueStats {
-  open: number;
-  critical: number;
-  escalated: number;
-  /** Mean age of the open issues in whole days; null when none is open. */
-  averageAgeDays: number | null;
-}
-
-export function issueStats(issues: readonly RaidItem[], now: Date): IssueStats {
-  const open = issues.filter(isOpenItem);
-  const ages = open.map((item) => Math.max(0, differenceInCalendarDays(now, new Date(item.createdAt))));
-  return {
-    open: open.length,
-    critical: open.filter((item) => item.severity === 'critical').length,
-    escalated: open.filter((item) => item.escalatedAt !== null).length,
-    averageAgeDays: ages.length === 0 ? null : Math.round(ages.reduce((sum, age) => sum + age, 0) / ages.length),
-  };
-}
-
-export interface DependencyStats {
-  weNeed: number;
-  theyNeed: number;
-  late: number;
-  atRisk: number;
-}
-
-export function dependencyStats(dependencies: readonly RaidItem[], now: Date): DependencyStats {
-  const open = dependencies.filter(isOpenItem);
-  return {
-    weNeed: open.filter((item) => item.direction === 'inbound').length,
-    theyNeed: open.filter((item) => item.direction === 'outbound').length,
-    late: open.filter((item) => isOverdue(item.dueAt, now)).length,
-    atRisk: open.filter((item) => item.status === 'at_risk').length,
-  };
 }
 
 /** Days an item has been open, for the issues table. */

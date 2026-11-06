@@ -11,11 +11,11 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@weldsuite/ui/components/button';
 import { Form } from '@weldsuite/ui/components/form';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
 import type {
   CreateDecisionInput,
   Decision,
-  DecisionDetail,
   UpdateDecisionInput,
 } from '@weldsuite/app-api-client/domains/project-governance';
 import { useAuth } from '@/lib/auth';
@@ -34,7 +34,7 @@ const NONE = '__none__';
 
 export type DecisionDialogState =
   | { kind: 'create' }
-  | { kind: 'edit'; decision: DecisionDetail }
+  | { kind: 'edit'; decision: Decision }
   | { kind: 'decide'; decision: Decision }
   | { kind: 'supersede'; decision: Decision };
 
@@ -70,7 +70,7 @@ interface FormValues {
   decidedAt: string;
 }
 
-function valuesOf(edit: DecisionDetail | null, userId: string | null): FormValues {
+function valuesOf(edit: Decision | null, userId: string | null): FormValues {
   if (!edit) {
     return {
       title: '',
@@ -106,7 +106,7 @@ function DecisionForm({
   edit,
   onClose,
   onSaved,
-}: Readonly<DialogProps & { edit: DecisionDetail | null }>) {
+}: Readonly<DialogProps & { edit: Decision | null }>) {
   const { t } = useI18n();
   const copy = t.flowGovernance.decisions;
   const { userId } = useAuth();
@@ -224,7 +224,7 @@ function DecisionForm({
           />
         )}
 
-        {locked ? <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{f.lockedHint}</p> : null}
+        {locked ? <InfoBanner variant="neutral">{f.lockedHint}</InfoBanner> : null}
 
         {locked ? null : (
           <fieldset className="flex flex-col gap-2">
