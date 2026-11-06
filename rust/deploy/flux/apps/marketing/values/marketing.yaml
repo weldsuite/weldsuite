@@ -1,6 +1,11 @@
 # The chart's defaults: weldsuite-eu-marketing, deploy/helm/weldsuite-marketing.
 # The image follows the chart's appVersion (the build it was published with).
 
+# The image is private, like its repository: pulled with the token the chart
+# source uses too (source.yaml).
+imagePullSecrets:
+  - name: ghcr
+
 replicaCount: 1
 
 # No MASTER_DATABASE_URL: the site reads plan prices over Neon's HTTP driver,

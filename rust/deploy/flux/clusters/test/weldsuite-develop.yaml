@@ -2,9 +2,7 @@
 # build (.github/workflows/rust-images.yml): version <chart>-develop.<run>,
 # appVersion the build's image tag (sha-<commit>). The apps layer's weldsuite
 # HelmRelease takes the newest (layers.yaml), so the cluster runs what develop
-# runs, with no deploy branch and no commit to bump a tag. The marketing
-# site's chart is in the same repository (charts/weldsuite-marketing,
-# published by weldsuite-eu-marketing's main builds; apps/marketing).
+# runs, with no deploy branch and no commit to bump a tag.
 #
 # A Helm repository of type oci, not an OCIRepository: through an
 # OCIRepository, helm-controller adds +<digest> to the chart version, which may
