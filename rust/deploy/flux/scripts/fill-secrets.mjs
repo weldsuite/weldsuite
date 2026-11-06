@@ -9,6 +9,7 @@
 //   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY  the backup bucket
 //   ZITADEL_SERVICE_TOKEN                                 the weldsuite service user's PAT
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
+//   MARKETING_GHCR_USER, MARKETING_GHCR_TOKEN             the marketing site's chart and image
 //
 // A new cluster:
 //
@@ -70,6 +71,12 @@ function bareValue(secret, key) {
   return hex(32);
 }
 
+// Registry logins (base64 of user:token) by placeholder, from these variables.
+const LOGINS = {
+  CHANGE_ME_BASE64_USER_COLON_TOKEN: ['GHCR_USER', 'GHCR_TOKEN'],
+  CHANGE_ME_BASE64_MARKETING_USER_COLON_TOKEN: ['MARKETING_GHCR_USER', 'MARKETING_GHCR_TOKEN'],
+};
+
 // Named placeholders stand for one value wherever they appear (a password and
 // the connection URL that uses it), so each gets generated once. --update
 // fills this first with the values the existing file holds.
@@ -81,13 +88,19 @@ function namedValue(token) {
   if (token === 'CHANGE_ME_EXACTLY_32_CHARACTERS_') value = alnum(32);
   // Zitadel's password policy: upper, lower, digit and symbol.
   else if (token === 'CHANGE_ME_Aa1!') value = `${alnum(24)}Aa1!`;
-  else if (token === 'CHANGE_ME_BASE64_USER_COLON_TOKEN') {
-    const { GHCR_USER, GHCR_TOKEN } = process.env;
-    if (!GHCR_USER || !GHCR_TOKEN) return token;
-    value = Buffer.from(`${GHCR_USER}:${GHCR_TOKEN}`).toString('base64');
+  else if (LOGINS[token]) {
+    const [user, secret] = LOGINS[token].map((name) => process.env[name]);
+    if (!user || !secret) return token;
+    value = Buffer.from(`${user}:${secret}`).toString('base64');
   } else value = hex(24);
   named.set(token, value);
   return value;
+}
+
+// " (set A and B)" for a value still holding a login's placeholder.
+function loginHint(value) {
+  const logins = (value.match(PLACEHOLDER) ?? []).filter((token) => LOGINS[token]);
+  return logins.map((token) => ` (set ${LOGINS[token].join(' and ')})`).join('');
 }
 
 // A value as the example writes it, generated.
@@ -127,14 +140,15 @@ function writeNew(out) {
     const ns = /^ {2}namespace: (\S+)$/.exec(line);
     if (ns) namespace = ns[1];
     const entry = /^ {2}([A-Za-z0-9_.]+): .*CHANGE_ME/.exec(line);
-    if (entry) left.push(`${namespace}/${secret}: ${entry[1]}`);
+    if (entry) left.push(`${namespace}/${secret}: ${entry[1]}${loginHint(line)}`);
   }
 
   console.log(`wrote ${out} (plaintext)`);
   if (left.length > 0) {
     console.log('still CHANGE_ME, fill these in by hand:');
     for (const entry of left) console.log(`  ${entry}`);
-    console.log('(registry: delete that Secret instead when the images are public)');
+    console.log('(registry: delete that Secret instead when the images are public;');
+    console.log(' marketing/ghcr: delete it on a cluster without the marketing site)');
   }
   console.log('Keep DATABASE_ENCRYPTION_KEY and the Zitadel masterkey in the password');
   console.log('manager too, then: sops --encrypt --in-place ' + out);
@@ -251,7 +265,7 @@ function updateFile(file) {
     for (const [key, template] of want.values) {
       if (have?.values.has(key)) continue;
       const value = fill(want.name, key, template ?? '');
-      if (value.includes('CHANGE_ME')) left.push(`${want.id}: ${key}`);
+      if (value.includes('CHANGE_ME')) left.push(`${want.id}: ${key}${loginHint(value)}`);
       else fresh.push([key, value, (template ?? '').includes('CHANGE_ME')]);
     }
     if (fresh.length === 0) continue;

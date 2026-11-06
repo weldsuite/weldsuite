@@ -4,7 +4,8 @@
 # (deploy/helm/weldsuite-marketing there) as
 # oci://ghcr.io/weldsuite/charts/weldsuite-marketing, version
 # <chart>-main.<run>, appVersion the image's tag. This takes the newest, as
-# the weldsuite release takes the newest develop chart.
+# the weldsuite release takes the newest develop chart. Both packages are
+# private: chart and image are pulled with the ghcr Secret (source.yaml).
 #
 # Test cluster only, so far: the image has the test cluster's URLs compiled
 # in (www.test.weldsuite.eu, nl.test.weldsuite.eu), so production needs its
@@ -25,8 +26,8 @@ spec:
       interval: 5m
       sourceRef:
         kind: HelmRepository
-        name: weldsuite-develop
-        namespace: flux-system
+        name: weldsuite-marketing
+        namespace: marketing
   install:
     remediation:
       retries: 3

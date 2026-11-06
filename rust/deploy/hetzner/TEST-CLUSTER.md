@@ -118,7 +118,8 @@ like any other change.
    BACKUP_S3_ACCESS_KEY_ID=… BACKUP_S3_SECRET_ACCESS_KEY=… \
      node scripts/fill-secrets.mjs secrets/test/secrets.sops.yaml
    # delete the `registry` Secret from it once the images are public (step 8),
-   # or set GHCR_USER/GHCR_TOKEN (a classic token with read:packages)
+   # or set GHCR_USER/GHCR_TOKEN (a classic token with read:packages);
+   # MARKETING_GHCR_USER/MARKETING_GHCR_TOKEN fill marketing/ghcr ("The marketing site")
    sops --encrypt --in-place secrets/test/secrets.sops.yaml
    # uncomment secrets.sops.yaml in secrets/test/kustomization.yaml
    ```
@@ -132,11 +133,10 @@ like any other change.
    settings on GitHub (the repository is public). Otherwise keep the
    `registry` Secret from step 7 for the images, and give
    `clusters/test/weldsuite-develop.yaml` a `secretRef` to a docker-registry
-   Secret in `flux-system` for the chart. The same for the marketing site:
-   the first "EU test image" run in `weldsuite-eu-marketing` creates
-   `weldsuite-marketing` and `charts/weldsuite-marketing`, private like that
-   repository; make both public (the site is public anyway; nothing secret is
-   compiled in).
+   Secret in `flux-system` for the chart. The marketing site's packages
+   (`weldsuite-marketing`, `charts/weldsuite-marketing`) stay private, like
+   `weldsuite-eu-marketing`; the cluster reads them with a token ("The
+   marketing site").
 
 9. **Commit** the settings and the encrypted secrets and get them into
    `develop` (a pull request).
@@ -174,8 +174,24 @@ like any other change.
 
 `flux/apps/marketing`: a HelmRelease of the site's chart in the `marketing`
 namespace, one pod, behind Traefik with a Let's Encrypt certificate for both
-hosts. It shares nothing with the platform. Two things work differently from
-Global:
+hosts. It shares nothing with the platform.
+
+Its chart and image stay private, like `weldsuite-eu-marketing`. The layer
+reads the chart through its own source (`source.yaml`) and the pods pull the
+image with the same Secret, `marketing/ghcr`: a classic GitHub token with only
+`read:packages`, of an account that can read that repository (a machine
+account's, preferably, so it outlives anyone leaving). Put it in with the age
+key (step 7):
+
+```bash
+MARKETING_GHCR_USER=<account> MARKETING_GHCR_TOKEN=<token> SOPS_AGE_KEY_FILE=~/weldsuite-eu-test.agekey \
+  node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/test/secrets.sops.yaml
+```
+
+When the token expires or is revoked, Flux reports a 401 on the chart and
+new pods can't pull the image (running ones keep running): replace it the
+same way, after deleting the old `.dockerconfigjson` in `sops
+secrets/test/secrets.sops.yaml`. Two things work differently from Global:
 
 - **Prices** are the site's fallback prices (`lib/pricing.ts` there): the site
   reads plans over Neon's HTTP driver, which the cluster's Postgres doesn't
@@ -187,8 +203,8 @@ Global:
 The site is built with noindex and without analytics. To add it to a cluster
 built before it: the `www.` and `nl.` records (step 6), a first run of the
 "EU test image" workflow in `weldsuite-eu-marketing` (a push to its `main`, or
-Run workflow) and its two packages made public (step 8), then this change in
-`develop`. `flux get helmreleases -n marketing` shows the build it runs.
+Run workflow) and the token above, then this change in `develop`.
+`flux get helmreleases -n marketing` shows the build it runs.
 
 ## Metrics in Lens
 
