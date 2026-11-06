@@ -1,5 +1,5 @@
 /**
- * /api/reach/billing: the inbox subscription ($5 per inbox per month), proxied
+ * /api/reach/billing: the inbox subscription ($8 per inbox per month), proxied
  * to billing-worker with the caller's Clerk token (lib/billing.ts).
  *
  *   reach_settings:read      GET /        subscription summary

@@ -131,8 +131,12 @@ export function resolveWeldReachLimits(stored: Record<string, unknown> | null | 
 // Pricing and sending defaults
 // ---------------------------------------------------------------------------
 
-/** $5.00 per inbox per month (owner decision 2026-10-12). */
-export const WELDREACH_INBOX_PRICE_CENTS = 500;
+/**
+ * $8.00 per inbox per month (owner decision 2026-11-06; $5.00 before). A new
+ * amount also needs a new `REACH_INBOX_PRICE_LOOKUP_KEY` in billing-worker,
+ * since Stripe prices are immutable and the old key finds the old price.
+ */
+export const WELDREACH_INBOX_PRICE_CENTS = 800;
 export const WELDREACH_INBOX_CURRENCY = 'usd';
 
 export const WELDREACH_SENDING_DEFAULTS = {
