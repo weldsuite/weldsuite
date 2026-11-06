@@ -35,7 +35,7 @@ import { CachedMeasurer, CanvasMeasurer, type TextMeasurer } from '@weldsuite/do
 import { fitRect, visibleRect, zoomAt, type Camera } from './camera';
 import { History } from './history';
 import type { ToolKind, ToolOptions } from './tools';
-import { DEFAULT_TOOL_OPTIONS } from './tools';
+import { DEFAULT_TOOL_OPTIONS, isDrawingTool } from './tools';
 
 export interface ControllerOptions {
   /** Applies an op and returns its inverse: the room connection in a workspace. Absent: the controller's own board. */
@@ -278,6 +278,7 @@ export class BoardController {
   setTool(tool: ToolKind, locked = false): void {
     this.tool = tool;
     this.toolLocked = locked;
+    if (isDrawingTool(tool)) this.toolOptions = { ...this.toolOptions, drawingTool: tool };
     this.editing = null;
     this.transient = {};
     this.changed();

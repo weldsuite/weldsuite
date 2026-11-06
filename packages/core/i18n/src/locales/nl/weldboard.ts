@@ -232,6 +232,7 @@ export const weldboard = {
     style: {
       fill: 'Vulling',
       noFill: 'Geen vulling',
+      noStroke: 'Geen rand',
       stroke: 'Rand',
       lineColor: 'Lijnkleur',
       strokeWidth: 'Dikte',
@@ -339,11 +340,11 @@ export const weldboard = {
     zoom: {
       in: 'Inzoomen (Ctrl +)',
       out: 'Uitzoomen (Ctrl -)',
-      fit: 'Hele bord tonen (Shift+1)',
-      selection: 'Inzoomen op de selectie (Shift+2)',
+      fit: 'Hele bord tonen',
+      selection: 'Inzoomen op de selectie',
       reset: 'Zoomen naar 100% (Ctrl+0)',
-      minimap: 'Kaart',
-      grid: 'Raster',
+      minimap: 'Kaart van het bord tonen',
+      grid: 'Raster tonen',
     },
     undo: 'Ongedaan maken (Ctrl+Z)',
     redo: 'Opnieuw (Ctrl+Shift+Z)',
@@ -483,6 +484,14 @@ export const weldboard = {
       reveal: 'Sticky notes onthullen',
     },
     facilitation: 'Begeleiden',
+    customColors: {
+      title: 'Je kleuren',
+      add: 'Kleur toevoegen',
+      save: 'Kleur opslaan',
+      remove: 'Kleur verwijderen',
+      hex: 'Hexcode',
+      eyedropper: 'Kleur van het scherm kiezen',
+    },
     comments: {
       title: 'Opmerkingen',
       empty: 'Nog geen opmerkingen. Kies het opmerkingengereedschap (C) en klik ergens op het bord.',

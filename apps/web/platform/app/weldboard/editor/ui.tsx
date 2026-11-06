@@ -82,30 +82,6 @@ export function Divider({ vertical = true }: { vertical?: boolean }) {
   return vertical ? <div className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden /> : <div className="my-1 h-px w-6 shrink-0 bg-border" aria-hidden />;
 }
 
-/** A colour swatch grid. `null` in the list is "none". */
-export function Swatches({ colors, value, onPick, noneLabel }: { colors: readonly (string | null)[]; value: string | undefined; onPick: (color: string | null) => void; noneLabel?: string }) {
-  return (
-    <div className="grid grid-cols-8 gap-1.5">
-      {colors.map((color) => (
-        <button
-          key={color ?? 'none'}
-          type="button"
-          aria-label={color ?? noneLabel}
-          title={color ?? noneLabel}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onPick(color)}
-          className={cn(
-            'size-6 rounded-full border shadow-sm transition hover:scale-110',
-            (value ?? null) === color && 'ring-2 ring-primary ring-offset-1',
-            !color && 'bg-[linear-gradient(135deg,transparent_45%,#ef4444_45%,#ef4444_55%,transparent_55%)]',
-          )}
-          style={color ? { backgroundColor: color } : undefined}
-        />
-      ))}
-    </div>
-  );
-}
-
 /** A toolbar button that opens a small panel. */
 export function BarPopover({
   label,
