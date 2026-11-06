@@ -905,7 +905,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -919,7 +919,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1324,7 +1324,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1338,7 +1338,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1404,7 +1404,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1418,7 +1418,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1549,7 +1549,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1563,7 +1563,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1661,7 +1661,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1675,7 +1675,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1705,7 +1705,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1719,7 +1719,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -1785,7 +1785,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -1799,7 +1799,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "suspended",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2013,7 +2013,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2027,7 +2027,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2199,7 +2199,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2213,7 +2213,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2407,7 +2407,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2421,7 +2421,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2589,7 +2589,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2603,7 +2603,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2773,7 +2773,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2787,7 +2787,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -2906,7 +2906,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -2920,7 +2920,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -3040,7 +3040,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -3054,7 +3054,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
@@ -3085,7 +3085,7 @@
           "account_login": "acme",
           "account_type": "organization",
           "app_slug": "weldsuite",
-          "created_at": "2026-10-01T09:00:00+01:00",
+          "created_at": "2026-10-01T09:00:00+00:00",
           "created_by_user_id": "user_installer",
           "credentials": null,
           "credentials_expire_at": null,
@@ -3099,7 +3099,7 @@
           "revoked_at": null,
           "scopes": null,
           "status": "active",
-          "updated_at": "2026-10-01T09:00:00+01:00",
+          "updated_at": "2026-10-01T09:00:00+00:00",
           "webhook_secret": null
         }
       ]
