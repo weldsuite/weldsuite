@@ -48,7 +48,7 @@ const billing: ReachBillingSummary = {
   status: 'active',
   hasPaymentMethod: true,
   inboxCount: 4,
-  unitAmountCents: 500,
+  unitAmountCents: 800,
   currency: 'usd',
   currentPeriodEnd: '2026-11-01T00:00:00.000Z',
 };
@@ -234,8 +234,8 @@ describe('Suppression list', () => {
 describe('Billing summary', () => {
   it('shows the monthly total of the mailboxes', async () => {
     renderPage();
-    expect(await screen.findByText('4 × $5')).toBeInTheDocument();
-    expect(screen.getByText('$20')).toBeInTheDocument();
+    expect(await screen.findByText('4 × $8')).toBeInTheDocument();
+    expect(screen.getByText('$32')).toBeInTheDocument();
     expect(screen.getByText('Active')).toBeInTheDocument();
     expect(screen.getByText('On file')).toBeInTheDocument();
   });

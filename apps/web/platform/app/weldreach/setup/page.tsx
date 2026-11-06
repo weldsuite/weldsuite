@@ -1,7 +1,7 @@
 /**
  * WeldReach onboarding wizard (`/weldreach/setup?step=...`):
  *   1. sender identity (the footer of every email) -> PATCH settings
- *   2. payment method for mailboxes ($5 per mailbox per month) -> Stripe Checkout
+ *   2. payment method for mailboxes ($8 per mailbox per month) -> Stripe Checkout
  *   3. connect a WeldHost domain (buy or bring one in WeldHost first)
  *   4. create mailboxes
  *   5. finish -> `completeOnboarding`, back to the overview

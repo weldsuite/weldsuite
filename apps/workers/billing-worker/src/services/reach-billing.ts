@@ -1,6 +1,6 @@
 /**
  * WeldReach inbox billing: one Stripe subscription per workspace, one price
- * ($5 per inbox per month, docs/plans/weldreach.md "Billing"), quantity = the
+ * ($8 per inbox per month, docs/plans/weldreach.md "Billing"), quantity = the
  * number of inboxes. The subscription id and its status live on the master
  * `workspace_app_access` row of the workspace's `weldreach` access.
  *
@@ -50,8 +50,8 @@ const { workspaces, workspaceAppAccess } = masterSchema;
 /** `metadata.type` on the Stripe subscription (and its invoices' line items). */
 export const REACH_SUBSCRIPTION_TYPE = 'weldreach';
 
-/** Stripe price `lookup_key` of the lazily created inbox price. Bump the suffix to change the amount. */
-export const REACH_INBOX_PRICE_LOOKUP_KEY = 'weldreach_inbox_monthly_v1';
+/** Stripe price `lookup_key` of the lazily created inbox price. Bump the suffix to change the amount (v1 = $5, v2 = $8). */
+export const REACH_INBOX_PRICE_LOOKUP_KEY = 'weldreach_inbox_monthly_v2';
 
 export type MasterDb = ReturnType<typeof getMasterDb>;
 /** What the billing logic needs from the DB: the handle itself or a transaction on it. */
