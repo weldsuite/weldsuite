@@ -659,10 +659,14 @@ rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + 
 
 Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
-`ghcr.io/weldsuite/weldsuite` and `ghcr.io/weldsuite/weldsuite-sign-portal`,
-amd64, tagged `sha-<12 characters of the commit>`, on every push to `develop`
-or a `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`.
+`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
+`ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
+`sha-<12 characters of the commit>`, on every push to `develop` or a
+`deploy/*` branch that changes what the images are built from. A push to
+`develop` also moves the tag `develop`. Production runs releases: the
+"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
+of those builds to a version, `X.Y.Z`, with the same image digests and the
+chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
 `/srv/spa`, and the server serves it for every path its routes don't answer

@@ -29,15 +29,15 @@ spec:
       - kind: ConfigMap
         name: cluster-settings
   # The chart comes from the develop builds (weldsuite-develop.yaml), not from
-  # a release tag in Git, so the release-tag source is left out.
+  # the releases, so the releases' source is left out.
   patches:
     - target:
-        kind: GitRepository
+        kind: HelmRepository
         name: weldsuite
       patch: |
         $patch: delete
         apiVersion: source.toolkit.fluxcd.io/v1
-        kind: GitRepository
+        kind: HelmRepository
         metadata:
           name: weldsuite
           namespace: flux-system
