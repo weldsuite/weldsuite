@@ -21,7 +21,8 @@ apps/eu/        the weldsuite HelmRelease
 apps/marketing/ the marketing site (test only, so far: its image is built for the test cluster's
                 hosts in weldsuite-eu-marketing, which publishes its chart too)
 secrets/        eu/, drill/ and test/: SOPS-encrypted Secrets; examples/: every Secret the layers expect
-scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values
+scripts/        fill-secrets.mjs: a cluster's secrets file from the examples, with random values;
+                --update adds what the examples gained to an encrypted one
 ```
 
 Order: `sources` → `controllers` → `secrets` → `configs` → `services` →
