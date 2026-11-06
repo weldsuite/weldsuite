@@ -104,6 +104,8 @@ export interface Env {
   SIGN_API?: Fetcher;
   /** panel-api (WeldPanel). Target of the forwarder for /api/panel. */
   PANEL_API?: Fetcher;
+  /** merge-api (WeldMerge). Target of the forwarder for /api/merge. */
+  MERGE_API?: Fetcher;
   /** agent-api. Target of the forwarder for the agent module's paths. */
   AGENT_API?: Fetcher;
   /** chat-api. Target of the forwarder for the chat module's paths. */

@@ -3084,3 +3084,62 @@ export function CalendarDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean 
     </CardShell>
   );
 }
+// ---------- WeldMerge ----------
+
+export interface MergeInboxRow {
+  id: string;
+  /** `review_requested`, `checks_failed`, … */
+  kind: string;
+  title: string;
+  /** `acme/api #12` or `PLAT-209`. */
+  reference: string;
+  unread: boolean;
+  /** Relative time, already formatted. */
+  when: string;
+}
+
+/** The member's top WeldMerge inbox items: a kind, the title, where it lives and when it changed. */
+export function MergeInboxCard({
+  rows,
+  isLoading = false,
+  isError = false,
+  onRowClick,
+  kindLabel,
+}: Readonly<{
+  rows: MergeInboxRow[];
+  isLoading?: boolean;
+  isError?: boolean;
+  onRowClick?: (row: MergeInboxRow) => void;
+  kindLabel: (kind: string) => string;
+}>) {
+  const { t } = useI18n();
+  const tw = t.weldmerge.across.widget;
+  if (isLoading) {
+    return <CardShell><div className="p-3"><SkeletonRows count={6} variant="list" /></div></CardShell>;
+  }
+  if (isError || rows.length === 0) {
+    return (
+      <CardShell>
+        <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          {isError ? tw.loadFailed : tw.empty}
+        </div>
+      </CardShell>
+    );
+  }
+  return (
+    <CardShell>
+      {rows.map((row) => (
+        <ClickableRow key={row.id} onClick={onRowClick ? () => onRowClick(row) : undefined} className={ROW_CLASS}>
+          <span className={cn('size-2 shrink-0 rounded-full', row.unread ? 'bg-blue-500' : 'bg-transparent')} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-foreground">{row.title}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {kindLabel(row.kind)} · {row.reference}
+            </div>
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{row.when}</span>
+        </ClickableRow>
+      ))}
+    </CardShell>
+  );
+}

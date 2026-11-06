@@ -89,6 +89,8 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'bill',
   'project',
   'task',
+  'merge_issue',
+  'merge_pull_request',
   'sheet',
   'board',
   'domain',
@@ -167,6 +169,10 @@ export function buildResultUrl(
       return `/weldboard/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
+    case 'merge_issue':
+      return `/weldmerge/issues/${encodeURIComponent(id)}`;
+    case 'merge_pull_request':
+      return `/weldmerge/pull-requests/${encodeURIComponent(id)}`;
   }
 }
 
@@ -927,6 +933,106 @@ export async function searchTasks(
   return { type: 'task', items, totalCount: items.length, hasMore };
 }
 
+/**
+ * WeldMerge issues, matched on the title or the key (`PLAT-209`, or a part of
+ * it). A hit opens the issue page, which reads an id as well as a key.
+ */
+export async function searchMergeIssues(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { mergeIssues, mergeTeams } = schema;
+  const contains = `%${escapeLike(q.toLowerCase())}%`;
+  const keyOf = sql`${mergeTeams.key} || '-' || ${mergeIssues.number}::text`;
+  const score = sql<number>`GREATEST(${scoreColumn(mergeIssues.title, q)}, ${scoreColumn(keyOf, q)})`;
+
+  const rows = await db
+    .select({
+      id: mergeIssues.id,
+      title: mergeIssues.title,
+      key: sql<string>`${keyOf}`,
+      status: mergeIssues.status,
+      score,
+      updatedAt: mergeIssues.updatedAt,
+    })
+    .from(mergeIssues)
+    .innerJoin(mergeTeams, eq(mergeTeams.id, mergeIssues.teamId))
+    .where(
+      and(
+        isNull(mergeIssues.deletedAt),
+        isNull(mergeTeams.deletedAt),
+        or(sql`lower(${mergeIssues.title}) LIKE ${contains}`, sql`lower(${keyOf}) LIKE ${contains}`),
+      ),
+    )
+    .orderBy(desc(score), desc(mergeIssues.updatedAt), desc(mergeIssues.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type: 'merge_issue',
+    title: r.title || r.key,
+    subtitle: withSuffix(r.key, r.status),
+    url: buildResultUrl('merge_issue', r.id),
+    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
+  }));
+  return { type: 'merge_issue', items, totalCount: items.length, hasMore };
+}
+
+/**
+ * WeldMerge pull requests (of repositories still connected), matched on the
+ * title, the branch, or the number (`#123` or `123`).
+ */
+export async function searchMergePullRequests(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { mergePullRequests, mergeRepositories } = schema;
+  const contains = `%${escapeLike(q.toLowerCase())}%`;
+  const numberRef = /^#?(\d{1,9})$/.exec(q.trim());
+  const score = sql<number>`GREATEST(${scoreColumn(mergePullRequests.title, q)}, ${scoreColumn(mergePullRequests.headRef, q)})`;
+
+  const rows = await db
+    .select({
+      id: mergePullRequests.id,
+      title: mergePullRequests.title,
+      number: mergePullRequests.number,
+      state: mergePullRequests.state,
+      repository: mergeRepositories.fullName,
+      score,
+      providerUpdatedAt: mergePullRequests.providerUpdatedAt,
+    })
+    .from(mergePullRequests)
+    .innerJoin(mergeRepositories, eq(mergeRepositories.id, mergePullRequests.repositoryId))
+    .where(
+      and(
+        isNull(mergeRepositories.deletedAt),
+        or(
+          sql`lower(${mergePullRequests.title}) LIKE ${contains}`,
+          sql`lower(${mergePullRequests.headRef}) LIKE ${contains}`,
+          numberRef ? eq(mergePullRequests.number, Number(numberRef[1])) : undefined,
+        ),
+      ),
+    )
+    .orderBy(desc(score), desc(mergePullRequests.providerUpdatedAt), desc(mergePullRequests.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type: 'merge_pull_request',
+    title: r.title || `#${r.number}`,
+    subtitle: withSuffix(`${r.repository}#${r.number}`, r.state),
+    url: buildResultUrl('merge_pull_request', r.id),
+    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
+  }));
+  return { type: 'merge_pull_request', items, totalCount: items.length, hasMore };
+}
+
 /** Escapes `\`, `%` and `_` so typed text matches itself in a LIKE pattern. */
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -1131,6 +1237,8 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'bill', permission: 'bills:read', search: searchBills },
   { type: 'project', permission: 'projects:read', search: searchProjects },
   { type: 'task', permission: 'tasks:read', search: searchTasks },
+  { type: 'merge_issue', permission: 'merge_issues:read', search: searchMergeIssues },
+  { type: 'merge_pull_request', permission: 'merge_pull_requests:read', search: searchMergePullRequests },
   { type: 'sheet', permission: 'sheets:read', search: searchSheets },
   { type: 'board', permission: 'boards:read', search: searchBoards },
   { type: 'domain', permission: 'domains:read', search: searchDomains },

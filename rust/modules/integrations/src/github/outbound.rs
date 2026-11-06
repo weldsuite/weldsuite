@@ -181,17 +181,20 @@ async fn load(
         tracing::info!("[GithubProjectOutbound] syncDirection=inbound for link {lid} — no-op");
         return Ok(None);
     }
-    let connection: Option<(String, i64, String)> = sqlx::query_as(
-        "select id, installation_id, status from github_connections \
+    // The link's connection is a WeldMerge connection; its installation id
+    // is `external_account_id` (`Number(conn.externalAccountId)`).
+    let connection: Option<(String, String, String)> = sqlx::query_as(
+        "select id, external_account_id, status from merge_connections \
          where id = $1 and deleted_at is null limit 1",
     )
     .bind(&connection_id)
     .fetch_optional(db)
     .await
     .map_err(|e| e.to_string())?;
-    let Some((cid, installation_id, cstatus)) = connection else {
+    let Some((cid, external_account_id, cstatus)) = connection else {
         return Err(format!("Connection for link {lid} not found"));
     };
+    let installation_id = super::installation_of(&external_account_id);
     if cstatus != "active" {
         return Err(format!("Connection {cid} is not active"));
     }

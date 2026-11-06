@@ -21,6 +21,11 @@
 //!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `merge-digest-sweep` (hourly, at :00): WeldMerge's daily WeldChat
+//!   digests, for the workspaces the `merge_digest` due index lists (each
+//!   subscription posts at its own `digest_hour`;
+//!   `apps/workers/merge-api/src/cron/digest-sweep.ts`). Nothing while merge is
+//!   not served.
 //! - `flow-benefit-measure` (daily, 03:30 UTC): WeldFlow's monthly measuring of
 //!   benefits from the metric catalogue, in the workspaces the due index lists
 //!   (kind `benefit_measure`, `apps/workers/flow-api/src/cron/benefit-measure.ts`).
@@ -96,7 +101,7 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
@@ -127,7 +132,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "connector-catchup"
         | "moneybird-push"
         | "workflow-polls"
-        | "workflow-schedules"),
+        | "workflow-schedules"
+        | "merge-digest-sweep"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -180,6 +186,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "ad-sync" => ad_sync(config).await,
             "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
+            "merge-digest-sweep" => merge_digest_sweep(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -192,6 +199,73 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// `merge-digest-sweep`: WeldMerge's daily WeldChat digests of the due
+/// workspaces (`runDigestSweep`); nothing while merge is not served.
+async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("merge") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "merge-digest-sweep", "result": { "skipped": "merge is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_merge::TenantResolver = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    });
+    let state = weldsuite_merge::MergeState {
+        events: infra.events.clone(),
+        env: Arc::new(weldsuite_merge::env_from_process()),
+        http: crate::routes::shared_outbound(),
+        tenants: Some(tenants),
+        master: Some(master.clone()),
+        cache: infra.cache.clone(),
+        realtime: infra.realtime.clone(),
+        // The digest sends no mail.
+        mail: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result = weldsuite_merge::run_digest_sweep(&state, &master, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "merge-digest-sweep",
+            "result": {
+                "due": result.due,
+                "processed": result.processed,
+                "failed": result.failed,
+            },
+        })
+    );
+    // Entity events and realtime pings go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
 }
 
 /// `weldsuite cron domain-auto-renew`: the result line; the sweep needs

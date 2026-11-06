@@ -581,6 +581,24 @@ export const platformSyncMap: EntitySyncMap = {
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
 
+  // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
+  // root: issues, teams, labels, cycles, comments, connections, repositories and
+  // the pull request mirror feed the inbox, board and detail pages alike, and the
+  // payloads carry ids only, so any change refetches the mounted WeldMerge queries.
+  merge_team: inv(['weldmerge']),
+  merge_issue: inv(['weldmerge']),
+  merge_comment: inv(['weldmerge']),
+  merge_label: inv(['weldmerge']),
+  merge_cycle: inv(['weldmerge']),
+  merge_connection: inv(['weldmerge']),
+  merge_repository: inv(['weldmerge']),
+  merge_pull_request: inv(['weldmerge']),
+  // Releases, issue record links and chat subscriptions live under the same
+  // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
+  merge_release: inv(['weldmerge']),
+  merge_record_link: inv(['weldmerge']),
+  merge_chat_subscription: inv(['weldmerge']),
+
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki
   // =========================================================================

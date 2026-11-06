@@ -4024,6 +4024,7 @@ dependencies = [
  "weldsuite-mail-inbound",
  "weldsuite-mcp",
  "weldsuite-meet",
+ "weldsuite-merge",
  "weldsuite-migrations",
  "weldsuite-panel",
  "weldsuite-pass",
@@ -4485,7 +4486,9 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-core-domain",
  "weldsuite-db",
+ "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -4574,6 +4577,7 @@ dependencies = [
  "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-mail-domain",
+ "weldsuite-merge-domain",
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
@@ -4589,6 +4593,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "jsonwebtoken 11.1.0",
  "regex",
  "serde_json",
  "sha2 0.11.1",
@@ -5324,6 +5329,50 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-video-rooms",
+]
+
+[[package]]
+name = "weldsuite-merge"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "hmac",
+ "http",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-connect-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-know-domain",
+ "weldsuite-mail-domain",
+ "weldsuite-merge-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-social-domain",
+]
+
+[[package]]
+name = "weldsuite-merge-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "time",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
 ]
 
 [[package]]

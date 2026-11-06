@@ -62,7 +62,7 @@ commands:
              reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
              reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
              crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
-             moneybird-push
+             moneybird-push, merge-digest-sweep
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit

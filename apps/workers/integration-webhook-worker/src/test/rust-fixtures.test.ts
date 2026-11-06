@@ -63,7 +63,7 @@ function normalise(value: unknown): Json {
 const CLEAR = [
   'delete from github_issue_sync_map',
   'delete from github_project_links',
-  'delete from github_connections',
+  "delete from merge_connections where provider = 'github'",
   "delete from tasks where project_id like 'prj_%'",
   "delete from project_pipeline_stages where project_id like 'prj_%'",
 ];
@@ -71,8 +71,9 @@ const CLEAR = [
 const T0 = "'2026-10-01 09:00:00'";
 
 function connection(id: string, installation: number, status = 'active') {
-  return `insert into github_connections (id, workspace_id, installation_id, app_slug, owner_type, owner_login, status, created_at, updated_at)
-    values ('${id}', '${ORG}', ${installation}, 'weldsuite', 'Organization', 'acme', '${status}', ${T0}, ${T0})`;
+  // A GitHub App installation is a WeldMerge connection (merge_connections, provider github).
+  return `insert into merge_connections (id, provider, external_account_id, app_slug, account_type, account_login, status, created_by_user_id, created_at, updated_at)
+    values ('${id}', 'github', '${installation}', 'weldsuite', 'organization', 'acme', '${status}', 'user_installer', ${T0}, ${T0})`;
 }
 
 function link(id: string, connectionId: string, project: string, opts: { direction?: string; repo?: string | null; syncIssues?: boolean; field?: string | null } = {}) {
@@ -369,7 +370,7 @@ async function dump(): Promise<Record<string, Json[]>> {
     ['tasks', "project_id like 'prj_%'"],
     ['github_issue_sync_map', 'true'],
     ['github_project_links', 'true'],
-    ['github_connections', 'true'],
+    ['merge_connections', "provider = 'github'"],
   ] as const) {
     const { rows } = (await client.query(`select to_jsonb(t) as row from ${table} t where ${where}`)) as { rows: Array<{ row: unknown }> };
     out[table] = rows.map((r) => normalise(r.row)).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));

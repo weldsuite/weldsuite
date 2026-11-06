@@ -369,6 +369,39 @@ const ROUTES: VolatileRoute[] = [
   // gzipped first checkpoint, whose size the drive file's event carries,
   // compresses a byte or two differently per run.
   { method: 'POST', route: '/api/boards/import', fields: [], events: [{ path: 'data.fileSize' }] },
+  // WeldMerge: the GitHub App's install page carries a signed state (a fresh
+  // nonce and the second it was issued), an OAuth consent page a fresh random
+  // state id.
+  {
+    method: 'GET',
+    route: '/api/merge/connections/github/install-url',
+    fields: [{ path: 'data.url', pattern: /state=[^&]+/g, replacement: 'state=<volatile>' }],
+  },
+  ...['/api/merge/connections/:provider/authorize-url', '/api/merge/accounts/:provider/authorize-url'].map((route) => ({
+    method: 'GET',
+    route,
+    fields: [{ path: 'data.url', pattern: /state=[A-Za-z0-9]{40}/g, replacement: 'state=<volatile>' }],
+  })),
+  // WeldMerge: adding a GitLab, Bitbucket or Azure DevOps repository registers
+  // its webhook with a fresh random key (in the URL) and secret; the backfill
+  // (on add and on Refresh) asks for what changed since thirty days before the
+  // moment it ran.
+  ...['/api/merge/repositories', '/api/merge/repositories/:id/sync'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [],
+    outbound: [
+      { path: 'url', pattern: /(updated_after|searchCriteria\.minTime)=[^&]+/g, replacement: '$1=<since>' },
+      ...['body.url', 'body.consumerInputs.url'].map((path) => ({
+        path,
+        pattern: /\/webhooks\/merge\/([a-z_]+)\/[A-Za-z0-9]{40}$/g,
+        replacement: '/webhooks/merge/$1/<key>',
+      })),
+      { path: 'body.token' },
+      { path: 'body.secret' },
+      { path: 'body.consumerInputs.basicAuthPassword' },
+    ],
+  })),
 ];
 
 /** The value at a dot path, as text for ordering. */

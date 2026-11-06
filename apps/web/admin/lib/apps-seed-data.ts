@@ -800,6 +800,41 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     isPublished: false,
   },
   {
+    code: 'weldmerge',
+    name: 'WeldMerge',
+    description: 'Pull requests and issues across your git providers, in one inbox, with your own issue tracker next to your code.',
+    icon: 'GitPullRequest',
+    category: 'Productivity',
+    path: '/weldmerge',
+    overview:
+      'WeldMerge puts the pull requests you have to review, the ones you opened and the issues assigned to you in one inbox. Connect your GitHub organisation, pick the repositories that matter and see every pull request with its checks, reviewers and review decision. Track work in teams with a board, cycles, priorities and labels, and link pull requests to issues by writing the issue key (PLAT-209) in a branch, title or description. Reviewing and merging still happen on the provider; WeldMerge shows you what needs you and where to go.',
+    features: [
+      'Inbox of review requests, failed checks, requested changes and assigned issues',
+      'Pull request list with needs-my-review, mine, open, merged and closed views',
+      'Issues with teams, board and list views, priorities, labels, cycles, sub-issues and comments',
+      'Pull requests link to issues automatically from branch names, titles and descriptions',
+      'GitHub connection through your existing GitHub App installation',
+      'GitLab, Bitbucket and Azure DevOps are coming',
+    ],
+    howItWorks: [
+      { title: 'Connect GitHub', description: 'Adopt your workspace GitHub App installation, or install it in one step.' },
+      { title: 'Add repositories', description: 'Choose which repositories to mirror and which team they belong to.' },
+      { title: 'Work from your inbox', description: 'See what needs your review and which checks failed.' },
+      { title: 'Track the work', description: 'Plan issues in cycles and let pull requests move them along.' },
+    ],
+    sortOrder: 159,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-11-05',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    // Not installable from the App Store until phase 1 works end to end
+    // (design/modules/weldmerge.md); staff publish the row then.
+    isPublished: false,
+  },
+  {
     code: 'weldhr',
     name: 'WeldHR',
     description: 'Run your people operations, with My HR for every employee.',

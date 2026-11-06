@@ -45,7 +45,8 @@ export type ApiModuleId =
   | 'sign'
   | 'docs'
   | 'panel'
-  | 'board';
+  | 'board'
+  | 'merge';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -93,7 +94,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge']);
 
 const mod = (
   id: ApiModuleId,
@@ -480,6 +481,11 @@ export const API_MODULES: readonly ApiModule[] = [
   // (with the BoardRoom Durable Object). WeldFlow is listed too: a project's
   // whiteboards are WeldBoard boards, and keep working with WeldFlow alone.
   mod('board', 8826, ['weldboard', 'weldflow'], ['/api/boards']),
+  // WeldMerge (pull requests and issues across git providers; ADR MERGE-001).
+  // Provider webhooks reach it through integration-webhook-worker over the
+  // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
+  // GitHub App's setup redirect (no Clerk session: the signed state decides).
+  mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

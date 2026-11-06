@@ -8,7 +8,7 @@ vi.mock('../components/entity-mention-chip', () => ({
   ),
 }));
 
-import { MAX_EMPHASIS_CHARS, messagePreviewText, renderMessageContent } from './render-message-content';
+import { MAX_EMPHASIS_CHARS, messagePlainText, messagePreviewText, renderMessageContent } from './render-message-content';
 
 const html = (text: string, members?: Map<string, string>) =>
   renderToStaticMarkup(<>{renderMessageContent(text, members)}</>);
@@ -262,6 +262,21 @@ describe('renderMessageContent', () => {
     it('does not go quadratic on a long run of closing brackets in a URL', () => {
       expect(time('https://example.com/' + ')'.repeat(2000))).toBeLessThan(budgetMs);
     });
+  });
+});
+
+describe('messagePlainText', () => {
+  const members = new Map([['user_1', 'Ann Lee']]);
+
+  it('names mentions, hides internal tokens and keeps the line breaks', () => {
+    const text = messagePlainText('Looks good <@user_1>\n\nsee <@file:att_1> line 3', members);
+    expect(text).toBe(messagePlainText(text, members));
+    expect(text).toContain('Looks good @Ann Lee\n\nsee');
+    expect(text).not.toMatch(/<@/);
+  });
+
+  it('is empty for a message that only holds an attachment', () => {
+    expect(messagePlainText('<@file:att_1>')).toBe('');
   });
 });
 

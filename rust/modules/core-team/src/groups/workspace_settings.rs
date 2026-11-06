@@ -607,6 +607,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "weldknow",
     "weldmail",
     "weldmeet",
+    "weldmerge",
     "weldpanel",
     "weldpass",
     "weldreach",

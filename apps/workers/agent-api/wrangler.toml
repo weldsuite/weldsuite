@@ -191,6 +191,14 @@ binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api-test"
 entrypoint = "BoardsInternal"
 
+# merge-api MergeInternal: the WeldAgent WeldMerge tools (@weldsuite/agent-domain
+# merge-tools) list, read and write issues and pull requests through agentTool().
+# Reachable only over a service binding, so no secret.
+[[env.test.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api-test"
+entrypoint = "MergeInternal"
+
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents-test
 #   wrangler queues create entity-agents-dlq-test
@@ -290,6 +298,12 @@ entrypoint = "SheetsInternal"
 binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api"
 entrypoint = "BoardsInternal"
+
+# merge-api MergeInternal (production name has no "-production" suffix).
+[[env.production.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api"
+entrypoint = "MergeInternal"
 
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents

@@ -65,6 +65,9 @@ export interface Env extends KitEnv {
   GITHUB_APP_SLUG?: string;
   /** GitHub App private key (PEM) — signs app JWTs. */
   GITHUB_APP_PRIVATE_KEY?: string;
+  /** The App's user authorization client: the install callback exchanges GitHub's `code` to prove the installer can reach the installation. */
+  GITHUB_APP_CLIENT_ID?: string;
+  GITHUB_APP_CLIENT_SECRET?: string;
   /** CF Workflow that re-syncs a repo end-to-end (class hosted in core-api). */
   GITHUB_FULL_SYNC?: Workflow;
   /** CF Workflow that syncs one GitHub Project (v2) link end-to-end

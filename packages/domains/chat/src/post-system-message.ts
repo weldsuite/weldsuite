@@ -32,6 +32,13 @@ export interface PostSystemChatMessageInput {
   content: string;
   /** Extra mentions beyond what `<@…>` tokens in the content already carry. */
   mentions?: string[];
+  /**
+   * The message's `metadata`, for a caller that is not a workflow: WeldMerge
+   * posts as `app:weldmerge` with `{ weldmerge: { kind, ... } }`, which the chat
+   * UI renders as a card. Left out, the message is marked `postedByWorkflow`
+   * as before.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface PostSystemChatMessageContext {
@@ -39,9 +46,9 @@ export interface PostSystemChatMessageContext {
   env: PostSystemMessageEnv;
   orgId: string;
   channelId: string;
-  /** Stable author id for the workflow, e.g. `workflow:<workflowId>`. */
+  /** Stable author id for the workflow, e.g. `workflow:<workflowId>` (or `app:weldmerge`). */
   authorId: string;
-  /** Workflow name shown as the message's author. */
+  /** Workflow (or app) name shown as the message's author. */
   authorName: string;
   /** The workflow's owner — used only to attribute mention notifications, never as the message's author. */
   invokerUserId: string;
@@ -161,7 +168,7 @@ export async function postSystemChatMessage(
     content: input.content,
     mentions: allMentions.length > 0 ? allMentions : null,
     mentionsEveryone,
-    metadata: { postedByWorkflow: true },
+    metadata: input.metadata ?? { postedByWorkflow: true },
     createdAt: now,
     updatedAt: now,
   });

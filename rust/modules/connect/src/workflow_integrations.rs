@@ -1423,22 +1423,20 @@ async fn link(
         return ApiError::bad_request("No active workspace").into_response();
     };
     let result = async {
-        let connection: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from github_connections t where t.workspace_id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(&org_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        // The workspace's GitHub App installation, a WeldMerge connection
+        // (`getConnectionByWorkspace`: the newest active one first).
+        let connection =
+            crate::github_connections::connection_by_workspace(&caller.db, &org_id).await?;
         let Some(connection) = connection.filter(|c| c["status"].as_str() == Some("active")) else {
             return Ok(
                 Data(json!({ "status": "needs_install", "provider": provider })).into_response(),
             );
         };
         let settings = json!({
-            "installationId": connection["installation_id"],
-            "ownerLogin": connection["owner_login"],
-            "ownerType": connection["owner_type"],
-            "appSlug": connection["app_slug"],
+            "installationId": connection["installationId"],
+            "ownerLogin": connection["ownerLogin"],
+            "ownerType": connection["ownerType"],
+            "appSlug": connection["appSlug"],
         });
         let stamp = now();
         let existing: Option<String> =

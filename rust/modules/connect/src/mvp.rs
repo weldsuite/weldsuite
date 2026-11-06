@@ -26,6 +26,11 @@ pub(crate) const ACTION_TYPES: &[&str] = &[
     "move_deal_stage",
     "log_activity",
     "create_task",
+    // WeldMerge: run in process by WeldMerge's workflow-action intake, as the
+    // workflow's owner.
+    "merge.create_issue",
+    "merge.update_issue",
+    "merge.comment_on_issue",
     "create_conversation",
     "send_notification",
     "post_chat_message",
@@ -190,6 +195,9 @@ fn required_fields(kind: &str, c: &Map<String, Value>) -> Vec<&'static str> {
         "move_deal_stage" => missing(c, &["dealId", "stageId"]),
         "log_activity" => missing(c, &["subject"]),
         "create_task" => missing(c, &["projectId", "title"]),
+        "merge.create_issue" => missing(c, &["teamId", "title"]),
+        "merge.update_issue" => missing(c, &["issue"]),
+        "merge.comment_on_issue" => missing(c, &["issue", "body"]),
         "create_conversation" => missing(c, &["message"]),
         "send_notification" | "manual_step" => missing(c, &["title"]),
         "post_chat_message" => {

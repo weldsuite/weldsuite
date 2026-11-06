@@ -4,7 +4,8 @@
  * auth (`@weldsuite/workflow-integrations`' `AppInstallationConfig`): instead
  * of a second OAuth app, WeldConnect reuses the GitHub App installation
  * WeldFlow's project sync already sets up per workspace
- * (`github_connections`, `services/github/connections.ts`). "Connecting"
+ * (a WeldMerge connection, `merge_connections`, read through
+ * `services/github/connections.ts`). "Connecting"
  * GitHub for WeldConnect is therefore just pointing a `workflow_integrations`
  * row at that existing installation — see "Provider pattern" in
  * docs/plans/weldconnect.md.

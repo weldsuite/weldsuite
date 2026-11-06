@@ -97,14 +97,15 @@ describe('POST /github/link', () => {
   });
 
   it('links the existing installation into a connected workflow_integrations row', async () => {
-    await db.insert(schema.githubConnections).values({
-      id: generateId('ghc'),
-      workspaceId: 'org_test_default',
-      installationId: 42,
+    await db.insert(schema.mergeConnections).values({
+      id: generateId('mcn'),
+      provider: 'github',
+      externalAccountId: '42',
       appSlug: 'weldsuite',
-      ownerType: 'org',
-      ownerLogin: 'acme-corp',
+      accountType: 'organization',
+      accountLogin: 'acme-corp',
       status: 'active',
+      createdByUserId: 'user_seed',
     });
 
     const res = await app()('/api/workflow-integrations/github/link', { method: 'POST' });

@@ -21,6 +21,7 @@ import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-clie
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
 import { SHEET_TOOLS } from './sheets-tools';
 import { BOARD_TOOLS } from './board-tools';
+import { MERGE_TOOLS } from './merge-tools';
 import { PROJECT_TOOLS } from './projects-tools';
 import {
   CLOSED_TASK_STATUSES,
@@ -898,6 +899,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
   ...PROJECT_TOOLS,
   ...SHEET_TOOLS,
   ...BOARD_TOOLS,
+  ...MERGE_TOOLS,
   {
     id: 'chat.message_agent',
     name: 'message_agent',

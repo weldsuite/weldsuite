@@ -145,6 +145,20 @@ export function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'title', label: 'Task Title', type: 'string' },
       { path: 'url', label: 'Task URL', type: 'string' },
     ],
+    // WeldMerge: the issue the step created, changed or commented on.
+    'merge.create_issue': [
+      { path: 'issueId', label: 'Issue ID', type: 'string' },
+      { path: 'issueKey', label: 'Issue Key', type: 'string' },
+    ],
+    'merge.update_issue': [
+      { path: 'issueId', label: 'Issue ID', type: 'string' },
+      { path: 'issueKey', label: 'Issue Key', type: 'string' },
+    ],
+    'merge.comment_on_issue': [
+      { path: 'issueId', label: 'Issue ID', type: 'string' },
+      { path: 'issueKey', label: 'Issue Key', type: 'string' },
+      { path: 'commentId', label: 'Comment ID', type: 'string' },
+    ],
     // `created` is false when the step added to the conversation with the same external id.
     create_conversation: [
       { path: 'success', label: 'Success', type: 'boolean' },

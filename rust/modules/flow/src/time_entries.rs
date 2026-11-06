@@ -260,6 +260,24 @@ async fn usable_task_id(
     Ok(Some(task_id.to_owned()))
 }
 
+/// `checkMergeIssue`: 404 unless the WeldMerge issue exists and the caller
+/// may read issues (so an id cannot be probed without access).
+async fn check_merge_issue(caller: &Caller, merge_issue_id: Option<&str>) -> Result<(), Refusal> {
+    let Some(id) = merge_issue_id.filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    let found: Option<String> = sqlx::query_scalar(
+        "select id from merge_issues where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(id)
+    .fetch_optional(&caller.db)
+    .await?;
+    if found.is_none() || !caller.can("merge_issues:read") {
+        return Err(Refusal::not_found("Merge issue", id));
+    }
+    Ok(())
+}
+
 /// A body string field that is set.
 fn text(fields: &Map<String, Value>, key: &str) -> Option<String> {
     fields.get(key).and_then(Value::as_str).map(str::to_owned)
@@ -326,6 +344,13 @@ fn read_entry(
         Presence::Optional
     };
     put("taskId", string(issues, "taskId", task_presence));
+    // `z.string().min(1).max(30)`, `.nullable()` on a PATCH (null detaches).
+    let merge_issue = match issues.text(fields, "mergeIssueId", task_presence, Some(1), Some(30)) {
+        Field::Set(text) => Field::Set(Value::String(text)),
+        Field::Null => Field::Null,
+        Field::Absent => Field::Absent,
+    };
+    put("mergeIssueId", merge_issue);
     put("date", string(issues, "date", required));
     put(
         "duration",
@@ -401,6 +426,8 @@ fn read_timer(issues: &mut Issues, fields: &Map<String, Value>, stop: bool) -> M
 struct Filters {
     project_id: Option<String>,
     task_id: Option<String>,
+    /// Only time logged against this WeldMerge issue (the list only).
+    merge_issue_id: Option<String>,
     user_id: Option<String>,
     status: Option<String>,
     billable: Option<bool>,
@@ -444,6 +471,7 @@ fn query_str(
 fn read_list_filters(issues: &mut Issues, f: &Map<String, Value>) -> Filters {
     let project_id = query_str(issues, f, "projectId", Presence::Optional);
     let task_id = query_str(issues, f, "taskId", Presence::Optional);
+    let merge_issue_id = query_str(issues, f, "mergeIssueId", Presence::Optional);
     let user_id = query_str(issues, f, "userId", Presence::Optional);
     let status = query_str(issues, f, "status", Presence::Optional);
     let billable = query_boolean(issues, f, "billable");
@@ -458,6 +486,7 @@ fn read_list_filters(issues: &mut Issues, f: &Map<String, Value>) -> Filters {
     Filters {
         project_id,
         task_id,
+        merge_issue_id,
         user_id,
         status,
         billable,
@@ -545,6 +574,7 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
             " and ($5::bool is null or t.billable = $5)",
             " and ($6::text is null or t.date >= $6::date)",
             " and ($7::text is null or t.date <= $7::date)",
+            " and ($10::text is null or t.merge_issue_id = $10)",
             " order by t.date desc, t.created_at desc limit $8 offset $9"
         ))
         .bind(&user)
@@ -556,6 +586,7 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         .bind(present(&f.to_date))
         .bind(limit)
         .bind(offset)
+        .bind(present(&f.merge_issue_id))
         .fetch_all(&caller.db)
         .await?;
         let total: i32 = sqlx::query_scalar(concat!(
@@ -566,7 +597,8 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
             " and ($4::text is null or t.status = $4)",
             " and ($5::bool is null or t.billable = $5)",
             " and ($6::text is null or t.date >= $6::date)",
-            " and ($7::text is null or t.date <= $7::date)"
+            " and ($7::text is null or t.date <= $7::date)",
+            " and ($8::text is null or t.merge_issue_id = $8)"
         ))
         .bind(&user)
         .bind(present(&f.project_id))
@@ -575,6 +607,7 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         .bind(f.billable)
         .bind(present(&f.from_date))
         .bind(present(&f.to_date))
+        .bind(present(&f.merge_issue_id))
         .fetch_one(&caller.db)
         .await?;
         let rows: Vec<Value> = rows
@@ -1288,6 +1321,8 @@ async fn create_entry(
     let task = text(data, "taskId");
     let project =
         resolve_entry_target(caller, text(data, "projectId").as_deref(), task.as_deref()).await?;
+    let merge_issue = text(data, "mergeIssueId");
+    check_merge_issue(caller, merge_issue.as_deref()).await?;
     let billable = data
         .get("billable")
         .and_then(Value::as_bool)
@@ -1297,9 +1332,10 @@ async fn create_entry(
     sqlx::query(
         "insert into time_entries (id, project_id, task_id, user_id, date, duration, description,
              activity, billable, rate, cost, start_time, end_time, location, is_remote, status,
-             created_at, updated_at)
+             created_at, updated_at, merge_issue_id)
          values ($1, $2, $3, $4, $5::date, $6::numeric, $7, $8, $9, $10::numeric, $11::numeric,
-                 $12::timestamp, $13::timestamp, $14, $15, 'draft', $16::timestamp, $16::timestamp)",
+                 $12::timestamp, $13::timestamp, $14, $15, 'draft', $16::timestamp, $16::timestamp,
+                 $17)",
     )
     .bind(&id)
     .bind(&project)
@@ -1315,8 +1351,13 @@ async fn create_entry(
     .bind(start)
     .bind(end)
     .bind(text(data, "location"))
-    .bind(data.get("isRemote").and_then(Value::as_bool).unwrap_or(false))
+    .bind(
+        data.get("isRemote")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    )
     .bind(&now)
+    .bind(&merge_issue)
     .execute(&caller.db)
     .await?;
     caller.publish(
@@ -1396,6 +1437,7 @@ async fn update_entry(
         return Err(Refusal::conflict(APPROVED_LOCKED));
     }
     let resolved = resolve_patch_project(caller, data, &existing).await?;
+    check_merge_issue(caller, text(data, "mergeIssueId").as_deref()).await?;
 
     // `patchDailyLimitViolation`: a longer entry or another day.
     let changes_day = data
@@ -1447,6 +1489,7 @@ async fn update_entry(
         "location",
         "isRemote",
         "taskId",
+        "mergeIssueId",
     ] {
         if let Some(value) = data.get(key) {
             copied.insert(key.to_owned(), value.clone());
@@ -1479,6 +1522,8 @@ async fn update_entry(
         set_bool!("isRemote", "is_remote"),
         ", ",
         set_text!("taskId", "task_id"),
+        ", ",
+        set_text!("mergeIssueId", "merge_issue_id"),
         ", ",
         set_num!("duration", "duration"),
         ", ",

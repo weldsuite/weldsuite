@@ -55,6 +55,19 @@ service = "weldsuite-books-api-test"
 entrypoint = "BooksInternal"
 remote = true
 
+# merge-api's MergeInternal entrypoint (WeldMerge): the GitHub App's pull_request,
+# pull_request_review, check_suite and installation_repositories events are
+# forwarded from POST /webhooks/github (RPC `githubEvent`), after the HMAC check
+# and the workspace lookup, fire-and-forget. Named entrypoint = reachable only over
+# the binding, so no secret. A missing binding only logs. `remote = true` lets plain
+# `wrangler dev` reach the deployed test worker.
+# Deploy order: merge-api must have the entrypoint first (module workers do).
+[[services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api-test"
+entrypoint = "MergeInternal"
+remote = true
+
 # app-api service binding: the public /webhooks/woocommerce/auth compat forward, and
 # the FALLBACK to the internal integration routes (through app-api's forwarder,
 # authenticated on X-Internal-Secret) while CONNECT_INTERNAL is unbound or the
@@ -141,6 +154,11 @@ service = "weldsuite-books-api-test"
 entrypoint = "BooksInternal"
 
 [[env.test.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api-test"
+entrypoint = "MergeInternal"
+
+[[env.test.services]]
 binding = "APP_API"
 service = "weldsuite-app-api-test"
 
@@ -225,6 +243,12 @@ entrypoint = "ConnectInternal"
 binding = "BOOKS_INTERNAL"
 service = "weldsuite-books-api"
 entrypoint = "BooksInternal"
+
+# merge-api's [env.production] name is "weldsuite-merge-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "MERGE_INTERNAL"
+service = "weldsuite-merge-api"
+entrypoint = "MergeInternal"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]
